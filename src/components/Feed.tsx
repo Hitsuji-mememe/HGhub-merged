@@ -17,7 +17,7 @@ import { copyText } from "../clipboard";
 import { tracePlayback } from "../playbackDiagnostics";
 import { createPlaybackClock } from "../playbackClock";
 import {
-  IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
+  IBack, IBoltF, ICheck, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
   ILink, IList, ILockF, IPauseF, IPlayF, ISearch, ISparkF, IStar, IStarF, IVertSwap, IVol, IVolMute,
 } from "../icons";
 
@@ -36,9 +36,76 @@ type Props = {
   startTime?: number;
 };
 
-const RATES = [1, 1.25, 1.5, 2];
+const RATES = [0.75, 1, 1.25, 1.5, 2, 3];
 
 const stripHtml = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * 全屏底栏倍速直达选单（深色毛玻璃浮层，样式对齐 SuperResMenu）：点选即定档并
+ * 一直生效，取代原「⚡ 钮点按循环切档」；长按只作临时 2x 快进（2.0.4）。
+ */
+function RateMenu({
+  current,
+  onSelect,
+}: {
+  current: number;
+  onSelect: (r: number) => void;
+}) {
+  return (
+    <div
+      role="menu"
+      aria-label="倍速选择"
+      data-no-gesture
+      onPointerDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: "absolute",
+        bottom: "calc(100% + 8px)",
+        right: 0,
+        width: 168,
+        background: "rgba(14, 17, 24, 0.92)",
+        backdropFilter: "blur(18px)",
+        WebkitBackdropFilter: "blur(18px)",
+        border: "1px solid rgba(255, 255, 255, 0.14)",
+        boxShadow: "0 14px 36px rgba(0, 0, 0, 0.56)",
+        borderRadius: 14,
+        padding: 6,
+        zIndex: 60,
+      }}
+      className="a-fade">
+      <div className="flex items-center justify-between px-2.5 pt-1 pb-1.5 text-[10.5px] font-semibold text-white/55">
+        <span className="flex items-center gap-1">
+          <IBoltF size={11} className="text-primary" />
+          <span>播放倍速</span>
+        </span>
+        <span className="text-[10px] text-white/40">点选生效</span>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        {RATES.map((r) => {
+          const active = current === r;
+          return (
+            <button
+              key={r}
+              type="button"
+              role="menuitemradio"
+              aria-checked={active}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(r);
+              }}
+              className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-[10px] text-left transition-colors pressable ${
+                active ? "bg-white/14" : "hover:bg-white/8"
+              }`}>
+              <span className={`text-[12px] font-bold ${active ? "text-primary" : "text-white/95"}`}>{r}x</span>
+              {active && <ICheck size={14} className="text-primary shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, startEp, startTime }: Props) {
   const store = useStore();
@@ -115,6 +182,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [srHud, setSrHud] = useState<typeof srMode | null>(null);
   const [srMenuPos, setSrMenuPos] = useState<"topbar" | "fs-bottom" | null>(null);
   const srMenuDismissedAtRef = useRef(0);
+  /* 全屏底栏倍速选单（2.0.4：⚡ 钮改开菜单选档） */
+  const [rateMenuOpen, setRateMenuOpen] = useState(false);
+  const rateMenuDismissedAtRef = useRef(0);
   const prevSrRef = useRef(srMode);
   useEffect(() => {
     if (prevSrRef.current === srMode) return;
@@ -138,15 +208,28 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, [srMenuPos]);
 
+  /* 倍速选单：点选单外任意处关闭，并记关闭时刻——关菜单的那一击同时落在手势层时，
+     由 onUp 的 320ms 守卫吞掉，不得连带切换全屏控制层显隐或切播放（仿超分选单） */
+  useEffect(() => {
+    if (!rateMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest("[data-rate-slot]")) {
+        rateMenuDismissedAtRef.current = Date.now();
+        setRateMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [rateMenuOpen]);
+
   useEffect(() => {
     setSrMenuPos(null);
+    setRateMenuOpen(false);
   }, [clean, controlsLocked, fs, index, active]);
   /* —— 移动端手势 —— */
   const [holdSpeed, setHoldSpeed] = useState(false);
-  const [speedLock, setSpeedLock] = useState(false);
-  const [lockArmed, setLockArmed] = useState(false);
   const holdRef = useRef(false);
-  const lockArmedRef = useRef(false);
   const [scrub, setScrub] = useState<{ pct: number; target: number } | null>(null);
   const scrubTarget = useRef<number | null>(null);
   /* 进度条拖动 */
@@ -259,8 +342,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     copyText(u).then(() => toast("链接已复制", "ok")).catch(() => toast("复制失败", "info"));
   };
 
-  /* 倍速：长按 / 锁定 → 2.0x，否则用基准倍速 */
-  const effRate = holdSpeed || speedLock ? 2 : rate;
+  /* 倍速：长按临时 → 2.0x，否则用菜单选定的基准倍速 */
+  const effRate = holdSpeed ? 2 : rate;
   /* 进度条显示百分比（拖动时用拖动值） */
   const barProgress = barPct ?? (duration ? time / duration : 0);
   /* 沉浸全屏 + 横屏视频 → 舞台旋转 90°，看起来就是横屏 */
@@ -455,7 +538,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 音量/静音同步 */
   useEffect(() => { videoRef.current?.mute(muted); }, [muted]);
   useEffect(() => { videoRef.current?.volume(volume); }, [volume]);
-  /* 倍速同步（长按 2x / 锁定 2x / 基准倍速） */
+  /* 倍速同步（长按临时 2x / 基准倍速） */
   useEffect(() => { videoRef.current?.rate(effRate); }, [effRate, playKey]);
 
   /* 离开播放页时把最后位置落盘 */
@@ -535,8 +618,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       if (gesture.current?.timer) window.clearTimeout(gesture.current.timer);
       gesture.current = null;
       if (holdRef.current) { holdRef.current = false; setHoldSpeed(false); }
-      lockArmedRef.current = false;
-      setLockArmed(false);
       setZoom((z) => ({ ...z, g: true }));
       return;
     }
@@ -554,8 +635,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         cur.mode = "hold";
         holdRef.current = true;
         setHoldSpeed(true);
-        setLockArmed(false);
-        lockArmedRef.current = false;
         try { navigator.vibrate?.(25); } catch { /* ignore */ }
       }, 380) as unknown as number,
     };
@@ -588,15 +667,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const dx = e.clientX - g.x;
     const dy = e.clientY - g.y;
 
-    /* 长按中：上滑 64px 进入「松开即锁定」 */
-    if (g.mode === "hold") {
-      const armed = g.startY - e.clientY > 64;
-      if (armed !== lockArmedRef.current) {
-        lockArmedRef.current = armed;
-        setLockArmed(armed);
-      }
-      return;
-    }
+    /* 长按中：只作临时快进，移动全部吞掉（不切集、不拖进度；2.0.4 删除上滑锁定） */
+    if (g.mode === "hold") return;
 
     if (g.mode === "idle") {
       if (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy)) {
@@ -632,20 +704,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
        但 holdRef 若留在 true，下面的 touchmove 会一直 preventDefault，
        整个列表就再也滑不动（表现为「播放后不能上滑」）。 */
     if (holdRef.current) { holdRef.current = false; setHoldSpeed(false); }
-    const wasLockArmed = lockArmedRef.current;
-    if (lockArmedRef.current) { lockArmedRef.current = false; setLockArmed(false); }
     if (!g) return;
     if (g.timer) window.clearTimeout(g.timer);
 
     if (g.mode === "hold") {
       holdRef.current = false;
       setHoldSpeed(false);
-      if (!cancelled && wasLockArmed) {
-        setSpeedLock(true);
-        toast("已锁定 2.0x 倍速 · 点顶部标签解除", "info");
-      }
-      lockArmedRef.current = false;
-      setLockArmed(false);
       return;
     }
     if (g.mode === "scrub") {
@@ -675,7 +739,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         if (swipeEp) { go(dir); return; }
       }
     }
-    if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260 && Date.now() - srMenuDismissedAtRef.current >= 320) {
+    if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260 && Date.now() - srMenuDismissedAtRef.current >= 320 && Date.now() - rateMenuDismissedAtRef.current >= 320) {
       const mobileFs = !isDesktop && fs;
       if (mobileFs) {
         /* 2.0.3（用户要求）：移动端全屏控制层改为单击切换显隐、不再自动隐藏。
@@ -733,7 +797,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     lastTapRef.current.timer = null;
     gesture.current = null;
     holdRef.current = false;
-    lockArmedRef.current = false;
   }, [playKey]);
 
   /* 进出全屏：iOS 会在这时把播放打断，过渡期多补几次 play() */
@@ -840,7 +903,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   const lockControls = () => { setPanel(null); setControlsLocked(true); };
 
-  /* 长按倍速期间禁止原生滚动，否则上滑会被列表吃掉、锁不住倍速 */
+  /* 长按倍速期间禁止原生滚动，否则上滑会被列表吃掉、长按手势被打断 */
   useEffect(() => {
     if (isDesktop) return undefined;
     const el = boxRef.current;
@@ -1312,26 +1375,17 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         />
       )}
 
-      {/* 移动端：倍速状态 / 锁定提示 */}
-      {!isDesktop && (holdSpeed || speedLock || rate !== 1) && (!fs || !idle) && (
+      {/* 移动端：倍速状态提示（长按临时 2x / 菜单选定的基准倍速；点按可重置回 1x） */}
+      {!isDesktop && (holdSpeed || rate !== 1) && (!fs || !idle) && (
         <Button
           onClick={() => {
-            if (speedLock) { setSpeedLock(false); toast("已解除倍速锁定", "info"); }
-            else if (rate !== 1 && !holdSpeed) setRate(1);
+            if (rate !== 1 && !holdSpeed) setRate(1);
           }}
-          className={`absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-3.5 h-8 rounded-full backdrop-blur-md text-[13px] font-bold elev-2 pressable ${speedLock ? "bg-primary text-on-primary" : "hg-chip hg-gold"}`}
+          className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-3.5 h-8 rounded-full backdrop-blur-md text-[13px] font-bold elev-2 pressable hg-chip hg-gold"
           style={{ top: "calc(var(--sat, 0px) + 54px)" }}>
           <IBoltF size={13} />
-          {effRate}x {speedLock ? "已锁定 · 点按解除" : holdSpeed ? "倍速中 · 松开恢复" : "倍速"}
+          {effRate}x {holdSpeed ? "倍速中 · 松开恢复" : "倍速"}
         </Button>
-      )}
-      {!isDesktop && holdSpeed && (
-        <div
-          className={`absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-4 h-10 rounded-xl backdrop-blur-md elev-2 ${lockArmed ? "bg-primary text-on-primary" : "hg-chip-strong hg-ink-2"}`}
-          style={{ top: "38%" }}>
-          <ILockF size={16} />
-          <span className="text-[14px] font-bold">{lockArmed ? "松开锁定 2.0x" : "上滑到此锁定倍速"}</span>
-        </div>
       )}
 
       {/* 移动端：超分档位切换 HUD（短暂浮现提示当前档位） */}
@@ -1404,16 +1458,23 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 />
               )}
             </div>
-            <Button
-              onClick={() => {
-                if (speedLock) { setSpeedLock(false); return; }
-                const seq = [1, 1.25, 1.5, 2];
-                const i = seq.indexOf(rate);
-                setRate(seq[(i + 1) % seq.length]);
-              }}
-              className={`shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
-              <IBoltF size={12} />{effRate}x
-            </Button>
+            <div data-rate-slot className="relative shrink-0">
+              <Button
+                onClick={() => setRateMenuOpen((v) => !v)}
+                aria-label={`倍速：${effRate}x`}
+                aria-expanded={rateMenuOpen}
+                title="选择播放倍速"
+                aria-pressed={effRate !== 1}
+                className={`flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
+                <IBoltF size={12} />{effRate}x
+              </Button>
+              {rateMenuOpen && (
+                <RateMenu
+                  current={rate}
+                  onSelect={(r) => { setRate(r); setRateMenuOpen(false); }}
+                />
+              )}
+            </div>
             {curEp < episodes.length && (
               <Button onClick={() => pickEp(curEp + 1)}
                 className="shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-semibold hg-chip hg-ink-2 pressable"
