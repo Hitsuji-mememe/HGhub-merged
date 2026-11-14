@@ -87,10 +87,18 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 桌面：鼠标闲置 2.8s 自动隐藏播放器 UI（沉浸） */
   const [idle, setIdle] = useState(false);
   const idleTimer = useRef<number | undefined>(undefined);
+  /* wake() 是 useCallback([])，用 ref 读当前平台/全屏态（fsRef 由 enterFs/exitFs 同步） */
+  const isDesktopRef = useRef(isDesktop);
+  isDesktopRef.current = isDesktop;
+  const fsRef = useRef(fs);
+  fsRef.current = fs;
   const wake = useCallback(() => {
     setIdle(false);
     window.clearTimeout(idleTimer.current);
-    idleTimer.current = window.setTimeout(() => setIdle(true), 2800);
+    /* 移动端全屏：控制层改为单击切换显隐（2.0.3），不武装自动隐藏计时 */
+    if (isDesktopRef.current || !fsRef.current) {
+      idleTimer.current = window.setTimeout(() => setIdle(true), 2800);
+    }
   }, []);
   useEffect(() => {
     if (!isDesktop) return undefined;
@@ -133,12 +141,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   useEffect(() => {
     setSrMenuPos(null);
   }, [clean, controlsLocked, fs, index, active]);
-
-  /* 移动端全屏：暂停/卡顿会清掉 idle 的自动隐藏计时，恢复播放后须重新武装，否则控制层常驻遮挡（2.0.2 修复） */
-  useEffect(() => {
-    if (isDesktop || !fs || paused || waiting || controlsLocked || panel || srMenuPos) return;
-    wake();
-  }, [isDesktop, fs, paused, waiting, controlsLocked, panel, srMenuPos, wake]);
   /* —— 移动端手势 —— */
   const [holdSpeed, setHoldSpeed] = useState(false);
   const [speedLock, setSpeedLock] = useState(false);
@@ -557,6 +559,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         try { navigator.vibrate?.(25); } catch { /* ignore */ }
       }, 380) as unknown as number,
     };
+    if (!isDesktop && fs && !lastTapRef.current.timer) {
+      /* 全屏单击切换显隐以「手势开始前」的控制层状态为准：本 handler 在冒泡上先于
+         root 的 pointerdown wake()（它会抢先 setIdle(false)），故在此存快照；
+         双击窗口内（已有待执行的翻转计时）不覆盖，保留首击的快照（2.0.3） */
+      lastTapRef.current.clean = clean;
+      lastTapRef.current.idle = idle;
+    }
     gesture.current = g;
   };
 
@@ -667,26 +676,40 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       }
     }
     if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260 && Date.now() - srMenuDismissedAtRef.current >= 320) {
-      // 移动端全屏：控制层唤醒已由 pointerdown 的 wake() 完成，首击若再翻转
-      // clean/idle 会把刚唤醒的控制层立刻关掉（单击永远点不到退出键、被迫长按）。
-      // 故全屏时首击只启动双击计时，第二击只切换播放，都不恢复 clean/idle。
       const mobileFs = !isDesktop && fs;
-      // 首击立即反馈；第二击恢复首击前的界面，再切换播放。
-      if (lastTapRef.current.timer) {
+      if (mobileFs) {
+        /* 2.0.3（用户要求）：移动端全屏控制层改为单击切换显隐、不再自动隐藏。
+           翻转以 onDown 存的「手势开始前」快照为准（pointerdown 的 wake() 会抢先
+           setIdle(false)，按当前值翻转会重蹈原版「点一下永远关」）；首击等双击
+           窗口（230ms）无第二击才执行翻转，第二击取消翻转、恢复快照并只切播放。 */
+        if (lastTapRef.current.timer) {
+          window.clearTimeout(lastTapRef.current.timer);
+          lastTapRef.current.timer = null;
+          setClean(lastTapRef.current.clean ?? clean);
+          setIdle(lastTapRef.current.idle ?? idle);
+          videoRef.current?.toggle();
+        } else {
+          const snapIdle = lastTapRef.current.idle ?? idle;
+          lastTapRef.current.timer = window.setTimeout(() => {
+            lastTapRef.current.timer = null;
+            if (gesture.current || !fsRef.current) return;
+            const wasHidden = snapIdle === true;
+            setIdle(!wasHidden);
+            setClean(!wasHidden);
+          }, 230) as unknown as number;
+        }
+      } else if (lastTapRef.current.timer) {
+        // 非全屏（原行为不变）：首击已立即翻转，第二击恢复首击前的界面，再切换播放。
         window.clearTimeout(lastTapRef.current.timer);
         lastTapRef.current.timer = null;
-        if (!mobileFs) {
-          setClean(lastTapRef.current.clean ?? false);
-          if (!isDesktop && fs) setIdle(lastTapRef.current.idle ?? false);
-        }
+        setClean(lastTapRef.current.clean ?? false);
+        if (!isDesktop && fs) setIdle(lastTapRef.current.idle ?? false);
         videoRef.current?.toggle();
       } else {
         lastTapRef.current.clean = clean;
         lastTapRef.current.idle = idle;
-        if (!mobileFs) {
-          setClean(!clean);
-          if (!isDesktop && fs) setIdle(!idle);
-        }
+        setClean(!clean);
+        if (!isDesktop && fs) setIdle(!idle);
         lastTapRef.current.timer = window.setTimeout(() => {
           lastTapRef.current.timer = null;
         }, 230) as unknown as number;
@@ -728,6 +751,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const enterFs = useCallback((landscape: boolean) => {
     setClean(false);
     setFs(true);
+    fsRef.current = true;
     wake();
     keepAlive();
     if (!isDesktop) {
@@ -743,6 +767,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const exitFs = useCallback(() => {
     setClean(false);
     setFs(false);
+    fsRef.current = false;
     keepAlive();
     if (!isDesktop) {
       try { void invoke("set_orientation", { landscape: false }); } catch { /* ignore */ }
