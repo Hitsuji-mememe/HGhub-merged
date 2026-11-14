@@ -5,6 +5,8 @@ import { mediaErrorMessage } from "../mediaErrors";
 import { mediaHost, mediaResource, observeHls, usePlayerDiagnostics } from "../playbackDiagnostics";
 import { usePlaybackActivity } from "../usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "../useProxyPlaybackRecovery";
+import { useStore } from "../store";
+import SuperResCanvas, { getSvgFilterUrl, SuperResSvgDefs } from "./SuperResCanvas";
 
 export type VideoHandle = {
   el: () => HTMLVideoElement | null;
@@ -55,6 +57,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const nearEndFiredRef = useRef(false);
   const reportedSizeRef = useRef({ w: 0, h: 0 });
   const [ready, setReady] = useState(false);
+  const [svgFallback, setSvgFallback] = useState(false);
+  const store = useStore();
+  const srMode = store?.srMode ?? "off";
   const { trace, requestSeek } = usePlayerDiagnostics(videoRef, hlsRef, { ...diagnosticContext, active, resource: mediaResource(src) });
   const activity = usePlaybackActivity(videoRef, hlsRef, { active, autoPlay, src, trace });
   const proxyRecovery = useProxyPlaybackRecovery(videoRef, src, activity, trace);
@@ -222,17 +227,21 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     onError?.(mediaErrorMessage(videoRef.current?.error ?? null));
   };
 
+  const videoFilter = svgFallback ? getSvgFilterUrl(srMode) : undefined;
+
   return (
-    <video
-      ref={videoRef}
-      poster={poster}
-      playsInline
-      preload="auto"
-      muted={muted}
-      loop={loop}
-      onClick={onClick}
-      className={`w-full h-full bg-black ${fit === "cover" ? "object-cover" : "object-contain"} ${className}`}
-      style={{ opacity: ready ? 1 : 0, transition: "opacity .35s" }}
+    <div className={`relative w-full h-full bg-black overflow-hidden ${className}`}>
+      <SuperResSvgDefs />
+      <video
+        ref={videoRef}
+        poster={poster}
+        playsInline
+        preload="auto"
+        muted={muted}
+        loop={loop}
+        onClick={onClick}
+        className={`w-full h-full bg-black ${fit === "cover" ? "object-cover" : "object-contain"}`}
+        style={{ opacity: ready ? 1 : 0, transition: "opacity .35s", filter: videoFilter }}
       onLoadedData={(e) => {
         const v = e.target as HTMLVideoElement;
         setReady(true);
@@ -264,8 +273,19 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         if (activity.isActive()) onPlaying?.();
       }}
       onEnded={() => { if (activity.isActive()) onEnded?.(); }}
-      onError={handleVideoError}
-    />
+        onError={handleVideoError}
+      />
+      <SuperResCanvas
+        videoRef={videoRef}
+        mode={srMode}
+        active={active}
+        ready={ready}
+        fit={fit}
+        srcKey={src}
+        onFallbackChange={setSvgFallback}
+        onTrace={trace}
+      />
+    </div>
   );
 });
 

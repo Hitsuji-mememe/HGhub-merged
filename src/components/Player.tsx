@@ -9,7 +9,15 @@ import { usePlaybackActivity } from "../usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "../useProxyPlaybackRecovery";
 import { useSeekInput } from "../useSeekInput";
 import PlaybackLock from "./PlaybackLock";
-import { ICompress, IExpand, ILockF, IPauseF, IPlayF, IVol, IVolMute } from "../icons";
+import { useStore } from "../store";
+import SuperResCanvas, {
+  SR_PRESET_MAP,
+  SR_SHORT_LABEL,
+  SuperResMenu,
+  SuperResSvgDefs,
+  getSvgFilterUrl,
+} from "./SuperResCanvas";
+import { ICompress, IExpand, ILockF, IPauseF, IPlayF, ISparkF, IVol, IVolMute } from "../icons";
 
 type Props = {
   src: string;              // 原始 m3u8 地址
@@ -46,6 +54,25 @@ export default function Player({
   const [rate, setRate] = useState(1);
   const [errMsg, setErrMsg] = useState<string>("");
   const [controlsLocked, setControlsLocked] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
+  const [svgFallback, setSvgFallback] = useState(false);
+  const [srOpen, setSrOpen] = useState(false);
+  const srSlotRef = useRef<HTMLDivElement>(null);
+  const store = useStore();
+  const srMode = store?.srMode ?? "off";
+
+  useEffect(() => {
+    if (!srOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!srSlotRef.current?.contains(e.target as Node)) setSrOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [srOpen]);
+
+  useEffect(() => {
+    if (!active || controlsLocked) setSrOpen(false);
+  }, [active, controlsLocked]);
   const seek = useSeekInput({ time, duration, enabled: active && !controlsLocked, resetKey: src,
     onInteraction: (phase, input, target, pointerTarget) => trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget }),
     onSeek: (target, input) => {
@@ -66,6 +93,7 @@ export default function Player({
     const video = videoRef.current;
     if (!video || !src) return;
     setErrMsg("");
+    setVideoReady(false);
     setWaiting(false);
     recoverCountRef.current = 0;
     const resume = proxyRecovery.resume();
@@ -110,6 +138,7 @@ export default function Player({
       hls.on(Hls.Events.FRAG_BUFFERED, () => {
         recoverCountRef.current = 0;
         setErrMsg("");
+        setVideoReady(true);
       });
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (!data.fatal) {
@@ -195,9 +224,11 @@ export default function Player({
   };
 
   const pct = duration > 0 ? (seek.time / duration) * 100 : 0;
+  const videoFilter = svgFallback ? getSvgFilterUrl(srMode) : undefined;
 
   return (
     <div ref={wrapRef} className={`relative bg-black overflow-hidden group ${className}`}>
+      <SuperResSvgDefs />
       <div className="absolute inset-0" inert={controlsLocked}>
       <video
         ref={videoRef}
@@ -207,11 +238,14 @@ export default function Player({
         muted={muted}
         loop={loop}
         className="w-full h-full object-contain bg-black"
+        style={videoFilter ? { filter: videoFilter } : undefined}
         onClick={toggle}
-        onPlay={() => { if (activity.isActive()) { setPlaying(true); onTogglePlay?.(true); } }}
+        onLoadedData={() => setVideoReady(true)}
+        onCanPlay={() => setVideoReady(true)}
+        onPlay={() => { setVideoReady(true); if (activity.isActive()) { setPlaying(true); onTogglePlay?.(true); } }}
         onPause={() => { setPlaying(false); onTogglePlay?.(false); }}
         onWaiting={() => setWaiting(true)}
-        onPlaying={() => { if (activity.isActive()) { setWaiting(false); setErrMsg(""); onPlaying?.(); } }}
+        onPlaying={() => { setVideoReady(true); if (activity.isActive()) { setWaiting(false); setErrMsg(""); onPlaying?.(); } }}
         onSeeked={() => setWaiting(false)}
         onTimeUpdate={(e) => setTime((e.target as HTMLVideoElement).currentTime)}
         onLoadedMetadata={(e) => setDuration((e.target as HTMLVideoElement).duration || 0)}
@@ -222,6 +256,16 @@ export default function Player({
           setPlaying(false);
           setErrMsg(mediaErrorMessage(videoRef.current?.error ?? null));
         }}
+      />
+      <SuperResCanvas
+        videoRef={videoRef}
+        mode={srMode}
+        active={active}
+        ready={videoReady || playing || time > 0}
+        fit="contain"
+        srcKey={src}
+        onFallbackChange={setSvgFallback}
+        onTrace={trace}
       />
 
       {errMsg && (
@@ -258,6 +302,32 @@ export default function Player({
             </Button>
             <span className="text-[12px] tabular-nums text-white/85">{fmtTime(seek.time)} / {fmtTime(duration)}</span>
             <div className="flex-1" />
+            <div ref={srSlotRef} className="relative">
+              <Button
+                onClick={() => setSrOpen((v) => !v)}
+                aria-label={`超分模式：${SR_SHORT_LABEL[srMode]}`}
+                aria-expanded={srOpen}
+                title="选择 GPU 画质超分档位"
+                aria-pressed={srMode !== "off"}
+                className={`px-2 py-0.5 rounded-full text-[12px] font-bold flex items-center gap-1 pressable ${
+                  srMode !== "off" ? "bg-primary text-on-primary" : "text-white/85 bg-white/15"
+                }`}>
+                <ISparkF size={12} />
+                <span>{SR_SHORT_LABEL[srMode]}</span>
+              </Button>
+              {srOpen && (
+                <SuperResMenu
+                  current={srMode}
+                  placement="up"
+                  align="right"
+                  onSelect={(m) => {
+                    store?.setSrMode?.(m);
+                    store?.toast?.(`画质增强：${SR_PRESET_MAP[m].hudText}`, m === "off" ? "info" : "ok");
+                    setSrOpen(false);
+                  }}
+                />
+              )}
+            </div>
             <Button onClick={() => setControlsLocked(true)} aria-label="锁定播放控制" title="锁定播放控制" aria-pressed={false} className="pressable">
               <ILockF size={16} />
             </Button>

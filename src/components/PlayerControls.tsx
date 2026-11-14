@@ -1,8 +1,10 @@
 import { Button, Input } from "./ios/controls";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { fmtTime } from "../api";
+import { useStore } from "../store";
 import { useSeekInput } from "../useSeekInput";
-import { ICheck, ICompress, IExpand, ILockF, INext, IPauseF, IPip, IPlayF, ITheater, IVertSwap, IVol, IVolMute } from "../icons";
+import { SR_PRESET_MAP, SR_PRESETS, SR_SHORT_LABEL } from "./SuperResCanvas";
+import { ICheck, ICompress, IExpand, ILockF, INext, IPauseF, IPip, IPlayF, ISparkF, ITheater, IVertSwap, IVol, IVolMute } from "../icons";
 import type { PlaybackClock } from "../playbackClock";
 
 type Props = {
@@ -42,19 +44,22 @@ export default function PlayerControls({
   visible = true, seekEnabled = true, seekKey, nextDisabled = false, nextTitle = "下一个", swipeEp = false, onToggle, onSeek, onSeekInteraction, onRate, onMute, onVolume, onPip, onLock, onTheater, onFullscreen, onNext, onToggleSwipe,
 }: Props) {
   const [speedOpen, setSpeedOpen] = useState(false);
+  const [srOpen, setSrOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const store = useStore();
+  const srMode = store?.srMode ?? "off";
   const clockTime = useSyncExternalStore(clock.subscribe, clock.getSnapshot, clock.getSnapshot);
   const seek = useSeekInput({ time: clockTime, duration, enabled: seekEnabled, resetKey: seekKey, onInteraction: onSeekInteraction,
     onSeek: (target, input) => onSeek(target, `desktop_${input}`) });
   const pct = duration ? Math.min(100, (seek.time / duration) * 100) : 0;
 
   useEffect(() => {
-    if (!speedOpen) return;
+    if (!speedOpen && !srOpen) return;
     const frame = requestAnimationFrame(() => boxRef.current?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')?.focus());
-    const outside = (e: PointerEvent) => { if (!boxRef.current?.contains(e.target as Node)) setSpeedOpen(false); };
+    const outside = (e: PointerEvent) => { if (!boxRef.current?.contains(e.target as Node)) { setSpeedOpen(false); setSrOpen(false); } };
     document.addEventListener("pointerdown", outside);
     return () => { cancelAnimationFrame(frame); document.removeEventListener("pointerdown", outside); };
-  }, [speedOpen]);
+  }, [speedOpen, srOpen]);
 
   return (
     <div ref={boxRef} className={`desktop-controls ${fullscreen ? "is-fullscreen" : ""} ${visible ? "" : "is-hidden"}`}
@@ -89,8 +94,35 @@ export default function PlayerControls({
         <span className="player-timecode"><span>{formatClock(seek.time)}</span><span className="player-time-separator">/</span>{formatClock(duration)}</span>
         <div className="player-control-spacer" />
         <div className="player-speed-slot">
+          <Button className={`player-control player-speed gap-1 ${srMode !== "off" ? "is-on" : ""}`} aria-label="画质超分" aria-haspopup="menu" aria-expanded={srOpen}
+            data-tooltip="AI 视频超分" onClick={() => { setSrOpen((v) => !v); setSpeedOpen(false); }}>
+            <ISparkF size={13} />
+            <span>{SR_SHORT_LABEL[srMode]}</span>
+          </Button>
+          {srOpen && (
+            <div className="player-speed-menu" style={{ width: 244 }} role="menu" aria-label="画质超分">
+              <span className="player-menu-title">画质超分 (WebGL2 / Metal)</span>
+              {SR_PRESETS.map((preset) => (
+                <Button key={preset.id} role="menuitemradio" aria-checked={srMode === preset.id}
+                  className="!h-auto !py-1.5 items-center justify-between gap-2 text-left"
+                  onClick={() => {
+                    store?.setSrMode?.(preset.id);
+                    store?.toast?.(`画质增强：${SR_PRESET_MAP[preset.id].hudText}`, preset.id === "off" ? "info" : "ok");
+                    setSrOpen(false);
+                  }}>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold leading-tight">{preset.name}</span>
+                    <span className="block text-[11px] leading-tight opacity-65 truncate mt-0.5">{preset.desc}</span>
+                  </span>
+                  {srMode === preset.id && <ICheck size={14} className="shrink-0" />}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="player-speed-slot">
           <Button className={`player-control player-speed ${rate !== 1 ? "is-on" : ""}`} aria-label="倍速" aria-haspopup="menu" aria-expanded={speedOpen}
-            data-tooltip="播放速度" onClick={() => setSpeedOpen((v) => !v)}>
+            data-tooltip="播放速度" onClick={() => { setSpeedOpen((v) => !v); setSrOpen(false); }}>
             {Number.isInteger(rate) ? rate.toFixed(1) : rate}x
           </Button>
           {speedOpen && (
