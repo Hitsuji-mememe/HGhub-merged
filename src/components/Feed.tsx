@@ -2,7 +2,7 @@ import { Button, Image, SegmentedControl, Surface } from "./ios/controls";
 import { Loader } from "./ios/effects";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { api, cover, fmt, fmtTime, isMobile, logLine, mediaUrl } from "../api";
+import { api, cover, fmt, fmtTime, isMobile, logLine, mediaUrl, playlist } from "../api";
 import type { Detail, Episode, Post, VideoCard } from "../types";
 import { useStore } from "../store";
 import { Avatar, Img, Sheet } from "./ui";
@@ -108,6 +108,64 @@ function RateMenu({
   );
 }
 
+/* ── 下一条首分片预热（2.0.6） ──────────────────────────────
+ * 取流路径（VideoSurface）：hls.js 用默认 loader 向 playlist(src)
+ * （即 `{LOCAL}/hls?u=…`）拉清单，分片与 key 的地址是 Rust 在清单里改写好的
+ * `{LOCAL}/seg?u=…`；两类请求都经 Rust `media::handle` 的进程内缓存
+ * （PL_CACHE 按 `{prefix}|{上游地址}`、SEG_CACHE 按上游地址）。
+ * 所以这里用 fetch() 走与播放器逐字相同的 URL 把清单与首分片先拉一遍，
+ * 就能把同一份缓存填好——用户切过去时 hls.js 的请求直接命中。
+ * 全程只用 fetch、不碰播放器的 hls 实例，不污染 2.0.5 的分片统计与自愈判据。 */
+function firstUriLine(text: string): string | null {
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (t && !t.startsWith("#")) return t;
+  }
+  return null;
+}
+
+function resolveUri(u: string, base: string): string {
+  try { return new URL(u, base).href; } catch { return u; }
+}
+
+async function prewarmFirstSegment(videoId: number, rawUrl: string, signal: AbortSignal): Promise<void> {
+  const t0 = performance.now();
+  const ms = () => Math.round(performance.now() - t0);
+  try {
+    const plUrl = playlist(rawUrl);
+    const r = await fetch(plUrl, { signal });
+    if (!r.ok) {
+      tracePlayback("feed.prewarm", { video_id: videoId, stage: "playlist_fail", status: r.status, ms: ms() });
+      return;
+    }
+    let text = await r.text();
+    tracePlayback("feed.prewarm", { video_id: videoId, stage: "playlist", ms: ms() });
+    /* 主清单（多码率）：第一条 URI 行是子清单，它经 /seg 返回时会被二次改写，照拉一遍 */
+    if (text.includes("#EXT-X-STREAM-INF")) {
+      const variant = firstUriLine(text);
+      if (!variant) return;
+      const vr = await fetch(resolveUri(variant, plUrl), { signal });
+      if (!vr.ok) return;
+      text = await vr.text();
+    }
+    /* init 段（fMP4 的 EXT-X-MAP）先热，再热首个媒体分片；
+       URL 全部取自改写后清单的原文，与 hls.js 实际请求逐字一致，缓存键才对得上 */
+    const mapUri = /#EXT-X-MAP:[^\n]*URI="([^"]+)"/.exec(text)?.[1];
+    if (mapUri) {
+      const mr = await fetch(resolveUri(mapUri, plUrl), { signal });
+      await mr.arrayBuffer();
+      if (signal.aborted) return;
+      tracePlayback("feed.prewarm", { video_id: videoId, stage: "map", ms: ms() });
+    }
+    const seg = firstUriLine(text);
+    if (!seg) return;
+    const sr = await fetch(resolveUri(seg, plUrl), { signal });
+    if (!sr.ok) return;
+    const buf = await sr.arrayBuffer();
+    tracePlayback("feed.prewarm", { video_id: videoId, stage: "segment", ms: ms(), bytes: buf.byteLength });
+  } catch { /* 取消或失败一律静默：预热只是加速，失败不影响正常播放路径 */ }
+}
+
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, startEp, startTime }: Props) {
   const store = useStore();
   const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen, swipeEp, setSwipeEp, preferHevc, setPreferHevc, srMode, setSrMode } = store;
@@ -144,6 +202,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     { lastAt: 0, counts: {}, pendingKey: null, pendingAt: 0 },
   );
   const healResumeRef = useRef<{ key: string; t: number } | null>(null);
+  /* ── 预加载（2.0.6）── 相邻条目地址预解析的队列（换代丢弃未发起的旧任务，并发 2） */
+  const playPrefetchRef = useRef<{ gen: number; inflight: number; queue: { id: number; ep: number; key: string }[] }>(
+    { gen: 0, inflight: 0, queue: [] },
+  );
+  const pumpPrefetchRef = useRef<() => void>(() => {});
+  /* 封面预加载：已发起过的原始封面地址不再重复，hold 住 Image 引用防被 GC 掉未完成的加载 */
+  const coverWarmRef = useRef<{ done: Set<string>; hold: HTMLImageElement[] }>({ done: new Set(), hold: [] });
+  /* 分片预热：同一条（key+地址）只热一次 */
+  const prewarmDoneRef = useRef<Set<string>>(new Set());
   const [err, setErr] = useState("");
   const [panel, setPanel] = useState<"episodes" | "comments" | "article" | "detail" | null>(null);
   const [descOpen, setDescOpen] = useState(false);
@@ -274,6 +341,27 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const playUrl = preferHevc && hevcUrl ? hevcUrl : mainUrl;
   const playKeyRef = useRef(playKey);
   playKeyRef.current = playKey;
+  /* 地址缓存的 ref 镜像：预解析队列在异步回调里查「是否已有缓存」用，避免闭包过期 */
+  const playUrlsRef = useRef(playUrls);
+  playUrlsRef.current = playUrls;
+  /* 预解析泵：同时最多 2 个 api.play 在飞，队列空了或都已有缓存就收 */
+  pumpPrefetchRef.current = () => {
+    const st = playPrefetchRef.current;
+    while (st.inflight < 2 && st.queue.length > 0) {
+      const job = st.queue.shift()!;
+      if (playUrlsRef.current[job.key]) continue;
+      st.inflight += 1;
+      api.play(job.id, job.ep)
+        .then((info) => {
+          const u = info?.streams?.main || info?.video_url;
+          const h = info?.streams?.hevc || info?.video_url_hevc || "";
+          if (u) setPlayUrls((m) => (m[job.key] ? m : { ...m, [job.key]: u }));
+          if (h) setHevcUrls((m) => (m[job.key] ? m : { ...m, [job.key]: h }));
+        })
+        .catch(() => { /* 预解析失败静默：用户真切到时走正常解析路径 */ })
+        .finally(() => { st.inflight -= 1; pumpPrefetchRef.current(); });
+    }
+  };
   useEffect(() => {
     const retry = () => {
       setErr("");
@@ -519,10 +607,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* 拉详情（当前 + 邻接预取） */
+  /* 拉详情（当前 + 前向四条 + 后向一条预取，2.0.6 起扩窗配合快速连翻） */
   useEffect(() => {
     let alive = true;
-    const need = [videoIds[index], videoIds[index + 1], videoIds[index - 1]].filter(Boolean);
+    const need = [videoIds[index], videoIds[index + 1], videoIds[index + 2], videoIds[index + 3], videoIds[index + 4], videoIds[index - 1]].filter(Boolean);
     need.forEach((id) => {
       if (details[id]) return;
       api.video(id).then((d) => { if (alive) setDetails((m) => ({ ...m, [id]: d })); }).catch(() => {});
@@ -535,13 +623,33 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   useEffect(() => {
     if (kind !== "post") return;
     let alive = true;
-    [videoIds[index], videoIds[index + 1], videoIds[index - 1]].filter(Boolean).forEach((id) => {
+    [videoIds[index], videoIds[index + 1], videoIds[index + 2], videoIds[index + 3], videoIds[index + 4], videoIds[index - 1]].filter(Boolean).forEach((id) => {
       if (posts[id]) return;
       api.post(id).then((p) => { if (alive) setPosts((m) => ({ ...m, [id]: p })); }).catch(() => {});
     });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, index, videoIds, proxyRetry]);
+
+  /* 封面预加载（2.0.6）：与详情预取同窗口（当前 / +1…+4 / −1）。
+     URL 用 cover() 拼装，与 Img 组件逐字一致 → 命中 Rust IMG_CACHE，
+     快速连翻时每条都有封面，不再先露灰底骨架 */
+  useEffect(() => {
+    const st = coverWarmRef.current;
+    const ids = [0, 1, 2, 3, 4, -1].map((d) => videoIds[index + d]).filter(Boolean);
+    for (const id of ids) {
+      const raw = details[id]?.cover || cards[id]?.cover || posts[id]?.cover || "";
+      if (!raw || st.done.has(raw)) continue;
+      st.done.add(raw);
+      const img = new window.Image();
+      const release = () => { const i = st.hold.indexOf(img); if (i >= 0) st.hold.splice(i, 1); };
+      img.onload = release;
+      img.onerror = release;
+      img.src = cover(raw);
+      st.hold.push(img);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [details, cards, posts, index, videoIds]);
 
   /* 相关推荐：切到当前视频时拉一次 */
   useEffect(() => {
@@ -589,6 +697,55 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curId, curEp, proxyRetry]);
+
+  /* 相邻条目地址预解析（2.0.6）：index 一变就发起不等落定，按距离从近到远排队
+     （+1、−1、+2、+3、+4），并发上限 2；index 再变时队列整体换代，未发起的旧
+     任务直接丢弃。快速连翻扫片时，停下来的那条地址多半已经解析好 */
+  useEffect(() => {
+    if (kind !== "video") return;
+    const st = playPrefetchRef.current;
+    st.gen += 1;
+    st.queue = [];
+    for (const d of [1, -1, 2, 3, 4]) {
+      const id = videoIds[index + d];
+      if (!id) continue;
+      const ep = epMap[id] || 1;
+      const key = `${id}:${ep}`;
+      if (playUrlsRef.current[key]) continue;
+      st.queue.push({ id, ep, key });
+    }
+    pumpPrefetchRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, videoIds, kind]);
+
+  /* ── 下一条分片预热（2.0.6） ──────────────────────────────
+   * 只热 index+1 的首分片，且要等用户在当前条目停留满 500ms（视为落定）才启动：
+   * 连翻途中划过的条目不拉分片、不浪费流量。地址若在落定后才解析完，
+   * 就绪时（settledIndex 仍等于 index）补启。 */
+  const [settledIndex, setSettledIndex] = useState(-1);
+  useEffect(() => {
+    const t = window.setTimeout(() => setSettledIndex(index), 500);
+    return () => window.clearTimeout(t);
+  }, [index]);
+
+  const nextId = videoIds[index + 1];
+  const nextEp = nextId ? epMap[nextId] || 1 : 1;
+  const nextKey = nextId ? `${nextId}:${nextEp}` : "";
+  const nextPlayUrl = nextId
+    ? (preferHevc && hevcUrls[nextKey] ? hevcUrls[nextKey] : playUrls[nextKey] || "")
+    : "";
+  useEffect(() => {
+    if (kind !== "video" || !nextId || !nextPlayUrl) return;
+    if (settledIndex !== index) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    const warmKey = `${nextKey}|${nextPlayUrl}`;
+    if (prewarmDoneRef.current.has(warmKey)) return;
+    prewarmDoneRef.current.add(warmKey);
+    const ac = new AbortController();
+    void prewarmFirstSegment(nextId, nextPlayUrl, ac.signal);
+    return () => { ac.abort(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, nextId, nextKey, nextPlayUrl, settledIndex, index]);
 
   /* 剧集预热：相邻集提前取好播放地址，切集秒开 */
   useEffect(() => {
