@@ -1269,6 +1269,9 @@ pub async fn diagnose() -> Value {
 
     let (code, summary, advice) = verdict(&dns, &tcp, &http);
 
+    // 分片测速对照（2.0.11）：只在手动自检时跑，失败只记 error 不拖垮其余部分。
+    let speed_ab = speed_ab_probe().await;
+
     json!({
         "verdict": code,
         "summary": summary,
@@ -1278,6 +1281,7 @@ pub async fn diagnose() -> Value {
         "dns": dns,
         "tcp": tcp,
         "http": http,
+        "speed_ab": speed_ab,
         "env": {
             "HTTP_PROXY": std::env::var("HTTP_PROXY").ok().map(|p| redact_proxy(&p)),
             "HTTPS_PROXY": std::env::var("HTTPS_PROXY").ok().map(|p| redact_proxy(&p)),
@@ -1295,6 +1299,136 @@ pub async fn diagnose() -> Value {
             "ver": env!("CARGO_PKG_VERSION"),
         },
     })
+}
+
+/// 分片测速对照（2.0.11 诊断）：现取一条新鲜分片，顺序测两条 Rust 路——
+/// A = 生产媒体路 fetch_bytes_direct（钉地址、系统 DNS）；
+/// B = 临时裸 reqwest（不钉地址、不用 client_for_dns、显式禁代理，系统默认解析）。
+/// C 路（WebView 直连同一分片）在 TS 侧用返回的 seg_url 跑，三路同分片对照。
+/// 两路严禁并行（会互相污染带宽）；任何一步失败只回 {error}，自检其余部分照常。
+async fn speed_ab_probe() -> Value {
+    match tokio::time::timeout(Duration::from_secs(150), speed_ab_inner()).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => json!({ "error": e }),
+        Err(_) => json!({ "error": "测速整体超时" }),
+    }
+}
+
+async fn speed_ab_inner() -> Result<Value, String> {
+    let origin = base();
+    // 1) 视频列表第一个视频 id（游客可读，与 api_feed 同一路径）。
+    let list = edge(&origin, "GET", "/api/videos?page=1&size=1", None, None)
+        .await
+        .map_err(|e| format!("取视频列表失败：{e}"))?;
+    let id = list
+        .get("items")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_i64())
+        .ok_or("视频列表为空")?;
+    // 2) 播放信息：streams.main 优先，兼容旧 video_url（与 normalize_play_info 同口径）。
+    let info = edge(
+        &origin,
+        "POST",
+        &format!("/api/videos/{id}/episodes/1/playback"),
+        Some(json!({})),
+        None,
+    )
+    .await
+    .map_err(|e| format!("取播放地址失败：{e}"))?;
+    let playlist_url = info
+        .get("streams")
+        .and_then(|s| s.get("main"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            info.get("video_url")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+        })
+        .ok_or("播放信息缺少清单地址")?
+        .to_string();
+    // 3) 拉清单解析第一个媒体分片的绝对地址。
+    let seg_url = resolve_first_segment(&playlist_url).await?;
+    let host = url::Url::parse(&seg_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+        .unwrap_or_default();
+
+    // A 路：生产媒体路，计时到全量字节。
+    let a_started = Instant::now();
+    let (_, a_bytes) = fetch_bytes_direct(&seg_url)
+        .await
+        .map_err(|e| format!("A 路下载失败：{e}"))?;
+    let a_ms = a_started.elapsed().as_millis() as u64;
+
+    // B 路：临时裸客户端，与 A 路只差客户端路径本身。
+    let bare = reqwest::Client::builder()
+        .user_agent(UA)
+        .no_proxy()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("B 路客户端构建失败：{e}"))?;
+    let b_started = Instant::now();
+    let resp = bare
+        .get(&seg_url)
+        .send()
+        .await
+        .map_err(|e| format!("B 路下载失败：{}", err_text(&e)))?;
+    if !resp.status().is_success() {
+        return Err(format!("B 路下载失败：HTTP {}", resp.status()));
+    }
+    let b_bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("B 路读取失败：{}", err_text(&e)))?;
+    let b_ms = b_started.elapsed().as_millis() as u64;
+
+    Ok(json!({
+        "host": host,
+        "bytes": a_bytes.len(),
+        "b_bytes": b_bytes.len(),
+        "a_ms": a_ms,
+        "b_ms": b_ms,
+        "seg_url": seg_url,
+    }))
+}
+
+/// 拉播放清单并解析第一个媒体分片的绝对地址；主清单（#EXT-X-STREAM-INF）跟一层子清单。
+/// 取第一条非 # 开头的 URI 行——#EXT-X-MAP 是标签行，其 URI 是 init 段而非分片，天然被跳过。
+async fn resolve_first_segment(playlist_url: &str) -> Result<String, String> {
+    let (_, bytes) = fetch_bytes_direct(playlist_url)
+        .await
+        .map_err(|e| format!("拉播放清单失败：{e}"))?;
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    let first_uri = first_uri_line(&text).ok_or("播放清单没有可用条目")?;
+    if text.contains("#EXT-X-STREAM-INF") {
+        let sub_url = resolve_uri(&first_uri, playlist_url);
+        let (_, sub_bytes) = fetch_bytes_direct(&sub_url)
+            .await
+            .map_err(|e| format!("拉子清单失败：{e}"))?;
+        let sub_text = String::from_utf8_lossy(&sub_bytes).into_owned();
+        let seg = first_uri_line(&sub_text).ok_or("子清单没有媒体分片")?;
+        Ok(resolve_uri(&seg, &sub_url))
+    } else {
+        Ok(resolve_uri(&first_uri, playlist_url))
+    }
+}
+
+/// m3u8 里第一条非 # 的 URI 行（与前端 firstUriLine 同口径）。
+fn first_uri_line(text: &str) -> Option<String> {
+    text.lines()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| l.to_string())
+}
+
+fn resolve_uri(uri: &str, base_url: &str) -> String {
+    url::Url::parse(base_url)
+        .and_then(|b| b.join(uri))
+        .map(|u| u.to_string())
+        .unwrap_or_else(|_| uri.to_string())
 }
 
 fn retryable_error(error: &str) -> bool {

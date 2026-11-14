@@ -137,11 +137,54 @@ export function formatNetDiag(raw: Json): string {
     lines.push("");
   }
 
+  /* ── 分片测速对照（2.0.11） ── */
+  const sab = obj(raw.speed_ab);
+  if (Object.keys(sab).length) {
+    lines.push("── 分片测速对照 ─────────────────");
+    if (str(sab.error)) {
+      lines.push(`${pad("状态")}测速失败 · ${str(sab.error)}`);
+    } else {
+      const bytes = num(sab.bytes);
+      const mbps = (b: number | null, m: number | null): number | null =>
+        b != null && m != null && m > 0 ? b / (m / 1000) / (1024 * 1024) : null;
+      const fmt = (v: number | null): string => (v == null ? "—" : `${v.toFixed(1)} MB/s`);
+      const sa = mbps(bytes, num(sab.a_ms));
+      const sb = mbps(num(sab.b_bytes) ?? bytes, num(sab.b_ms));
+      const cBytes = num(sab.c_bytes);
+      const sc = str(sab.c_error) ? null : mbps(cBytes ?? bytes, num(sab.c_ms));
+      if (str(sab.host)) lines.push(`${pad("分片主机")}${str(sab.host)}`);
+      if (bytes != null) lines.push(`${pad("分片大小")}${(bytes / (1024 * 1024)).toFixed(1)} MB（${bytes} B）`);
+      lines.push(`${pad("A 路")}${fmt(sa)} · App 下载（钉地址）· ${ms(sab.a_ms)}`);
+      lines.push(`${pad("B 路")}${fmt(sb)} · 裸客户端（系统解析）· ${ms(sab.b_ms)}`);
+      if (str(sab.c_error)) lines.push(`${pad("C 路")}失败 · ${str(sab.c_error)}`);
+      else lines.push(`${pad("C 路")}${fmt(sc)} · WebView 直连 · ${ms(sab.c_ms)}`);
+      if (cBytes != null && bytes != null && cBytes !== bytes) {
+        lines.push(`${pad("注")}C 路字节数 ${cBytes} B 与 A 路 ${bytes} B 不一致`);
+      }
+      lines.push(`${pad("判读")}${speedAbVerdict(sa, sb, sc)}`);
+    }
+    lines.push("");
+  }
+
   /* ── 原始数据 ── */
   lines.push("── 原始数据（JSON）───────────────");
   lines.push(JSON.stringify(raw, null, 2));
 
   return lines.join("\n");
+}
+
+/** 三路测速自动判读：规则写死，只陈述对照结论，不外推。 */
+function speedAbVerdict(sa: number | null, sb: number | null, sc: number | null): string {
+  const close = (x: number, y: number) => Math.max(x, y) / Math.max(0.01, Math.min(x, y)) <= 1.7;
+  if (sa != null && sb != null && sc != null) {
+    if (sc >= 2 * sa && close(sb, sc)) return "瓶颈在 App 的地址钉死/客户端路径";
+    if (sb >= 2 * sa && sc >= 2 * sa) return "瓶颈在 App 的地址钉死/客户端路径";
+    if (sa < 1.5 && sb < 1.5 && sc < 1.5 && close(Math.max(sa, sb, sc), Math.min(sa, sb, sc))) {
+      return "瓶颈在手机到网关这一跳，不在 App";
+    }
+    if (sa >= 3 && sb >= 3 && sc >= 3) return "下载层无瓶颈，慢在代理交付/播放环节，另查";
+  }
+  return "对照不 conclusive，附原样数据";
 }
 
 /** 一句话摘要，给 toast / 日志用，不占屏。 */
