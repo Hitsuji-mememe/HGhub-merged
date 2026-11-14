@@ -211,6 +211,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const coverWarmRef = useRef<{ done: Set<string>; hold: HTMLImageElement[] }>({ done: new Set(), hold: [] });
   /* 分片预热：同一条（key+地址）只热一次 */
   const prewarmDoneRef = useRef<Set<string>>(new Set());
+  /* 预热让行（2.0.10）：当前条目「健康」（已起播且不在 waiting）才准启动下一条的
+     分片预热；预热进行中当前条目一进入 waiting，立刻 abort 掉手头这次预热，
+     不和当前播放抢单连接限速下那点可怜的吞吐 */
+  const healthyRef = useRef(false);
+  const prewarmCtlRef = useRef<{ ac: AbortController; videoId: number } | null>(null);
   const [err, setErr] = useState("");
   const [panel, setPanel] = useState<"episodes" | "comments" | "article" | "detail" | null>(null);
   const [descOpen, setDescOpen] = useState(false);
@@ -740,10 +745,41 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     const warmKey = `${nextKey}|${nextPlayUrl}`;
     if (prewarmDoneRef.current.has(warmKey)) return;
-    prewarmDoneRef.current.add(warmKey);
-    const ac = new AbortController();
-    void prewarmFirstSegment(nextId, nextPlayUrl, ac.signal);
-    return () => { ac.abort(); };
+    /* 让行闸（2.0.10）：当前条目还没起播或正在 waiting 时不启动分片预热——
+       这个闸只管分片预热这一段最贵的，相邻地址预解析与封面预加载不受影响。
+       最多等约 10 秒（每 700ms 复查），当前条目转健康后照常启动，没等到就放弃。
+       预热已启动后当前条目转 waiting，由 onWaiting 里的 yield_abort 即时掐断。 */
+    let cancelled = false;
+    let timer = 0;
+    let waits = 0;
+    let skipped = false;
+    let ac: AbortController | null = null;
+    const attempt = () => {
+      if (cancelled) return;
+      if (!healthyRef.current) {
+        if (!skipped) {
+          skipped = true;
+          tracePlayback("feed.prewarm", { video_id: nextId, stage: "yield_skip" });
+        }
+        if (++waits <= 15) timer = window.setTimeout(attempt, 700);
+        return;
+      }
+      if (prewarmDoneRef.current.has(warmKey)) return;
+      prewarmDoneRef.current.add(warmKey);
+      const mine = new AbortController();
+      ac = mine;
+      prewarmCtlRef.current = { ac: mine, videoId: nextId };
+      void prewarmFirstSegment(nextId, nextPlayUrl, mine.signal).finally(() => {
+        if (prewarmCtlRef.current?.ac === mine) prewarmCtlRef.current = null;
+      });
+    };
+    attempt();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      ac?.abort();
+      if (ac && prewarmCtlRef.current?.ac === ac) prewarmCtlRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, nextId, nextKey, nextPlayUrl, settledIndex, index]);
 
@@ -773,6 +809,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 切换条目/集数时重置播放状态 */
   useEffect(() => {
     setTime(0); setDuration(0); bufferedRef.current = 0; setErr(""); setWaiting(true); setPaused(false); setDescOpen(false);
+    healthyRef.current = false;
     playbackClock.publish(0);
     setVsize({ w: 0, h: 0 });
     setPortraitFit("contain");
@@ -1288,9 +1325,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   onTime={onTimeTick}
                   onDuration={onDurationTick}
                   onSize={(w, h) => setVsize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))}
-                  onPlaying={() => { setPaused(false); setWaiting(false); setErr(""); }}
+                  onPlaying={() => { setPaused(false); setWaiting(false); setErr(""); healthyRef.current = true; }}
                   onPause={() => setPaused(true)}
-                  onWaiting={() => { setWaiting(true); lastStallAtRef.current = Date.now(); }}
+                  onWaiting={() => {
+                    setWaiting(true); lastStallAtRef.current = Date.now(); healthyRef.current = false;
+                    const ctl = prewarmCtlRef.current;
+                    if (ctl) { prewarmCtlRef.current = null; ctl.ac.abort(); tracePlayback("feed.prewarm", { video_id: ctl.videoId, stage: "yield_abort" }); }
+                  }}
                   onFragStats={onFragStats}
                   onEnded={() => { const next = episodes.find((e) => e.ep_num === curEp + 1); if (next) pickEp(next.ep_num); }}
                   onError={(m) => {

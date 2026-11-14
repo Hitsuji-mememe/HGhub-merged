@@ -4,7 +4,7 @@
 //! 所以图片与视频统一走本地自定义协议（Windows/Android 为 `http://hg.localhost`，
 //! macOS 为 `hg://localhost`，见 [`LOCAL_ORIGIN`]）。
 
-use crate::net::fetch_bytes;
+use crate::net::fetch_bytes_direct;
 use aes::cipher::{BlockDecrypt, KeyInit};
 use aes::Aes128;
 use once_cell::sync::Lazy;
@@ -113,7 +113,7 @@ pub async fn load_image(url: &str) -> Result<(String, Arc<Vec<u8>>), String> {
         let kind = image_kind(&hit).unwrap_or("image/jpeg");
         return Ok((kind.to_string(), hit));
     }
-    let (_, bytes) = fetch_bytes(url).await?;
+    let (_, bytes) = fetch_bytes_direct(url).await?;
     let plain = if image_kind(&bytes).is_some() {
         bytes
     } else {
@@ -202,7 +202,7 @@ pub async fn load_playlist(url: &str, prefix: &str) -> Result<Arc<String>, Strin
     if let Some(hit) = PL_CACHE.lock().unwrap().get(&cache_key).cloned() {
         return Ok(hit);
     }
-    let (_, bytes) = fetch_bytes(url).await?;
+    let (_, bytes) = fetch_bytes_direct(url).await?;
     let text = std::str::from_utf8(&bytes).map_err(|_| "播放列表不是 UTF-8 文本")?;
     if !text.trim_start_matches('\u{feff}').starts_with("#EXTM3U") {
         return Err("响应不是 HLS 播放列表".into());
@@ -264,6 +264,17 @@ fn absolutize_uri_in_attr(base: &str, line: &str) -> String {
     map_uri_attributes(line, |uri| absolutize(base, uri))
 }
 
+/// 分片抓取结果，可跨等待者共享（修复一）。
+type SegFetchResult = Result<(Option<String>, Arc<Vec<u8>>), String>;
+
+/// 在途分片抓取（修复一）：同一 URL 已有抓取在途时，后来者等同一份结果，
+/// 不再各拉一次上游——2.0.6 的预热与播放器并发同拉一个分片就是从这里漏的。
+/// 抓取跑在在途表持有的独立 tokio 任务里，领头调用方被取消（滑动离开、
+/// WebView 断开请求）也掐不死它，等待者不会悬空。
+static SEG_INFLIGHT: Lazy<
+    Mutex<HashMap<String, tokio::sync::watch::Receiver<Option<SegFetchResult>>>>,
+> = Lazy::new(|| Mutex::new(HashMap::new()));
+
 /// 分片 / AES Key 带内存缓存：拖动进度条时避免重复拉取同一片造成卡顿。
 pub async fn load_segment(url: &str) -> Result<(Option<String>, Arc<Vec<u8>>), String> {
     if let Some((ctype, hit)) = KEY_CACHE.lock().unwrap().get(url).cloned() {
@@ -272,7 +283,36 @@ pub async fn load_segment(url: &str) -> Result<(Option<String>, Arc<Vec<u8>>), S
     if let Some((ctype, hit)) = SEG_CACHE.lock().unwrap().get(url).cloned() {
         return Ok((Some(ctype), hit));
     }
-    let (ctype, bytes) = fetch_bytes(url).await?;
+    // 先查缓存（上面）→ 再查在途 → 都没有才新建抓取任务。
+    let mut rx = {
+        let mut g = SEG_INFLIGHT.lock().unwrap();
+        if let Some(rx) = g.get(url) {
+            rx.clone()
+        } else {
+            let (tx, rx) = tokio::sync::watch::channel::<Option<SegFetchResult>>(None);
+            g.insert(url.to_string(), rx.clone());
+            let owned = url.to_string();
+            tokio::spawn(async move {
+                let result = fetch_segment(&owned).await;
+                // 先广播结果再摘表：摘表后到来的请求要么命中缓存（成功时已入缓存），
+                // 要么自己新建抓取（失败时本就该重试），不会重复在途。
+                let _ = tx.send(Some(result));
+                SEG_INFLIGHT.lock().unwrap().remove(&owned);
+            });
+            rx
+        }
+    };
+    match rx.wait_for(|v| v.is_some()).await {
+        Ok(guard) => (*guard)
+            .clone()
+            .unwrap_or_else(|| Err("分片抓取中断".into())),
+        Err(_) => Err("分片抓取中断".into()),
+    }
+}
+
+/// 真正抓一个分片（只被在途任务调用）：补 MIME、按大小入 KEY/SEG 缓存。
+async fn fetch_segment(url: &str) -> SegFetchResult {
+    let (ctype, bytes) = fetch_segment_bytes(url).await?;
     let mime = ctype.clone().unwrap_or_else(|| {
         let p = url.split('?').next().unwrap_or(url).to_ascii_lowercase();
         if p.ends_with(".ts") {
@@ -291,6 +331,123 @@ pub async fn load_segment(url: &str) -> Result<(Option<String>, Arc<Vec<u8>>), S
         cache_put(&SEG_CACHE, url.to_string(), (mime.clone(), arc.clone()), SEG_CACHE_MAX);
     }
     Ok((Some(mime), arc))
+}
+
+/* ── 大分片并行 Range 下载（修复四，4 路） ────────────────────────
+ * 家里实测瓶颈是视频服务器按连接限速（单连接 0.3–1MB/s）：总长 >512KB 的
+ * 分片拆段并行拉，让每条连接各吃一份限速。探针（首 64KB）是第 1 条连接，
+ * 拿到总长后剩余字节均分 4 段并发取回。用户在本 App 一直是游客模式、
+ * 从未登录账号，不存在封号风险，故按原案直接上 4 路。服务器不支持
+ * Range（回 200）、任一段失败或长度对不上，一律整段回退单连接全量
+ * 抓取，不硬撑。 */
+const RANGE_PROBE_BYTES: u64 = 65536;
+const RANGE_SMALL_MAX: u64 = 512 * 1024;
+const RANGE_PARTS: u64 = 4;
+
+async fn fetch_segment_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String> {
+    let started = std::time::Instant::now();
+    let log = |v: serde_json::Value| crate::playback_log::record("media.range_fetch", v);
+    match crate::net::fetch_range_direct(url, 0, RANGE_PROBE_BYTES - 1).await {
+        Ok(first) if first.status == 200 => {
+            // 服务器忽略 Range：探针响应就是全量，直接用。
+            log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "no_range", "total_bytes": first.bytes.len()}));
+            Ok((first.ctype, first.bytes))
+        }
+        Ok(first) if first.status == 206 => {
+            let have = first.bytes.len() as u64;
+            match first.total {
+                Some(total) if have <= total && total <= RANGE_SMALL_MAX => {
+                    if have == total {
+                        log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "small", "total_bytes": total}));
+                        Ok((first.ctype, first.bytes))
+                    } else {
+                        // 小分片不拆多路：一条 Range 把剩余取完。
+                        match crate::net::fetch_range_direct(url, have, total - 1).await {
+                            Ok(rest)
+                                if rest.status == 206
+                                    && have + rest.bytes.len() as u64 == total =>
+                            {
+                                let mut bytes = first.bytes;
+                                bytes.extend_from_slice(&rest.bytes);
+                                log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "small", "total_bytes": total}));
+                                Ok((first.ctype, bytes))
+                            }
+                            _ => {
+                                log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "chunk_fail", "total_bytes": total}));
+                                fetch_bytes_direct(url).await
+                            }
+                        }
+                    }
+                }
+                Some(total) if have < total => {
+                    match fetch_segment_parallel(url, first, total).await {
+                        Ok((ctype, bytes)) => {
+                            log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "chunks": RANGE_PARTS, "total_bytes": total, "ms": started.elapsed().as_millis() as u64}));
+                            Ok((ctype, bytes))
+                        }
+                        Err(_) => {
+                            log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "chunk_fail", "total_bytes": total}));
+                            fetch_bytes_direct(url).await
+                        }
+                    }
+                }
+                _ => {
+                    // Content-Range 缺失/自相矛盾：不猜，整段单连接重拉。
+                    log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "chunk_fail", "total_bytes": 0}));
+                    fetch_bytes_direct(url).await
+                }
+            }
+        }
+        _ => {
+            // 探针本身失败（传输错误等）：回退单连接全量，再失败由它报错。
+            log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "chunk_fail", "total_bytes": 0}));
+            fetch_bytes_direct(url).await
+        }
+    }
+}
+
+/// 并行取回探针之后的剩余字节：剩余区间均分 RANGE_PARTS 段并发 Range GET，
+/// 逐段校验状态与长度，按序拼在探针字节之后；任一段不对整段判失败（外层回退）。
+async fn fetch_segment_parallel(
+    url: &str,
+    first: crate::net::RangeFetch,
+    total: u64,
+) -> Result<(Option<String>, Vec<u8>), String> {
+    let ctype = first.ctype.clone();
+    let have = first.bytes.len() as u64;
+    let rest = total - have;
+    let step = rest.div_ceil(RANGE_PARTS);
+    let mut ranges: Vec<(u64, u64)> = Vec::new(); // [start, end) 区间
+    let mut start = have;
+    while start < total {
+        let end = (start + step).min(total);
+        ranges.push((start, end));
+        start = end;
+    }
+    let expected: Vec<u64> = ranges.iter().map(|(s, e)| e - s).collect();
+    let mut set = tokio::task::JoinSet::new();
+    for (idx, (s, e)) in ranges.iter().enumerate() {
+        let u = url.to_string();
+        let (s, e) = (*s, *e);
+        set.spawn(async move { (idx, crate::net::fetch_range_direct(&u, s, e - 1).await) });
+    }
+    let mut pieces: Vec<Option<Vec<u8>>> = (0..ranges.len()).map(|_| None).collect();
+    while let Some(joined) = set.join_next().await {
+        let (idx, piece) = joined.map_err(|e| format!("分片并行任务失败: {e}"))?;
+        let piece = piece?;
+        if piece.status != 206 || piece.bytes.len() as u64 != expected[idx] {
+            return Err("并行分段长度或状态不对".into());
+        }
+        pieces[idx] = Some(piece.bytes);
+    }
+    let mut bytes = first.bytes;
+    for piece in pieces {
+        bytes.extend_from_slice(&piece.ok_or("并行分段缺失")?);
+    }
+    if bytes.len() as u64 != total {
+        return Err("并行拼接总长不对".into());
+    }
+    Ok((ctype, bytes))
 }
 
 /// 清空封面 / 播放列表 / Key / 分片内存缓存
@@ -495,7 +652,7 @@ mod tests {
         .expect("play api");
         let url = play["video_url"].as_str().expect("video_url").to_string();
         println!("play url: {}", &url[..url.len().min(90)]);
-        let (_, bytes) = fetch_bytes(&url).await.expect("fetch playlist");
+        let (_, bytes) = crate::net::fetch_bytes(&url).await.expect("fetch playlist");
         let text = String::from_utf8_lossy(&bytes);
         println!(
             "raw playlist len={} head={}",

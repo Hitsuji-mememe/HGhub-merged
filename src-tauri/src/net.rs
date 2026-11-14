@@ -641,6 +641,17 @@ async fn get_with_dns(
     referer: Option<&str>,
     public_dns: bool,
 ) -> Result<reqwest::Response, String> {
+    get_with_dns_h(raw, timeout, accept, referer, public_dns, &[]).await
+}
+
+async fn get_with_dns_h(
+    raw: &str,
+    timeout: Duration,
+    accept: Option<&str>,
+    referer: Option<&str>,
+    public_dns: bool,
+    extra_headers: &[(&str, &str)],
+) -> Result<reqwest::Response, String> {
     tokio::time::timeout(timeout, async {
         let policy_error = |phase: &str, error: String| {
             crate::playback_log::record("network.target_failed", json!({"resource": crate::playback_log::resource_id(raw), "phase": phase, "error_kind": crate::playback_log::error_kind(&error)}));
@@ -657,6 +668,9 @@ async fn get_with_dns(
             }
             if let Some(value) = referer {
                 request = request.header("Referer", value);
+            }
+            for (name, value) in extra_headers {
+                request = request.header(*name, *value);
             }
             let response = request.send().await.map_err(|e| err_text(&e))?;
             if !matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
@@ -1521,6 +1535,20 @@ pub async fn edge(
 
 /// 拉原始字节（图片 / m3u8 / 分片）。
 pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String> {
+    fetch_bytes_impl(url, false).await
+}
+
+/// 媒体专用入口：只走系统 DNS 路径，失败直接报错。
+/// 不翻公共 DNS（DoH）、不读不写 MEDIA_DNS_PREFERS_PUBLIC 粘性状态——
+/// 家里网络下 DoH 必失败，媒体请求翻过去纯属白等，还会污染后续请求。
+pub async fn fetch_bytes_direct(url: &str) -> Result<(Option<String>, Vec<u8>), String> {
+    fetch_bytes_impl(url, true).await
+}
+
+async fn fetch_bytes_impl(
+    url: &str,
+    direct_only: bool,
+) -> Result<(Option<String>, Vec<u8>), String> {
     static NEXT_REQUEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let request = NEXT_REQUEST.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let resource = crate::playback_log::resource_id(url);
@@ -1528,7 +1556,7 @@ pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String>
     let url = url.to_string();
     let target = url::Url::parse(&url).ok();
     let host = target.as_ref().and_then(|target| target.host_str()).unwrap_or("").to_string();
-    let public_dns = AtomicBool::new(MEDIA_DNS_ROUTES.lock().ok()
+    let public_dns = AtomicBool::new(!direct_only && MEDIA_DNS_ROUTES.lock().ok()
         .is_some_and(|routes| routes.prefers_public(&host, Instant::now())));
     let referer = format!("{}/", base());
     with_retry(true, || {
@@ -1571,7 +1599,8 @@ pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String>
                 }
             }
             if let Err(error) = &result {
-                if target.as_ref().is_some_and(|target| crate::media_dns::eligible(target, error)) {
+                if !direct_only
+                    && target.as_ref().is_some_and(|target| crate::media_dns::eligible(target, error)) {
                     public_dns.store(!using_public_dns, Ordering::Relaxed);
                     crate::playback_log::record("network.dns_fallback", json!({"resource": resource, "attempt": attempt, "public_dns": !using_public_dns, "error_kind": crate::playback_log::error_kind(error)}));
                 }
@@ -1581,6 +1610,62 @@ pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String>
         }
     })
     .await
+}
+
+/// 一次 Range 抓取的结果（状态码 / 总长 / 类型 / 字节）。
+pub struct RangeFetch {
+    pub status: u16,
+    /// Content-Range 里的总长；服务器没给或给 `*` 时为 None。
+    pub total: Option<u64>,
+    pub ctype: Option<String>,
+    pub bytes: Vec<u8>,
+}
+
+/// 解析 `Content-Range: bytes 0-65535/1234567` 的总长部分。
+fn parse_content_range_total(value: &str) -> Option<u64> {
+    let (_, total) = value.rsplit_once('/')?;
+    let total = total.trim();
+    if total == "*" {
+        return None;
+    }
+    total.parse::<u64>().ok().filter(|n| *n > 0)
+}
+
+/// 带 Range 头拉一段字节，走系统 DNS 路径（与 fetch_bytes_direct 同路，不翻公共 DNS）。
+/// 客户端构造、UA、Referer 都与 fetch_bytes 一致，只是多个 Range 头和状态码语义：
+/// 206＝分段命中（看 total 规划后续）；200＝服务器忽略 Range、响应即全量；非 2xx 直接报错。
+pub async fn fetch_range_direct(
+    url: &str,
+    start: u64,
+    end: u64,
+) -> Result<RangeFetch, String> {
+    let referer = format!("{}/", base());
+    let range = format!("bytes={start}-{end}");
+    let resp = get_with_dns_h(
+        url,
+        Duration::from_secs(20),
+        None,
+        Some(&referer),
+        false,
+        &[("Range", &range)],
+    )
+    .await?;
+    let status = resp.status().as_u16();
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let total = resp
+        .headers()
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_content_range_total);
+    let ctype = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let bytes = resp.bytes().await.map_err(|e| err_text(&e))?.to_vec();
+    Ok(RangeFetch { status, total, ctype, bytes })
 }
 
 #[cfg(test)]
