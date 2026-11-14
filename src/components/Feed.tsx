@@ -661,18 +661,26 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       }
     }
     if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260 && Date.now() - srMenuDismissedAtRef.current >= 320) {
+      // 移动端全屏：控制层唤醒已由 pointerdown 的 wake() 完成，首击若再翻转
+      // clean/idle 会把刚唤醒的控制层立刻关掉（单击永远点不到退出键、被迫长按）。
+      // 故全屏时首击只启动双击计时，第二击只切换播放，都不恢复 clean/idle。
+      const mobileFs = !isDesktop && fs;
       // 首击立即反馈；第二击恢复首击前的界面，再切换播放。
       if (lastTapRef.current.timer) {
         window.clearTimeout(lastTapRef.current.timer);
         lastTapRef.current.timer = null;
-        setClean(lastTapRef.current.clean ?? false);
-        if (!isDesktop && fs) setIdle(lastTapRef.current.idle ?? false);
+        if (!mobileFs) {
+          setClean(lastTapRef.current.clean ?? false);
+          if (!isDesktop && fs) setIdle(lastTapRef.current.idle ?? false);
+        }
         videoRef.current?.toggle();
       } else {
         lastTapRef.current.clean = clean;
         lastTapRef.current.idle = idle;
-        setClean(!clean);
-        if (!isDesktop && fs) setIdle(!idle);
+        if (!mobileFs) {
+          setClean(!clean);
+          if (!isDesktop && fs) setIdle(!idle);
+        }
         lastTapRef.current.timer = window.setTimeout(() => {
           lastTapRef.current.timer = null;
         }, 230) as unknown as number;
