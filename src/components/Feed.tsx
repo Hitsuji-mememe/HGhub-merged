@@ -16,6 +16,7 @@ import { setBackHandler } from "../back";
 import { copyText } from "../clipboard";
 import { tracePlayback } from "../playbackDiagnostics";
 import { createPlaybackClock } from "../playbackClock";
+import { pickLine } from "../autoLine";
 import {
   IBack, IBoltF, ICheck, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
   ILink, IList, ILockF, IPauseF, IPlayF, ISearch, ISparkF, IStar, IStarF, IVertSwap, IVol, IVolMute,
@@ -134,6 +135,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [controlsLocked, setControlsLocked] = useState(false);
   const [rate, setRate] = useState(1);
   const [waiting, setWaiting] = useState(false);
+  /* 卡顿自愈（2.0.5）：滚动统计最近 3 片的吞吐；waiting 发生时刻；
+     自愈护栏（上次触发时刻 / 每集已触发次数 / 等待切线落地的那一集）；
+     切线重解析后把播放位置接回去的待办 */
+  const fragWindowRef = useRef<{ slow: boolean; kbps: number }[]>([]);
+  const lastStallAtRef = useRef(0);
+  const healStateRef = useRef<{ lastAt: number; counts: Record<string, number>; pendingKey: string | null; pendingAt: number }>(
+    { lastAt: 0, counts: {}, pendingKey: null, pendingAt: 0 },
+  );
+  const healResumeRef = useRef<{ key: string; t: number } | null>(null);
   const [err, setErr] = useState("");
   const [panel, setPanel] = useState<"episodes" | "comments" | "article" | "detail" | null>(null);
   const [descOpen, setDescOpen] = useState(false);
@@ -262,6 +272,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const mainUrl = playUrls[playKey] || "";
   const hevcUrl = hevcUrls[playKey] || "";
   const playUrl = preferHevc && hevcUrl ? hevcUrl : mainUrl;
+  const playKeyRef = useRef(playKey);
+  playKeyRef.current = playKey;
   useEffect(() => {
     const retry = () => {
       setErr("");
@@ -273,6 +285,72 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     window.addEventListener("hg:proxy-changed", retry);
     return () => window.removeEventListener("hg:proxy-changed", retry);
   }, [playUrl]);
+
+  /* ── 卡顿自愈（2.0.5） ────────────────────────────────────
+   * 各线路只是 API 前门、媒体 CDN 大体同源，逐线测分片测到的是自家网络噪声；
+   * 真正要治的是「当前这条播放链的分片吞吐持续跟不上」：最近 3 片吞吐都低于
+   * 码率（拿不到码率时用单片耗时 > 片时长判慢）且刚发生过 waiting，才触发。
+   * 动作：pickLine("stall", true) 重新选线；若真的切了线（hg:line-changed），
+   * 把当前集地址缓存清掉走既有解析 effect 重解析一次（换 CDN 落点）并接回
+   * 播放位置。护栏：全局间隔 ≥90s、同集 ≤2 次、手动暂停不触发；pickLine
+   * 内部另有 15s 冷却与防重入，且自动选线被用户关掉时它自身就是 no-op。 */
+  const maybeHealStall = () => {
+    if (isDesktop || !active) return;
+    const v = videoRef.current?.el();
+    if (!v || paused || v.paused || v.ended) return;
+    const now = Date.now();
+    if (!lastStallAtRef.current || now - lastStallAtRef.current > 30_000) return;
+    const hs = healStateRef.current;
+    if (now - hs.lastAt < 90_000) return;
+    if ((hs.counts[playKey] || 0) >= 2) return;
+    hs.lastAt = now;
+    hs.counts[playKey] = (hs.counts[playKey] || 0) + 1;
+    hs.pendingKey = playKey;
+    hs.pendingAt = now;
+    const rates = fragWindowRef.current.map((w) => Math.round(w.kbps)).join("/");
+    fragWindowRef.current = [];
+    lastStallAtRef.current = 0;
+    tracePlayback("line.stallHeal", { stage: "trigger", video_id: curId, episode: curEp, frag_kbps: rates, heal_count: hs.counts[playKey] });
+    void pickLine("stall", true).then(() => {
+      // 切线事件在 pickLine 内部同步派发，走到这里还没被消费 = 没切成，清掉待办防误伤后续手动切线
+      if (healStateRef.current.pendingKey === playKey) healStateRef.current.pendingKey = null;
+    });
+  };
+
+  const onFragStats = (s: { bytes: number; loadMs: number; fragDuration: number; bitrate: number }) => {
+    if (isDesktop || !active) return;
+    const loadSec = s.loadMs / 1000;
+    if (loadSec <= 0 || s.bytes <= 0) return;
+    const kbps = (s.bytes * 8) / loadSec / 1000;
+    const slow = s.bitrate > 0 ? kbps < s.bitrate / 1000 : s.fragDuration > 0 && loadSec > s.fragDuration;
+    const win = fragWindowRef.current;
+    win.push({ slow, kbps });
+    if (win.length > 3) win.shift();
+    if (win.length === 3 && win.every((w) => w.slow)) maybeHealStall();
+  };
+
+  /* 切线落地后重解析当前集：清掉本集缓存地址，借 proxyRetry 递增重跑既有
+     「拉播放地址」effect（与 hg:proxy-changed 的重试同一条路径），新地址喂给
+     VideoSurface 后 src 变化自然重载；位置靠 healResumeRef 在 onDuration 里接回 */
+  useEffect(() => {
+    const onLineChanged = () => {
+      const hs = healStateRef.current;
+      if (!hs.pendingKey || Date.now() - hs.pendingAt > 60_000) return;
+      const key = hs.pendingKey;
+      hs.pendingKey = null;
+      if (key !== playKeyRef.current) return;
+      const v = videoRef.current?.el();
+      const t = v && Number.isFinite(v.currentTime) ? v.currentTime : 0;
+      if (t > 1) healResumeRef.current = { key, t };
+      tracePlayback("line.stallHeal", { stage: "re-resolve", key, resume_t: Math.round(t * 10) / 10 });
+      setPlayUrls((m) => { if (!m[key]) return m; const n = { ...m }; delete n[key]; return n; });
+      setHevcUrls((m) => { if (!m[key]) return m; const n = { ...m }; delete n[key]; return n; });
+      setErr("");
+      setProxyRetry((n) => n + 1);
+    };
+    window.addEventListener("hg:line-changed", onLineChanged);
+    return () => window.removeEventListener("hg:line-changed", onLineChanged);
+  }, []);
   useEffect(() => { setZoom({ s: 1, x: 0, y: 0, g: false }); pinchRef.current = null; pointersRef.current.clear(); }, [playUrl]);
   useEffect(() => { videoRef.current?.trace("page.active", { active, view: mode, video_id: curId, episode: curEp }); }, [active, mode, curId, curEp]);
   const episodes = detail?.episodes || [];
@@ -294,6 +372,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const onDurationTick = (d: number) => {
     setDuration(d);
     liveRef.current = { ...liveRef.current, dur: d };
+    /* 卡顿自愈重解析后的新源：把触发前的位置接回去（与下方历史续播同机制） */
+    const hr = healResumeRef.current;
+    if (hr && hr.key === playKey && hr.t > 1 && (!d || hr.t < d - 3)) {
+      healResumeRef.current = null;
+      videoRef.current?.seek(hr.t, "stall_heal");
+      if (isDesktop) playbackClock.publish(hr.t);
+      else setTime(hr.t);
+    }
     const r = resumeRef.current;
     if (r && r.key === playKey && r.t > 1 && (!d || r.t < d - 3)) {
       resumeRef.current = null;
@@ -533,6 +619,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     playbackClock.publish(0);
     setVsize({ w: 0, h: 0 });
     setPortraitFit("contain");
+    /* 自愈监测窗口按集重置（每集的触发次数记在 healStateRef.counts 里，不在此清） */
+    fragWindowRef.current = [];
+    lastStallAtRef.current = 0;
   }, [playKey]);
 
   /* 音量/静音同步 */
@@ -1044,7 +1133,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   onSize={(w, h) => setVsize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))}
                   onPlaying={() => { setPaused(false); setWaiting(false); setErr(""); }}
                   onPause={() => setPaused(true)}
-                  onWaiting={() => setWaiting(true)}
+                  onWaiting={() => { setWaiting(true); lastStallAtRef.current = Date.now(); }}
+                  onFragStats={onFragStats}
                   onEnded={() => { const next = episodes.find((e) => e.ep_num === curEp + 1); if (next) pickEp(next.ep_num); }}
                   onError={(m) => {
                     setErr(m);
@@ -1375,14 +1465,19 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         />
       )}
 
-      {/* 移动端：倍速状态提示（长按临时 2x / 菜单选定的基准倍速；点按可重置回 1x） */}
+      {/* 移动端：倍速状态提示（长按临时 2x / 菜单选定的基准倍速；点按可重置回 1x）
+          2.0.5：全屏时挪到底部——锚在全屏进度条（bottom 52 + 高 22）上方 10px，
+          与进度条/底栏同一坐标系，原生横屏与 CSS 旋转全屏都落在物理底部中央；
+          非全屏保持顶部原位。显隐条件与之前等价（fs 时仍受 !idle 控制） */}
       {!isDesktop && (holdSpeed || rate !== 1) && (!fs || !idle) && (
         <Button
           onClick={() => {
             if (rate !== 1 && !holdSpeed) setRate(1);
           }}
           className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-3.5 h-8 rounded-full backdrop-blur-md text-[13px] font-bold elev-2 pressable hg-chip hg-gold"
-          style={{ top: "calc(var(--sat, 0px) + 54px)" }}>
+          style={fs
+            ? { bottom: rotated ? 84 : "calc(var(--sab, 0px) + 84px)" }
+            : { top: "calc(var(--sat, 0px) + 54px)" }}>
           <IBoltF size={13} />
           {effRate}x {holdSpeed ? "倍速中 · 松开恢复" : "倍速"}
         </Button>
