@@ -427,6 +427,27 @@ fn client_key(strict: bool, host: &str, port: u16, public_dns: bool, route: &Pro
     format!("{strict}:{host}:{port}:{public_dns}:{}:{:x}:{}", route.active, route.fingerprint(), route.generation)
 }
 
+/// 阿里 DoH 的解析客户端：bootstrap 地址已钉死，且强制直连（mode=Off → no_proxy）。
+/// DoH 若跟随应用代理从境外出口出去，阿里会按出口地理位置返回海外 CDN 节点，
+/// 正是家里 WiFi 被 fake-ip 带偏后要绕开的坑，所以这里不接受任何代理路线。
+fn doh_resolver() -> Result<reqwest::Client, String> {
+    let direct = ProxyRoute {
+        mode: crate::proxy::Mode::Off,
+        explicit: None,
+        active: false,
+        generation: CLIENT_GENERATION.load(Ordering::Acquire),
+    };
+    build_client(crate::media_dns::HOST, &crate::media_dns::BOOTSTRAP, &direct)
+}
+
+/// 经阿里 DoH 拿真实地址并做与系统解析同一套地址校验；TTL 与客户端缓存上限取小。
+async fn resolve_via_doh(host: &str, port: u16, strict: bool) -> Result<(Vec<SocketAddr>, Duration), String> {
+    let resolver = doh_resolver()?;
+    let resolution = crate::media_dns::resolve(&resolver, host, port).await?;
+    network_policy::check_addresses_with_mode(&resolution.addresses, strict)?;
+    Ok((resolution.addresses, CLIENT_TTL.min(resolution.ttl)))
+}
+
 async fn client_for_dns(raw: &str, public_dns: bool) -> Result<(url::Url, Arc<reqwest::Client>), String> {
     let strict = network_policy::strict_security();
     let target = network_policy::parse_target_with_mode(raw, strict)?;
@@ -445,12 +466,23 @@ async fn client_for_dns(raw: &str, public_dns: bool) -> Result<(url::Url, Arc<re
         // 有代理：跳过本地解析与 IP 校验，addrs 留空，域名交给代理。
         (Vec::new(), CLIENT_TTL)
     } else if public_dns {
-        let resolver = build_client(crate::media_dns::HOST, &crate::media_dns::BOOTSTRAP, &route)?;
-        let resolution = crate::media_dns::resolve(&resolver, host, port).await?;
-        network_policy::check_addresses_with_mode(&resolution.addresses, strict)?;
-        (resolution.addresses, CLIENT_TTL.min(resolution.ttl))
+        resolve_via_doh(host, port, strict).await?
     } else if strict {
-        (network_policy::resolve_target(&target, strict).await?, CLIENT_TTL)
+        let resolved = network_policy::resolve_target(&target, strict).await?;
+        if !resolved.is_empty() && resolved.iter().all(|addr| ip_kind(addr.ip()) == "fake_ip") {
+            // 系统 DNS 给的全是 fake-ip：那是网关伪造并接管的地址，拿它当真公网 IP
+            // 直连会被带到代理出口侧解析、多半落到海外节点。绕行阿里 DoH 拿真实
+            // 地址钉住；DoH 也失败时回退 fake 地址建客户端，保住纯 TUN 环境可用。
+            match resolve_via_doh(host, port, strict).await {
+                Ok(real) => {
+                    crate::playback_log::record("network.dns_fallback", json!({"resource": crate::playback_log::resource_id(raw), "public_dns": true, "reason": "fake_ip"}));
+                    real
+                }
+                Err(_) => (resolved, CLIENT_TTL),
+            }
+        } else {
+            (resolved, CLIENT_TTL)
+        }
     } else {
         (Vec::new(), CLIENT_TTL)
     };
@@ -638,7 +670,7 @@ fn dns_summary(addrs: impl IntoIterator<Item = SocketAddr>) -> Value {
         };
         v4.is_some_and(|ip| {
             let [a, b, _, _] = ip.octets();
-            a == 198 && (b == 18 || b == 19)
+            a == 198 && (18..=20).contains(&b)
         })
     });
     json!({ "count": ips.len(), "has_fake_ip": has_fake_ip })
@@ -651,8 +683,8 @@ fn ipv4_kind(o: [u8; 4]) -> &'static str {
         "loopback"
     } else if o == [0, 0, 0, 0] {
         "unspecified"
-    } else if o[0] == 198 && (o[1] == 18 || o[1] == 19) {
-        // Clash / Surge 系 TUN 的 fake-ip 网段：TUN 一关这个地址就不可路由。
+    } else if o[0] == 198 && (18..=20).contains(&o[1]) {
+        // Clash / Surge 系 TUN 与部分网关的 fake-ip 网段：接管方一关这个地址就不可路由。
         "fake_ip"
     } else if v4.is_private() {
         "private"

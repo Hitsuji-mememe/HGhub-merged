@@ -92,7 +92,7 @@ pub fn allowed_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
             let [a, b, c, _] = ip.octets();
-            if a == 198 && (b == 18 || b == 19) {
+            if a == 198 && (18..=20).contains(&b) {
                 return true;
             }
             !(a == 0
@@ -197,7 +197,7 @@ pub async fn resolve_target(url: &Url, strict: bool) -> Result<Vec<SocketAddr>, 
         Host::Ipv4(ip) => vec![SocketAddr::new(ip.into(), port)],
         Host::Ipv6(ip) => vec![SocketAddr::new(ip.into(), port)],
         Host::Domain(host) => tokio::time::timeout(
-            Duration::from_secs(10),
+            Duration::from_secs(4),
             tokio::net::lookup_host((host, port)),
         )
         .await

@@ -66,7 +66,7 @@ fn answers(value: &Value, port: u16) -> Result<Resolution, String> {
             .map_err(|_| "备用 DNS 地址无效")?;
         let [first, second, _, _] = ip.octets();
         if !network_policy::allowed_ip(ip.into())
-            || (first == 198 && (second == 18 || second == 19))
+            || (first == 198 && (18..=20).contains(&second))
         {
             return Err("备用 DNS 返回内网或保留地址".into());
         }
