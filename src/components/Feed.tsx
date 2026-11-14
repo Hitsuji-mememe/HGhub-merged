@@ -133,6 +133,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   useEffect(() => {
     setSrMenuPos(null);
   }, [clean, controlsLocked, fs, index, active]);
+
+  /* 移动端全屏：暂停/卡顿会清掉 idle 的自动隐藏计时，恢复播放后须重新武装，否则控制层常驻遮挡（2.0.2 修复） */
+  useEffect(() => {
+    if (isDesktop || !fs || paused || waiting || controlsLocked || panel || srMenuPos) return;
+    wake();
+  }, [isDesktop, fs, paused, waiting, controlsLocked, panel, srMenuPos, wake]);
   /* —— 移动端手势 —— */
   const [holdSpeed, setHoldSpeed] = useState(false);
   const [speedLock, setSpeedLock] = useState(false);
