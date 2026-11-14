@@ -448,6 +448,15 @@ async fn resolve_via_doh(host: &str, port: u16, strict: bool) -> Result<(Vec<Soc
     Ok((resolution.addresses, CLIENT_TTL.min(resolution.ttl)))
 }
 
+/// network.resolve 诊断用：把一组解析答案按 ip_kind 归类成去重排序后的种类数组，
+/// 让真机日志能直接看出答案构成是纯 fake-ip、纯公网还是混合（Muse 2026-11-14，2.0.8 定位绕行未触发用）。
+fn resolve_kinds(addrs: &[SocketAddr]) -> Vec<&'static str> {
+    let mut kinds: Vec<&'static str> = addrs.iter().map(|addr| ip_kind(addr.ip())).collect();
+    kinds.sort_unstable();
+    kinds.dedup();
+    kinds
+}
+
 async fn client_for_dns(raw: &str, public_dns: bool) -> Result<(url::Url, Arc<reqwest::Client>), String> {
     let strict = network_policy::strict_security();
     let target = network_policy::parse_target_with_mode(raw, strict)?;
@@ -466,21 +475,36 @@ async fn client_for_dns(raw: &str, public_dns: bool) -> Result<(url::Url, Arc<re
         // 有代理：跳过本地解析与 IP 校验，addrs 留空，域名交给代理。
         (Vec::new(), CLIENT_TTL)
     } else if public_dns {
-        resolve_via_doh(host, port, strict).await?
+        match resolve_via_doh(host, port, strict).await {
+            Ok(ok) => ok,
+            Err(error) => {
+                // 翻转到备用 DNS 后解析仍失败时不再静默：记下失败分类供真机日志定位（2.0.8）。
+                crate::playback_log::record("network.resolve", json!({"host": host, "branch": "doh", "via": "public_flip", "doh_error": error.clone()}));
+                return Err(error);
+            }
+        }
     } else if strict {
         let resolved = network_policy::resolve_target(&target, strict).await?;
-        if !resolved.is_empty() && resolved.iter().all(|addr| ip_kind(addr.ip()) == "fake_ip") {
+        let system_kinds = resolve_kinds(&resolved);
+        let all_fake = !resolved.is_empty() && resolved.iter().all(|addr| ip_kind(addr.ip()) == "fake_ip");
+        if all_fake {
             // 系统 DNS 给的全是 fake-ip：那是网关伪造并接管的地址，拿它当真公网 IP
             // 直连会被带到代理出口侧解析、多半落到海外节点。绕行阿里 DoH 拿真实
             // 地址钉住；DoH 也失败时回退 fake 地址建客户端，保住纯 TUN 环境可用。
             match resolve_via_doh(host, port, strict).await {
                 Ok(real) => {
                     crate::playback_log::record("network.dns_fallback", json!({"resource": crate::playback_log::resource_id(raw), "public_dns": true, "reason": "fake_ip"}));
+                    crate::playback_log::record("network.resolve", json!({"host": host, "kinds": resolve_kinds(&real.0), "count": real.0.len(), "all_fake": true, "branch": "doh"}));
                     real
                 }
-                Err(_) => (resolved, CLIENT_TTL),
+                Err(error) => {
+                    // 绕行失败回退 fake 地址也要留痕，否则真机上分不清是「全假判断没成立」还是「DoH 飞快失败被吞」（2.0.8）。
+                    crate::playback_log::record("network.resolve", json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": true, "branch": "fake_fallback", "doh_error": error}));
+                    (resolved, CLIENT_TTL)
+                }
             }
         } else {
+            crate::playback_log::record("network.resolve", json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": false, "branch": "system"}));
             (resolved, CLIENT_TTL)
         }
     } else {
