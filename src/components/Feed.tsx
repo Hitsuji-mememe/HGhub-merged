@@ -9,6 +9,7 @@ import { Avatar, Img, Sheet } from "./ui";
 import VideoSurface, { type VideoHandle } from "./VideoSurface";
 import PlayerControls from "./PlayerControls";
 import PlaybackLock from "./PlaybackLock";
+import { SR_PRESET_MAP, SR_SHORT_LABEL, SuperResMenu } from "./SuperResCanvas";
 import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
 import { RowCard } from "./cards";
 import { setBackHandler } from "../back";
@@ -17,7 +18,7 @@ import { tracePlayback } from "../playbackDiagnostics";
 import { createPlaybackClock } from "../playbackClock";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
-  ILink, IList, ILockF, IPauseF, IPlayF, ISearch, IStar, IStarF, IVertSwap, IVol, IVolMute,
+  ILink, IList, ILockF, IPauseF, IPlayF, ISearch, ISparkF, IStar, IStarF, IVertSwap, IVol, IVolMute,
 } from "../icons";
 
 type Props = {
@@ -41,7 +42,7 @@ const stripHtml = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, "
 
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, startEp, startTime }: Props) {
   const store = useStore();
-  const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen, swipeEp, setSwipeEp, preferHevc, setPreferHevc } = store;
+  const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen, swipeEp, setSwipeEp, preferHevc, setPreferHevc, srMode, setSrMode } = store;
   const isDesktop = !isMobile;
 
   const boxRef = useRef<HTMLDivElement>(null);
@@ -101,6 +102,37 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   }, [paused]);
   const [fullscreen, setFullscreen] = useState(false);
   const [heartBurst, setHeartBurst] = useState(0);
+
+  /* 超分档位切换 HUD 与选单（移植自 LNPANDY v1.2.2） */
+  const [srHud, setSrHud] = useState<typeof srMode | null>(null);
+  const [srMenuPos, setSrMenuPos] = useState<"topbar" | "fs-bottom" | null>(null);
+  const srMenuDismissedAtRef = useRef(0);
+  const prevSrRef = useRef(srMode);
+  useEffect(() => {
+    if (prevSrRef.current === srMode) return;
+    prevSrRef.current = srMode;
+    if (!active) return;
+    setSrHud(srMode);
+    const tid = window.setTimeout(() => setSrHud(null), 1300);
+    return () => window.clearTimeout(tid);
+  }, [srMode, active]);
+
+  useEffect(() => {
+    if (!srMenuPos) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest("[data-sr-slot]")) {
+        srMenuDismissedAtRef.current = Date.now();
+        setSrMenuPos(null);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [srMenuPos]);
+
+  useEffect(() => {
+    setSrMenuPos(null);
+  }, [clean, controlsLocked, fs, index, active]);
   /* —— 移动端手势 —— */
   const [holdSpeed, setHoldSpeed] = useState(false);
   const [speedLock, setSpeedLock] = useState(false);
@@ -628,7 +660,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         if (swipeEp) { go(dir); return; }
       }
     }
-    if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260) {
+    if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260 && Date.now() - srMenuDismissedAtRef.current >= 320) {
       // 首击立即反馈；第二击恢复首击前的界面，再切换播放。
       if (lastTapRef.current.timer) {
         window.clearTimeout(lastTapRef.current.timer);
@@ -1263,6 +1295,16 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </div>
       )}
 
+      {/* 移动端：超分档位切换 HUD（短暂浮现提示当前档位） */}
+      {!isDesktop && active && srHud && (
+        <div
+          className="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none flex items-center gap-1.5 px-3.5 h-8 rounded-full backdrop-blur-md text-[13px] font-bold elev-2 a-fade hg-chip-strong"
+          style={{ top: rotated ? 58 : fs ? "calc(var(--sat, 0px) + 52px)" : "calc(var(--sat, 0px) + 96px)" }}>
+          <ISparkF size={13} className={srHud === "off" ? "hg-ink-3" : "text-primary"} />
+          <span>{SR_PRESET_MAP[srHud].hudText}</span>
+        </div>
+      )}
+
       {/* 移动端全屏进度条，普通模式的进度条位于标题下方 */}
       {!isDesktop && fs && !idle && (
         <div
@@ -1304,6 +1346,25 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {paused ? <IPlayF size={18} /> : <IPauseF size={17} />}
             </Button>
             <span className="shrink-0 text-[12px] font-semibold hg-ink-2 tabular-nums">{fmtTime(time)}</span>
+            <div data-sr-slot className="relative ml-auto shrink-0">
+              <Button
+                onClick={() => setSrMenuPos((pos) => (pos === "fs-bottom" ? null : "fs-bottom"))}
+                aria-label={`超分模式：${SR_SHORT_LABEL[srMode]}`}
+                aria-expanded={srMenuPos === "fs-bottom"}
+                title="选择 GPU 画质超分档位"
+                aria-pressed={srMode !== "off"}
+                className={`flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${srMode !== "off" ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
+                <ISparkF size={12} />{SR_SHORT_LABEL[srMode]}
+              </Button>
+              {srMenuPos === "fs-bottom" && (
+                <SuperResMenu
+                  current={srMode}
+                  placement="up"
+                  align="right"
+                  onSelect={(m) => { setSrMode(m); setSrMenuPos(null); }}
+                />
+              )}
+            </div>
             <Button
               onClick={() => {
                 if (speedLock) { setSpeedLock(false); return; }
@@ -1311,7 +1372,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 const i = seq.indexOf(rate);
                 setRate(seq[(i + 1) % seq.length]);
               }}
-              className={`ml-auto shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
+              className={`shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
               <IBoltF size={12} />{effRate}x
             </Button>
             {curEp < episodes.length && (
@@ -1443,6 +1504,28 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             top: rotated ? 12 : "calc(var(--sat, 0px) + 6px)",
             right: fs ? (rotated ? "calc(var(--sab, 0px) + 56px)" : 56) : undefined,
           }}>
+          {!clean && (
+            <div data-sr-slot className="relative">
+              <Button
+                onClick={() => setSrMenuPos((pos) => (pos === "topbar" ? null : "topbar"))}
+                aria-label={`超分模式：${SR_SHORT_LABEL[srMode]}`}
+                aria-expanded={srMenuPos === "topbar"}
+                title="选择 GPU 画质超分档位"
+                aria-pressed={srMode !== "off"}
+                className={`h-9 px-2.5 rounded-full flex items-center gap-1 text-[12px] font-bold pressable elev-1 ${srMode !== "off" ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
+                <ISparkF size={13} />
+                <span>{SR_SHORT_LABEL[srMode]}</span>
+              </Button>
+              {srMenuPos === "topbar" && (
+                <SuperResMenu
+                  current={srMode}
+                  placement="down"
+                  align="right"
+                  onSelect={(m) => { setSrMode(m); setSrMenuPos(null); }}
+                />
+              )}
+            </div>
+          )}
           {!fs && !clean && <Button onClick={() => setMuted(m => !m)} aria-label={muted ? "取消静音" : "静音"}
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1">
             {muted ? <IVolMute size={17} /> : <IVol size={17} />}
