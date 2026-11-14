@@ -8,6 +8,8 @@ export type Platform = "android" | "ios" | "windows" | "macos" | "linux";
 export type Theme = "dark" | "light";
 export type ThemePreference = Theme | "system";
 export type Tab = "home" | "search" | "category" | "profile";
+/** GPU 超分档位（移植自 LNPANDY v1.2.2） */
+export type SuperResMode = "off" | "natural" | "cinema" | "crisp" | "anime_3d" | "anime_2d";
 
 /** 播放页上下文：ids 是来源列表，index 是当前条目。 */
 export type FeedContext = {
@@ -75,12 +77,15 @@ type Persist = {
   swipeEp: boolean;
   /** 优先高清：有 HEVC 就用 HEVC，播不了自动回退标准 */
   preferHevc: boolean;
+  /** GPU 超分档位（移植自 LNPANDY v1.2.2），随 app 配置一块持久化 */
+  srMode: SuperResMode;
 };
 
 const LS = STORAGE_KEYS.app;
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
   muted: true, muteOnStartup: true, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: false,
+  srMode: "natural",
 };
 
 /** 旧版本 history 是 number[]，读出来时升级成带进度的结构 */
@@ -117,7 +122,15 @@ function loadPersist(): Persist {
         localStorage.setItem(STORAGE_KEYS.swipeEp, "1");
       }
     } catch { /* ignore */ }
-    return { ...p, swipeEp, muteOnStartup, muted: muteOnStartup || p.muted === true, history: normalizeHistory(p.history) };
+    /* 超分档位归一化：LNPANDY 早期版本用过 fsr / anime 两个旧名，映射到现档位 */
+    const rawSr = (p as { srMode?: string }).srMode;
+    const srMode: SuperResMode =
+      rawSr === "fsr" ? "natural"
+      : rawSr === "anime" ? "anime_3d"
+      : rawSr === "off" || rawSr === "natural" || rawSr === "cinema" || rawSr === "crisp" || rawSr === "anime_3d" || rawSr === "anime_2d"
+        ? rawSr
+        : "natural";
+    return { ...p, swipeEp, srMode, muteOnStartup, muted: muteOnStartup || p.muted === true, history: normalizeHistory(p.history) };
   } catch {
     return DEFAULTS;
   }
@@ -182,6 +195,7 @@ type Store = {
   swipeEp: boolean; setSwipeEp: (on: boolean) => void;
   preferHevc: boolean; setPreferHevc: (on: boolean) => void;
   volume: number; setVolume: (v: number) => void;
+  srMode: SuperResMode; setSrMode: (m: SuperResMode) => void; cycleSrMode: () => void;
   searchHist: string[]; addSearch: (q: string) => void; clearSearchHist: () => void;
   strictSecurity: boolean; strictSecurityReady: boolean; securityPending: boolean; cliRelaxed: boolean; setStrictSecurity: (on: boolean) => Promise<void>;
   toasts: Toast[]; toast: (msg: string, icon?: Toast["icon"]) => void;
@@ -423,6 +437,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const volume = Math.max(0, Math.min(1, v));
     setP((s) => ({ ...s, volume, muted: volume === 0 }));
   }, []);
+  const setSrMode = useCallback((srMode: SuperResMode) => {
+    setP((s) => ({ ...s, srMode }));
+  }, []);
+  const cycleSrMode = useCallback(() => {
+    const order: SuperResMode[] = ["natural", "cinema", "crisp", "anime_3d", "anime_2d", "off"];
+    const next = order[(order.indexOf(p.srMode) + 1) % order.length];
+    setP((s) => ({ ...s, srMode: next }));
+    const labels: Record<SuperResMode, string> = {
+      natural: "自然清透 · 柔和抗锯齿",
+      cinema: "影院质感 · 通透微反差",
+      crisp: "超清锐利 · 强效细节增强",
+      anime_3d: "漫剧锐线 · 零涂抹保纹理",
+      anime_2d: "二次元重绘 · 净底重描边",
+      off: "原画直通 · 已关闭超分",
+    };
+    toast(`画质增强：${labels[next]}`, next === "off" ? "info" : "ok");
+  }, [p.srMode, toast]);
 
   const value = useMemo<Store>(() => ({
     platform: envPlatform,
@@ -433,7 +464,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isLiked: (id) => p.likes.includes(id),
     isFav: (id) => p.favs.includes(id),
     toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
-    muted: p.muted, setMuted, volume: p.volume, setVolume, theater, setTheater, fs, setFs, clean, setClean,
+    muted: p.muted, setMuted, volume: p.volume, setVolume, srMode: p.srMode, setSrMode, cycleSrMode, theater, setTheater, fs, setFs, clean, setClean,
     muteOnStartup: p.muteOnStartup, setMuteOnStartup,
     swipeEp: p.swipeEp, setSwipeEp,
     preferHevc: p.preferHevc, setPreferHevc,
@@ -442,7 +473,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toasts, toast, lineEpoch,
   }), [theme, themePreference, setTheme, tab, setTab, stack, push, pop, user, loginOpen, logout,
     p, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
-    setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
+    setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setVolume, setSrMode, cycleSrMode, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast, lineEpoch, theater, setTheater, fs, setFs, clean, setClean]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
