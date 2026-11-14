@@ -302,12 +302,15 @@ pub async fn load_segment(url: &str) -> Result<(Option<String>, Arc<Vec<u8>>), S
             rx
         }
     };
-    match rx.wait_for(|v| v.is_some()).await {
-        Ok(guard) => (*guard)
-            .clone()
-            .unwrap_or_else(|| Err("分片抓取中断".into())),
-        Err(_) => Err("分片抓取中断".into()),
-    }
+    // wait_for 的 Ref 借着 rx，把等待收进独立块里先把结果克隆出来，
+    // 免得临时量析构与借用打架（E0597）。
+    let result = {
+        match rx.wait_for(|v| v.is_some()).await {
+            Ok(guard) => (*guard).clone(),
+            Err(_) => None,
+        }
+    };
+    result.unwrap_or_else(|| Err("分片抓取中断".into()))
 }
 
 /// 真正抓一个分片（只被在途任务调用）：补 MIME、按大小入 KEY/SEG 缓存。
