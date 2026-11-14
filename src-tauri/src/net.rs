@@ -448,6 +448,82 @@ async fn resolve_via_doh(host: &str, port: u16, strict: bool) -> Result<(Vec<Soc
     Ok((resolution.addresses, CLIENT_TTL.min(resolution.ttl)))
 }
 
+/// 全 fake 时的第一绕行（Muse 2026-11-14，2.0.9）：向 223.5.5.5:53 走普通 UDP
+/// DNS 直查拿真实地址。2.0.8 真机已钉死家里 DoH（443）通道不通，所以顺序是
+/// UDP → DoH → fake 回退。UDP 答案若仍全是 fake 段（被网关劫持回假答案）视为失败；
+/// 其余校验与 DoH 路径同一套（check_addresses_with_mode）。
+async fn resolve_via_udp(host: &str, port: u16, strict: bool) -> Result<(Vec<SocketAddr>, Duration), String> {
+    let resolution = crate::media_dns::resolve_udp(host, port).await?;
+    if !resolution.addresses.is_empty()
+        && resolution
+            .addresses
+            .iter()
+            .all(|addr| ip_kind(addr.ip()) == "fake_ip")
+    {
+        return Err("备用 DNS 返回内网或保留地址".into());
+    }
+    network_policy::check_addresses_with_mode(&resolution.addresses, strict)?;
+    Ok((resolution.addresses, CLIENT_TTL.min(resolution.ttl)))
+}
+
+/// 握手竞速重排（Muse 2026-11-14，2.0.9）：媒体主机的系统答案常有 2–9 个真实
+/// 地址但顺序随机、快慢悬殊（Hark 实测同一主机国内 IP 握手 0.10s、海外 IP
+/// 0.65–2.76s），原序钉给 reqwest 时先连上谁全凭运气。对前 8 个地址并发 TCP
+/// connect 竞速（总窗口 300ms；有 <150ms 连上即可提前收工）：连上的按 RTT 升序
+/// 排前，未连上/超时的保持原相对顺序跟在后面（可能只是慢、不是死，不能丢）；
+/// 全都没连上则原序原样返回。竞速连接连上即弃、不发任何数据。
+async fn race_answers(addrs: &[SocketAddr]) -> (Vec<SocketAddr>, Option<u64>) {
+    const RACE_WINDOW: Duration = Duration::from_millis(300);
+    const FAST_ENOUGH: Duration = Duration::from_millis(150);
+    const MAX_RACED: usize = 8;
+    let mut set = tokio::task::JoinSet::new();
+    for (index, addr) in addrs.iter().take(MAX_RACED).enumerate() {
+        let addr = *addr;
+        set.spawn(async move {
+            let started = Instant::now();
+            // TcpStream 连上后立即 drop：只测握手 RTT，不发任何数据。
+            tokio::net::TcpStream::connect(addr)
+                .await
+                .ok()
+                .map(|_| (index, started.elapsed()))
+        });
+    }
+    let mut connected: Vec<(usize, Duration)> = Vec::new();
+    let deadline = tokio::time::sleep(RACE_WINDOW);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            joined = set.join_next() => {
+                match joined {
+                    Some(Ok(Some(hit))) => {
+                        let fast_enough = hit.1 < FAST_ENOUGH;
+                        connected.push(hit);
+                        if fast_enough {
+                            break;
+                        }
+                    }
+                    Some(_) => {} // 该地址连接失败，继续等其余
+                    None => break, // 全部竞速任务已结束
+                }
+            }
+            _ = &mut deadline => break,
+        }
+    }
+    set.abort_all();
+    if connected.is_empty() {
+        return (addrs.to_vec(), None);
+    }
+    connected.sort_by_key(|(index, rtt)| (*rtt, *index));
+    let first_ms = connected.first().map(|(_, rtt)| rtt.as_millis() as u64);
+    let mut reordered: Vec<SocketAddr> = connected.iter().map(|(index, _)| addrs[*index]).collect();
+    for (index, addr) in addrs.iter().enumerate() {
+        if !connected.iter().any(|(hit, _)| *hit == index) {
+            reordered.push(*addr);
+        }
+    }
+    (reordered, first_ms)
+}
+
 /// network.resolve 诊断用：把一组解析答案按 ip_kind 归类成去重排序后的种类数组，
 /// 让真机日志能直接看出答案构成是纯 fake-ip、纯公网还是混合（Muse 2026-11-14，2.0.8 定位绕行未触发用）。
 fn resolve_kinds(addrs: &[SocketAddr]) -> Vec<&'static str> {
@@ -489,20 +565,32 @@ async fn client_for_dns(raw: &str, public_dns: bool) -> Result<(url::Url, Arc<re
         let all_fake = !resolved.is_empty() && resolved.iter().all(|addr| ip_kind(addr.ip()) == "fake_ip");
         if all_fake {
             // 系统 DNS 给的全是 fake-ip：那是网关伪造并接管的地址，拿它当真公网 IP
-            // 直连会被带到代理出口侧解析、多半落到海外节点。绕行阿里 DoH 拿真实
-            // 地址钉住；DoH 也失败时回退 fake 地址建客户端，保住纯 TUN 环境可用。
-            match resolve_via_doh(host, port, strict).await {
+            // 直连会被带到代理出口侧解析、多半落到海外节点。绕行顺序（2.0.9）：
+            // 先 UDP 直查阿里（家里 443 不通时 53 常还活着），失败再原 DoH；两条都
+            // 断才回退 fake 地址建客户端，保住纯 TUN 环境可用。
+            match resolve_via_udp(host, port, strict).await {
                 Ok(real) => {
-                    crate::playback_log::record("network.dns_fallback", json!({"resource": crate::playback_log::resource_id(raw), "public_dns": true, "reason": "fake_ip"}));
-                    crate::playback_log::record("network.resolve", json!({"host": host, "kinds": resolve_kinds(&real.0), "count": real.0.len(), "all_fake": true, "branch": "doh"}));
+                    crate::playback_log::record("network.resolve", json!({"host": host, "kinds": resolve_kinds(&real.0), "count": real.0.len(), "all_fake": true, "branch": "udp_dns"}));
                     real
                 }
-                Err(error) => {
-                    // 绕行失败回退 fake 地址也要留痕，否则真机上分不清是「全假判断没成立」还是「DoH 飞快失败被吞」（2.0.8）。
-                    crate::playback_log::record("network.resolve", json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": true, "branch": "fake_fallback", "doh_error": error}));
-                    (resolved, CLIENT_TTL)
-                }
+                Err(udp_error) => match resolve_via_doh(host, port, strict).await {
+                    Ok(real) => {
+                        crate::playback_log::record("network.dns_fallback", json!({"resource": crate::playback_log::resource_id(raw), "public_dns": true, "reason": "fake_ip"}));
+                        crate::playback_log::record("network.resolve", json!({"host": host, "kinds": resolve_kinds(&real.0), "count": real.0.len(), "all_fake": true, "branch": "doh"}));
+                        real
+                    }
+                    Err(error) => {
+                        // 绕行失败回退 fake 地址也要留痕，否则真机上分不清是「全假判断没成立」还是「DoH 飞快失败被吞」（2.0.8）；2.0.9 起同条带上 udp_error，区分两条绕行各死在哪。
+                        crate::playback_log::record("network.resolve", json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": true, "branch": "fake_fallback", "doh_error": error, "udp_error": udp_error}));
+                        (resolved, CLIENT_TTL)
+                    }
+                },
             }
+        } else if resolved.len() >= 2 {
+            // 答案全是真地址但顺序随机、快慢悬殊：握手竞速重排后再钉住（2.0.9 修复一）。
+            let (raced, first_ms) = race_answers(&resolved).await;
+            crate::playback_log::record("network.resolve", json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": false, "branch": "system_raced", "first_ms": first_ms}));
+            (raced, CLIENT_TTL)
         } else {
             crate::playback_log::record("network.resolve", json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": false, "branch": "system"}));
             (resolved, CLIENT_TTL)

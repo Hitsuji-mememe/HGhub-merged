@@ -1,7 +1,8 @@
 use crate::network_policy;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::{Duration, Instant};
 
 pub(crate) const HOST: &str = "dns.alidns.com";
@@ -108,6 +109,221 @@ pub(crate) async fn resolve(
     answers(&value, port)
 }
 
+// ===== UDP 直查（Muse 2026-11-14，2.0.9）=====
+// 2.0.8 真机日志钉死：家里环境到 223.5.5.5:443 的 DoH HTTPS 通道整体不通
+// （doh_error=「备用 DNS 请求失败」），全 fake 的域名因此永远回退假地址。
+// UDP/53 是另一条物理通道，未必被堵：全 fake 时先手写最小 DNS 报文直查阿里，
+// 失败再回落原 DoH。不引第三方 DNS 库；解析全程设界（响应 ID、answer 段、
+// CNAME 跳过、压缩指针步数上限、报文长度上限），防劫持报文把解析器带偏。
+
+const UDP_SERVER: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(223, 5, 5, 5)), 53);
+const UDP_TIMEOUT: Duration = Duration::from_secs(2);
+const MAX_UDP_PACKET_BYTES: usize = 4096;
+const MAX_POINTER_JUMPS: usize = 16;
+const MAX_ANSWER_RECORDS: usize = 64;
+
+fn encode_query(id: u16, host: &str, qtype: u16) -> Result<Vec<u8>, String> {
+    let mut packet = Vec::with_capacity(64);
+    packet.extend_from_slice(&id.to_be_bytes());
+    packet.extend_from_slice(&0x0100u16.to_be_bytes()); // RD
+    packet.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT
+    packet.extend_from_slice(&0u16.to_be_bytes()); // ANCOUNT
+    packet.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT
+    packet.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
+    for label in host.split('.') {
+        if label.is_empty()
+            || label.len() > 63
+            || !label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        {
+            return Err("备用 DNS 域名无效".into());
+        }
+        packet.push(label.len() as u8);
+        packet.extend_from_slice(label.as_bytes());
+    }
+    packet.push(0);
+    if packet.len() > 512 {
+        return Err("备用 DNS 域名无效".into());
+    }
+    packet.extend_from_slice(&qtype.to_be_bytes());
+    packet.extend_from_slice(&1u16.to_be_bytes()); // QCLASS = IN
+    Ok(packet)
+}
+
+/// 跳过报文 pos 处的一个（可能带压缩指针的）域名，返回名字之后的位置。
+/// 每一步都做界检；指针跟随次数封顶，指针自环/互环都会在此失败。
+fn skip_name(packet: &[u8], mut pos: usize) -> Result<usize, String> {
+    let mut end: Option<usize> = None;
+    let mut jumps = 0usize;
+    loop {
+        let byte = *packet.get(pos).ok_or("备用 DNS 响应无效")?;
+        match byte & 0xC0 {
+            0xC0 => {
+                let low = *packet.get(pos + 1).ok_or("备用 DNS 响应无效")? as usize;
+                if end.is_none() {
+                    end = Some(pos + 2);
+                }
+                jumps += 1;
+                if jumps > MAX_POINTER_JUMPS {
+                    return Err("备用 DNS 响应无效".into());
+                }
+                pos = ((byte as usize & 0x3F) << 8) | low;
+            }
+            0 => {
+                if byte == 0 {
+                    return Ok(end.unwrap_or(pos + 1));
+                }
+                pos += 1 + byte as usize; // 标签内容由下一轮 get 界检
+            }
+            _ => return Err("备用 DNS 响应无效".into()),
+        }
+    }
+}
+
+fn parse_udp_answers(packet: &[u8], id: u16, port: u16) -> Result<Resolution, String> {
+    let read_u16 = |pos: usize| -> Result<u16, String> {
+        let bytes = packet.get(pos..pos + 2).ok_or("备用 DNS 响应无效")?;
+        Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
+    };
+    if packet.len() < 12 || read_u16(0)? != id {
+        return Err("备用 DNS 响应无效".into());
+    }
+    let flags = read_u16(2)?;
+    if flags & 0x8000 == 0 || flags & 0x000F != 0 {
+        return Err("备用 DNS 响应无效".into()); // 必须是响应且 RCODE = 0
+    }
+    if flags & 0x0200 != 0 {
+        return Err("备用 DNS 响应被截断".into()); // TC：无 EDNS 时答案可能不全，不冒险用
+    }
+    let qdcount = read_u16(4)? as usize;
+    let ancount = read_u16(6)? as usize;
+    if ancount > MAX_ANSWER_RECORDS {
+        return Err("备用 DNS 响应无效".into());
+    }
+    let mut pos = 12usize;
+    for _ in 0..qdcount {
+        pos = skip_name(packet, pos)?;
+        if pos + 4 > packet.len() {
+            return Err("备用 DNS 响应无效".into());
+        }
+        pos += 4;
+    }
+    let mut addresses = Vec::new();
+    let mut ttl = 30u64;
+    for _ in 0..ancount {
+        pos = skip_name(packet, pos)?;
+        if pos + 10 > packet.len() {
+            return Err("备用 DNS 响应无效".into());
+        }
+        let rr_type = read_u16(pos)?;
+        let ttl_bytes = packet
+            .get(pos + 4..pos + 8)
+            .ok_or("备用 DNS 响应无效")?;
+        let rr_ttl = u32::from_be_bytes([ttl_bytes[0], ttl_bytes[1], ttl_bytes[2], ttl_bytes[3]]) as u64;
+        let rdlen = read_u16(pos + 8)? as usize;
+        let rdata_start = pos + 10;
+        let rdata_end = rdata_start
+            .checked_add(rdlen)
+            .filter(|end| *end <= packet.len())
+            .ok_or("备用 DNS 响应无效")?;
+        match (rr_type, rdlen) {
+            (1, 4) => {
+                addresses.push(SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::new(
+                        packet[rdata_start],
+                        packet[rdata_start + 1],
+                        packet[rdata_start + 2],
+                        packet[rdata_start + 3],
+                    )),
+                    port,
+                ));
+                ttl = ttl.min(rr_ttl);
+            }
+            (28, 16) => {
+                let mut bytes = [0u8; 16];
+                bytes.copy_from_slice(&packet[rdata_start..rdata_end]);
+                addresses.push(SocketAddr::new(IpAddr::V6(Ipv6Addr::from(bytes)), port));
+                ttl = ttl.min(rr_ttl);
+            }
+            _ => {} // CNAME 等其余类型整段跳过
+        }
+        pos = rdata_end;
+    }
+    // 与 DoH answers() 同一套卫生校验：任一地址是内网/保留或 fake 段，整份答案作废，
+    // 不能让网关劫持回的假地址混进钉住列表。
+    for addr in &addresses {
+        let ip = addr.ip();
+        let fake_v4 = matches!(ip, IpAddr::V4(v4) if {
+            let [first, second, _, _] = v4.octets();
+            first == 198 && (18..=20).contains(&second)
+        });
+        if !network_policy::allowed_ip(ip) || fake_v4 {
+            return Err("备用 DNS 返回内网或保留地址".into());
+        }
+    }
+    addresses.sort_unstable();
+    addresses.dedup();
+    if addresses.is_empty() || addresses.len() > 32 {
+        return Err("备用 DNS 没有可用地址".into());
+    }
+    Ok(Resolution {
+        addresses,
+        ttl: Duration::from_secs(ttl),
+    })
+}
+
+async fn query_udp(id: u16, host: &str, qtype: u16, target_port: u16) -> Result<Resolution, String> {
+    let packet = encode_query(id, host, qtype)?;
+    let socket = tokio::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
+        .await
+        .map_err(|_| "备用 DNS 请求失败")?;
+    socket
+        .connect(UDP_SERVER)
+        .await
+        .map_err(|_| "备用 DNS 请求失败")?;
+    socket
+        .send(&packet)
+        .await
+        .map_err(|_| "备用 DNS 请求失败")?;
+    let mut buffer = vec![0u8; MAX_UDP_PACKET_BYTES];
+    let received = tokio::time::timeout(UDP_TIMEOUT, socket.recv(&mut buffer))
+        .await
+        .map_err(|_| "备用 DNS 请求超时")?
+        .map_err(|_| "备用 DNS 请求失败")?;
+    buffer.truncate(received);
+    parse_udp_answers(&buffer, id, target_port)
+}
+
+/// 向 223.5.5.5:53 直查 A 与 AAAA（并发各一次、不重试），合并可用答案。
+/// 只问一轮：调用方在全 fake 分支才进来，后面还有 DoH 兜底，不能在这里放大等待。
+pub(crate) async fn resolve_udp(host: &str, port: u16) -> Result<Resolution, String> {
+    static NEXT_ID: AtomicU16 = AtomicU16::new(0x4d32);
+    let seed = NEXT_ID.fetch_add(0x9e37, Ordering::Relaxed);
+    let (a, aaaa) = tokio::join!(
+        query_udp(seed, host, 1, port),
+        query_udp(seed.wrapping_add(1), host, 28, port),
+    );
+    let mut addresses = Vec::new();
+    let mut ttl = Duration::from_secs(30);
+    let mut error: Option<String> = None;
+    for result in [a, aaaa] {
+        match result {
+            Ok(resolution) => {
+                ttl = ttl.min(resolution.ttl);
+                addresses.extend(resolution.addresses);
+            }
+            Err(e) => error = Some(e),
+        }
+    }
+    addresses.sort_unstable();
+    addresses.dedup();
+    if addresses.is_empty() || addresses.len() > 32 {
+        return Err(error.unwrap_or_else(|| "备用 DNS 没有可用地址".into()));
+    }
+    Ok(Resolution { addresses, ttl })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +394,67 @@ mod tests {
         ] {
             assert!(!eligible(&url::Url::parse(raw).unwrap(), "请求超时"));
         }
+    }
+
+    fn udp_response(id: u16, answers: &[u8], ancount: u16) -> Vec<u8> {
+        let mut packet = Vec::new();
+        packet.extend_from_slice(&id.to_be_bytes());
+        packet.extend_from_slice(&0x8180u16.to_be_bytes());
+        packet.extend_from_slice(&1u16.to_be_bytes());
+        packet.extend_from_slice(&ancount.to_be_bytes());
+        packet.extend_from_slice(&0u16.to_be_bytes());
+        packet.extend_from_slice(&0u16.to_be_bytes());
+        packet.extend_from_slice(&[
+            7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0,
+        ]);
+        packet.extend_from_slice(&1u16.to_be_bytes());
+        packet.extend_from_slice(&1u16.to_be_bytes());
+        packet.extend_from_slice(answers);
+        packet
+    }
+
+    fn a_record(ip: [u8; 4], ttl: u32) -> Vec<u8> {
+        let mut record = vec![0xC0, 0x0C];
+        record.extend_from_slice(&1u16.to_be_bytes());
+        record.extend_from_slice(&1u16.to_be_bytes());
+        record.extend_from_slice(&ttl.to_be_bytes());
+        record.extend_from_slice(&4u16.to_be_bytes());
+        record.extend_from_slice(&ip);
+        record
+    }
+
+    #[test]
+    fn udp_answers_skip_cname_and_collect_a_records() {
+        let mut answers = vec![0xC0, 0x0C];
+        answers.extend_from_slice(&5u16.to_be_bytes()); // CNAME
+        answers.extend_from_slice(&1u16.to_be_bytes());
+        answers.extend_from_slice(&60u32.to_be_bytes());
+        answers.extend_from_slice(&2u16.to_be_bytes());
+        answers.extend_from_slice(&[0xC0, 0x0C]);
+        answers.extend_from_slice(&a_record([1, 2, 3, 4], 30));
+        let packet = udp_response(0x1234, &answers, 2);
+        let result = parse_udp_answers(&packet, 0x1234, 443).unwrap();
+        assert_eq!(result.addresses, vec!["1.2.3.4:443".parse().unwrap()]);
+        assert_eq!(result.ttl, Duration::from_secs(30));
+        // ID 不符必须失败
+        assert!(parse_udp_answers(&packet, 0x9999, 443).is_err());
+    }
+
+    #[test]
+    fn udp_answers_reject_fake_ip_and_pointer_loops() {
+        let fake = udp_response(0x1234, &a_record([198, 20, 0, 11], 30), 1);
+        assert!(parse_udp_answers(&fake, 0x1234, 443).is_err());
+        // 第一答的名字指针指向自己（偏移 29 = 12 头 + 13 问题名 + 4 类型/类）
+        let mut looped = vec![0xC0, 0x1D];
+        looped.extend_from_slice(&1u16.to_be_bytes());
+        looped.extend_from_slice(&1u16.to_be_bytes());
+        looped.extend_from_slice(&30u32.to_be_bytes());
+        looped.extend_from_slice(&4u16.to_be_bytes());
+        looped.extend_from_slice(&[1, 2, 3, 4]);
+        let packet = udp_response(0x1234, &looped, 1);
+        assert!(parse_udp_answers(&packet, 0x1234, 443).is_err());
+        // 截断的报文
+        assert!(parse_udp_answers(&packet[..10], 0x1234, 443).is_err());
     }
 
     #[test]
