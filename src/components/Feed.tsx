@@ -446,7 +446,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     && playGuard.current.permissionKey === permissionKey && playGuard.current.playKey === playKey;
   const mainUrl = playUrls[playKey] || "";
   const hevcUrl = hevcUrls[playKey] || "";
-  const playUrl = preferHevc && hevcUrl ? hevcUrl : mainUrl;
+  /* Muse 2026-11-15 (2.1.4): HEVC 回退按集锁定——解码/格式类失败只锁当前集（hevcDeadKey），
+     切集后新集重新优先高清；网络类失败不锁（见 onError 分类）。 */
+  const [hevcDeadKey, setHevcDeadKey] = useState("");
+  const playUrl = preferHevc && hevcUrl && hevcDeadKey !== playKey ? hevcUrl : mainUrl;
   const playKeyRef = useRef(playKey);
   playKeyRef.current = playKey;
   /* 地址缓存的 ref 镜像：预解析队列在异步回调里查「是否已有缓存」用，避免闭包过期 */
@@ -1610,9 +1613,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   onEnded={() => { if (!isCurrentPlayback()) return; const next = episodes.find((e) => e.ep_num === curEp + 1); if (next) pickEp(next.ep_num); }}                  onError={(m) => {
                     if (!isCurrentPlayback()) return;
                     setErr(m);
-                    if (preferHevc && hevcUrl) {
-                      setPreferHevc(false);
-                      toast("高清播不了，已切回标准", "info");
+                    /* Muse 2026-11-15 (2.1.4): 失败分类——只有解码/格式类错误才锁本集高清；
+                       网络类（frag/manifest/buffer stalled 等）不锁，避免弱网误判成解码失败。 */
+                    const decodeErr = /mediaError|bufferAppend|bufferAppending|decode|MEDIA_ERR|SRC_NOT_SUPPORTED|format/i.test(m);
+                    if (decodeErr && preferHevc && hevcUrl && hevcDeadKey !== playKey) {
+                      setHevcDeadKey(playKey);
+                      toast("本集高清播不了，已切标准", "info");
                     }
                   }} />
                 </div>
@@ -2005,6 +2011,31 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable">
               {muted ? <IVolMute size={15} /> : <IVol size={15} />}
             </Button>
+            {/* Muse 2026-11-15 (2.1.4): 底栏右段顺序定版：选集 → 倍速 → 超分（选集最高频靠前）。 */}
+            {episodes.length > 1 && (
+              <Button onClick={() => setPanel("episodes")}
+                className="shrink-0 flex items-center gap-1 px-1.5 h-8 rounded-full text-[12px] font-semibold hg-chip hg-ink-2 pressable"
+                aria-label="选集">
+                <IList size={13} />选集
+              </Button>
+            )}
+            <div data-rate-slot className="relative shrink-0">
+              <Button
+                onClick={() => setRateMenuOpen((v) => !v)}
+                aria-label={`倍速：${effRate}x`}
+                aria-expanded={rateMenuOpen}
+                title="选择播放倍速"
+                aria-pressed={effRate !== 1}
+                className={`flex items-center gap-1 px-1.5 h-8 rounded-full text-[12px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
+                <IBoltF size={12} />{effRate}x
+              </Button>
+              {rateMenuOpen && (
+                <RateMenu
+                  current={rate}
+                  onSelect={(r) => { setRate(r); setRateMenuOpen(false); }}
+                />
+              )}
+            </div>
             <div data-sr-slot className="relative ml-auto shrink-0">
               <Button
                 onClick={() => setSrMenuPos((pos) => (pos === "fs-bottom" ? null : "fs-bottom"))}
@@ -2024,36 +2055,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 />
               )}
             </div>
-            <div data-rate-slot className="relative shrink-0">
-              <Button
-                onClick={() => setRateMenuOpen((v) => !v)}
-                aria-label={`倍速：${effRate}x`}
-                aria-expanded={rateMenuOpen}
-                title="选择播放倍速"
-                aria-pressed={effRate !== 1}
-                className={`flex items-center gap-1 px-1.5 h-8 rounded-full text-[12px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
-                <IBoltF size={12} />{effRate}x
-              </Button>
-              {rateMenuOpen && (
-                <RateMenu
-                  current={rate}
-                  onSelect={(r) => { setRate(r); setRateMenuOpen(false); }}
-                />
-              )}
-            </div>
-            {/* Muse 2026-11-15 (2.1.2): 画质切换入口（用户点名的有用控制）——有 HEVC 高清流时才出现，
-                与非全屏右侧栏的 HD 钮同一开关（preferHevc，默认已开，见 store 迁移）。 */}
-            {/* Muse 2026-11-15 (2.1.2): 上一集/下一集钮不加（用户终版定版）——有了选集直达，
-                上下集钮是多余的。切集只留三条简单路径：选集网格、Feed 内滑动切、播完自动连播。 */}
-            {/* 选集钮按方向分位——横屏全屏在底栏（宽度够）；
-                竖屏全屏改放右侧中段（见下方独立按钮），底栏不再塞它，总时长不被挤。 */}
-            {episodes.length > 1 && (
-              <Button onClick={() => setPanel("episodes")}
-                className="shrink-0 flex items-center gap-1 px-1.5 h-8 rounded-full text-[12px] font-semibold hg-chip hg-ink-2 pressable"
-                aria-label="选集">
-                <IList size={13} />选集
-              </Button>
-            )}
           </div>
           {/* Muse 2026-11-15 (2.1.3): 竖屏全屏选集钮移入底栏（用户实测右侧中段碍事），横竖屏统一底栏。 */}
         </>
