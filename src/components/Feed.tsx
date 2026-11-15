@@ -1719,13 +1719,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset + 92}px)` }}>
                   {/* Muse 2026-11-15 (2.1.2): 右侧栏「切集」开关钮已删（用户定版）——选集一按直达
                       （左下「第X集」/全屏底栏「选集」），竖滑切集恒定生效，不再有模式开关。 */}
-                  {hevcUrl && (
-                    <Button type="button" onClick={() => { setPreferHevc(!preferHevc); toast(preferHevc ? "已切回标准画质" : "已切换高清 HEVC", "ok"); }}
-                      className="flex flex-col items-center gap-1 pressable" aria-pressed={preferHevc} aria-label="画质切换">
-                      <span className={`flex items-center justify-center h-[22px] min-w-[30px] px-1 rounded-md text-[12px] font-bold hg-ov-shadow ${preferHevc ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>{preferHevc ? "HD" : "标清"}</span>
-                      <span className="text-[12px] hg-ov-shadow" style={{ color: preferHevc ? "#fff" : undefined }}>{preferHevc ? "高清" : "标清"}</span>
-                    </Button>
-                  )}
+                  {/* Muse 2026-11-15 (2.1.3): 画质切换钮删除（用户定版）——能高清就高清、
+                      高清播不了自动回退标清（onError 既有逻辑），不给手动开关。 */}
                   {kind === "video" && (
                     <Button onClick={() => void onLike()} disabled={likePending} aria-busy={likePending} className="flex flex-col items-center gap-1 pressable" aria-pressed={liked} aria-label="点赞">
                       {liked ? <IHeartF size={27} className="text-neon" /> : <IHeart size={27} className="hg-ink hg-ov-shadow" />}
@@ -1800,13 +1795,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                       第 {curEp}/{episodes.length} 集
                     </span>
                   )}
-                   {hevcUrl && (
-                     <Button type="button" aria-pressed={preferHevc}
-                       onClick={() => { setPreferHevc(!preferHevc); toast(preferHevc ? "已切回标准画质" : "已切换高清 HEVC", "ok"); }}
-                       className={`shrink-0 h-[18px] px-1.5 rounded-md text-[12px] font-bold flex items-center pressable transition-colors ${preferHevc ? "bg-primary text-on-primary" : "text-white border border-white/30"}`}>
-                       {preferHevc ? "HD" : "标清"}
-                     </Button>
-                   )}
                    {!!meta.score && (
                   <span className="shrink-0 text-[12px] font-bold hg-gold hg-ov-shadow">{meta.score.toFixed(1)} 分</span>
                   )}
@@ -2055,18 +2043,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             </div>
             {/* Muse 2026-11-15 (2.1.2): 画质切换入口（用户点名的有用控制）——有 HEVC 高清流时才出现，
                 与非全屏右侧栏的 HD 钮同一开关（preferHevc，默认已开，见 store 迁移）。 */}
-            {hevcUrl && (
-              <Button onClick={() => { setPreferHevc(!preferHevc); toast(preferHevc ? "已切回标准画质" : "已切换高清 HEVC", "ok"); }}
-                className={`shrink-0 flex items-center px-1.5 h-8 rounded-full text-[12px] font-bold pressable ${preferHevc ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}
-                aria-label="画质切换" aria-pressed={preferHevc}>
-                {preferHevc ? "HD" : "标清"}
-              </Button>
-            )}
             {/* Muse 2026-11-15 (2.1.2): 上一集/下一集钮不加（用户终版定版）——有了选集直达，
                 上下集钮是多余的。切集只留三条简单路径：选集网格、Feed 内滑动切、播完自动连播。 */}
             {/* 选集钮按方向分位——横屏全屏在底栏（宽度够）；
                 竖屏全屏改放右侧中段（见下方独立按钮），底栏不再塞它，总时长不被挤。 */}
-            {episodes.length > 1 && (rotated || vpLandscape) && (
+            {episodes.length > 1 && (
               <Button onClick={() => setPanel("episodes")}
                 className="shrink-0 flex items-center gap-1 px-1.5 h-8 rounded-full text-[12px] font-semibold hg-chip hg-ink-2 pressable"
                 aria-label="选集">
@@ -2074,14 +2055,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               </Button>
             )}
           </div>
-          {/* 竖屏全屏的选集钮：右侧中段（原右侧栏「切集」钮的位置），同属单击呼出的控制层 */}
-          {episodes.length > 1 && !rotated && !vpLandscape && (
-            <Button onClick={() => setPanel("episodes")} aria-label="选集"
-              className="hg-chip-strong absolute z-40 right-3 top-1/2 -translate-y-1/2 w-11 py-2.5 rounded-full backdrop-blur-md flex flex-col items-center gap-1 pressable elev-1">
-              <IList size={17} />
-              <span className="text-[11px] font-semibold">选集</span>
-            </Button>
-          )}
+          {/* Muse 2026-11-15 (2.1.3): 竖屏全屏选集钮移入底栏（用户实测右侧中段碍事），横竖屏统一底栏。 */}
         </>
       )}
 

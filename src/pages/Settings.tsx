@@ -31,7 +31,7 @@ const GROUP_SUMMARIES: Record<SettingGroup, string> = {
 /* 独立设置页：线路 / 外观 / 播放 / 本地数据 / 清理缓存 / 网络诊断 / 关于
    入口：Windows 侧栏「设置」、Android「我的」右上角齿轮 */
 export default function Settings({ onBack, initialSection }: { onBack: () => void; wide: boolean; initialSection?: "内容偏好" }) {
-  const { theme, themePreference, setTheme, favs, history, preferHevc, setPreferHevc, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast } = useStore();
+  const { theme, themePreference, setTheme, favs, history, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast } = useStore();
   const [about, setAbout] = useState(false);
   const [agreementOpen, setAgreementOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -115,14 +115,6 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
 
           {section("播放", <>
             {/* Muse 2026-11-15 (2.1.1 简化版): 「启动时静音」开关已随启动静音概念整体移除 */}
-            <div className="flex items-center gap-3 px-3.5 py-3">
-              <span className="ios-setting-icon"><IBoltF size={16} /></span>
-              <div className="flex-1 min-w-0">
-                <div className="text-[14px] text-on">优先高清</div>
-                <div className="text-[12px] text-mut">有高清就用 HEVC，播不了会自动切回标准</div>
-              </div>
-              <Toggle desktop on={preferHevc} onChange={setPreferHevc} label="优先高清" />
-            </div>
           </>)}
 
           {section("内容偏好", <ContentPreferencesSettings />)}

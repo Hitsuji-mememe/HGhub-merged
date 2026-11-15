@@ -127,13 +127,9 @@ function loadPersist(): Persist {
     /* Muse 2026-11-15 (2.1.2): 画质默认最高档——preferHevc 旧默认 false 是省流取向，
        用户明确要画质优先。老配置里的 false 同样多是默认值而非主动选择，做一次性迁移
        （与 swipeEp 同款）：首次加载置 true 并打标，用户之后手动关掉不再被改回。 */
-    let preferHevc = p.preferHevc === true;
-    try {
-      if (readStorage(STORAGE_KEYS.preferHevc) !== "1") {
-        preferHevc = true;
-        localStorage.setItem(STORAGE_KEYS.preferHevc, "1");
-      }
-    } catch { /* ignore */ }
+    /* Muse 2026-11-15 (2.1.3): 画质全自动——每次启动恒优先高清，不再有手动开关；
+       会话内 HEVC 播不了时 onError 回退标清（setPreferHevc(false) 仅当次会话），下次启动恢复高清优先。 */
+    const preferHevc = true;
     /* 超分档位归一化：LNPANDY 早期版本用过 fsr / anime 两个旧名，映射到现档位 */
     const rawSr = (p as { srMode?: string }).srMode;
     const srMode: SuperResMode =
