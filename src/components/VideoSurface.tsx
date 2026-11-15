@@ -149,8 +149,10 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         preferManagedMediaSource: false,
         autoStartLoad: false,
         startPosition: resume?.time ?? -1,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
+        // Muse 2026-11-15（合并 v2.1.0 时按用户拍板）：预缓冲 30s → 120s，慢档波段靠库存撑播放；
+        // maxMaxBufferLength 是 hls.js 的硬上限，必须同步抬高否则 120 会被砍回 60。
+        maxBufferLength: 120,
+        maxMaxBufferLength: 240,
         backBufferLength: 30,
         maxBufferHole: 0.5,
         nudgeOffset: 0.25,
