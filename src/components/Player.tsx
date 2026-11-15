@@ -2,6 +2,7 @@ import { Button, Input } from "./ios/controls";
 import { Loader } from "./ios/effects";
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { invoke } from "@tauri-apps/api/core";
 import Hls from "hls.js";
 import { fmtTime, platform, playlist } from "../api";
 import { mediaErrorMessage } from "../mediaErrors";
@@ -9,7 +10,6 @@ import { mediaHost, mediaResource, observeHls, usePlayerDiagnostics } from "../p
 import { usePlaybackActivity } from "../usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "../useProxyPlaybackRecovery";
 import { useSeekInput } from "../useSeekInput";
-import PlaybackLock from "./PlaybackLock";
 import { useStore } from "../store";
 import SuperResCanvas, {
   SR_PRESET_MAP,
@@ -20,7 +20,7 @@ import SuperResCanvas, {
 } from "./SuperResCanvas";
 import { useInlinePlayerFullscreen } from "../useInlinePlayerFullscreen";
 import "../styles/post-player.css";
-import { ICompress, IExpand, ILockF, IPauseF, IPlayF, ISparkF, IVol, IVolMute } from "../icons";
+import { ICompress, IExpand, IPauseF, IPlayF, IRotate, ISparkF, IVol, IVolMute } from "../icons";
 
 type Props = {
   src: string;              // 原始 m3u8 地址
@@ -55,8 +55,33 @@ export default function Player({
   const [duration, setDuration] = useState(0);
   const [rate, setRate] = useState(1);
   const [errMsg, setErrMsg] = useState<string>("");
-  const [controlsLocked, setControlsLocked] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
+  /* Muse 2026-11-15 (2.1.1): 独立播放器全屏横屏——记录视频宽高与视口方向，
+     横屏视频进全屏自动横屏（原生方向请求 + iOS 回退全屏下 CSS 旋转兜底），另有手动旋转按钮。 */
+  const [vsize, setVsize] = useState({ w: 0, h: 0 });
+  const [vpLandscape, setVpLandscape] = useState(() => typeof window !== "undefined" && window.innerWidth > window.innerHeight);
+  const [rotateOverride, setRotateOverride] = useState<boolean | null>(null);
+  useEffect(() => {
+    const onViewport = () => setVpLandscape(window.innerWidth > window.innerHeight);
+    window.addEventListener("resize", onViewport);
+    window.addEventListener("orientationchange", onViewport);
+    return () => { window.removeEventListener("resize", onViewport); window.removeEventListener("orientationchange", onViewport); };
+  }, []);
+  const landscapeVideo = vsize.w > 0 && vsize.h > 0 && vsize.w > vsize.h;
+  const playerRotated = full && fallback && !vpLandscape && (rotateOverride ?? landscapeVideo);
+  useEffect(() => {
+    if (!full) { setRotateOverride(null); return; }
+    if (landscapeVideo) { try { void invoke("set_orientation", { landscape: true }); } catch { /* ignore */ } }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [full, landscapeVideo]);
+  const toggleRotatePlayer = () => {
+    const currentlyLandscape = playerRotated || (full && vpLandscape);
+    const next = !currentlyLandscape;
+    setRotateOverride(next);
+    try { void invoke("set_orientation", { landscape: next }); } catch { /* ignore */ }
+    if (!full) toggleFull();
+  };
+
   const [svgFallback, setSvgFallback] = useState(false);
   const [srOpen, setSrOpen] = useState(false);
   const srSlotRef = useRef<HTMLDivElement>(null);
@@ -73,9 +98,9 @@ export default function Player({
   }, [srOpen]);
 
   useEffect(() => {
-    if (!active || controlsLocked) setSrOpen(false);
-  }, [active, controlsLocked]);
-  const seek = useSeekInput({ time, duration, enabled: active && !controlsLocked, resetKey: src,
+    if (!active) setSrOpen(false);
+  }, [active]);
+  const seek = useSeekInput({ time, duration, enabled: active, resetKey: src,
     onInteraction: (phase, input, target, pointerTarget) => trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget }),
     onSeek: (target, input) => {
       const video = videoRef.current;
@@ -206,6 +231,22 @@ export default function Player({
     else activity.pause("toggle");
   };
 
+  /* Muse 2026-11-15 (2.1.1 操作定版): 画面点击延时判定——单击等 240ms 无第二击才切播放，
+     双击在第二击立即切播放且只切一次（旧实现单击即切、双击连切两次等于没切）。 */
+  const surfaceClickTimer = useRef<number | null>(null);
+  const onSurfaceClick = () => {
+    if (surfaceClickTimer.current) {
+      window.clearTimeout(surfaceClickTimer.current);
+      surfaceClickTimer.current = null;
+      toggle();
+      return;
+    }
+    surfaceClickTimer.current = window.setTimeout(() => {
+      surfaceClickTimer.current = null;
+      toggle();
+    }, 240) as unknown as number;
+  };
+
   const cycleRate = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -219,10 +260,10 @@ export default function Player({
 
   return (
     <div ref={slotRef} className={`post-player-slot ${className}`}>
-    {createPortal(<div ref={wrapRef} className="post-player relative bg-black overflow-hidden"
+    {createPortal(<div ref={wrapRef} className={`post-player relative bg-black overflow-hidden ${playerRotated ? "fs-landscape" : ""}`}
       data-playing={playing} data-fullscreen={full} data-fullscreen-fallback={fallback}>
       <SuperResSvgDefs />
-      <div className="absolute inset-0" inert={controlsLocked}>
+      <div className="absolute inset-0">
       <video
         ref={videoRef}
         poster={poster}
@@ -232,7 +273,7 @@ export default function Player({
         loop={loop}
         className="w-full h-full object-contain bg-black"
         style={videoFilter ? { filter: videoFilter } : undefined}
-        onClick={toggle}
+        onClick={onSurfaceClick}
         onLoadedData={() => setVideoReady(true)}
         onCanPlay={() => setVideoReady(true)}
         onPlay={() => { setVideoReady(true); if (activity.isActive()) { setPlaying(true); onTogglePlay?.(true); } }}
@@ -241,7 +282,7 @@ export default function Player({
         onPlaying={() => { setVideoReady(true); if (activity.isActive()) { setWaiting(false); setErrMsg(""); onPlaying?.(); } }}
         onSeeked={() => setWaiting(false)}
         onTimeUpdate={(e) => setTime((e.target as HTMLVideoElement).currentTime)}
-        onLoadedMetadata={(e) => setDuration((e.target as HTMLVideoElement).duration || 0)}
+        onLoadedMetadata={(e) => { const v = e.target as HTMLVideoElement; setDuration(v.duration || 0); setVsize({ w: v.videoWidth || 0, h: v.videoHeight || 0 }); }}
         onEnded={() => { if (activity.isActive()) onEnded?.(); }}
         onError={() => {
           if (hlsRef.current) return;
@@ -274,7 +315,7 @@ export default function Player({
       )}
 
       {!playing && !waiting && (
-        <Button onClick={toggle} aria-label="播放"
+        <Button onClick={onSurfaceClick} aria-label="播放"
           className="absolute inset-0 flex items-center justify-center">
           <span className="w-16 h-16 rounded-full bg-black/45 backdrop-blur-sm flex items-center justify-center elev-2 pressable">
             <IPlayF size={26} className="text-white ml-0.5" />
@@ -324,10 +365,10 @@ export default function Player({
                 />
               )}
             </div>
-            <Button onClick={() => setControlsLocked(true)} aria-label="锁定播放控制" title="锁定播放控制" aria-pressed={false} className="pressable">
-              <ILockF size={16} />
-            </Button>
             <Button onClick={cycleRate} aria-label={`播放速度 ${rate} 倍`} className="text-[12px] font-bold text-white/85 pressable tabular-nums">{rate}x</Button>
+            <Button onClick={toggleRotatePlayer} aria-label="横竖屏切换" aria-pressed={playerRotated || (full && vpLandscape)} title="横竖屏切换" className="pressable">
+              <IRotate size={16} />
+            </Button>
             <Button onClick={toggleFull} aria-label={full ? "退出全屏" : "全屏"} aria-pressed={full} className="pressable">
               {full ? <ICompress size={16} /> : <IExpand size={16} />}
             </Button>
@@ -335,7 +376,7 @@ export default function Player({
         </div>
       )}
       </div>
-      {controlsLocked && <PlaybackLock active={active} onUnlock={() => setControlsLocked(false)} />}
+      {/* Muse 2026-11-15 (2.1.1 简化版): PlaybackLock 锁定浮层已移除 */}
     </div>, host)}
     </div>
   );

@@ -10,7 +10,7 @@ function Probe() {
   return <pre>{JSON.stringify({
     likes: store.likes, favs: store.favs, history: store.history, follows: store.follows,
     searchHist: store.searchHist, volume: store.volume, muted: store.muted,
-    muteOnStartup: store.muteOnStartup, swipeEp: store.swipeEp,
+    swipeEp: store.swipeEp,
     preferHevc: store.preferHevc, theme: store.theme,
   })}</pre>;
 }

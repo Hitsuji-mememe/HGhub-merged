@@ -8,7 +8,6 @@ import { Img, Sheet } from "./ui";
 import VideoSurface, { type VideoHandle } from "./VideoSurface";
 import PlayerControls from "./PlayerControls";
 import { PlaybackProgress, PlaybackTime } from "./PlaybackProgress";
-import PlaybackLock from "./PlaybackLock";
 import { SR_PRESET_MAP, SR_SHORT_LABEL, SuperResMenu } from "./SuperResCanvas";
 import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
 import { setBackHandler } from "../back";
@@ -17,15 +16,11 @@ import { tracePlayback } from "../playbackDiagnostics";
 import { createPlaybackClock } from "../playbackClock";
 import { pickLine } from "../autoLine";
 import { useContentPreferences } from "../contentPreferences";
-import { TagBlockMenu } from "./TagBlockMenu";
 import VideoDetailsPanel from "./VideoDetailsPanel";
 import { PreferenceStorageNotice } from "./PreferenceStorageNotice";
-import MobileHoldGuide from "./MobileHoldGuide";
-import { getHoldZone, HOLD_DELAY_MS, HOLD_LOCK_DISTANCE, type HoldZone } from "../mobileHold";
-import { useMobileHoldGuide } from "../useMobileHoldGuide";
 import {
-  IBack, IBoltF, ICheck, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF, IMore,
-  ILink, IList, ILockF, IPauseF, IPlayF, ISearch, ISparkF, IStar, IStarF, IVertSwap, IVol, IVolMute,} from "../icons";
+  IBack, IBoltF, IRotate, ICheck, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF, IMore,
+  IList, IPauseF, IPlayF, ISearch, ISparkF, IStar, IStarF, IVertSwap, IVol, IVolMute,} from "../icons";
 
 type Props = {
   videoIds: number[];
@@ -174,11 +169,9 @@ async function prewarmFirstSegment(videoId: number, rawUrl: string, signal: Abor
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, onBlocked, startEp, startTime }: Props) {
   const store = useStore();
   const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, setLiked, setCollected, setFollowing, actionPending, accountScope, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen, swipeEp, setSwipeEp, preferHevc, setPreferHevc, srMode, setSrMode } = store;  const isDesktop = !isMobile;
-  const holdGuide = useMobileHoldGuide();
   const contentPreferences = useContentPreferences();
   const { preferences, revision, blockReason } = contentPreferences;
   const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
-  const [tagMenu, setTagMenu] = useState(false);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [tagErrors, setTagErrors] = useState<Record<string, string>>({});
   const [details, setDetails] = useState<Record<number, Detail>>({});
@@ -223,7 +216,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   const boxRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<VideoHandle>(null);
-  const holdTargetRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(() => ({ id: videoIds[startIndex], index: startIndex }));
   const index = useMemo(() => {
     if (!effectiveVideoIds.length) return -1;
@@ -259,7 +251,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [duration, setDuration] = useState(0);
   const [vsize, setVsize] = useState({ w: 0, h: 0 });
   const [paused, setPaused] = useState(false);
-  const [controlsLocked, setControlsLocked] = useState(false);
   const [rate, setRate] = useState(1);
   const [waiting, setWaiting] = useState(false);
   /* 卡顿自愈（2.0.5）：滚动统计最近 3 片的吞吐；waiting 发生时刻；
@@ -379,14 +370,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   useEffect(() => {
     setSrMenuPos(null);
     setRateMenuOpen(false);
-  }, [clean, controlsLocked, fs, index, active]);
+  }, [clean, fs, index, active]);
   /* —— 移动端手势 —— */
+  /* Muse 2026-11-15 (2.1.1 简化版): 长按手势去分区——全屏任意位置长按=临时倍速(2x)，松手恢复菜单定档；
+     无减速区、无中心菜单区、无上滑锁定。倍速唯一长期入口是底栏 RateMenu。 */
   const [holdSpeed, setHoldSpeed] = useState(false);
-  const [holdSlow, setHoldSlow] = useState(false);
-  const [speedLock, setSpeedLock] = useState(false);
-  const [lockArmed, setLockArmed] = useState(false);
   const holdRef = useRef(false);
-  const lockArmedRef = useRef(false);
+  /* Muse 2026-11-15 (2.1.1): 全屏横屏覆盖——null=自动(横屏视频自动横屏)，
+     true=强制横屏，false=强制竖屏；底栏旋转按钮按当前视觉状态翻转，原生方向请求失败时靠 CSS 旋转兜底。 */
+  const [rotateOverride, setRotateOverride] = useState<boolean | null>(null);
   const [scrub, setScrub] = useState<{ pct: number; target: number } | null>(null);
   const scrubTarget = useRef<number | null>(null);
   /* 进度条拖动 */
@@ -396,7 +388,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const gesture = useRef<{
     x: number; y: number; startY: number; t: number; timer: number | null;
     mode: "idle" | "hold" | "scrub" | "pan"; base: number; width: number; playing: boolean;
-    zone: HoldZone;
   } | null>(null);
   /* 单击 / 双击判定：单击净屏，双击暂停 */
   const lastTapRef = useRef<{ timer: number | null; clean?: boolean; idle?: boolean }>({ timer: null });
@@ -424,13 +415,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const tagsReady = !!checked[tagKey];
   const blocked = filtering && tagsReady ? blockReason(currentTags) : null;
   const allowed = !filtering || (tagsReady && !blocked);
-  const closePanels = () => { setPanel(null); setTagMenu(false); };
-  const openPreferences = () => { closePanels(); store.push({ kind: "settings", section: "内容偏好" }); };
-  const openTagMenu = () => { setPanel(null); setTagMenu(true); };
-  const openTag = (tag: string) => { closePanels(); store.push({ kind: "tag", tag, name: tag }); };
-  useEffect(() => { setTagMenu(false); }, [curId, store.lineEpoch, accountScope]);
+  const closePanels = () => { setPanel(null); };
   useEffect(() => { if (blocked && mode === "home" && active) onBlocked?.(curId); }, [blocked, mode, active, curId, onBlocked]);
-  useEffect(() => { if (!allowed) { setPanel(null); setTagMenu(false); } }, [allowed]);
+  useEffect(() => { if (!allowed) { setPanel(null); } }, [allowed]);
   const curEp = epMap[curId] || 1;
   const liked = isLiked(curId, curEp, kind);
   const collected = isFav(curId, kind);
@@ -486,8 +473,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   };
 
   // 等播放画面就绪再提示，启动动画/协议、加载失败和其他面板不叠加教程。
-  const showHoldGuide = !isDesktop && !holdGuide.seen && active && allowed
-    && !!playUrl && duration > 0 && !err && !panel && !tagMenu && !controlsLocked;
   useEffect(() => {
     const retry = () => {
       setErr("");
@@ -616,7 +601,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         tags: post?.tags || [],
         score: 0,
         like: 0,
-        comment: 0,
+        comment: post?.counts?.comment ?? 0,
         collect: 0,
         episodes: [] as Episode[],
       }
@@ -637,17 +622,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const posterUrl = cover(meta.cover, 900);
   const articleHtml = kind === "post" && !post?.video_url ? (post?.content || "") : "";
 
-  /* 分享：复制播放链接 */
-  const shareLink = () => {
-    const u = kind === "post" ? (posts[curId]?.video_url || meta.title) : `https://huangguoai.com/video/${curId}/`;
-    copyText(u).then(() => toast("链接已复制", "ok")).catch(() => toast("复制失败", "info"));
-  };
-
   /* 倍速：长按只作临时——右上区 2.0x / 左下区 0.5x（2.0.4 起删除上滑锁定）；基准倍速由菜单选定 */
-  const effRate = holdSpeed ? 2 : holdSlow ? 0.5 : rate;
+  const effRate = holdSpeed ? 2 : rate;
   /* 进度条显示百分比（拖动时用拖动值） */
   const barProgress = barPct ?? (duration ? playbackClock.getSnapshot() / duration : 0);  /* 沉浸全屏 + 横屏视频 → 舞台旋转 90°，看起来就是横屏 */
-  const rotated = !isDesktop && fs && vsize.w > vsize.h && vsize.h > 0 && !vpLandscape;
+  const rotated = !isDesktop && fs && !vpLandscape && (rotateOverride ?? (vsize.w > vsize.h && vsize.h > 0));
   const landscapeVideo = vsize.w > 0 && vsize.h > 0 && vsize.w > vsize.h;
   /* 竖屏快捷胶囊的显隐：不卸载、只改 opacity，这样淡入淡出都能过渡（#19） */
   const capsuleOn = !fs && !clean && !isDesktop && (landscapeVideo || zoom.s > 1.05);
@@ -1012,7 +991,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* 键盘 */
   useEffect(() => {
-    if (!active || !allowed || controlsLocked || showHoldGuide) return;
+    if (!active || !allowed) return;
     const seekRelative = (delta: number) => {
       const current = videoRef.current?.el()?.currentTime ?? 0;
       videoRef.current?.seek(Math.max(0, current + delta), "keyboard_shortcut");
@@ -1040,7 +1019,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, allowed, controlsLocked, showHoldGuide, panel, index, stepDir, accountScope, curEp, kind, liked, collected, likePending, collectPending]);
+  }, [active, allowed, panel, index, stepDir, accountScope, curEp, kind, liked, collected, likePending, collectPending]);
 
   /* 安卓返回键：面板打开时先关面板 */
   useEffect(() => {
@@ -1064,7 +1043,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* —— 长按 2x（上滑锁定） / 横拖定位 / 单击暂停 —— */
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDesktop || controlsLocked || !active || showHoldGuide) return;
+    if (isDesktop || !active) return;
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointersRef.current.size === 2) {
       const pts = [...pointersRef.current.values()];
@@ -1079,40 +1058,27 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       };
       if (gesture.current?.timer) window.clearTimeout(gesture.current.timer);
       gesture.current = null;
-      if (holdRef.current) { holdRef.current = false; setHoldSpeed(false); setHoldSlow(false); }
-      lockArmedRef.current = false;
-      setLockArmed(false);
+      if (holdRef.current) { holdRef.current = false; setHoldSpeed(false); }
       setZoom((z) => ({ ...z, g: true }));
       return;
     }
     if (gesture.current || e.button !== 0) return;
     const el = e.currentTarget;
     const width = el.clientWidth || 1;
-    const rect = el.getBoundingClientRect();
-    // 按视觉矩形求真正的正方形；CSS 旋转全屏时也与蒙板标记重合。
-    const zone = getHoldZone(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     const g = {
       x: e.clientX, y: e.clientY, startY: e.clientY, t: Date.now(), base: videoRef.current?.el()?.currentTime ?? playbackClock.getSnapshot(), width,
       mode: "idle" as "idle" | "hold" | "scrub" | "pan",
-      zone,
       playing: videoRef.current?.el()?.paused === false,
+      /* Muse 2026-11-15 (2.1.1): 长按不分区——任意位置按住 380ms 进入临时倍速，不弹菜单、不改控制层显隐 */
       timer: window.setTimeout(() => {
         const cur = gesture.current;
         if (!cur || cur.mode !== "idle") return;
         cur.mode = "hold";
-        if (cur.zone === "menu") {
-          holdRef.current = false;
-          openTagMenu();
-        } else {
-          holdRef.current = true;
-          if (cur.zone === "slow") setHoldSlow(true);
-          else setHoldSpeed(true);
-        }
-        setLockArmed(false);
-        lockArmedRef.current = false;
+        holdRef.current = true;
+        setHoldSpeed(true);
         try { navigator.vibrate?.(25); } catch { /* ignore */ }
-      }, HOLD_DELAY_MS) as unknown as number,
+      }, 380) as unknown as number,
     };
     if (!isDesktop && fs && !lastTapRef.current.timer) {
       /* 全屏单击切换显隐以「手势开始前」的控制层状态为准：本 handler 在冒泡上先于
@@ -1143,7 +1109,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const dx = e.clientX - g.x;
     const dy = e.clientY - g.y;
 
-    /* 长按中：只作临时快进，移动全部吞掉（不切集、不拖进度；2.0.4 删除上滑锁定） */
+    /* 长按临时倍速中：移动全部吞掉（不切集、不拖进度） */
     if (g.mode === "hold") return;
 
     if (g.mode === "idle") {
@@ -1179,22 +1145,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     /* 长按状态必须无条件复位：切集 / 组件重建会把手势对象清掉，
        但 holdRef 若留在 true，下面的 touchmove 会一直 preventDefault，
        整个列表就再也滑不动（表现为「播放后不能上滑」）。 */
-    if (holdRef.current) { holdRef.current = false; setHoldSpeed(false); setHoldSlow(false); }
-    const wasLockArmed = lockArmedRef.current;
-    if (lockArmedRef.current) { lockArmedRef.current = false; setLockArmed(false); }
+    if (holdRef.current) { holdRef.current = false; setHoldSpeed(false); }
     if (!g) return;
     if (g.timer) window.clearTimeout(g.timer);
 
     if (g.mode === "hold") {
       holdRef.current = false;
       setHoldSpeed(false);
-      setHoldSlow(false);
-      if (!cancelled && wasLockArmed) {
-        setSpeedLock(true);
-        toast("已锁定 2.0x 倍速 · 点顶部标签解除", "info");
-      }
-      lockArmedRef.current = false;
-      setLockArmed(false);
       return;
     }
     if (g.mode === "scrub") {
@@ -1267,8 +1224,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   };
 
   useEffect(() => {
-    if (!active || controlsLocked || showHoldGuide) {
-      if (!active) { setPanel(null); setTagMenu(false); }
+    if (!active) {
+      setPanel(null);
       onUp(true);
       pointersRef.current.clear();
       pinchRef.current = null;
@@ -1277,7 +1234,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
     // Cancel pending gestures when the page is hidden or controls are locked.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, controlsLocked, showHoldGuide]);
+  }, [active]);
 
   useEffect(() => () => {
     if (gesture.current?.timer) window.clearTimeout(gesture.current.timer);
@@ -1327,6 +1284,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   const exitFs = useCallback(() => {
     setClean(false);
+    setRotateOverride(null);
     setFs(false);
     fsRef.current = false;
     keepAlive();
@@ -1335,6 +1293,17 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       try { screen.orientation?.unlock?.(); } catch { /* ignore */ }
     }
   }, [isDesktop, keepAlive, setClean, setFs]);
+
+  const toggleRotate = useCallback(() => {
+    const next = !rotated;
+    setRotateOverride(next);
+    if (!isDesktop) {
+      try { void invoke("set_orientation", { landscape: next }); } catch { /* ignore */ }
+    }
+  }, [rotated, isDesktop]);
+
+  /* 切到另一条视频时横屏覆盖复位为自动 */
+  useEffect(() => { setRotateOverride(null); }, [index]);
 
   /* 若用户在视频首帧宽高解析出来前已点进全屏，解析出横屏后自动补发横屏方向请求 */
   useEffect(() => {
@@ -1399,7 +1368,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     keepAliveTimers.current = [];
   }, []);
 
-  const lockControls = () => { setPanel(null); setControlsLocked(true); };
 
   /* 长按倍速期间禁止原生滚动，否则上滑会被列表吃掉、长按手势被打断 */
   useEffect(() => {
@@ -1527,7 +1495,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   const detailBody = (onClose?: () => void) => <VideoDetailsPanel meta={meta} videoId={curId} episodeCount={episodes.length}
     related={related} following={store.follows.includes(meta.authorId)} followPending={followPending}
-    onFollow={() => void onFollow()} onTag={openTag} onClose={onClose} onPreferences={openTagMenu}
+    onFollow={() => void onFollow()} onClose={onClose}
     onAuthor={() => { if (meta.authorId > 0) { closePanels(); store.push({ kind: "user", id: meta.authorId, name: meta.author }); } }}
     onRelated={video => { closePanels(); store.push({ kind: "feed", videoIds: related.map(item => item.id), index: related.findIndex(item => item.id === video.id), title: "相关推荐" }); }} />;
 
@@ -1563,14 +1531,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   return (
     <div
-      className={`hg-player-ui ${rotated ? "fs-landscape" : (!isDesktop && fs ? "fs-immersive" : "absolute inset-0")} overflow-hidden bg-black player-root ${controlsLocked ? "is-locked" : ""} ${isDesktop ? "player-surface" : ""} ${theater ? "is-theater" : ""} ${isDesktop && idle ? "is-idle" : ""}`}
+      className={`hg-player-ui ${rotated ? "fs-landscape" : (!isDesktop && fs ? "fs-immersive" : "absolute inset-0")} overflow-hidden bg-black player-root ${isDesktop ? "player-surface" : ""} ${theater ? "is-theater" : ""} ${isDesktop && idle ? "is-idle" : ""}`}
       data-clean={clean}
       inert={!active || undefined}
       aria-hidden={!active || undefined}
       onFocusCapture={() => { if (active && isDesktop) wake(); }}
       onPointerMove={() => { if (isDesktop || fs) wake(); }}
       onPointerDown={() => { if (!isDesktop && fs) wake(); }}>
-      <div className="absolute inset-0" inert={controlsLocked}>
+      <div className="absolute inset-0">
       {/* 氛围背景 */}
       {!isDesktop && posterUrl && (
         <div className="absolute inset-0 scale-110 blur-3xl opacity-25 pointer-events-none">
@@ -1595,12 +1563,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           return (
             <section key={vid} className={sectionClass} inert={!isActive || undefined} aria-hidden={!isActive || undefined}>
               {isActive && playUrl ? (
-                <div ref={holdTargetRef} data-mobile-hold-target={!isDesktop || undefined}
+                <div
                   className="absolute inset-0" style={{ touchAction: swipeEp ? "none" : "pan-y" }}
                   onPointerDown={onDown} onPointerMove={onMove} onPointerUp={(e) => onUp(false, e)} onPointerCancel={(e) => onUp(true, e)} onLostPointerCapture={(e) => onUp(true, e)}>
                 <div style={{ position: "absolute", inset: 0, transform: isDesktop ? undefined : `translate3d(${zoom.x}px, ${zoom.y}px, 0) scale(${zoom.s})`, transformOrigin: "center center", transition: isDesktop || zoom.g ? "none" : "transform .18s ease-out" }}>
-                <VideoSurface ref={videoRef} src={playUrl} poster={posterUrl} autoPlay active={active && !tagMenu && !showHoldGuide} muted={muted}
-                  diagnosticContext={{ active: active && !tagMenu && !showHoldGuide, view: mode, kind, video_id: curId, episode: curEp }}
+                <VideoSurface ref={videoRef} src={playUrl} poster={posterUrl} autoPlay active={active} muted={muted}
+                  diagnosticContext={{ active: active, view: mode, kind, video_id: curId, episode: curEp }}
                   volume={volume} rate={effRate}
                   fit={isDesktop ? "contain" : landscapeVideo ? (fs || vpLandscape ? "contain" : portraitFit) : (vpLandscape ? "contain" : "cover")}
                   onClick={() => { if (isDesktop) videoRef.current?.toggle(); }}
@@ -1750,17 +1718,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     {collected ? <IStarF size={27} className="hg-gold" /> : <IStar size={27} className="hg-ink hg-ov-shadow" />}
                     <span className="text-[12px] text-white/90 tabular-nums">{fmt(collectCount)}</span>
                   </Button>
-                  <Button onClick={() => setPanel("comments")} className="flex flex-col items-center gap-1 pressable" aria-label="评论">
+                  <Button onClick={() => setPanel("comments")} className="flex flex-col items-center gap-1 pressable" aria-label={`评论 ${fmt(meta.comment)} 条`}>
                     <ICommentF size={26} className="hg-ink hg-ov-shadow" />
-                    <span className="text-[12px] hg-ink-2 hg-ov-shadow">评论</span>
+                    <span className="text-[12px] hg-ink-2 hg-ov-shadow tabular-nums">{fmt(meta.comment)}</span>
                   </Button>
                   <Button onClick={() => enterFs(isLandscapeCurrent())} className="flex flex-col items-center gap-1 pressable" aria-label="全屏">
                     <IExpand size={26} className="hg-ink hg-ov-shadow" />
                     <span className="text-[12px] hg-ink-2 hg-ov-shadow">全屏</span>
-                  </Button>
-                  <Button onClick={shareLink} className="flex flex-col items-center gap-1 pressable" aria-label="分享">
-                    <ILink size={25} className="hg-ink hg-ov-shadow" />
-                    <span className="text-[12px] hg-ink-2 hg-ov-shadow">分享</span>
                   </Button>
                 </div>
               )}
@@ -1787,7 +1751,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                       <span className="text-[12px] text-white/90 tabular-nums">{fmt(likeCount)}</span>
                     </Button>
 
-                    <Button onClick={() => setPanel("comments")} aria-label="评论" className="flex flex-col items-center gap-1 pressable">
+                    <Button onClick={() => setPanel("comments")} aria-label={`评论 ${fmt(meta.comment)} 条`} className="flex flex-col items-center gap-1 pressable">
                       <ICommentF size={27} className="text-white tsh" />
                       <span className="text-[12px] text-white/90 tabular-nums">{fmt(meta.comment)}</span>
                     </Button>
@@ -1804,10 +1768,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   </>
                 )}
 
-                <Button onClick={shareLink} aria-label="分享" className="flex flex-col items-center gap-1 pressable">
-                  <ILink size={25} className="text-white tsh" />
-                  <span className="text-[12px] text-white/90">分享</span>
-                </Button>
               </div>
               )}
 
@@ -1841,8 +1801,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   <Button aria-label="视频详情" onClick={() => setPanel("detail")} className="min-h-11 px-4 rounded-full hg-chip text-[12px] inline-flex items-center gap-1">
                     详情与标签<IChevR size={13} />
                   </Button>
-                  {isActive && <Button aria-label="不感兴趣" title="不感兴趣 / 内容偏好" onClick={openTagMenu}
-                    className="video-preference-trigger"><IMore size={19} aria-hidden="true" /></Button>}
                 </div>
               </div>
               )}
@@ -1861,8 +1819,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                         className="min-h-11 flex items-center gap-0.5 text-[12px] font-medium hg-ink-3 hg-ov-shadow-strong pressable">
                         详情 · 第 {curEp} 集<IChevR size={11} />
                       </Button>
-                      {isActive && <Button aria-label="不感兴趣" title="不感兴趣 / 内容偏好" onClick={openTagMenu}
-                        className="video-preference-trigger"><IMore size={19} aria-hidden="true" /></Button>}
                     </div>
                     <div ref={barRef} className="mx-4 mt-2 relative" style={{ height: 14, touchAction: "none" }}
                       onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
@@ -1933,7 +1889,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           clock={playbackClock}
           muted={muted} volume={volume} theater={theater} fullscreen={fullscreen}
           visible={active && !idle}
-          seekEnabled={active && !controlsLocked}
+          seekEnabled={active}
           seekKey={playKey}
           nextDisabled={!episodes.some((e) => e.ep_num === curEp + 1) && index >= effectiveVideoIds.length - 1}
           nextTitle={episodes.some((e) => e.ep_num === curEp + 1) ? "下一集 E" : "下一部 ↓"}
@@ -1946,7 +1902,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           onMute={() => setMuted((m) => !m)}
           onVolume={(v) => setVolume(v)}
           onPip={togglePip}
-          onLock={lockControls}
           onTheater={() => setTheater((v) => !v)}
           onFullscreen={toggleFull}
           onNext={() => {
@@ -1958,7 +1913,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       )}
 
       {/* 移动端：倍速状态 / 锁定提示 */}
-      {!isDesktop && (holdSpeed || holdSlow || speedLock || rate !== 1) && (!fs || !idle) && (
+      {!isDesktop && (holdSpeed || rate !== 1) && (!fs || !idle) && (
         <Button
           onClick={() => {
             if (rate !== 1 && !holdSpeed) setRate(1);
@@ -1968,7 +1923,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             ? { bottom: rotated ? 84 : "calc(var(--sab, 0px) + 84px)" }
             : { top: "calc(var(--sat, 0px) + 54px)" }}>
           <IBoltF size={13} />
-          {effRate}x {speedLock ? "已锁定 · 点按解除" : holdSpeed ? "倍速中 · 松开恢复" : holdSlow ? "减速中 · 松开恢复" : "倍速"}
+          {effRate}x {holdSpeed ? "倍速中 · 松开恢复" : "倍速"}
         </Button>
       )}
 
@@ -2023,6 +1978,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {paused ? <IPlayF size={18} /> : <IPauseF size={17} />}
             </Button>
             <PlaybackTime clock={playbackClock} className="shrink-0 text-[12px] font-semibold hg-ink-2 tabular-nums" />
+            <Button onClick={toggleRotate} aria-label="横竖屏切换" aria-pressed={rotated} title="横竖屏切换"
+              className="hg-chip shrink-0 w-9 h-9 rounded-full flex items-center justify-center pressable">
+              <IRotate size={16} />
+            </Button>
             <div data-sr-slot className="relative ml-auto shrink-0">
               <Button
                 onClick={() => setSrMenuPos((pos) => (pos === "fs-bottom" ? null : "fs-bottom"))}
@@ -2125,7 +2084,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </>
       )}
       </div>
-      {!isDesktop && !controlsLocked && active && (!fs || !idle) && (
+      {!isDesktop && active && (!fs || !idle) && (
         <div className={`absolute z-40 flex items-center gap-2 ${fs ? "" : "right-3"}`}
           style={{
             top: rotated ? 12 : "calc(var(--sat, 0px) + 6px)",
@@ -2157,15 +2116,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1">
             {muted ? <IVolMute size={17} /> : <IVol size={17} />}
           </Button>}
-          <Button onClick={lockControls} aria-label="锁定播放控制" title="锁定播放控制" aria-pressed={false}
-            className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><ILockF size={17} /></Button>
           {!fs && !clean && <Button onClick={() => store.setTab("search")} aria-label="搜索"
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><ISearch size={18} /></Button>}
         </div>
       )}
-      <TagBlockMenu open={active && tagMenu} tags={meta.tags} onClose={() => setTagMenu(false)} onSettings={openPreferences} />
-      {!isDesktop && <MobileHoldGuide open={showHoldGuide} onClose={holdGuide.dismiss} target={holdTargetRef} bottomInset={bottomInset} />}
-      {controlsLocked && <PlaybackLock active={active} onUnlock={() => { setControlsLocked(false); wake(); }} />}
+      {/* Muse 2026-11-15 (2.1.1 简化版): TagBlockMenu 浮层、MobileHoldGuide 提示图、PlaybackLock 锁定浮层均已移除 */}
     </div>
   );
 }

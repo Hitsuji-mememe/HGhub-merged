@@ -30,7 +30,7 @@ type Props = {
   onMute: () => void;
   onVolume: (v: number) => void;
   onPip: () => void;
-  onLock: () => void;
+  onLock?: () => void;
   onTheater?: () => void;
   onFullscreen: () => void;
   onNext?: () => void;
@@ -165,7 +165,7 @@ export default function PlayerControls({
           </div>
         </div>
         <Button className="player-control" aria-label="画中画" data-tooltip="画中画" onClick={onPip}><IPip size={20} strokeWidth={1.6} /></Button>
-        <Button className="player-control" aria-label="锁定播放控制" aria-pressed={false} data-tooltip="锁定播放控制" onClick={onLock}><ILockF size={18} /></Button>
+        {/* Muse 2026-11-15 (2.1.1 简化版): 播放锁定按钮已移除，onLock 改为可选且不再有调用方 */}
         {!fullscreen && onTheater && (
           <Button className={`player-control ${theater ? "is-on" : ""}`} aria-label="影院模式" aria-pressed={theater}
             data-tooltip="影院模式 T" onClick={onTheater}><ITheater size={20} strokeWidth={1.6} /></Button>

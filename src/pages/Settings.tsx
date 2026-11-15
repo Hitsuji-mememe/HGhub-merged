@@ -20,18 +20,18 @@ const SETTING_GROUPS = ["外观", "播放", "内容偏好", "本地数据", "网
 type SettingGroup = typeof SETTING_GROUPS[number];
 const GROUP_SUMMARIES: Record<SettingGroup, string> = {
   外观: "跟随系统、浅色与深色",
-  播放: "启动静音与画质偏好",
+  播放: "画质偏好",
   内容偏好: "标签屏蔽与内容显示",
   本地数据: "收藏、观看记录与缓存",
   网络: "代理、线路与连接诊断",
   播放诊断: "详细日志与问题排查",
-  其他: "检查更新、使用协议与关于应用",
+  其他: "使用协议与关于应用",
 };
 
 /* 独立设置页：线路 / 外观 / 播放 / 本地数据 / 清理缓存 / 网络诊断 / 关于
    入口：Windows 侧栏「设置」、Android「我的」右上角齿轮 */
 export default function Settings({ onBack, initialSection }: { onBack: () => void; wide: boolean; initialSection?: "内容偏好" }) {
-  const { theme, themePreference, setTheme, favs, history, muteOnStartup, setMuteOnStartup, preferHevc, setPreferHevc, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast } = useStore();
+  const { theme, themePreference, setTheme, favs, history, preferHevc, setPreferHevc, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast } = useStore();
   const [about, setAbout] = useState(false);
   const [agreementOpen, setAgreementOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -147,14 +147,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
           </>)}
 
           {section("播放", <>
-            <div className="flex items-center gap-3 px-3.5 py-3">
-              <span className="ios-setting-icon"><IVolMute size={16} /></span>
-              <div className="flex-1 min-w-0">
-                <div className="text-[14px] text-on">启动时静音</div>
-                <div className="text-[12px] text-mut">默认开启，每次启动均静音；关闭后记住上次静音状态。下次启动生效。</div>
-              </div>
-              <Toggle desktop on={muteOnStartup} onChange={setMuteOnStartup} label="启动时静音" />
-            </div>
+            {/* Muse 2026-11-15 (2.1.1 简化版): 「启动时静音」开关已随启动静音概念整体移除 */}
             <div className="flex items-center gap-3 px-3.5 py-3">
               <span className="ios-setting-icon"><IBoltF size={16} /></span>
               <div className="flex-1 min-w-0">
@@ -315,14 +308,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
             {playbackLog.path && <details className="ios-settings-log-path text-[12px] text-mut"><summary className="cursor-pointer py-3">查看日志保存位置</summary><p className="break-all select-text pb-3">{playbackLog.path}</p></details>}
           </>)}
           {section("其他", <>
-            <Button onClick={checkUpdate} disabled={checking} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable disabled:opacity-60">
-              <span className="ios-setting-icon">{checking ? <Loader label="正在检查更新" className="size-4" /> : <IRefresh size={16} />}</span>
-              <div className="flex-1">
-                <div className="text-[14px] text-on">检查更新</div>
-                <div className="text-[12px] text-mut">{checking ? "检查中…" : `当前 v${APP_VERSION} · 对比 GitHub Release`}</div>
-              </div>
-              <IChevR size={15} className="text-mut" />
-            </Button>
+            {/* Muse 2026-11-15 (2.1.1 简化版): 「检查更新」入口已移除——合并版版本由自建编译交付，上游 Release 检查只会误导 */}
             <Button onClick={() => setAgreementOpen(true)} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable">
               <span className="ios-setting-icon"><ILockF size={16} /></span>
               <div className="flex-1 min-w-0">

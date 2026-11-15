@@ -3,7 +3,7 @@ import { api, platform as envPlatform } from "./api";
 import { isStrictSecurity, setStrictSecurity as setHtmlStrictSecurity } from "./html";
 import type { User } from "./types";
 import { readStorage, STORAGE_KEYS } from "./storage";
-import { useAccountData } from "./accountData";
+import { pickGuestData, useAccountData, type GuestData } from "./accountData";
 
 export type Platform = "android" | "ios" | "windows" | "macos" | "linux";
 export type Theme = "dark" | "light";
@@ -65,13 +65,8 @@ export type Toast = {
 /** 观看记录：看到第几集、第几秒（`dur` 用来判断是否已看完） */
 export type WatchProgress = { id: number; ep: number; t: number; dur: number; at: number };
 
-type Persist = {
-  likes: number[];
-  favs: number[];
-  history: WatchProgress[];
-  follows: number[];
+type Persist = GuestData & {
   muted: boolean;
-  muteOnStartup: boolean;
   volume: number;
   searchHist: string[];
   /** 上下划切集：多集短剧上下滑就换集，而不是换下一部 */
@@ -85,7 +80,8 @@ type Persist = {
 const LS = STORAGE_KEYS.app;
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
-  muted: true, muteOnStartup: true, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: false,
+  // Muse 2026-11-15 (2.1.1 简化版): 启动静音整体移除，默认有声、音量记住上次值。
+  muted: false, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: false,
   srMode: "natural",
 };
 
@@ -112,8 +108,16 @@ function loadPersist(): Persist {
     const swipeMigration = readStorage(STORAGE_KEYS.swipeEp);
     if (!raw) return DEFAULTS;
     const p = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persist>) };
-    // 只在启动时应用；本次使用中取消静音不会关闭此偏好。
-    const muteOnStartup = p.muteOnStartup !== false;
+    /* Muse 2026-11-15 (2.1.1): 一次性升级迁移——旧版持久化的启动静音偏好会让
+       已装机用户每次启动被静音，光改默认值无效；首次启动新版时只把 muted 复位为
+       false 并清掉旧 muteOnStartup 字段，收藏/历史/进度/音量一律不碰，之后不再干预。 */
+    let muted = p.muted === true;
+    try {
+      if (readStorage(STORAGE_KEYS.unmuteMigration) !== "1") {
+        muted = false;
+        localStorage.setItem(STORAGE_KEYS.unmuteMigration, "1");
+      }
+    } catch { /* ignore */ }
     /* 1.2.9 起上下划默认就是切集。老配置里 swipeEp 存的 false 是当年的默认值，
        不是用户主动关的，所以这里做一次性迁移；用户之后自己关掉不会再被改回来。 */
     let swipeEp = p.swipeEp !== false;
@@ -131,7 +135,9 @@ function loadPersist(): Persist {
       : rawSr === "off" || rawSr === "natural" || rawSr === "cinema" || rawSr === "crisp" || rawSr === "anime_3d" || rawSr === "anime_2d"
         ? rawSr
         : "natural";
-    return { ...p, swipeEp, srMode, muteOnStartup, muted: muteOnStartup || p.muted === true, history: normalizeHistory(p.history) };
+    const cleaned = { ...p, swipeEp, srMode, muted, history: normalizeHistory(p.history) } as Persist & { muteOnStartup?: boolean };
+    delete cleaned.muteOnStartup;
+    return cleaned;
   } catch {
     return DEFAULTS;
   }
@@ -198,7 +204,6 @@ type Store = {
   /** 移动端「净屏」：只留画面，UI 全隐 */
   clean: boolean; setClean: (v: boolean | ((p: boolean) => boolean)) => void;
   muted: boolean; setMuted: (v: boolean | ((p: boolean) => boolean)) => void;
-  muteOnStartup: boolean; setMuteOnStartup: (on: boolean) => void;
   swipeEp: boolean; setSwipeEp: (on: boolean) => void;
   preferHevc: boolean; setPreferHevc: (on: boolean) => void;
   volume: number; setVolume: (v: number) => void;
@@ -221,7 +226,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const themeRef = useRef(theme);
   const [tab, setTabRaw] = useState<Tab>("home");
   const [stack, setStack] = useState<Page[]>([]);
-  const account = useAccountData(p, data => setP(previous => ({ ...previous, ...data })));
+  // Guest library writes must not roll back sound, quality, gestures or search preferences.
+  const account = useAccountData(
+    pickGuestData(p),
+    data => setP(previous => ({ ...previous, ...pickGuestData(data) })),
+  );
   const { user, setUser } = account;
   const accountRef = useRef(account); accountRef.current = account;
   const [loginOpen, setLoginOpen] = useState(false);
@@ -395,9 +404,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setMuted = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setP((s) => ({ ...s, muted: typeof v === "function" ? v(s.muted) : v }));
   }, []);
-  const setMuteOnStartup = useCallback((on: boolean) => {
-    setP((s) => ({ ...s, muteOnStartup: on }));
-  }, []);
   const setSwipeEp = useCallback((on: boolean) => {
     setP((s) => ({ ...s, swipeEp: on }));
   }, []);
@@ -438,7 +444,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toggleLikeLocal: account.toggleLikeLocal, toggleFavLocal: account.toggleFavLocal, toggleFollowLocal: account.toggleFollowLocal,
     addHistory: account.addHistory, clearHistory: account.clearHistory,
     muted: p.muted, setMuted, volume: p.volume, setVolume, srMode: p.srMode, setSrMode, cycleSrMode, theater, setTheater, fs, setFs, clean, setClean,
-    muteOnStartup: p.muteOnStartup, setMuteOnStartup,
     swipeEp: p.swipeEp, setSwipeEp,
     preferHevc: p.preferHevc, setPreferHevc,
     searchHist: p.searchHist, addSearch, clearSearchHist,
@@ -446,7 +451,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toasts, toast, lineEpoch,
   }), [theme, themePreference, setTheme, tab, setTab, stack, push, pop, user, loginOpen, logout,
     p, account,
-    setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setVolume, setSrMode, cycleSrMode, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
+    setMuted, setSwipeEp, setPreferHevc, setVolume, setSrMode, cycleSrMode, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast, lineEpoch, theater, setTheater, fs, setFs, clean, setClean]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

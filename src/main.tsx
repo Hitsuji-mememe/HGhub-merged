@@ -1,7 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import StartupGate from "./components/LaunchAnimation";
 import { AppProvider } from "./store";
 import { invoke } from "@tauri-apps/api/core";
 import "./index.css";
@@ -44,7 +43,7 @@ window.addEventListener("unhandledrejection", (e) => {
    不再用 JS 在启动时钉死 html 高度——启动瞬间 visualViewport.height 尚未
    完成布局，抓到错误值会把 html 高度锁死，正是「底部留白、旋转一次才恢复」的根因。 */
 
-/** Account restore, line probes and content requests begin only after agreement. */
+/* Muse 2026-11-15 (2.1.1 简化版): 开屏动画与首次协议强制门（StartupGate）整体移除，App 直进。 */
 function AcceptedApplication() {
   React.useEffect(() => { initAutoLine(); }, []);
   return <AppProvider><App /></AppProvider>;
@@ -52,7 +51,7 @@ function AcceptedApplication() {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <StartupGate><AcceptedApplication /></StartupGate>
+    <AcceptedApplication />
   </React.StrictMode>,
 );
 installLayoutDiagnostics();
