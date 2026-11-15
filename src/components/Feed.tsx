@@ -1279,7 +1279,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       const i = Math.max(0, Math.min(effectiveVideoIds.length - 1, Math.round(el.scrollTop / h)));
       if (i !== idxRef.current) resolveSwipe(i);
     }
-    setClean(false);
+    /* Muse 2026-11-15 (2.1.2): 全屏 = 纯净模式（用户定版）——进全屏默认全隐（idle+clean 置隐），
+       只看视频；单击呼出控制层、再单击收起（沿用 2.0.3 单击翻转）。所以这里不调 wake()（它会亮出控制层）。 */
+    setClean(true);
+    setIdle(true);
     /* 播种真实宽高：第一帧判定就有据可依（元素还没元数据时播种失败，
        由下方全屏监听 effect 在 loadedmetadata 后复判补上） */
     if (!isDesktop) {
@@ -1290,7 +1293,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
     setFs(true);
     fsRef.current = true;
-    wake();
     keepAlive();
   }, [isDesktop, keepAlive, resolveSwipe, effectiveVideoIds.length, setClean, setFs]);
 
@@ -1342,6 +1344,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       setVpLandscape((prev) => {
         if (prev !== isLand && active) {
           setFs(isLand);
+          /* 物理旋转进/出全屏与按钮路径保持同一状态：进全屏纯净全隐、竖回恢复浏览态 chrome */
+          if (isLand) { setClean(true); setIdle(true); } else { setClean(false); setIdle(false); }
           keepAlive();
         }
         return isLand;
@@ -1992,10 +1996,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             <ICompress size={18} />
           </Button>
           {/* Muse 2026-11-15 (2.1.2): 全屏底栏分段布局——左段 播放+时间（当前/总时长合并为一段文本，
-              不再分置两头把总时长挤出屏幕）+声音，右段（ml-auto）超分/倍速/上集/下集/选集。
-              旋转钮已删（方向跟源走）；选集钮直达 episodes 网格（pickEp 选完自动关面板），
-              不再绕「详情→选集页签」3 步。声音钮在底栏内（右上浮层进全屏整层隐藏，不能放那）。
-              排版实算（全元素同现的最挤情形）：32+54+32+52+41+32+32+53+间隙28+边距16 ≈ 372px，393/375px 屏均不溢出。 */}
+              不再分置两头把总时长挤出屏幕）+声音，右段（ml-auto）超分/倍速/画质/上集/下集（+横屏时选集）。
+              旋转钮已删（方向跟源走）；选集直达 episodes 网格（pickEp 选完自动关面板），
+              不再绕「详情→选集页签」3 步；竖屏全屏选集钮在右侧中段（同块下方），底栏不塞它。
+              排版实算（竖屏全屏最挤情形：长时长+中集+HEVC 全同现）≈371px，375px 屏不溢出；横屏宽度充裕。 */}
           <div className="absolute inset-x-0 z-40 flex items-center gap-1 px-2"
             style={{
               bottom: rotated ? 10 : "calc(var(--sab, 0px) + 10px)",
@@ -2049,21 +2053,32 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 />
               )}
             </div>
+            {/* Muse 2026-11-15 (2.1.2): 画质切换入口（用户点名的有用控制）——有 HEVC 高清流时才出现，
+                与非全屏右侧栏的 HD 钮同一开关（preferHevc，默认已开，见 store 迁移）。 */}
+            {hevcUrl && (
+              <Button onClick={() => { setPreferHevc(!preferHevc); toast(preferHevc ? "已切回标准画质" : "已切换高清 HEVC", "ok"); }}
+                className={`shrink-0 flex items-center px-1.5 h-8 rounded-full text-[12px] font-bold pressable ${preferHevc ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}
+                aria-label="画质切换" aria-pressed={preferHevc}>
+                {preferHevc ? "HD" : "标清"}
+              </Button>
+            )}
             {episodes.length > 1 && curEp > 1 && (
               <Button onClick={() => pickEp(curEp - 1)}
-                className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable"
+                className="hg-chip shrink-0 w-7 h-7 rounded-full flex items-center justify-center pressable"
                 aria-label={`上一集 第${curEp - 1}集`} title="上一集">
-                <IPrev size={15} />
+                <IPrev size={14} />
               </Button>
             )}
             {episodes.length > 1 && curEp < episodes.length && (
               <Button onClick={() => pickEp(curEp + 1)}
-                className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable"
+                className="hg-chip shrink-0 w-7 h-7 rounded-full flex items-center justify-center pressable"
                 aria-label={`下一集 第${curEp + 1}集`} title="下一集">
-                <INext size={15} />
+                <INext size={14} />
               </Button>
             )}
-            {episodes.length > 1 && (
+            {/* Muse 2026-11-15 (2.1.2): 选集钮按方向分位——横屏全屏在底栏（宽度够）；
+                竖屏全屏改放右侧中段（见下方独立按钮），底栏不再塞它，总时长不被挤。 */}
+            {episodes.length > 1 && (rotated || vpLandscape) && (
               <Button onClick={() => setPanel("episodes")}
                 className="shrink-0 flex items-center gap-1 px-1.5 h-8 rounded-full text-[12px] font-semibold hg-chip hg-ink-2 pressable"
                 aria-label="选集">
@@ -2071,6 +2086,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               </Button>
             )}
           </div>
+          {/* 竖屏全屏的选集钮：右侧中段（原右侧栏「切集」钮的位置），同属单击呼出的控制层 */}
+          {episodes.length > 1 && !rotated && !vpLandscape && (
+            <Button onClick={() => setPanel("episodes")} aria-label="选集"
+              className="hg-chip-strong absolute z-40 right-3 top-1/2 -translate-y-1/2 w-11 py-2.5 rounded-full backdrop-blur-md flex flex-col items-center gap-1 pressable elev-1">
+              <IList size={17} />
+              <span className="text-[11px] font-semibold">选集</span>
+            </Button>
+          )}
         </>
       )}
 

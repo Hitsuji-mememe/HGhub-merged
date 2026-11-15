@@ -76,7 +76,7 @@ try {
     assert.equal(await page.evaluate(() => window.storageMigrationFixture.getThemePreference()), "light");
     assert.equal(await page.evaluate(() => window.initialTheme), true);
     const saved = await storage(page);
-    assert.deepEqual(Object.keys(saved).sort(), ["hghubx_app_v1", "hghubx_swipe_ep_v2", "hghubx_theme"]);
+    assert.deepEqual(Object.keys(saved).sort(), ["hghubx_app_v1", "hghubx_prefer_hevc_v1", "hghubx_swipe_ep_v2", "hghubx_theme"]);
     assert.deepEqual(JSON.parse(saved.hghubx_app_v1), { ...state, muted: true });
     await page.evaluate(() => window.storageMigrationFixture.setTheme("system"));
     await page.waitForFunction(() => localStorage.getItem("hghubx_theme") === "system");

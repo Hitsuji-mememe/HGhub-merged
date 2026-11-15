@@ -3,6 +3,8 @@ export const STORAGE_KEYS = {
   swipeEp: "hghubx_swipe_ep_v2",
   theme: "hghubx_theme",
   autoLine: "hghubx_auto_line",
+  // Muse 2026-11-15 (2.1.2): 画质默认最高档的一次性迁移标记（preferHevc 旧默认 false 多为默认值而非主动关）。
+  preferHevc: "hghubx_prefer_hevc_v1",
 } as const;
 
 type StorageKey = typeof STORAGE_KEYS[keyof typeof STORAGE_KEYS];
@@ -13,6 +15,7 @@ const LEGACY_KEYS: Record<StorageKey, string> = {
   hghubx_swipe_ep_v2: "hghub_swipe_ep_v2",
   hghubx_theme: "hghub_theme",
   hghubx_auto_line: "hg.autoLine",
+  hghubx_prefer_hevc_v1: "hghub_prefer_hevc_v1",
 };
 
 /** 新键优先；确认旧数据已写入新键后才删除旧键。存储写入失败仍可读取旧数据。 */

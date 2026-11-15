@@ -82,7 +82,7 @@ const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
   // Muse 2026-11-15 (2.1.2 修正版): 开场必须静音（防外放尴尬）——每次启动 muted 恒为 true，
   // 会话内手动取消静音后本次会话保持有声；音量记住上次值。不设「启动静音」开关，恒定行为。
-  muted: true, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: false,
+  muted: true, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: true,
   srMode: "natural",
 };
 
@@ -124,6 +124,16 @@ function loadPersist(): Persist {
         localStorage.setItem(STORAGE_KEYS.swipeEp, "1");
       }
     } catch { /* ignore */ }
+    /* Muse 2026-11-15 (2.1.2): 画质默认最高档——preferHevc 旧默认 false 是省流取向，
+       用户明确要画质优先。老配置里的 false 同样多是默认值而非主动选择，做一次性迁移
+       （与 swipeEp 同款）：首次加载置 true 并打标，用户之后手动关掉不再被改回。 */
+    let preferHevc = p.preferHevc === true;
+    try {
+      if (readStorage(STORAGE_KEYS.preferHevc) !== "1") {
+        preferHevc = true;
+        localStorage.setItem(STORAGE_KEYS.preferHevc, "1");
+      }
+    } catch { /* ignore */ }
     /* 超分档位归一化：LNPANDY 早期版本用过 fsr / anime 两个旧名，映射到现档位 */
     const rawSr = (p as { srMode?: string }).srMode;
     const srMode: SuperResMode =
@@ -132,7 +142,7 @@ function loadPersist(): Persist {
       : rawSr === "off" || rawSr === "natural" || rawSr === "cinema" || rawSr === "crisp" || rawSr === "anime_3d" || rawSr === "anime_2d"
         ? rawSr
         : "natural";
-    const cleaned = { ...p, swipeEp, srMode, muted, history: normalizeHistory(p.history) } as Persist & { muteOnStartup?: boolean };
+    const cleaned = { ...p, swipeEp, srMode, muted, preferHevc, history: normalizeHistory(p.history) } as Persist & { muteOnStartup?: boolean };
     delete cleaned.muteOnStartup;
     return cleaned;
   } catch {
