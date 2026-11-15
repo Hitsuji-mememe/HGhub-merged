@@ -20,7 +20,7 @@ import SuperResCanvas, {
 } from "./SuperResCanvas";
 import { useInlinePlayerFullscreen } from "../useInlinePlayerFullscreen";
 import "../styles/post-player.css";
-import { ICompress, IExpand, IPauseF, IPlayF, IRotate, ISparkF, IVol, IVolMute } from "../icons";
+import { ICompress, IExpand, IPauseF, IPlayF, ISparkF, IVol, IVolMute } from "../icons";
 
 type Props = {
   src: string;              // 原始 m3u8 地址
@@ -56,11 +56,12 @@ export default function Player({
   const [rate, setRate] = useState(1);
   const [errMsg, setErrMsg] = useState<string>("");
   const [videoReady, setVideoReady] = useState(false);
-  /* Muse 2026-11-15 (2.1.1): 独立播放器全屏横屏——记录视频宽高与视口方向，
-     横屏视频进全屏自动横屏（原生方向请求 + iOS 回退全屏下 CSS 旋转兜底），另有手动旋转按钮。 */
+  /* Muse 2026-11-15 (2.1.2): 全屏方向跟着源走（用户最终定版，与 Feed 一致）——横屏源全屏即横屏、
+     竖屏源即竖屏；判定只认 video 元素真实宽高（loadedmetadata 回报），全屏期间判定翻转由下方
+     effect 复判重发原生请求；回退全屏且窗口仍竖屏、源为横屏时 CSS 旋转兜底。退出全屏发竖屏请求撤销
+     （2.1.1 退出时从不复位方向是个缺口）。旋转钮与 rotateOverride 状态机已整套删除。 */
   const [vsize, setVsize] = useState({ w: 0, h: 0 });
   const [vpLandscape, setVpLandscape] = useState(() => typeof window !== "undefined" && window.innerWidth > window.innerHeight);
-  const [rotateOverride, setRotateOverride] = useState<boolean | null>(null);
   useEffect(() => {
     const onViewport = () => setVpLandscape(window.innerWidth > window.innerHeight);
     window.addEventListener("resize", onViewport);
@@ -68,19 +69,17 @@ export default function Player({
     return () => { window.removeEventListener("resize", onViewport); window.removeEventListener("orientationchange", onViewport); };
   }, []);
   const landscapeVideo = vsize.w > 0 && vsize.h > 0 && vsize.w > vsize.h;
-  const playerRotated = full && fallback && !vpLandscape && (rotateOverride ?? landscapeVideo);
+  const playerRotated = full && fallback && !vpLandscape && landscapeVideo;
+  const wasFullRef = useRef(false);
   useEffect(() => {
-    if (!full) { setRotateOverride(null); return; }
-    if (landscapeVideo) { try { void invoke("set_orientation", { landscape: true }); } catch { /* ignore */ } }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (full) {
+      wasFullRef.current = true;
+      try { void invoke("set_orientation", { landscape: landscapeVideo }); } catch { /* ignore */ }
+    } else if (wasFullRef.current) {
+      wasFullRef.current = false;
+      try { void invoke("set_orientation", { landscape: false }); } catch { /* ignore */ }
+    }
   }, [full, landscapeVideo]);
-  const toggleRotatePlayer = () => {
-    const currentlyLandscape = playerRotated || (full && vpLandscape);
-    const next = !currentlyLandscape;
-    setRotateOverride(next);
-    try { void invoke("set_orientation", { landscape: next }); } catch { /* ignore */ }
-    if (!full) toggleFull();
-  };
 
   const [svgFallback, setSvgFallback] = useState(false);
   const [srOpen, setSrOpen] = useState(false);
@@ -337,7 +336,7 @@ export default function Player({
             <Button onClick={() => onToggleMute?.()} aria-label={muted ? "取消静音" : "静音"} className="pressable">
               {muted ? <IVolMute size={16} /> : <IVol size={16} />}
             </Button>
-            <span className="text-[12px] tabular-nums text-white/85">{fmtTime(seek.time)} / {fmtTime(duration)}</span>
+            {/* Muse 2026-11-15 (2.1.2): 此处原有第二份「当前/总时长」文本与进度行那份完全重复，已删，只留进度行一处 */}
             <div className="flex-1" />
             <div ref={srSlotRef} className="relative">
               <Button
@@ -366,9 +365,7 @@ export default function Player({
               )}
             </div>
             <Button onClick={cycleRate} aria-label={`播放速度 ${rate} 倍`} className="text-[12px] font-bold text-white/85 pressable tabular-nums">{rate}x</Button>
-            <Button onClick={toggleRotatePlayer} aria-label="横竖屏切换" aria-pressed={playerRotated || (full && vpLandscape)} title="横竖屏切换" className="pressable">
-              <IRotate size={16} />
-            </Button>
+            {/* Muse 2026-11-15 (2.1.2): 旋转钮已删——全屏恒横屏，退出回竖屏，无第二个方向入口 */}
             <Button onClick={toggleFull} aria-label={full ? "退出全屏" : "全屏"} aria-pressed={full} className="pressable">
               {full ? <ICompress size={16} /> : <IExpand size={16} />}
             </Button>

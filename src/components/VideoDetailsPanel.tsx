@@ -50,10 +50,8 @@ export default function VideoDetailsPanel({ meta, videoId, episodeCount, related
           <Avatar size={36} name={meta.author} hue={220} />
           <span className="min-w-0"><span className="block text-[14px] font-semibold truncate">{meta.author}</span><span className="text-[12px] text-mut">作者主页</span></span>
         </Button>
-        {meta.authorId > 0 && <Button onClick={onFollow} disabled={followPending} aria-busy={followPending} aria-pressed={following}
-          className={`video-details-follow ${following ? "bg-s3 text-mut" : "bg-primary text-on-primary"}`}>
-          {followPending ? "处理中…" : following ? "已关注" : "+ 关注"}
-        </Button>}
+        {/* Muse 2026-11-15 (2.1.2): 详情面板内隐藏「+关注」钮——关注是服务端动作，游客点它必弹登录框，
+            看剧的人不该在详情里踩登录坑。关注入口保留在作者主页（User 页）等原位置，onFollow prop 不再被本面板使用。 */}
       </Surface>
 
       <section className="video-details-section">

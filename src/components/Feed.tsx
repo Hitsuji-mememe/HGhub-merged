@@ -19,8 +19,8 @@ import { useContentPreferences } from "../contentPreferences";
 import VideoDetailsPanel from "./VideoDetailsPanel";
 import { PreferenceStorageNotice } from "./PreferenceStorageNotice";
 import {
-  IBack, IBoltF, IRotate, ICheck, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF, IMore,
-  IList, IPauseF, IPlayF, ISearch, ISparkF, IStar, IStarF, IVertSwap, IVol, IVolMute,} from "../icons";
+  IBack, IBoltF, ICheck, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF, IMore,
+  IList, INext, IPauseF, IPlayF, IPrev, ISearch, ISparkF, IStar, IStarF, IVol, IVolMute,} from "../icons";
 
 type Props = {
   videoIds: number[];
@@ -376,9 +376,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      无减速区、无中心菜单区、无上滑锁定。倍速唯一长期入口是底栏 RateMenu。 */
   const [holdSpeed, setHoldSpeed] = useState(false);
   const holdRef = useRef(false);
-  /* Muse 2026-11-15 (2.1.1): 全屏横屏覆盖——null=自动(横屏视频自动横屏)，
-     true=强制横屏，false=强制竖屏；底栏旋转按钮按当前视觉状态翻转，原生方向请求失败时靠 CSS 旋转兜底。 */
-  const [rotateOverride, setRotateOverride] = useState<boolean | null>(null);
+  /* Muse 2026-11-15 (2.1.2): 全屏方向无状态机——点全屏=横屏、退出=竖屏（用户定版：
+     单一可预测行为，不要自动按宽高猜、不要旋转钮/三态 override，2.1.1 的整套覆盖逻辑已删）。 */
   const [scrub, setScrub] = useState<{ pct: number; target: number } | null>(null);
   const scrubTarget = useRef<number | null>(null);
   /* 进度条拖动 */
@@ -622,22 +621,20 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const posterUrl = cover(meta.cover, 900);
   const articleHtml = kind === "post" && !post?.video_url ? (post?.content || "") : "";
 
-  /* 倍速：长按只作临时——右上区 2.0x / 左下区 0.5x（2.0.4 起删除上滑锁定）；基准倍速由菜单选定 */
+  /* 倍速：任意位置长按只作临时 2.0x、松手恢复（2.1.1 起删除上游分区长按）；基准倍速由底栏菜单选定 */
   const effRate = holdSpeed ? 2 : rate;
   /* 进度条显示百分比（拖动时用拖动值） */
-  const barProgress = barPct ?? (duration ? playbackClock.getSnapshot() / duration : 0);  /* 沉浸全屏 + 横屏视频 → 舞台旋转 90°，看起来就是横屏 */
-  const rotated = !isDesktop && fs && !vpLandscape && (rotateOverride ?? (vsize.w > vsize.h && vsize.h > 0));
+  const barProgress = barPct ?? (duration ? playbackClock.getSnapshot() / duration : 0);
   const landscapeVideo = vsize.w > 0 && vsize.h > 0 && vsize.w > vsize.h;
+  /* Muse 2026-11-15 (2.1.2): 全屏方向跟着源走（用户最终定版）——横屏源全屏即横屏、竖屏源全屏即竖屏，
+     不给手动旋转钮、不要 override。判定只认 video 元素真实宽高（vsize 由 VideoSurface 的
+     loadedmetadata/resize 回报 + 进全屏时直读元素播种 + 全屏期间监听复判，见 enterFs 与下方 effect）。
+     呈现两条路：原生方向请求（下方统一 effect 按 landscapeVideo 驱动，换源复判）；
+     请求未生效（系统竖排锁定等）且源为横屏时 CSS 转 90° 兜底（rotated）。竖屏源不转，fs-immersive 竖屏呈现。
+     全屏一律 contain 居中，不裁切放大（fit 在渲染处按 fs 强制 contain）。 */
+  const rotated = !isDesktop && fs && !vpLandscape && landscapeVideo;
   /* 竖屏快捷胶囊的显隐：不卸载、只改 opacity，这样淡入淡出都能过渡（#19） */
   const capsuleOn = !fs && !clean && !isDesktop && (landscapeVideo || zoom.s > 1.05);
-  const isLandscapeCurrent = useCallback(() => {
-    if (vsize.w > 0 && vsize.h > 0) return vsize.w > vsize.h;
-    const v = videoRef.current?.el();
-    if (v && v.videoWidth > 0 && v.videoHeight > 0) {
-      return v.videoWidth > v.videoHeight;
-    }
-    return false;
-  }, [vsize.w, vsize.h]);
 
   /* ── 上下划切集 ──────────────────────────────────────────
    * 「上下划切集」开启时，播放区 overlay 的 touch-action 是 none，
@@ -1106,8 +1103,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
     const g = gesture.current;
     if (!g || isDesktop) return;
-    const dx = e.clientX - g.x;
-    const dy = e.clientY - g.y;
+    /* Muse 2026-11-15 (2.1.2): 手势按「视觉坐标」解释——CSS 旋转兜底生效时（rotated，舞台转 90°），
+       屏幕坐标与视觉坐标轴互换：视觉横向 = 屏幕纵向位移，视觉上滑 = 屏幕右滑。
+       原生真横屏（vpLandscape）时窗口坐标与视觉一致，不换算。不换算的话横屏里横拖会切集、竖拖会快进，全反。 */
+    const sdx = e.clientX - g.x;
+    const sdy = e.clientY - g.y;
+    const dx = rotated ? sdy : sdx;
+    const dy = rotated ? -sdx : sdy;
 
     /* 长按临时倍速中：移动全部吞掉（不切集、不拖进度） */
     if (g.mode === "hold") return;
@@ -1162,23 +1164,28 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       if (g.playing && active) videoRef.current?.play();
       return;
     }
-    /* 上下划手势（swipeEp 开启时 overlay 是 touch-action:none，
-       原生滚动不参与，这里抬手一次性判定；关着时走原生滚动切剧） */
+    /* 上下划手势（overlay 恒 touch-action:none，原生滚动不参与，这里抬手一次性判定）
+       Muse 2026-11-15 (2.1.2): 移动端不再读 swipeEp 开关——右侧栏「切集」钮及其模式开关已删，
+       竖滑语义恒定：多集先切集、到头切剧。不存在「先点钮进模式再滑」的中间状态。 */
     if (!cancelled && e && g.mode === "pan") {
-      const dy = e.clientY - g.startY;
-      const dx2 = e.clientX - g.x;
+      /* 同 onMove：按视觉坐标判定（rotated 时轴互换）——横屏里视觉上滑切下一集、视觉下滑切上一集 */
+      const sdy = e.clientY - g.startY;
+      const sdx = e.clientX - g.x;
+      const dy = rotated ? -sdx : sdy;
+      const dx2 = rotated ? sdy : sdx;
       if (Math.abs(dy) > 56 && Math.abs(dy) > Math.abs(dx2)) {
         const dir = dy < 0 ? 1 : -1;
         const ep = epMap[curId] || 1;
         const total = episodes.length;
         const want = dir === 1 ? (total === 0 || ep < total ? ep + 1 : 0) : (ep > 1 ? ep - 1 : 0);
-        if (swipeEp && kind === "video" && want) {
+        if (kind === "video" && want) {
           setEpMap((m) => ({ ...m, [curId]: want }));
           toast(`第 ${want}集${total ? ` / ${total}` : ""}`, "info");
           try { navigator.vibrate?.(12); } catch { /* ignore */ }
           return;
         }
-        if (swipeEp) { go(dir); return; }
+        go(dir);
+        return;
       }
     }
     if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260 && Date.now() - srMenuDismissedAtRef.current >= 320 && Date.now() - rateMenuDismissedAtRef.current >= 320) {
@@ -1256,7 +1263,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
   }, []);
 
-  const enterFs = useCallback((landscape: boolean) => {
+  /* Muse 2026-11-15 (2.1.2): enterFs 不再收方向参数——方向由源决定：
+     进入瞬间直读 video 元素真实宽高播种 vsize（不等异步回填），原生请求由下方统一 effect
+     按 landscapeVideo 发出；exitFs 统一发竖屏请求撤销回刷流原状。
+     旧版判定失效的根因也在这里一并修：原 enterFs 的方向参数来自闭包里的 vsize 快照，
+     切集时 vsize 被清零、回填靠媒体事件赛跑，抢先点全屏就拿到 0/旧值判成竖屏。 */
+  const enterFs = useCallback(() => {
     /* 先把当前可见项锁定下来，再收起滚动容器：
        否则进入全屏后 scrollTop 归零，若此前滚动后的 index 还在 150ms 防抖里，
        会被 resolveSwipe(0) 改回第一屏，出现「全屏后变成另一个视频」。 */
@@ -1268,23 +1280,22 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       if (i !== idxRef.current) resolveSwipe(i);
     }
     setClean(false);
+    /* 播种真实宽高：第一帧判定就有据可依（元素还没元数据时播种失败，
+       由下方全屏监听 effect 在 loadedmetadata 后复判补上） */
+    if (!isDesktop) {
+      const v = videoRef.current?.el();
+      if (v && v.videoWidth > 0 && v.videoHeight > 0) {
+        setVsize((prev) => (prev.w === v.videoWidth && prev.h === v.videoHeight ? prev : { w: v.videoWidth, h: v.videoHeight }));
+      }
+    }
     setFs(true);
     fsRef.current = true;
     wake();
     keepAlive();
-    if (!isDesktop) {
-      try { void invoke("set_orientation", { landscape }); } catch { /* ignore */ }
-      if (landscape) {
-        try {
-          (screen.orientation as unknown as { lock?: (o: string) => Promise<void> })?.lock?.("landscape")?.catch(() => {});
-        } catch { /* ignore */ }
-      }
-    }
   }, [isDesktop, keepAlive, resolveSwipe, effectiveVideoIds.length, setClean, setFs]);
 
   const exitFs = useCallback(() => {
     setClean(false);
-    setRotateOverride(null);
     setFs(false);
     fsRef.current = false;
     keepAlive();
@@ -1294,25 +1305,33 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
   }, [isDesktop, keepAlive, setClean, setFs]);
 
-  const toggleRotate = useCallback(() => {
-    const next = !rotated;
-    setRotateOverride(next);
-    if (!isDesktop) {
-      try { void invoke("set_orientation", { landscape: next }); } catch { /* ignore */ }
-    }
-  }, [rotated, isDesktop]);
-
-  /* 切到另一条视频时横屏覆盖复位为自动 */
-  useEffect(() => { setRotateOverride(null); }, [index]);
-
-  /* 若用户在视频首帧宽高解析出来前已点进全屏，解析出横屏后自动补发横屏方向请求 */
+  /* Muse 2026-11-15 (2.1.2): 全屏方向的原生请求统一由 landscapeVideo 驱动——
+     进全屏、切集/换集（playKey 变）、元数据迟到回填，任一让判定翻转都会在这里复判并重发请求，
+     横屏源发 landscape、竖屏源发 portrait，不再散落在 enterFs/胶囊/侧栏各发各的。 */
   useEffect(() => {
-    if (isDesktop || !fs || !landscapeVideo) return;
-    try { void invoke("set_orientation", { landscape: true }); } catch { /* ignore */ }
-    try {
-      (screen.orientation as unknown as { lock?: (o: string) => Promise<void> })?.lock?.("landscape")?.catch(() => {});
-    } catch { /* ignore */ }
+    if (isDesktop || !fs) return;
+    try { void invoke("set_orientation", { landscape: landscapeVideo }); } catch { /* ignore */ }
   }, [isDesktop, fs, landscapeVideo]);
+
+  /* Muse 2026-11-15 (2.1.2): 全屏期间给当前 video 元素挂 loadedmetadata/resize 监听复判宽高——
+     VideoSurface 的 onSize 回报若因切集守卫被丢弃，这里直读元素兜底，保证判定永远以真实宽高为准。 */
+  useEffect(() => {
+    if (isDesktop || !fs) return undefined;
+    const v = videoRef.current?.el();
+    if (!v) return undefined;
+    const read = () => {
+      if (v.videoWidth > 0 && v.videoHeight > 0) {
+        setVsize((prev) => (prev.w === v.videoWidth && prev.h === v.videoHeight ? prev : { w: v.videoWidth, h: v.videoHeight }));
+      }
+    };
+    read();
+    v.addEventListener("loadedmetadata", read);
+    v.addEventListener("resize", read);
+    return () => {
+      v.removeEventListener("loadedmetadata", read);
+      v.removeEventListener("resize", read);
+    };
+  }, [isDesktop, fs, playKey]);
 
   /* 系统真旋转了（iOS 原生请求成功后），CSS 就不再转 90°；
      物理横置手机时自动进入全屏，竖回时自动退出全屏（对齐 LNPANDY 版）。 */
@@ -1564,13 +1583,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             <section key={vid} className={sectionClass} inert={!isActive || undefined} aria-hidden={!isActive || undefined}>
               {isActive && playUrl ? (
                 <div
-                  className="absolute inset-0" style={{ touchAction: swipeEp ? "none" : "pan-y" }}
+                  className="absolute inset-0" style={{ touchAction: "none" }}
                   onPointerDown={onDown} onPointerMove={onMove} onPointerUp={(e) => onUp(false, e)} onPointerCancel={(e) => onUp(true, e)} onLostPointerCapture={(e) => onUp(true, e)}>
                 <div style={{ position: "absolute", inset: 0, transform: isDesktop ? undefined : `translate3d(${zoom.x}px, ${zoom.y}px, 0) scale(${zoom.s})`, transformOrigin: "center center", transition: isDesktop || zoom.g ? "none" : "transform .18s ease-out" }}>
                 <VideoSurface ref={videoRef} src={playUrl} poster={posterUrl} autoPlay active={active} muted={muted}
                   diagnosticContext={{ active: active, view: mode, kind, video_id: curId, episode: curEp }}
                   volume={volume} rate={effRate}
-                  fit={isDesktop ? "contain" : landscapeVideo ? (fs || vpLandscape ? "contain" : portraitFit) : (vpLandscape ? "contain" : "cover")}
+                  fit={isDesktop || fs ? "contain" : landscapeVideo ? portraitFit : (vpLandscape ? "contain" : "cover")}
                   onClick={() => { if (isDesktop) videoRef.current?.toggle(); }}
                   onTime={onTimeTick}
                   onDuration={onDurationTick}
@@ -1670,7 +1689,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                           style={{ color: "rgba(255,255,255,.9)" }}>
                           {zoom.s > 1.05 ? `还原 ${zoom.s.toFixed(1)}x` : portraitFit === "contain" ? "铺满" : "适应"}
                         </Button>
-                        <Button type="button" onClick={() => enterFs(true)}
+                        <Button type="button" onClick={() => enterFs()}
                           className="whitespace-nowrap flex items-center justify-center gap-1 h-[26px] px-3 rounded-full text-[12px] font-semibold pressable transition-colors duration-150"
                           style={{ color: "rgba(255,255,255,.9)" }}>
                           <IExpand size={13} /><span>横屏</span>
@@ -1694,13 +1713,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {!fs && !clean && !isDesktop && (
                 <div className="mobile-video-action-rail absolute right-3 z-20 flex flex-col items-center gap-[16px]"
                   style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset + 92}px)` }}>
-                  {episodes.length > 1 && (
-                    <Button type="button" onClick={() => { setSwipeEp(!swipeEp); toast(swipeEp ? "上下划切集已关闭" : "上下划切集已开启"); }}
-                      className="flex flex-col items-center gap-1 pressable" aria-pressed={swipeEp} aria-label="上下划切集开关">
-                      <IVertSwap size={26} className={swipeEp ? "hg-gold hg-ov-shadow" : "hg-ink hg-ov-shadow"} />
-                      <span className="text-[12px] hg-ov-shadow" style={{ color: swipeEp ? "#f3c969" : undefined }}>切集</span>
-                    </Button>
-                  )}
+                  {/* Muse 2026-11-15 (2.1.2): 右侧栏「切集」开关钮已删（用户定版）——选集一按直达
+                      （左下「第X集」/全屏底栏「选集」），竖滑切集恒定生效，不再有模式开关。 */}
                   {hevcUrl && (
                     <Button type="button" onClick={() => { setPreferHevc(!preferHevc); toast(preferHevc ? "已切回标准画质" : "已切换高清 HEVC", "ok"); }}
                       className="flex flex-col items-center gap-1 pressable" aria-pressed={preferHevc} aria-label="画质切换">
@@ -1722,7 +1736,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     <ICommentF size={26} className="hg-ink hg-ov-shadow" />
                     <span className="text-[12px] hg-ink-2 hg-ov-shadow tabular-nums">{fmt(meta.comment)}</span>
                   </Button>
-                  <Button onClick={() => enterFs(isLandscapeCurrent())} className="flex flex-col items-center gap-1 pressable" aria-label="全屏">
+                  <Button onClick={() => enterFs()} className="flex flex-col items-center gap-1 pressable" aria-label="全屏">
                     <IExpand size={26} className="hg-ink hg-ov-shadow" />
                     <span className="text-[12px] hg-ink-2 hg-ov-shadow">全屏</span>
                   </Button>
@@ -1815,10 +1829,20 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   </div>
                   <div className="relative pt-1.5 pb-2.5">
                     <div className="mobile-video-meta-copy flex flex-wrap items-center gap-2">
+                      {/* Muse 2026-11-15 (2.1.2): 「详情 · 第X集」拆成两个独立点击目标（用户定版）——
+                          点「详情」开详情面板（原行为）；点「第X集」直达选集网格，不再穿详情面板。 */}
                       <Button aria-label="视频详情" onClick={() => setPanel("detail")}
                         className="min-h-11 flex items-center gap-0.5 text-[12px] font-medium hg-ink-3 hg-ov-shadow-strong pressable">
-                        详情 · 第 {curEp} 集<IChevR size={11} />
+                        详情<IChevR size={11} />
                       </Button>
+                      {episodes.length > 1 ? (
+                        <Button aria-label={`选集，当前第 ${curEp} 集`} onClick={() => setPanel("episodes")}
+                          className="min-h-11 flex items-center gap-0.5 text-[12px] font-medium hg-ink-3 hg-ov-shadow-strong pressable">
+                          第 {curEp} 集<IChevR size={11} />
+                        </Button>
+                      ) : (
+                        <span className="min-h-11 flex items-center text-[12px] font-medium hg-ink-3 hg-ov-shadow-strong">第 {curEp} 集</span>
+                      )}
                     </div>
                     <div ref={barRef} className="mx-4 mt-2 relative" style={{ height: 14, touchAction: "none" }}
                       onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
@@ -1967,20 +1991,27 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             }}>
             <ICompress size={18} />
           </Button>
-          <div className="absolute inset-x-0 z-40 flex items-center gap-3 px-4"
+          {/* Muse 2026-11-15 (2.1.2): 全屏底栏分段布局——左段 播放+时间（当前/总时长合并为一段文本，
+              不再分置两头把总时长挤出屏幕）+声音，右段（ml-auto）超分/倍速/上集/下集/选集。
+              旋转钮已删（方向跟源走）；选集钮直达 episodes 网格（pickEp 选完自动关面板），
+              不再绕「详情→选集页签」3 步。声音钮在底栏内（右上浮层进全屏整层隐藏，不能放那）。
+              排版实算（全元素同现的最挤情形）：32+54+32+52+41+32+32+53+间隙28+边距16 ≈ 372px，393/375px 屏均不溢出。 */}
+          <div className="absolute inset-x-0 z-40 flex items-center gap-1 px-2"
             style={{
               bottom: rotated ? 10 : "calc(var(--sab, 0px) + 10px)",
               paddingLeft: rotated ? "calc(var(--sat, 0px) + 16px)" : undefined,
               paddingRight: rotated ? "calc(var(--sab, 0px) + 16px)" : undefined,
             }}>
             <Button onClick={() => videoRef.current?.toggle()}
-              className="hg-chip shrink-0 w-9 h-9 rounded-full flex items-center justify-center pressable">
-              {paused ? <IPlayF size={18} /> : <IPauseF size={17} />}
+              className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable">
+              {paused ? <IPlayF size={16} /> : <IPauseF size={15} />}
             </Button>
-            <PlaybackTime clock={playbackClock} className="shrink-0 text-[12px] font-semibold hg-ink-2 tabular-nums" />
-            <Button onClick={toggleRotate} aria-label="横竖屏切换" aria-pressed={rotated} title="横竖屏切换"
-              className="hg-chip shrink-0 w-9 h-9 rounded-full flex items-center justify-center pressable">
-              <IRotate size={16} />
+            <span className="shrink-0 text-[11px] font-semibold hg-ink-2 tabular-nums whitespace-nowrap">
+              <PlaybackTime clock={playbackClock} />/{fmtTime(duration)}
+            </span>
+            <Button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}
+              className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable">
+              {muted ? <IVolMute size={15} /> : <IVol size={15} />}
             </Button>
             <div data-sr-slot className="relative ml-auto shrink-0">
               <Button
@@ -1989,7 +2020,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 aria-expanded={srMenuPos === "fs-bottom"}
                 title="选择 GPU 画质超分档位"
                 aria-pressed={srMode !== "off"}
-                className={`flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${srMode !== "off" ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
+                className={`flex items-center gap-1 px-1.5 h-8 rounded-full text-[12px] font-bold pressable ${srMode !== "off" ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
                 <ISparkF size={12} />{SR_SHORT_LABEL[srMode]}
               </Button>
               {srMenuPos === "fs-bottom" && (
@@ -2008,7 +2039,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 aria-expanded={rateMenuOpen}
                 title="选择播放倍速"
                 aria-pressed={effRate !== 1}
-                className={`flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
+                className={`flex items-center gap-1 px-1.5 h-8 rounded-full text-[12px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
                 <IBoltF size={12} />{effRate}x
               </Button>
               {rateMenuOpen && (
@@ -2018,14 +2049,27 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 />
               )}
             </div>
-            {curEp < episodes.length && (
-              <Button onClick={() => pickEp(curEp + 1)}
-                className="shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-semibold hg-chip hg-ink-2 pressable"
-                aria-label={`下一集 第${curEp + 1}集`}>
-                <IVertSwap size={12} />下集
+            {episodes.length > 1 && curEp > 1 && (
+              <Button onClick={() => pickEp(curEp - 1)}
+                className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable"
+                aria-label={`上一集 第${curEp - 1}集`} title="上一集">
+                <IPrev size={15} />
               </Button>
             )}
-            <span className="shrink-0 text-[12px] hg-ink-4 tabular-nums">{fmtTime(duration)}</span>
+            {episodes.length > 1 && curEp < episodes.length && (
+              <Button onClick={() => pickEp(curEp + 1)}
+                className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable"
+                aria-label={`下一集 第${curEp + 1}集`} title="下一集">
+                <INext size={15} />
+              </Button>
+            )}
+            {episodes.length > 1 && (
+              <Button onClick={() => setPanel("episodes")}
+                className="shrink-0 flex items-center gap-1 px-1.5 h-8 rounded-full text-[12px] font-semibold hg-chip hg-ink-2 pressable"
+                aria-label="选集">
+                <IList size={13} />选集
+              </Button>
+            )}
           </div>
         </>
       )}
@@ -2084,12 +2128,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </>
       )}
       </div>
-      {!isDesktop && active && (!fs || !idle) && (
-        <div className={`absolute z-40 flex items-center gap-2 ${fs ? "" : "right-3"}`}
-          style={{
-            top: rotated ? 12 : "calc(var(--sat, 0px) + 6px)",
-            right: fs ? (rotated ? "calc(var(--sab, 0px) + 56px)" : 56) : undefined,
-          }}>
+      {/* Muse 2026-11-15 (2.1.2): 右上浮层（超分 pill/声音/搜索）整层由 fs 统一关断——
+          进全屏后画面上只留底栏控制条（声音钮在底栏内），不再逐个元素打补丁；退出全屏整层恢复。
+          右侧竖排操作栏与快捷胶囊本来就带 !fs 条件，与此处口径一致。 */}
+      {!isDesktop && active && !fs && (
+        <div className="absolute z-40 flex items-center gap-2 right-3"
+          style={{ top: "calc(var(--sat, 0px) + 6px)" }}>
           {!clean && (
             <div data-sr-slot className="relative">
               <Button
@@ -2112,7 +2156,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               )}
             </div>
           )}
-          {!fs && !clean && <Button onClick={() => setMuted(m => !m)} aria-label={muted ? "取消静音" : "静音"}
+          {!clean && <Button onClick={() => setMuted(m => !m)} aria-label={muted ? "取消静音" : "静音"}
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1">
             {muted ? <IVolMute size={17} /> : <IVol size={17} />}
           </Button>}

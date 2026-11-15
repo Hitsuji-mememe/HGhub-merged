@@ -80,8 +80,9 @@ type Persist = GuestData & {
 const LS = STORAGE_KEYS.app;
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
-  // Muse 2026-11-15 (2.1.1 简化版): 启动静音整体移除，默认有声、音量记住上次值。
-  muted: false, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: false,
+  // Muse 2026-11-15 (2.1.2 修正版): 开场必须静音（防外放尴尬）——每次启动 muted 恒为 true，
+  // 会话内手动取消静音后本次会话保持有声；音量记住上次值。不设「启动静音」开关，恒定行为。
+  muted: true, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: false,
   srMode: "natural",
 };
 
@@ -108,16 +109,12 @@ function loadPersist(): Persist {
     const swipeMigration = readStorage(STORAGE_KEYS.swipeEp);
     if (!raw) return DEFAULTS;
     const p = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persist>) };
-    /* Muse 2026-11-15 (2.1.1): 一次性升级迁移——旧版持久化的启动静音偏好会让
-       已装机用户每次启动被静音，光改默认值无效；首次启动新版时只把 muted 复位为
-       false 并清掉旧 muteOnStartup 字段，收藏/历史/进度/音量一律不碰，之后不再干预。 */
-    let muted = p.muted === true;
-    try {
-      if (readStorage(STORAGE_KEYS.unmuteMigration) !== "1") {
-        muted = false;
-        localStorage.setItem(STORAGE_KEYS.unmuteMigration, "1");
-      }
-    } catch { /* ignore */ }
+    /* Muse 2026-11-15 (2.1.2 修正版): 开场静音是恒定行为——加载时无条件 muted=true，
+       不读持久化的 muted 值决定启动状态（会话内取消静音会照常持久化，但下次启动仍先静音）。
+       这与 #113 的 pickGuestData 隔离是两回事：启动瞬间置静音是对的；启动之后因保存
+       进度/收藏被旧快照改回静音是错的，后者继续由 accountData 白名单隔离防住。
+       2.1.1 的 unmute 迁移（首启强制取消静音）方向做反了，本版删除。 */
+    const muted = true;
     /* 1.2.9 起上下划默认就是切集。老配置里 swipeEp 存的 false 是当年的默认值，
        不是用户主动关的，所以这里做一次性迁移；用户之后自己关掉不会再被改回来。 */
     let swipeEp = p.swipeEp !== false;
