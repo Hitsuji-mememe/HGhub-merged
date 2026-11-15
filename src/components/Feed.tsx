@@ -20,7 +20,7 @@ import VideoDetailsPanel from "./VideoDetailsPanel";
 import { PreferenceStorageNotice } from "./PreferenceStorageNotice";
 import {
   IBack, IBoltF, ICheck, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF, IMore,
-  IList, INext, IPauseF, IPlayF, IPrev, ISearch, ISparkF, IStar, IStarF, IVol, IVolMute,} from "../icons";
+  IList, IPauseF, IPlayF, ISearch, ISparkF, IStar, IStarF, IVol, IVolMute,} from "../icons";
 
 type Props = {
   videoIds: number[];
@@ -2062,21 +2062,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 {preferHevc ? "HD" : "标清"}
               </Button>
             )}
-            {episodes.length > 1 && curEp > 1 && (
-              <Button onClick={() => pickEp(curEp - 1)}
-                className="hg-chip shrink-0 w-7 h-7 rounded-full flex items-center justify-center pressable"
-                aria-label={`上一集 第${curEp - 1}集`} title="上一集">
-                <IPrev size={14} />
-              </Button>
-            )}
-            {episodes.length > 1 && curEp < episodes.length && (
-              <Button onClick={() => pickEp(curEp + 1)}
-                className="hg-chip shrink-0 w-7 h-7 rounded-full flex items-center justify-center pressable"
-                aria-label={`下一集 第${curEp + 1}集`} title="下一集">
-                <INext size={14} />
-              </Button>
-            )}
-            {/* Muse 2026-11-15 (2.1.2): 选集钮按方向分位——横屏全屏在底栏（宽度够）；
+            {/* Muse 2026-11-15 (2.1.2): 上一集/下一集钮不加（用户终版定版）——有了选集直达，
+                上下集钮是多余的。切集只留三条简单路径：选集网格、Feed 内滑动切、播完自动连播。 */}
+            {/* 选集钮按方向分位——横屏全屏在底栏（宽度够）；
                 竖屏全屏改放右侧中段（见下方独立按钮），底栏不再塞它，总时长不被挤。 */}
             {episodes.length > 1 && (rotated || vpLandscape) && (
               <Button onClick={() => setPanel("episodes")}
