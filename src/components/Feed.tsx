@@ -1668,7 +1668,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   横版视频 → 保持原样，居中横排一条（画面上下有黑边，居中不压主体）；
                   竖版视频 → 只剩「切集」图标，贴右边缘，避免压住画面正中。
                   显隐用 opacity + 轻微位移过渡（不卸载），净屏/全屏时慢慢淡出。 */}
-              {!isDesktop && (
+              {!isDesktop && zoom.s > 1.05 && (
                 <div
                   className={landscapeVideo
                     ? "absolute z-20 w-max max-w-[calc(100%-24px)] whitespace-nowrap"
@@ -1690,23 +1690,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     ? "inline-flex items-center gap-0.5 h-8 px-1 rounded-full backdrop-blur-xl elev-2 whitespace-nowrap"
                     : "flex flex-col items-stretch gap-1 p-1 rounded-[18px] backdrop-blur-xl elev-2"}
                     style={{ background: "rgba(12,15,22,.58)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.09)" }}>
-                    {landscapeVideo && (
-                      <>
-                        <Button type="button" onClick={() => {
-                          if (zoom.s > 1.05) { setZoom({ s: 1, x: 0, y: 0, g: false }); setPortraitFit("contain"); }
-                          else setPortraitFit((f) => (f === "contain" ? "cover" : "contain"));
-                        }} className="whitespace-nowrap flex items-center justify-center gap-1 h-[26px] px-3 rounded-full text-[12px] font-semibold pressable transition-colors duration-150"
-                          style={{ color: "rgba(255,255,255,.9)" }}>
-                          {zoom.s > 1.05 ? `还原 ${zoom.s.toFixed(1)}x` : portraitFit === "contain" ? "铺满" : "适应"}
-                        </Button>
-                        <Button type="button" onClick={() => enterFs()}
-                          className="whitespace-nowrap flex items-center justify-center gap-1 h-[26px] px-3 rounded-full text-[12px] font-semibold pressable transition-colors duration-150"
-                          style={{ color: "rgba(255,255,255,.9)" }}>
-                          <IExpand size={13} /><span>横屏</span>
-                        </Button>
-                      </>
-                    )}
-                    {!landscapeVideo && zoom.s > 1.05 && (
+                    {zoom.s > 1.05 && (
                       <>
                         <Button type="button" onClick={() => setZoom({ s: 1, x: 0, y: 0, g: false })}
                           className="whitespace-nowrap flex items-center justify-center gap-1 h-[26px] px-3 rounded-full text-[12px] font-semibold pressable transition-colors duration-150"
@@ -1981,6 +1965,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       {/* 移动端：沉浸全屏（安卓 WebView 不支持 Fullscreen API，改用应用内沉浸层） */}
       {!isDesktop && fs && !idle && (
         <>
+          {/* Muse 2026-11-15 (2.1.5): 退出全屏钮——横屏维持右上浮动（用户认可）；竖屏改放底栏末尾。 */}
+          {(rotated || vpLandscape) && (
           <Button onClick={exitFs} aria-label="退出全屏"
             className="hg-chip-strong absolute z-40 w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1"
             style={{
@@ -1989,6 +1975,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             }}>
             <ICompress size={18} />
           </Button>
+          )}
           {/* Muse 2026-11-15 (2.1.2): 全屏底栏分段布局——左段 播放+时间（当前/总时长合并为一段文本，
               不再分置两头把总时长挤出屏幕）+声音，右段（ml-auto）超分/倍速/画质/上集/下集（+横屏时选集）。
               旋转钮已删（方向跟源走）；选集直达 episodes 网格（pickEp 选完自动关面板），
@@ -2055,6 +2042,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 />
               )}
             </div>
+            {!rotated && !vpLandscape && (
+              <Button onClick={exitFs} aria-label="退出全屏"
+                className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable">
+                <ICompress size={15} />
+              </Button>
+            )}
           </div>
           {/* Muse 2026-11-15 (2.1.3): 竖屏全屏选集钮移入底栏（用户实测右侧中段碍事），横竖屏统一底栏。 */}
         </>
