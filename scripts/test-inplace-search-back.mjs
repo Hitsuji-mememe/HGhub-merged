@@ -73,13 +73,17 @@ try {
   // Focus/inert contract merged from the retired test-inplace-search-focus.mjs
   // (same component, mobile context): modal focus, inert background, shortcut
   // containment, Tab wrap, and trigger-focus restore on close.
+  // The stack pop returned to the category tab; re-enter the topic page where
+  // the in-place search trigger lives.
+  await page.getByRole("button").filter({ has: page.getByText("专题", { exact: true }) }).click();
+  await page.getByRole("heading", { name: "专题", exact: true }).waitFor();
   await searchButton.click();
   const dialog = page.getByRole("dialog", { name: "短剧搜索", exact: true });
   await dialog.waitFor();
   await field.waitFor();
   assert.equal(await field.evaluate(element => element === document.activeElement), true, "Search input receives initial focus");
   assert.equal(await dialog.getAttribute("aria-modal"), "true");
-  assert.equal(await page.getByRole("heading", { name: "分类", exact: true }).evaluate(element => !!element.closest("[inert]")), true,
+  assert.equal(await page.getByRole("heading", { name: "专题", exact: true }).evaluate(element => !!element.closest("[inert]")), true,
     "Page content behind the in-place search is inert");
   report.checks.push("search is a modal dialog, receives focus, and makes the covered page inert");
 
