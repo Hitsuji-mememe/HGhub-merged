@@ -1484,25 +1484,18 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       )}
 
       {/* 移动端：倍速状态 / 锁定提示 */}
-      {!isDesktop && (holdSpeed || holdSlow || speedLock || rate !== 1) && (!fs || !idle) && (
+      {/* 锁定提示并入倍速胶囊：锁定只看上滑距离，不存在「拖到某个位置」的目标 */}
+      {!isDesktop && (holdSpeed || holdSlow || speedLock || rate !== 1) && (holdSpeed || holdSlow || !fs || !idle) && (
         <Button
           onClick={() => {
             if (speedLock) { setSpeedLock(0); toast("已解除倍速锁定", "info"); }
             else if (rate !== 1 && !holdSpeed) setRate(1);
           }}
-          className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[13px] font-semibold pressable"
-          style={{ top: "calc(var(--sat, 0px) + 54px)", background: "rgba(0,0,0,.18)", color: speedLock ? "rgba(255,255,255,.95)" : "rgba(255,255,255,.85)" }}>
+          className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[13px] font-semibold whitespace-nowrap pressable"
+          style={{ top: "calc(var(--sat, 0px) + 54px)", background: "rgba(0,0,0,.18)", color: lockArmed || speedLock ? "rgba(255,255,255,.95)" : "rgba(255,255,255,.85)" }}>
           <IBoltF size={13} />
-          {effRate}x {speedLock ? "已锁定 · 点按解除" : holdSpeed ? "倍速中 · 松开恢复" : holdSlow ? "减速中 · 松开恢复" : "倍速"}
+          {effRate}x {holdSpeed ? (lockArmed ? "松手锁定" : "上滑后松手锁定") : speedLock ? "已锁定 · 点按解除" : holdSlow ? "减速中 · 松开恢复" : "倍速"}
         </Button>
-      )}
-      {!isDesktop && holdSpeed && (
-        <div
-          className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-4 h-10 rounded-xl"
-          style={{ top: "38%", background: "rgba(0,0,0,.18)", color: lockArmed ? "#fff" : "rgba(255,255,255,.85)" }}>
-          <ILockF size={16} />
-          <span className="text-[14px] font-semibold">{lockArmed ? `松开锁定 ${holdSpeed}x` : "上滑到此锁定倍速"}</span>
-        </div>
       )}
 
       {/* 移动端全屏进度条，普通模式的进度条位于标题下方 */}
@@ -1528,7 +1521,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       {!isDesktop && fs && !idle && (
         <>
           <Button onClick={exitFs} aria-label="退出全屏"
-            className="hg-chip-strong absolute z-40 w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1"
+            className="hg-chip-strong absolute z-40 w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1"
             style={{
               top: rotated ? 12 : "calc(var(--sat, 0px) + 6px)",
               right: rotated ? "calc(var(--sab, 0px) + 12px)" : 12,
@@ -1626,14 +1619,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         <div className={`absolute z-40 flex items-center gap-2 ${fs ? "" : "right-3"}`}
           style={{
             top: rotated ? 12 : "calc(var(--sat, 0px) + 6px)",
-            right: fs ? (rotated ? "calc(var(--sab, 0px) + 56px)" : 56) : undefined,
+            // 触屏下按钮实际 44px：退出键占 12–56，锁定组从 68 起，留 12px 间距
+            right: fs ? (rotated ? "calc(var(--sab, 0px) + 68px)" : 68) : undefined,
           }}>
           {!fs && !clean && <Button onClick={() => setMuted(m => !m)} aria-label={muted ? "取消静音" : "静音"}
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1">
             {muted ? <IVolMute size={17} /> : <IVol size={17} />}
           </Button>}
           <Button onClick={lockControls} aria-label="锁定播放控制" title="锁定播放控制" aria-pressed={false}
-            className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><ILockF size={17} /></Button>
+            className={`hg-chip ${fs ? "w-11 h-11" : "w-9 h-9"} rounded-full flex items-center justify-center pressable elev-1`}><ILockF size={17} /></Button>
           {!fs && !clean && <Button onClick={() => store.setTab("search")} aria-label="搜索"
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><ISearch size={18} /></Button>}
         </div>
