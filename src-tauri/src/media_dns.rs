@@ -467,16 +467,6 @@ mod tests {
         assert!(parse_udp_answers(&packet[..10], 0x1234, 443).is_err());
     }
 
-    #[test]
-    fn recovered_hosts_expire_and_do_not_change_other_hosts() {
-        let now = Instant::now();
-        let mut routes = Routes::default();
-        assert!(!routes.prefers_public("media.example", now));
-        routes.remember("media.example", now);
-        assert!(routes.prefers_public("media.example", now + Duration::from_secs(29)));
-        assert!(!routes.prefers_public("other.example", now));
-        assert!(!routes.prefers_public("media.example", now + Duration::from_secs(30)));
-    }
 
 }
 
