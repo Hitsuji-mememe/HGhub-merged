@@ -169,25 +169,28 @@ async function gestureChecks(page) {
     }));
   });
   const clean = () => page.locator('.player-root').getAttribute('data-clean');
+  // 断言接棒 (Muse 2026-11-18, 三度改写, 链条完整保留):
+  // 初版保护「双击切播放、单击 230ms 内翻转显隐」→ 二版 (删双击裁定) 保护
+  // 「单击只翻转显隐、双击不改播放状态」→ 本版 (抖音式, 用户授权按主流证据定)
+  // 保护「单击切换播放/暂停、显隐跟随播放状态、双击无专属动作」。
+  // 原「单击 <230ms 翻转显隐」由「单击直接暂停 + clean 跟随为 false」接棒:
+  // 测的仍是单击无判定延迟 (新代码路径里根本没有计时器), 但毫秒硬 bound
+  // 在 headless SwiftShader 软件 GL 下测的是渲染管线而非判定逻辑
+  // (docs/lessons.md 已挂账), 故毫秒值只记录、不设 bound。
   const start = Date.now();
   await tap();
-  await page.waitForFunction(() => document.querySelector('.player-root')?.dataset.clean === 'true');
+  await page.waitForFunction(() => document.querySelector('video')?.paused === true);
   const singleTapMs = Date.now()-start;
-  assert(singleTapMs < 230, 'Single tap must toggle chrome immediately (no waiting window)');
-  await page.waitForTimeout(250);
-  await tap();
   await page.waitForFunction(() => document.querySelector('.player-root')?.dataset.clean === 'false');
-  await page.waitForTimeout(250);
+  assert.equal(await clean(), 'false', 'Tap pauses; chrome follows playback state (visible while paused)');
+  await tap();
+  await page.waitForFunction(() => document.querySelector('video')?.paused === false);
+  await page.waitForFunction(() => document.querySelector('.player-root')?.dataset.clean === 'true');
   const wasPaused = await video.evaluate(v=>v.paused);
   await tap(); await page.waitForTimeout(80); await tap();
-  await page.waitForTimeout(150);
-  // 断言接棒 (Muse 2026-11-18, 二次改派): 初版断言保护「双击切播放」，
-  // 中途契约曾改为「第二击只切播放、不动显隐」，均已被用户最终裁定作废——
-  // 双击暂停整个删除，双击无专属动作，暂停只走显性播放钮。
-  // 接棒断言：双击后播放状态不变（任何双击暂停实现都会翻转 paused → 失败）、
-  // 显隐回到双击前状态（两次单击各翻转一次、净效果为零；进入本段前 clean='false'）。
-  assert.equal(await video.evaluate(v=>v.paused), wasPaused, 'Double tap must not change playback state (double-tap pause removed)');
-  assert.equal(await clean(), 'false', 'Double tap leaves chrome at its pre-double-tap state');
+  await page.waitForTimeout(160);
+  assert.equal(await video.evaluate(v=>v.paused), wasPaused, 'Double tap has no dedicated action (two single taps cancel out)');
+  assert.equal(await clean(), 'true', 'Chrome still follows playback state after a double tap');
   return {singleTapMs};
 }
 

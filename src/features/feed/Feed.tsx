@@ -157,7 +157,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     /* 左边缘（20px）起手：优先给返回手势；rawX/rawY 为屏幕坐标（旋转舞台下方向判定不走舞台坐标） */
     edge: boolean; edgeBack: boolean; rawX: number; rawY: number;
   } | null>(null);
-  /* 单击只管显隐（即时）；双击无专属动作（双击暂停已删，2026-11-18 用户裁定） */
+  /* 单击切换播放/暂停时的中央短暂图标反馈（动画结束即卸） */
+  const [tapFlash, setTapFlash] = useState<{ kind: "play" | "pause"; n: number } | null>(null);
   /* 系统是否真的转成了横屏（iOS 原生旋转后为 true） */
   const [vpLandscape, setVpLandscape] = useState(
     () => typeof window !== "undefined" && window.innerWidth > window.innerHeight,
@@ -641,6 +642,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     else el.requestFullscreen().catch(() => {});
   };
 
+  /* 控件显隐跟随播放状态（抖音式，Muse 2026-11-18）：移动端暂停→全显、
+     播放→隐藏（仅留细进度条）；不用计时器。桌面有自己的 hover/闲置模型，
+     不跟随。失活的 Feed 不碰 store.clean（归当前活跃实例管）。 */
+  useEffect(() => {
+    if (isDesktop || !active) return;
+    setClean(!paused);
+    if (fs) setIdle(!paused);
+  }, [paused, fs, isDesktop, active, setClean, setIdle]);
+
   /* 左边缘右滑返回（iOS back 手势，Muse 2026-11-18）：与硬件返回同序——
      先关面板，再退全屏，最后回上一级（context 模式 onBack；home 根层无上一级，不动作）。
      面板以 Sheet 呈现时手势落在弹层自身（DialogFrame 同样支持边缘右滑关闭）。 */
@@ -813,12 +823,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       }
     }
     if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260) {
-      /* 单击只管显隐、即时生效（Muse 2026-11-18 用户裁定）：双击暂停已删除，
-         双击无专属动作——两次单击即两次翻转、净效果为零；暂停只走显性播放钮
-         （全屏底栏/桌面控制条的播放键）。不再有双击判定窗口与待定计时器。 */
-      setClean(!clean);
-      if (!isDesktop && fs) setIdle(!idle);
-      if (!isDesktop && fs && idle) arm();
+      /* 单击视频区 = 切换播放/暂停（Muse 2026-11-18 抖音式，用户授权按主流
+         证据定，覆盖「单击只管显隐」）：显隐不由单击直接翻转，而跟随播放状态
+         同步（暂停→控件全显、播放→只留细进度条，见 doEdgeBack 上方的同步
+         effect）；单击的判定延迟正是旧模型「不舒服」的来源，现无任何等待。
+         双击无专属动作：两次单击即暂停又播放、净效果为零。按钮/进度条/面板
+         都不在手势面内，落在其上不会触发本分支。 */
+      const wasPaused = videoRef.current?.el()?.paused ?? paused;
+      videoRef.current?.toggle();
+      setTapFlash({ kind: wasPaused ? "play" : "pause", n: Date.now() });
     }
   };
 
@@ -867,7 +880,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       const i = Math.max(0, Math.min(effectiveVideoIds.length - 1, Math.round(el.scrollTop / h)));
       if (i !== idxRef.current) resolveSwipe(i);
     }
-    setClean(false);
+    /* 移动端进全屏不强显控件：显隐跟随播放状态（同步 effect 在 fs 翻转时再核） */
+    setClean(isDesktop ? false : !paused);
     setSrMenuOpen(false); /* SR 菜单开合状态不跨全屏/普通模式串场 */
     setFs(true);
     wake();
@@ -880,13 +894,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         } catch { /* ignore */ }
       }
     }
-  }, [isDesktop, keepAlive, resolveSwipe, effectiveVideoIds.length, setClean, setFs, wake]);
+  }, [isDesktop, keepAlive, resolveSwipe, effectiveVideoIds.length, setClean, setFs, wake, paused]);
 
   const exitFs = useCallback(() => {
-    setClean(false);
+    /* 移动端退全屏同样跟随播放状态（播放中回沉浸、暂停全显） */
+    setClean(isDesktop ? false : !paused);
     setSrMenuOpen(false);
     setFs(false);
-  }, [setClean, setFs]);
+  }, [setClean, setFs, isDesktop, paused]);
 
   useFsOrientation(fs, isDesktop, keepAlive);
 
@@ -1351,12 +1366,16 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {/* 移动端：标题 + 详情标签 + 进度线
                   不加任何压暗层——黑边彻底去掉，全靠文字阴影保读；
                   进度条轨道几乎不可见，只用白点标播放位置。 */}
-              {!fs && !clean && !isDesktop && (
+              {!fs && !isDesktop && (
                 <div className="absolute inset-x-0 z-20" style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset}px)` }}>
+                  {/* 显隐跟随播放状态（抖音式）：播放中只留下方细进度条，标题与入口随暂停出现 */}
+                  {!clean && (
                   <div className="mobile-video-meta-copy relative pb-2 flex items-center gap-2">
                     <p className="flex-1 min-w-0 text-[15px] font-semibold leading-snug hg-ink-2 hg-ov-shadow-strong clamp-2">{meta.title}</p>
                   </div>
+                  )}
                   <div className="relative pt-1.5 pb-2.5">
+                    {!clean && (
                     <div className="mobile-video-meta-copy flex flex-wrap items-center gap-2">
                       {/* Muse 2026-11-18 (真机反馈修回 2.1.2 定版): 「详情 · 第X集」拆成两个独立
                           点击目标——点「详情」开详情面板；点「第X集」直达选集网格，不穿详情面板。
@@ -1374,6 +1393,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                         <span className="min-h-11 flex items-center text-[12px] font-medium hg-ink-3 hg-ov-shadow-strong">第 {curEp} 集</span>
                       )}
                     </div>
+                    )}
                     <div ref={barRef} className="mx-4 mt-2 relative" style={{ height: 14, touchAction: "none" }}
                       onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
                       {/* 轨道：几乎看不见，只暗示可拖动 */}
@@ -1416,6 +1436,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   <span className="w-[66px] h-[66px] rounded-full flex items-center justify-center backdrop-blur-md"
                     style={{ background: "rgba(0,0,0,.55)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.12)" }}>
                     <IPlayF size={28} className="hg-ink ml-0.5" />
+                  </span>
+                </div>
+              )}
+              {/* 单击切换的中央短暂图标反馈（抖音式）：动画结束即卸，不留计时器 */}
+              {isActive && tapFlash && (
+                <div key={tapFlash.n} className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+                  <span className="a-tap-flash w-[76px] h-[76px] rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,.45)" }}
+                    onAnimationEnd={() => setTapFlash(null)}>
+                    {tapFlash.kind === "play" ? <IPlayF size={34} className="hg-ink ml-1" /> : <IPauseF size={32} className="hg-ink" />}
                   </span>
                 </div>
               )}
@@ -1480,6 +1509,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           <IBoltF size={13} />
           {effRate}x {holdSpeed ? "加速中 · 松开恢复" : holdSlow ? "减速中 · 松开恢复" : "倍速 · 点按恢复 1x"}
         </Button>
+      )}
+
+      {/* 全屏播放中（控件已隐）只留一条细进度线（抖音式沉浸） */}
+      {!isDesktop && fs && idle && !paused && (
+        <div className="absolute inset-x-0 z-30 pointer-events-none" style={{ bottom: rotated ? 0 : "var(--sab, 0px)", paddingLeft: rotated ? "max(52px, env(safe-area-inset-left))" : 0, paddingRight: rotated ? "max(52px, env(safe-area-inset-right))" : 0 }}>
+          <div className="h-[2.5px]" style={{ background: "rgba(255,255,255,.22)" }}>
+            <PlaybackProgress clock={playbackClock} duration={duration} preview={null} className="h-full bg-white" />
+          </div>
+        </div>
       )}
 
       {/* 移动端全屏进度条，普通模式的进度条位于标题下方 */}
