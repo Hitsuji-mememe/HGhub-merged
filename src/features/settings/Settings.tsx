@@ -167,6 +167,26 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
               setDiagnosing(true);
               try {
                 const diag = await api.netDiag();
+                // 分片测速 C 路（移植 2.0.11, Muse 2026-11-18）：WebView 原生 fetch 直连同一分片，
+                // 与 Rust 的 A/B 两路凑三路对照；结果并回 diag，报告与日志都带得上。
+                const sab = (diag.speed_ab ?? {}) as { seg_url?: string; host?: string; bytes?: number; a_ms?: number; b_ms?: number };
+                if (sab.seg_url) {
+                  const sabRec = diag.speed_ab as Record<string, unknown>;
+                  const t0 = performance.now();
+                  try {
+                    const r = await fetch(sab.seg_url);
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    const buf = await r.arrayBuffer();
+                    const cMs = Math.round(performance.now() - t0);
+                    sabRec.c_ms = cMs;
+                    sabRec.c_bytes = buf.byteLength;
+                    tracePlayback("media.speed_ab", { host: sab.host ?? "", bytes: sab.bytes ?? buf.byteLength, a_ms: sab.a_ms ?? null, b_ms: sab.b_ms ?? null, c_ms: cMs, c_bytes: buf.byteLength });
+                  } catch (e) {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    sabRec.c_error = msg;
+                    tracePlayback("media.speed_ab", { host: sab.host ?? "", bytes: sab.bytes ?? null, a_ms: sab.a_ms ?? null, b_ms: sab.b_ms ?? null, c_error: msg });
+                  }
+                }
                 // 落盘走原始 JSON（便于脚本统计），复制给对方的是分段可读报告。
                 logLine(`[net_diag] ${JSON.stringify(diag)}`);
                 const http = (diag.http ?? {}) as { ms?: number; status?: number };
