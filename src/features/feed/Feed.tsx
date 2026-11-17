@@ -3,7 +3,7 @@ import { Loader } from "../../shared/ui/ios/effects";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useFsOrientation } from "../playback/useFsOrientation";
-import { api, cover, fmt, fmtTime, isMobile, logLine } from "../../shared/api/api";
+import { api, cover, fmt, fmtTime, isMobile, logLine, playlist } from "../../shared/api/api";
 import type { Detail, Episode, PlayInfo, Post, VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
 import { Img, Sheet } from "../../shared/ui/ui";
@@ -21,6 +21,7 @@ import { PreferenceStorageNotice } from "../../shared/ui/PreferenceStorageNotice
 import { createHoldSpeed, shiftHoldSpeed, stageXY, HOLD_DELAY_MS, type HoldSpeed } from "./mobileHold";
 import { SR_PRESET_MAP, SR_SHORT_LABEL, SuperResMenu } from "../playback/SuperResCanvas";
 import { useFsIdle } from "./fsIdle";
+import { pickLine } from "../../shared/network/autoLine";
 import { useFeedDetails } from "./useFeedDetails";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
@@ -115,6 +116,64 @@ function RateMenu({
 }
 
 
+/* ── 下一条首分片预热（2.0.6） ──────────────────────────────
+ * 取流路径（VideoSurface）：hls.js 用默认 loader 向 playlist(src)
+ * （即 `{LOCAL}/hls?u=…`）拉清单，分片与 key 的地址是 Rust 在清单里改写好的
+ * `{LOCAL}/seg?u=…`；两类请求都经 Rust `media::handle` 的进程内缓存
+ * （PL_CACHE 按 `{prefix}|{上游地址}`、SEG_CACHE 按上游地址）。
+ * 所以这里用 fetch() 走与播放器逐字相同的 URL 把清单与首分片先拉一遍，
+ * 就能把同一份缓存填好——用户切过去时 hls.js 的请求直接命中。
+ * 全程只用 fetch、不碰播放器的 hls 实例，不污染 2.0.5 的分片统计与自愈判据。 */
+function firstUriLine(text: string): string | null {
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (t && !t.startsWith("#")) return t;
+  }
+  return null;
+}
+
+function resolveUri(u: string, base: string): string {
+  try { return new URL(u, base).href; } catch { return u; }
+}
+
+async function prewarmFirstSegment(videoId: number, rawUrl: string, signal: AbortSignal): Promise<void> {
+  const t0 = performance.now();
+  const ms = () => Math.round(performance.now() - t0);
+  try {
+    const plUrl = playlist(rawUrl);
+    const r = await fetch(plUrl, { signal });
+    if (!r.ok) {
+      tracePlayback("feed.prewarm", { video_id: videoId, stage: "playlist_fail", status: r.status, ms: ms() });
+      return;
+    }
+    let text = await r.text();
+    tracePlayback("feed.prewarm", { video_id: videoId, stage: "playlist", ms: ms() });
+    /* 主清单（多码率）：第一条 URI 行是子清单，它经 /seg 返回时会被二次改写，照拉一遍 */
+    if (text.includes("#EXT-X-STREAM-INF")) {
+      const variant = firstUriLine(text);
+      if (!variant) return;
+      const vr = await fetch(resolveUri(variant, plUrl), { signal });
+      if (!vr.ok) return;
+      text = await vr.text();
+    }
+    /* init 段（fMP4 的 EXT-X-MAP）先热，再热首个媒体分片；
+       URL 全部取自改写后清单的原文，与 hls.js 实际请求逐字一致，缓存键才对得上 */
+    const mapUri = /#EXT-X-MAP:[^\n]*URI="([^"]+)"/.exec(text)?.[1];
+    if (mapUri) {
+      const mr = await fetch(resolveUri(mapUri, plUrl), { signal });
+      await mr.arrayBuffer();
+      if (signal.aborted) return;
+      tracePlayback("feed.prewarm", { video_id: videoId, stage: "map", ms: ms() });
+    }
+    const seg = firstUriLine(text);
+    if (!seg) return;
+    const sr = await fetch(resolveUri(seg, plUrl), { signal });
+    if (!sr.ok) return;
+    const buf = await sr.arrayBuffer();
+    tracePlayback("feed.prewarm", { video_id: videoId, stage: "segment", ms: ms(), bytes: buf.byteLength });
+  } catch { /* 取消或失败一律静默：预热只是加速，失败不影响正常播放路径 */ }
+}
+
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, onBlocked, startEp, startTime }: Props) {
   const store = useStore();
   const { isLiked, isFav, setLiked, setCollected, setFollowing, actionPending, accountScope, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen, swipeEp, preferHevc, setPreferHevc } = store;
@@ -186,6 +245,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [rateMenuOpen, setRateMenuOpen] = useState(false);
   const [srMenuOpen, setSrMenuOpen] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  /* 卡顿自愈（2.0.5，Muse 2026-11-18 移植）：分片吞吐窗口 / waiting 时刻 / 自愈护栏 / 重解析续播待办 */
+  const fragWindowRef = useRef<{ slow: boolean; kbps: number }[]>([]);
+  const lastStallAtRef = useRef(0);
+  const healStateRef = useRef<{ lastAt: number; counts: Record<string, number>; pendingKey: string | null; pendingAt: number }>(
+    { lastAt: 0, counts: {}, pendingKey: null, pendingAt: 0 },
+  );
+  const healResumeRef = useRef<{ key: string; t: number } | null>(null);
   const [err, setErr] = useState("");
   const [panel, setPanel] = useState<"episodes" | "comments" | "article" | "detail" | null>(null);
   /* 续播：拿到时长后再 seek 一次（只对进入时那一条生效） */
@@ -284,7 +350,69 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     && playGuard.current.permissionKey === permissionKey && playGuard.current.playKey === playKey;
   const mainUrl = playUrls[playKey] || "";
   const hevcUrl = hevcUrls[playKey] || "";
-  const playUrl = preferHevc && hevcUrl ? hevcUrl : mainUrl;
+  /* Muse 2026-11-18 (2.2.0 合并, 移植 2.1.4): HEVC 回退按集锁定——解码/格式类失败只锁当前集，
+     切集后新集重新优先高清；网络类失败不锁。 */
+  const [hevcDeadKey, setHevcDeadKey] = useState("");
+  const playUrl = preferHevc && hevcUrl && hevcDeadKey !== playKey ? hevcUrl : mainUrl;
+  const playKeyRef = useRef(playKey);
+  playKeyRef.current = playKey;
+
+  /* ── 卡顿自愈（2.0.5） ── 最近 3 片吞吐都低于码率且刚发生 waiting 才触发：
+     pickLine("stall", true) 重选线；真的切线后清本集地址缓存重解析并接回位置。
+     护栏：全局间隔 ≥90s、同集 ≤2 次、手动暂停不触发。 */
+  const maybeHealStall = () => {
+    if (isDesktop || !active) return;
+    const v = videoRef.current?.el();
+    if (!v || paused || v.paused || v.ended) return;
+    const now = Date.now();
+    if (!lastStallAtRef.current || now - lastStallAtRef.current > 30_000) return;
+    const hs = healStateRef.current;
+    if (now - hs.lastAt < 90_000) return;
+    if ((hs.counts[playKey] || 0) >= 2) return;
+    hs.lastAt = now;
+    hs.counts[playKey] = (hs.counts[playKey] || 0) + 1;
+    hs.pendingKey = playKey;
+    hs.pendingAt = now;
+    const rates = fragWindowRef.current.map((w) => Math.round(w.kbps)).join("/");
+    fragWindowRef.current = [];
+    lastStallAtRef.current = 0;
+    tracePlayback("line.stallHeal", { stage: "trigger", video_id: curId, episode: curEp, frag_kbps: rates, heal_count: hs.counts[playKey] });
+    void pickLine("stall", true).then(() => {
+      if (healStateRef.current.pendingKey === playKey) healStateRef.current.pendingKey = null;
+    });
+  };
+
+  const onFragStats = (st: { bytes: number; loadMs: number; fragDuration: number; bitrate: number }) => {
+    if (isDesktop || !active) return;
+    const loadSec = st.loadMs / 1000;
+    if (loadSec <= 0 || st.bytes <= 0) return;
+    const kbps = (st.bytes * 8) / loadSec / 1000;
+    const slow = st.bitrate > 0 ? kbps < st.bitrate / 1000 : st.fragDuration > 0 && loadSec > st.fragDuration;
+    const win = fragWindowRef.current;
+    win.push({ slow, kbps });
+    if (win.length > 3) win.shift();
+    if (win.length === 3 && win.every((w) => w.slow)) maybeHealStall();
+  };
+
+  useEffect(() => {
+    const onLineChanged = () => {
+      const hs = healStateRef.current;
+      if (!hs.pendingKey || Date.now() - hs.pendingAt > 60_000) return;
+      const key = hs.pendingKey;
+      hs.pendingKey = null;
+      if (key !== playKeyRef.current) return;
+      const v = videoRef.current?.el();
+      const t = v && Number.isFinite(v.currentTime) ? v.currentTime : 0;
+      if (t > 1) healResumeRef.current = { key, t };
+      tracePlayback("line.stallHeal", { stage: "re-resolve", key, resume_t: Math.round(t * 10) / 10 });
+      setPlayUrls((m) => { if (!m[key]) return m; const n = { ...m }; delete n[key]; return n; });
+      setHevcUrls((m) => { if (!m[key]) return m; const n = { ...m }; delete n[key]; return n; });
+      setErr("");
+      setProxyRetry((n) => n + 1);
+    };
+    window.addEventListener("hg:line-changed", onLineChanged);
+    return () => window.removeEventListener("hg:line-changed", onLineChanged);
+  }, []);
   const measurementKey = JSON.stringify([accountScope, store.lineEpoch, permissionKey, playKey, playUrl]);
   const videoSize = vsize.key === measurementKey ? vsize : { key: measurementKey, w: 0, h: 0 };
   // 等播放画面就绪再提示，启动动画/协议、加载失败和其他面板不叠加教程。
@@ -325,6 +453,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (!isCurrentPlayback()) return;
     setDuration(d);
     liveRef.current = { id: curId, ep: curEp, dur: d, t: historyWriter.current === addHistory && liveRef.current.id === curId && liveRef.current.ep === curEp && liveRef.current.accountScope === accountScope ? liveRef.current.t : 0, permissionKey, accountScope };
+    /* 卡顿自愈重解析后的新源：把触发前的位置接回去 */
+    const hr = healResumeRef.current;
+    if (hr && hr.key === playKey && hr.t > 1 && (!d || hr.t < d - 3)) {
+      healResumeRef.current = null;
+      videoRef.current?.seek(hr.t, "stall_heal");
+      playbackClock.publish(hr.t);
+    }
     const r = resumeRef.current;
     if (r && r.key === playKey && r.t > 1 && (!d || r.t < d - 3)) {
       resumeRef.current = null;
@@ -593,10 +728,32 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     return () => { alive = false; };
   }, [active, curId, index, nextVideoId, kind, mode, allowed, playingKey, playKey, playUrls[`${nextVideoId}:1`], permissionKey, accountScope, store.lineEpoch, filtering, blockReason, onBlocked, requestDetail, requestPlay]);
 
+  /* 首分片预热（2.0.6，Muse 2026-11-18 移植）：下一条地址就绪后，用与播放器逐字相同的
+     本地代理 URL 把清单 + 首分片先拉一遍，填 Rust PL_CACHE/SEG_CACHE；切过去时直接命中。
+     每 key 只热一次，失败静默。 */
+  const prewarmedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!active || kind !== "video" || playingKey !== playKey) return;
+    const targets: { id: number; key: string }[] = [];
+    if (nextVideoId) targets.push({ id: nextVideoId, key: `${nextVideoId}:1` });
+    const nextEp = episodes.find((e) => e.ep_num === curEp + 1);
+    if (nextEp) targets.push({ id: curId, key: `${curId}:${nextEp.ep_num}` });
+    const ctrl = new AbortController();
+    for (const t of targets) {
+      const raw = playUrls[t.key];
+      if (!raw || prewarmedRef.current.has(t.key)) continue;
+      prewarmedRef.current.add(t.key);
+      void prewarmFirstSegment(t.id, raw, ctrl.signal);
+    }
+    return () => ctrl.abort();
+  }, [active, kind, playingKey, playKey, nextVideoId, curEp, episodes, playUrls]);
+
   /* 切换条目/集数时重置播放状态 */
   useEffect(() => {
     setDuration(0); setErr(""); setWaiting(true); setPaused(false);
     setPlayingKey("");
+    fragWindowRef.current = [];
+    lastStallAtRef.current = 0;
     playbackClock.publish(0);
     setPortraitFit("contain");
   }, [playKey]);
@@ -1177,14 +1334,16 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   }}
                   onPlaying={() => { if (isCurrentPlayback()) { setPaused(false); setWaiting(false); setErr(""); setPlayingKey(playKey); } }}
                   onPause={() => { if (isCurrentPlayback()) setPaused(true); }}
-                  onWaiting={() => { if (isCurrentPlayback()) setWaiting(true); }}
+                  onWaiting={() => { if (isCurrentPlayback()) { setWaiting(true); lastStallAtRef.current = Date.now(); } }}
+                  onFragStats={onFragStats}
                   onEnded={() => { if (!isCurrentPlayback()) return; const next = episodes.find((e) => e.ep_num === curEp + 1); if (next) pickEp(next.ep_num); }}
                   onError={(m) => {
                     if (!isCurrentPlayback()) return;
                     setErr(m); setWaiting(false);
-                    if (preferHevc && hevcUrl) {
-                      setPreferHevc(false);
-                      toast("高清播不了，已切回标准", "info");
+                    const decodeErr = /mediaError|bufferAppend|bufferAppending|decode|MEDIA_ERR|SRC_NOT_SUPPORTED|format/i.test(m);
+                    if (decodeErr && preferHevc && hevcUrl && hevcDeadKey !== playKey) {
+                      setHevcDeadKey(playKey);
+                      toast("本集高清播不了，已切标准", "info");
                     }
                   }} />
                 </div>
@@ -1551,12 +1710,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {muted ? <IVolMute size={15} /> : <IVol size={15} />}
             </Button>
             {/* Muse 2026-11-18 (2.2.0 合并): 底栏顺序按 2.1.4 定版 选集 > 倍速 > 超分；无下集钮 */}
+            {episodes.length > 1 && (
             <div className="ml-auto relative shrink-0">
               <Button onClick={() => { setSrMenuOpen(false); setPanel("episodes"); }}
                 className="flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-semibold hg-chip hg-ink-2 pressable" aria-label="选集">
                 <IList size={13} />选集
               </Button>
             </div>
+            )}
             <div className="relative shrink-0">
               <Button onClick={() => { setSrMenuOpen(false); setRateMenuOpen((v) => !v); }}
                 className={`flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`} aria-label="倍速选择" aria-expanded={rateMenuOpen}>

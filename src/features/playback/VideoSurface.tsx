@@ -10,6 +10,8 @@ import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
 import { useStore } from "../../shared/model/store";
 import SuperResCanvas, { getSvgFilterUrl, SuperResSvgDefs } from "./SuperResCanvas";
 
+export type FragStats = { bytes: number; loadMs: number; fragDuration: number; bitrate: number };
+
 export type VideoHandle = {
   el: () => HTMLVideoElement | null;
   play: () => void;
@@ -44,6 +46,7 @@ type Props = {
   onWaiting?: () => void;
   onEnded?: () => void;
   onError?: (msg: string) => void;
+  onFragStats?: (s: FragStats) => void;
   onClick?: () => void;
   className?: string;
 };
@@ -51,13 +54,15 @@ type Props = {
 /** 只负责「播」：hls.js + video 元素，控制条由外层渲染。 */
 const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   { src, poster, autoPlay = true, active = true, measurementKey = src, diagnosticContext = {}, muted = false, loop = false, fit = "contain", volume = 1, rate = 1,
-    onTime, onDuration, onSize, onPlaying, onPause, onWaiting, onEnded, onError, onClick, className = "" },
+    onTime, onDuration, onSize, onPlaying, onPause, onWaiting, onEnded, onError, onFragStats, onClick, className = "" },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const latestSource = useRef(src); latestSource.current = src;
   const attachedSource = useRef<string | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const fragStatsCbRef = useRef(onFragStats);
+  fragStatsCbRef.current = onFragStats;
   const recoveryRef = useRef<HlsRecovery | null>(null);
   const nearEndFiredRef = useRef(false);
   const reportedSizeRef = useRef({ key: "", w: 0, h: 0 });
@@ -188,6 +193,15 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       });
       recoveryRef.current = recovery;
       observeHls(hls, trace);
+      /* 分片吞吐上报（2.0.5 卡顿自愈，Muse 2026-11-18 移植）：只报整片，耗时取 stats.loading 起止差 */
+      hls.on(Hls.Events.FRAG_LOADED, (_e, data) => {
+        const cb = fragStatsCbRef.current;
+        if (!cb || data.part || typeof data.frag.sn !== "number") return;
+        const st = data.frag.stats;
+        const loadMs = st.loading.end > 0 && st.loading.end >= st.loading.start ? st.loading.end - st.loading.start : 0;
+        if (loadMs <= 0 || st.loaded <= 0) return;
+        cb({ bytes: st.loaded, loadMs, fragDuration: data.frag.duration || 0, bitrate: hls.levels[data.frag.level]?.bitrate ?? 0 });
+      });
       hls.loadSource(source.url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
