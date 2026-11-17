@@ -84,6 +84,12 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   缓存留在当前 Feed 实例，读取按 `lineEpoch:curId` 隔离，不把旧线路键当作当前结果。
 - 评论/选集面板只在 `active` 且 `allowed` 时保持开放；被覆盖时关闭，不阻塞返回键
   或下层 Feed。
+- 移动端全屏底栏的布局契约（2026-11-18 回归后立）：`@media(pointer:coarse)` 下
+  `.ios-button` 最小 44×44（`src/styles/ios.css`），一切宽度估算必须按 44px 而非
+  类名里的 w-8/h-8。退出全屏是恢复入口：横屏（含 vpLandscape）在右上 44×44；
+  竖屏固定在底栏右端、横排预留其宽（54px），不得参与横排的宽度竞争。底栏顺序
+  选集 > 倍速 > 超分；时间合并为一段；超分纯图标以高亮示状态；静音在 ≤360px
+  撤出本栏。几何由 `scripts/test-layout.mjs` 按视口矩阵守门（见 playback 验证）。
 
 ## 验证命令
 
@@ -91,6 +97,7 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
 pnpm build
 pnpm test:smoke
 pnpm test:api-loading
+pnpm test:layout
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 

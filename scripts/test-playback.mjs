@@ -190,7 +190,12 @@ async function gestureChecks(page) {
 // 所以必须等真实元数据落地后再断言 computed object-fit：
 //   修复前：landscapeVideo=false 且已测量、非全屏、vpLandscape=false → "cover"（裁切铺满）→ 断言失败；
 //   修复后：竖屏视频一律 "contain"（保留原始比例）→ 断言通过。
-// 第二段用横屏源验证「铺满/适应」切换链路未被修复破坏（该分支修复前后行为一致）。
+// 第二段（2026-11-18 拆分，Muse）：原断言验证横屏源「铺满→cover→适应→contain」
+// 切换链路；2.2.0 合并定版把快捷胶囊收紧为仅 zoom>1.05 出现，而 zoom 中胶囊钮
+// 只做「还原」，铺满切换在现行口径下不可达（胶囊口径证据冲突已挂账待用户确认）。
+// 按测试删除规矩：删切换断言必须留接棒者——本段改验 (a) 横屏源默认 contain
+// 不裁切（#142 契约本体）、(b) 双指放大后胶囊出现、点「还原」复位且 fit 不变。
+// 若胶囊口径恢复 (landscapeVideo || zoom>1.05)，本段应恢复 cover 切换断言。
 async function portraitFitChecks(page) {
   const open = proxy => page.goto(`${report.ui}/tests/player-seek.html?diagnostics=1&portrait-fit=1&proxy=${encodeURIComponent(proxy)}`);
   // onSize 是原生媒体事件里的 React 更新；双 rAF 保证 setVsize 已提交到 DOM（帧同步，非任意 sleep）。
@@ -217,7 +222,7 @@ async function portraitFitChecks(page) {
   // 「铺满」按钮只在 landscapeVideo=true 时渲染；它不存在证明确实走了竖屏分支。
   assert.equal(await page.getByRole("button", { name: "铺满", exact: true }).count(), 0, "Portrait source must not offer the landscape fill toggle");
 
-  // 同一手机竖屏视口换横屏源（320x180）：默认 contain，铺满→cover，适应→contain。
+  // 同一手机竖屏视口换横屏源（320x180）：默认 contain 不裁切（接棒断言，见段首注释）。
   await open(report.media);
   await page.waitForFunction(() => {
     const v = document.querySelector("video");
@@ -225,12 +230,30 @@ async function portraitFitChecks(page) {
   });
   await afterCommit();
   assert.equal(await objectFit(), "contain", "Landscape video in a portrait viewport must default to contain");
-  await page.getByRole("button", { name: "铺满", exact: true }).click();
-  await page.waitForFunction(() => getComputedStyle(document.querySelector("video")).objectFit === "cover");
-  await page.getByRole("button", { name: "适应", exact: true }).click();
-  await page.waitForFunction(() => getComputedStyle(document.querySelector("video")).objectFit === "contain");
+  assert.equal(await page.getByRole("button", { name: "铺满", exact: true }).count(), 0,
+    "Capsule (and its fit toggle) must stay hidden until pinch-zoom under the current 定版");
+  // 双指放大 → 胶囊出现且只提供「还原」；点还原复位缩放，fit 保持 contain。
+  await page.evaluate(() => {
+    const target = document.querySelector("[data-mobile-hold-target]");
+    if (!target) throw new Error("hold target missing");
+    const fire = (type, id, x, y) => target.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, pointerId: id, pointerType: "touch", button: 0, clientX: x, clientY: y,
+    }));
+    fire("pointerdown", 11, 140, 420);
+    fire("pointerdown", 12, 200, 420);
+    for (const x of [240, 280, 320, 350]) fire("pointermove", 12, x, 420);
+    fire("pointerup", 11, 140, 420);
+    fire("pointerup", 12, 350, 420);
+  });
+  await page.waitForFunction(() => [...document.querySelectorAll("button")].some(b => (b.textContent || "").includes("还原")),
+    undefined, { timeout: 5000 });
+  await page.locator("button", { hasText: "还原" }).first().click();
+  await page.waitForFunction(() => ![...document.querySelectorAll("button")].some(b => (b.textContent || "").includes("还原")),
+    undefined, { timeout: 5000 });
+  await afterCommit();
+  assert.equal(await objectFit(), "contain", "Fit must stay contain after zoom restore");
   return { viewport: "390x844", portrait_source: "360x640", portrait_object_fit: portrait.objectFit,
-    landscape_default_fit: "contain", landscape_toggle: ["contain", "cover", "contain"] };
+    landscape_default_fit: "contain", capsule: "zoom-only; restore resets zoom, fit unchanged" };
 }
 
 async function seekChecks(page, legacy) {

@@ -20,6 +20,8 @@
 | 2026-11-17 | 冷启动与返回键 | 启动动画期间提前挂载 App 后，从视频页按返回不弹栈；真机上动画期返回可能直接退出应用 | App 与启动动画同时注册 `back-button`；旧 fixture 只保留最后注册者且 `remove_listener` 是 no-op，动画卸载后返回仍打在已完成的动画回调上 | 覆盖层期间用 `holdBackForStartup()` 让 `runBack()` 只消费不导航；fixture 按真实 Tauri 建模多监听广播与按 channelId 注销；动画结束后恢复原有返回顺序 | `4dd7844`；`src/shared/lib/back.ts`、`src/app/startup/LaunchAnimation.tsx`、`scripts/fixtures/app-ui.mjs`；`scripts/test-inplace-search-back.mjs` |
 | 2026-11-17 | 切线掉登录（#145） | 手动/自动切换线路后登录被清空，需重新登录；`.ai` 线路接口全 404 | 上游可信线路共享同一账号库（实测同 uid、token 跨线可用、收藏一致），但客户端切线一律 `session.clear()` + 前端 `setUser(null)`；`.ai` 只是导航站却被列为固定线路 | 会话跨 origin 只能走 `rebase_or_clear()`（两端都是固定/发布页确认镜像才保留，revision 递增落盘）；自定义线路永远清空；前端由 boot 决定会话，本地账号桶随 rebase 迁移并立即落盘；导航站不授予线路与凭据信任 | `12f1968`..`c5f6091`；`src-tauri/src/session.rs` rebase 测试；`scripts/test-line-selection.mjs`、`scripts/test-network-settings.mjs`；实测记录 `outputs/issue-145/evidence/live-login-test.json` |
 
+| 2026-11-18 | 全屏底栏溢出 | 合并版 2.2.0 真机竖屏全屏时退出钮被挤出屏幕，用户困在全屏；本地与 CI 全部测试却通过 | 底栏按类名 w-8/h-8（32px）估宽排版，但 `@media(pointer:coarse)` 下 `.ios-button` 有 44px 最小尺寸地板，实宽远超估算；且既有测试只断言 DOM 存在/可点击，被挤出视口的元素照样「存在且可点」，没有任何一环检查几何 | 触屏控件宽度一律按 44px 地板估算；恢复入口（退出全屏）独立于横排宽度竞争并预留位置；新增视口几何门禁（在视口内/中心可命中/不重叠/无横向溢出），DOM 存在性不得作为布局验收 | `5df1f30`；`src/features/feed/Feed.tsx` 全屏底栏；`scripts/test-layout.mjs`（修前 3/9、修后 9/9）；`docs/subsystems/feed-and-detail.md` 底栏布局契约 |
+
 新回归的追加方式：
 
 1. 在对应子系统页确认这是当前行为变化，不是提案。
