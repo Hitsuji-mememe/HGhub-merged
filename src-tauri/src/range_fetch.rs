@@ -64,6 +64,9 @@ pub struct RangeFetch {
     /// Content-Range 里的总长；服务器没给或给 `*` 时为 None。
     pub total: Option<u64>,
     pub ctype: Option<String>,
+    /// 响应 ETag（服务器给才有）：并行拼片时跨片一致性校验用，
+    /// 任一片与探针不一致 = 资源在抓取途中换了版本，整段回退全量。
+    pub etag: Option<String>,
     pub bytes: Vec<u8>,
 }
 
@@ -134,6 +137,11 @@ pub async fn fetch_range_direct(
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
+    let etag = resp
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
     let bytes = resp.bytes().await.map_err(|e| err_text(&e))?.to_vec();
     // fix(rust-audit): 206 此前只验状态+长度、从不核对 Content-Range 偏移。
     // 服务器（或重定向落点）若回了另一段同长度字节，拼片总长照样对得上，
@@ -154,7 +162,7 @@ pub async fn fetch_range_direct(
             return Err("HTTP 206 Content-Range 与请求区间不一致".into());
         }
     }
-    Ok(RangeFetch { status, total, ctype, bytes })
+    Ok(RangeFetch { status, total, ctype, etag, bytes })
 }
 
 /* ── 大分片并行 Range 下载（修复四，4 路） ────────────────────────
@@ -261,6 +269,15 @@ async fn fetch_segment_parallel(
         let piece = piece?;
         if piece.status != 206 || piece.bytes.len() as u64 != expected[idx] {
             return Err("并行分段长度或状态不对".into());
+        }
+        // 跨片 ETag 一致性（Muse 2026-11-18）：每片的 Content-Range 各自合法，
+        // 不代表来自同一资源版本——边缘节点若在抓取途中换版/混源，拼出来是
+        // 长度全对的坏数据。探针与分片两边都给 ETag 且不一致 → 整段判失败，
+        // 外层回退单连接全量；任一边没给 ETag 则跳过校验，绝不因此失败。
+        if let (Some(want), Some(got)) = (&first.etag, &piece.etag) {
+            if want != got {
+                return Err("并行分段 ETag 与探针不一致".into());
+            }
         }
         pieces[idx] = Some(piece.bytes);
     }
