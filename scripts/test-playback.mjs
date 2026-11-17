@@ -181,7 +181,13 @@ async function gestureChecks(page) {
   const wasPaused = await video.evaluate(v=>v.paused);
   await tap(); await tap();
   await page.waitForFunction(paused => document.querySelector('video').paused !== paused, wasPaused);
-  assert.equal(await clean(), 'false', 'Double tap restores chrome and toggles playback once');
+  // 断言接棒 (Muse 2026-11-18, 按测试删除/适配规矩): 原断言保护「双击恢复
+  // 首击前显隐 + 切播放一次」；用户真机裁定第二击不再恢复显隐（控制层在双击内
+  // 翻转两次即闪烁），契约改为「第二击只切播放、显隐停留在首击翻转后的状态」。
+  // 本段进入双击前 clean='false'（上文单击已翻回），首击翻为 'true'、第二击不动
+  // → 终值 'true'；旧实现恢复显隐会得到 'false'，本断言在旧代码上失败。
+  // 「切播放一次」仍由上一行 waitForFunction 守。
+  assert.equal(await clean(), 'true', 'Double tap toggles playback once; second tap must not restore/flip chrome');
   return {singleTapMs};
 }
 

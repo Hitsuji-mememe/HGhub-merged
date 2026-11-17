@@ -155,8 +155,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     mode: "idle" | "hold" | "scrub" | "pan"; base: number; width: number; playing: boolean;
     speed: HoldSpeed | null; rotated: boolean;
   } | null>(null);
-  /* 单击 / 双击判定：单击净屏，双击暂停 */
-  const lastTapRef = useRef<{ timer: number | null; clean?: boolean; idle?: boolean }>({ timer: null });
+  /* 单击 / 双击判定：单击切显隐（即时），双击切播放（第二击不动显隐，防闪烁） */
+  const lastTapRef = useRef<{ timer: number | null }>({ timer: null });
   /* 系统是否真的转成了横屏（iOS 原生旋转后为 true） */
   const [vpLandscape, setVpLandscape] = useState(
     () => typeof window !== "undefined" && window.innerWidth > window.innerHeight,
@@ -786,17 +786,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       }
     }
     if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260) {
-      // 首击立即反馈；第二击恢复首击前的界面，再切换播放。
+      /* 首击立即翻转显隐；第二击只切播放、不再动显隐（Muse 2026-11-18 真机反馈）：
+         旧实现第二击恢复首击前的显隐，控制层在一次双击内翻转两次，肉眼即闪烁。
+         双击净效果 = 首击的一次显隐翻转 + 一次播放切换。 */
       if (lastTapRef.current.timer) {
         window.clearTimeout(lastTapRef.current.timer);
         lastTapRef.current.timer = null;
-        setClean(lastTapRef.current.clean ?? false);
-        if (!isDesktop && fs) setIdle(lastTapRef.current.idle ?? false);
-        if (!isDesktop && fs && !lastTapRef.current.idle) arm();
         videoRef.current?.toggle();
       } else {
-        lastTapRef.current.clean = clean;
-        lastTapRef.current.idle = idle;
         setClean(!clean);
         if (!isDesktop && fs) setIdle(!idle);
         if (!isDesktop && fs && idle) arm();
