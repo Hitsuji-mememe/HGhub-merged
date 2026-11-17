@@ -1368,10 +1368,21 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   </div>
                   <div className="relative pt-1.5 pb-2.5">
                     <div className="mobile-video-meta-copy flex flex-wrap items-center gap-2">
+                      {/* Muse 2026-11-18 (真机反馈修回 2.1.2 定版): 「详情 · 第X集」拆成两个独立
+                          点击目标——点「详情」开详情面板；点「第X集」直达选集网格，不穿详情面板。
+                          2.2.0 合并时退回合并按钮，用户实测「要点详情再点集数」，本次恢复拆分。 */}
                       <Button aria-label="视频详情" onClick={() => setPanel("detail")}
                         className="min-h-11 flex items-center gap-0.5 text-[12px] font-medium hg-ink-3 hg-ov-shadow-strong pressable">
-                        详情 · 第 {curEp} 集<IChevR size={11} />
+                        详情<IChevR size={11} />
                       </Button>
+                      {episodes.length > 1 ? (
+                        <Button aria-label={`选集，当前第 ${curEp} 集`} onClick={() => setPanel("episodes")}
+                          className="min-h-11 flex items-center gap-0.5 text-[12px] font-medium hg-ink-3 hg-ov-shadow-strong pressable">
+                          第 {curEp} 集<IChevR size={11} />
+                        </Button>
+                      ) : (
+                        <span className="min-h-11 flex items-center text-[12px] font-medium hg-ink-3 hg-ov-shadow-strong">第 {curEp} 集</span>
+                      )}
                     </div>
                     <div ref={barRef} className="mx-4 mt-2 relative" style={{ height: 14, touchAction: "none" }}
                       onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
