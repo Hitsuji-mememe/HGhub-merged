@@ -74,6 +74,12 @@
   “之前自动播放过”强行继续。
 - seek：preview → commit → `seeking` → `seeked`/`playing`；拖动取消、
   页面失活或换源不会提交旧目标。
+- 控件闲置隐藏（`src/features/feed/fsIdle.ts`）：桌面 2.8s（键盘聚焦控件时不隐藏）；
+  移动沉浸全屏按设置 `fsIdleSecs`（`hghubx_app_v1` 内，0/3/5/10 秒，默认 3，0=不自动隐藏），
+  单击画面切换显隐、双击仍是暂停/播放；暂停时不隐藏。CSS 旋转舞台（`.fs-landscape`）上
+  的横拖定位/上下划切集/长按换挡与锁定都先经 `stageXY` 把屏幕坐标换算回舞台坐标
+  （rotate(90deg)：舞台 dx=屏幕 dy、舞台 dy=-屏幕 dx），全屏 overlay 的 touch-action
+  固定为 none，避免原生 pan-y 把视觉横滑取消掉。
 - 媒体错误：hls fatal 显示 `type/details/status`，原生错误走
   `mediaErrorMessage`；手动重试走同一个 `useProxyPlaybackRecovery` 路径。
 

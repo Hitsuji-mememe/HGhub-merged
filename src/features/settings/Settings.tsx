@@ -1,6 +1,6 @@
 import { Button, SegmentedControl, Surface, TextArea } from "../../shared/ui/ios/controls";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { api, APP_VERSION, hostOf, logLine, platform, type UpdateInfo } from "../../shared/api/api";
+import { api, APP_VERSION, hostOf, isMobile, logLine, platform, type UpdateInfo } from "../../shared/api/api";
 import { useStore } from "../../shared/model/store";
 import { Modal, Toggle } from "../../shared/ui/ui";
 import LinePicker from "./LinePicker";
@@ -14,7 +14,7 @@ import { copyPlaybackLog, initPlaybackLog, setPlaybackLog, tracePlayback, usePla
 import { formatNetDiag, shortVerdict } from "../../shared/diagnostics/netDiagReport";
 import { copyText } from "../../shared/lib/clipboard";
 import { Loader } from "../../shared/ui/ios/effects";
-import { IBack, IBoltF, IBroom, IChevR, IHeart, IInfo, ILink, ILockF, IMoon, IRefresh, ISun, IVolMute } from "../../shared/ui/icons";
+import { IBack, IBoltF, IBroom, IChevR, ICompress, IHeart, IInfo, ILink, ILockF, IMoon, IRefresh, ISun, IVolMute } from "../../shared/ui/icons";
 
 const SETTING_GROUPS = ["外观", "播放", "内容偏好", "本地数据", "网络", "播放诊断", "其他"] as const;
 type SettingGroup = typeof SETTING_GROUPS[number];
@@ -22,7 +22,7 @@ type SettingGroup = typeof SETTING_GROUPS[number];
 /* 独立设置页：线路 / 外观 / 播放 / 本地数据 / 清理缓存 / 网络诊断 / 关于
    入口：Windows 侧栏「设置」、Android「我的」右上角齿轮 */
 export default function Settings({ onBack, initialSection }: { onBack: () => void; wide: boolean; initialSection?: "内容偏好" }) {
-  const { theme, themePreference, setTheme, favs, history, muteOnStartup, setMuteOnStartup, preferHevc, setPreferHevc, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast } = useStore();
+  const { theme, themePreference, setTheme, favs, history, muteOnStartup, setMuteOnStartup, preferHevc, setPreferHevc, fsIdleSecs, setFsIdleSecs, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast } = useStore();
   const [about, setAbout] = useState(false);
   const [agreementOpen, setAgreementOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -153,6 +153,18 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
               </div>
               <Toggle desktop on={preferHevc} onChange={setPreferHevc} label="优先高清" />
             </div>
+            {isMobile && <div className="flex flex-wrap items-center gap-3 px-3.5 py-3">
+              <span className="ios-setting-icon"><ICompress size={16} /></span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] text-on">全屏无操作自动隐藏控件</div>
+                <div className="text-[12px] text-mut">全屏播放时控件闲置后自动隐藏，单击画面可再显示</div>
+              </div>
+              <SegmentedControl className="w-full" aria-label="全屏无操作自动隐藏控件" activeIndex={[0, 3, 5, 10].indexOf(fsIdleSecs)}>
+                {([[0, "关"], [3, "3秒"], [5, "5秒"], [10, "10秒"]] as const).map(([secs, label]) => (
+                  <Button key={secs} type="button" aria-pressed={fsIdleSecs === secs} onClick={() => setFsIdleSecs(secs)}>{label}</Button>
+                ))}
+              </SegmentedControl>
+            </div>}
           </>)}
 
           {section("内容偏好", <ContentPreferencesSettings />)}
