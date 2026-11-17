@@ -826,6 +826,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     lastTapRef.current.timer = null;
     gesture.current = null;
     holdRef.current = false;
+    /* Muse 2026-11-18 (审计修复): 切集时只复位 holdRef 不够——holdSpeed 状态会残留，
+       新集被 effRate 持续按长按档播放且再无 pointerup 能清它（onUp 依赖 holdRef）。
+       状态与 ref 必须同清。 */
+    setHoldSpeed(0);
+    setHoldSlow(false);
   }, [playKey]);
 
   /* 进出全屏：iOS 会在这时把播放打断，过渡期多补几次 play() */
