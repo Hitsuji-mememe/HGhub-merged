@@ -9,6 +9,8 @@ export type Platform = "android" | "ios" | "windows" | "macos" | "linux";
 export type Theme = "dark" | "light";
 export type ThemePreference = Theme | "system";
 export type Tab = "home" | "search" | "category" | "profile";
+/** GPU 超分档位（移植自 LNPANDY v1.2.2，Muse 2026-11-18） */
+export type SuperResMode = "off" | "natural" | "cinema" | "crisp" | "anime_3d" | "anime_2d";
 
 /** 播放页上下文：ids 是来源列表，index 是当前条目。 */
 export type FeedContext = {
@@ -74,6 +76,8 @@ type Persist = GuestData & {
   preferHevc: boolean;
   /** 移动全屏控件无操作自动隐藏秒数：0=不自动隐藏（#146-3） */
   fsIdleSecs: number;
+  /** GPU 超分档位（移植自 LNPANDY v1.2.2），随 app 配置一块持久化 */
+  srMode: SuperResMode;
 };
 
 const LS = STORAGE_KEYS.app;
@@ -81,6 +85,7 @@ const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
   muted: true, muteOnStartup: true, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: true,
   fsIdleSecs: 0,
+  srMode: "natural",
 };
 
 /** 旧版本 history 是 number[]，读出来时升级成带进度的结构 */
@@ -118,7 +123,15 @@ function loadPersist(): Persist {
       }
     } catch { /* ignore */ }
     const fsIdleSecs = [0, 3, 5, 10].includes(p.fsIdleSecs) ? p.fsIdleSecs : DEFAULTS.fsIdleSecs;
-    return { ...p, swipeEp, muteOnStartup: true, muted: true, fsIdleSecs: 0, preferHevc: true, history: normalizeHistory(p.history) };
+    /* 超分档位归一化：LNPANDY 早期版本用过 fsr / anime 两个旧名，映射到现档位 */
+    const rawSr = (p as { srMode?: string }).srMode;
+    const srMode: SuperResMode =
+      rawSr === "fsr" ? "natural"
+      : rawSr === "anime" ? "anime_3d"
+      : rawSr === "off" || rawSr === "natural" || rawSr === "cinema" || rawSr === "crisp" || rawSr === "anime_3d" || rawSr === "anime_2d"
+        ? rawSr
+        : "natural";
+    return { ...p, swipeEp, srMode, muteOnStartup: true, muted: true, fsIdleSecs: 0, preferHevc: true, history: normalizeHistory(p.history) };
   } catch {
     return DEFAULTS;
   }
@@ -189,6 +202,7 @@ type Store = {
   swipeEp: boolean; setSwipeEp: (on: boolean) => void;
   preferHevc: boolean; setPreferHevc: (on: boolean) => void;
   fsIdleSecs: number; setFsIdleSecs: (s: number) => void;
+  srMode: SuperResMode; setSrMode: (m: SuperResMode) => void; cycleSrMode: () => void;
   volume: number; setVolume: (v: number) => void;
   searchHist: string[]; addSearch: (q: string) => void; clearSearchHist: () => void;
   strictSecurity: boolean; strictSecurityReady: boolean; securityPending: boolean; cliRelaxed: boolean; setStrictSecurity: (on: boolean) => Promise<void>;
@@ -400,6 +414,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setFsIdleSecs = useCallback((secs: number) => {
     setP((s) => ({ ...s, fsIdleSecs: [0, 3, 5, 10].includes(secs) ? secs : 0 }));
   }, []);
+  const setSrMode = useCallback((srMode: SuperResMode) => {
+    setP((s) => ({ ...s, srMode }));
+  }, []);
+  const cycleSrMode = useCallback(() => {
+    const order: SuperResMode[] = ["natural", "cinema", "crisp", "anime_3d", "anime_2d", "off"];
+    const next = order[(order.indexOf(p.srMode) + 1) % order.length];
+    setP((s) => ({ ...s, srMode: next }));
+    toast(next === "off" ? "超分已关" : "超分已开", "info");
+  }, [p.srMode, toast]);
   const setVolume = useCallback((v: number) => {
     const volume = Math.max(0, Math.min(1, v));
     setP((s) => ({ ...s, volume, muted: volume === 0 }));
@@ -421,12 +444,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     swipeEp: p.swipeEp, setSwipeEp,
     preferHevc: p.preferHevc, setPreferHevc,
     fsIdleSecs: p.fsIdleSecs, setFsIdleSecs,
+    srMode: p.srMode, setSrMode, cycleSrMode,
     searchHist: p.searchHist, addSearch, clearSearchHist,
     strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast, lineEpoch,
   }), [theme, themePreference, setTheme, tab, setTab, stack, push, pop, user, loginOpen, logout,
     p, account,
-    setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setFsIdleSecs, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
+    setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setFsIdleSecs, setSrMode, cycleSrMode, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast, lineEpoch, theater, setTheater, fs, setFs, clean, setClean]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

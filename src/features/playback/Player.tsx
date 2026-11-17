@@ -11,10 +11,11 @@ import { usePlaybackActivity } from "./usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "./useProxyPlaybackRecovery";
 import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
 import { useSeekInput } from "./useSeekInput";
-import PlaybackLock from "./PlaybackLock";
 import { useInlinePlayerFullscreen } from "./useInlinePlayerFullscreen";
 import "../../styles/post-player.css";
-import { ICompress, IExpand, ILockF, IPauseF, IPlayF, IVol, IVolMute } from "../../shared/ui/icons";
+import { ICompress, IExpand, IPauseF, IPlayF, ISparkF, IVol, IVolMute } from "../../shared/ui/icons";
+import { useStore } from "../../shared/model/store";
+import SuperResCanvas, { SR_PRESET_MAP, SR_SHORT_LABEL, SuperResMenu, SuperResSvgDefs, getSvgFilterUrl } from "./SuperResCanvas";
 
 type Props = {
   src: string;              // 原始 m3u8 地址
@@ -50,7 +51,20 @@ export default function Player({
   const [duration, setDuration] = useState(0);
   const [rate, setRate] = useState(1);
   const [errMsg, setErrMsg] = useState<string>("");
-  const [controlsLocked, setControlsLocked] = useState(false);
+  const controlsLocked = false;
+  const [videoReady, setVideoReady] = useState(false);
+  const [svgFallback, setSvgFallback] = useState(false);
+  const [srOpen, setSrOpen] = useState(false);
+  const srSlotRef = useRef<HTMLDivElement>(null);
+  const store = useStore();
+  const srMode = store?.srMode ?? "off";
+  useEffect(() => {
+    if (!srOpen) return;
+    const onDown = (e: PointerEvent) => { if (!srSlotRef.current?.contains(e.target as Node)) setSrOpen(false); };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [srOpen]);
+  useEffect(() => { if (!active) setSrOpen(false); }, [active]);
   const seek = useSeekInput({ time, duration, enabled: active && !controlsLocked, resetKey: src,
     onInteraction: (phase, input, target, pointerTarget) => trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget }),
     onSeek: (target, input) => {
@@ -191,6 +205,7 @@ export default function Player({
     <div ref={slotRef} className={`post-player-slot ${className}`}>
     {createPortal(<div ref={wrapRef} className="post-player relative bg-black overflow-hidden"
       data-playing={playing} data-fullscreen={full} data-fullscreen-fallback={fallback}>
+      <SuperResSvgDefs />
       <div className="absolute inset-0" inert={controlsLocked}>
       <video
         ref={videoRef}
@@ -200,7 +215,10 @@ export default function Player({
         muted={muted}
         loop={loop}
         className="w-full h-full object-contain bg-black"
+        style={svgFallback ? { filter: getSvgFilterUrl(srMode) } : undefined}
         onClick={toggle}
+        onLoadedData={() => setVideoReady(true)}
+        onCanPlay={() => setVideoReady(true)}
         onPlay={() => { if (activity.isActive()) { setPlaying(true); onTogglePlay?.(true); } }}
         onPause={() => { setPlaying(false); onTogglePlay?.(false); }}
         onWaiting={() => setWaiting(true)}
@@ -215,6 +233,16 @@ export default function Player({
           setPlaying(false);
           setErrMsg(mediaErrorMessage(videoRef.current?.error ?? null));
         }}
+      />
+      <SuperResCanvas
+        videoRef={videoRef}
+        mode={srMode}
+        active={active}
+        ready={videoReady || playing || time > 0}
+        fit="contain"
+        srcKey={src}
+        onFallbackChange={setSvgFallback}
+        onTrace={trace}
       />
 
       {errMsg && (
@@ -253,9 +281,14 @@ export default function Player({
             <Button onClick={() => onToggleMute?.()} aria-label={muted ? "取消静音" : "静音"} className="pressable">
               {muted ? <IVolMute size={16} /> : <IVol size={16} />}
             </Button>
-            <Button onClick={() => setControlsLocked(true)} aria-label="锁定播放控制" title="锁定播放控制" aria-pressed={false} className="pressable">
-              <ILockF size={16} />
-            </Button>
+            <div ref={srSlotRef} className="relative">
+              <Button onClick={() => setSrOpen((v) => !v)} aria-label={`超分模式：${SR_SHORT_LABEL[srMode]}`} aria-expanded={srOpen} aria-pressed={srMode !== "off"} className={`px-2 py-0.5 rounded-full text-[12px] font-bold flex items-center gap-1 pressable ${srMode !== "off" ? "bg-primary text-on-primary" : "text-white/85 bg-white/15"}`}>
+                <ISparkF size={12} /><span>{SR_SHORT_LABEL[srMode]}</span>
+              </Button>
+              {srOpen && (
+                <SuperResMenu current={srMode} placement="up" align="right" onSelect={(m) => { store?.setSrMode?.(m); store?.toast?.(`画质增强：${SR_PRESET_MAP[m].hudText}`, m === "off" ? "info" : "ok"); setSrOpen(false); }} />
+              )}
+            </div>
             <Button onClick={cycleRate} aria-label={`播放速度 ${rate} 倍`} className="text-[12px] font-bold text-white/85 pressable tabular-nums">{rate}x</Button>
             <Button onClick={toggleFull} aria-label={full ? "退出全屏" : "全屏"} aria-pressed={full} className="pressable">
               {full ? <ICompress size={16} /> : <IExpand size={16} />}
@@ -264,7 +297,6 @@ export default function Player({
         </div>
       )}
       </div>
-      {controlsLocked && <PlaybackLock active={active} onUnlock={() => setControlsLocked(false)} />}
     </div>, host)}
     </div>
   );
