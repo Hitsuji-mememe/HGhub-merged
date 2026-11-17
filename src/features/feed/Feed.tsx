@@ -324,7 +324,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const rotated = !isDesktop && fs && videoSize.w > videoSize.h && videoSize.h > 0 && !vpLandscape;
   const landscapeVideo = videoSize.w > 0 && videoSize.h > 0 && videoSize.w > videoSize.h;
   /* 竖屏快捷胶囊的显隐：不卸载、只改 opacity，这样淡入淡出都能过渡（#19） */
-  const capsuleOn = !fs && !clean && !isDesktop && zoom.s > 1.05;
+  /* 胶囊显隐只由缩放驱动（定版：仅 zoom>1.05 显示），不挂 clean：
+     clean 在抖音式改版后由播放状态驱动，若继续挂 !clean，播放中双指
+     放大后胶囊会被误杀——「还原」点不到、只能捏回去（Muse 2026-11-18
+     portrait-fit 回归实锤：基线 PASS、改版后按钮被手势面拦截）。 */
+  const capsuleOn = !fs && !isDesktop && zoom.s > 1.05;
 
   /* ── 上下划切集 ──────────────────────────────────────────
    * 「上下划切集」开启时，播放区 overlay 的 touch-action 是 none，
