@@ -165,7 +165,24 @@ try {
       // Non-fullscreen surface: no horizontal overflow, fullscreen entry visible & inside.
       const home = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, vw: window.innerWidth }));
       assert(home.scrollWidth <= home.vw + 1, `${name}: home overflow ${home.scrollWidth} > ${home.vw}`);
+      // 入口路径接棒 (Muse 2026-11-18): 抖音式单击模型下控件显隐跟随播放状态,
+      // 播放中只留细进度条、「全屏」钮随暂停出现——原断言「播放中直接点全屏」
+      // 由「单击暂停 → 点全屏」接棒, 进全屏后的几何断言 (出口/菜单/选集面板
+      // 位置与可命中) 全部不变。进全屏的 keepAlive 续播会再次隐藏控件,
+      // 等其耗尽 (≤1200ms) 后再单击暂停, 让后续探针在控件全显态下进行。
+      const tapCenter = async () => {
+        const box = await page.evaluate(() => {
+          const r = document.querySelector("video").getBoundingClientRect();
+          return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        });
+        await page.touchscreen.tap(box.x, box.y);
+      };
+      await tapCenter();
+      await page.waitForFunction(() => document.querySelector("video")?.paused === true);
       await page.getByRole("button", { name: "全屏", exact: true }).click();
+      await page.waitForTimeout(1400);
+      await tapCenter();
+      await page.waitForFunction(() => document.querySelector("video")?.paused === true);
       await page.getByRole("button", { name: "退出全屏", exact: true }).waitFor({ state: "visible" });
       await page.waitForTimeout(120);
       assertGeometry(await page.evaluate(PROBE, false), `${name} fs`);
