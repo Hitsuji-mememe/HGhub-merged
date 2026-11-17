@@ -25,10 +25,13 @@ jobs:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
       - uses: swatinem/rust-cache@v2.9.3
         continue-on-error: true
-        timeout-minutes: 8
+        timeout-minutes: 20
         with:
           workspaces: src-tauri -> target
           key: ios
+          # 默认 save-if 只在默认分支保存：本仓构建都在合并分支 dispatch，
+          # 不显式打开就永远只读旧缓存、每次冷编（Muse 2026-11-18 提速修复）。
+          save-if: true
       - run: pnpm install --frozen-lockfile
 
       - name: 生成 iOS 工程（带横竖屏 + ATS）

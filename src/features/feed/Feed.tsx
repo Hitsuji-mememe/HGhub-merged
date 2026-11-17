@@ -1506,62 +1506,70 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       {/* 移动端：沉浸全屏（安卓 WebView 不支持 Fullscreen API，改用应用内沉浸层） */}
       {!isDesktop && fs && !idle && (
         <>
-          {rotated && (
+          {(rotated || vpLandscape) && (
           <Button onClick={exitFs} aria-label="退出全屏"
             className="hg-chip-strong absolute z-40 w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1"
             style={{
-              top: 12,
-              right: "calc(var(--sab, 0px) + 12px)",
+              top: rotated ? 12 : "calc(var(--sat, 0px) + 6px)",
+              right: rotated ? "calc(var(--sab, 0px) + 12px)" : 12,
             }}>
             <ICompress size={18} />
           </Button>
           )}
-          <div className="absolute inset-x-0 z-40 flex items-center gap-3 px-4"
-            style={{
-              bottom: rotated ? 10 : "calc(var(--sab, 0px) + 10px)",
-              paddingLeft: rotated ? "calc(var(--sat, 0px) + 16px)" : undefined,
-              paddingRight: rotated ? "calc(var(--sab, 0px) + 16px)" : undefined,
-            }}>
-            <Button onClick={() => videoRef.current?.toggle()}
-              className="hg-chip shrink-0 w-9 h-9 rounded-full flex items-center justify-center pressable">
-              {paused ? <IPlayF size={18} /> : <IPauseF size={17} />}
-            </Button>
-            <PlaybackTime clock={playbackClock} className="shrink-0 text-[12px] font-semibold hg-ink-2 tabular-nums" />
-            <span className="shrink-0 text-[12px] hg-ink-4 tabular-nums">/ {fmtTime(duration)}</span>
-            <Button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}
-              className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable">
-              {muted ? <IVolMute size={15} /> : <IVol size={15} />}
-            </Button>
-            {/* Muse 2026-11-18 (2.2.0 合并): 底栏顺序按 2.1.4 定版 选集 > 倍速 > 超分；无下集钮 */}
-            {episodes.length > 1 && (
-            <div className="ml-auto relative shrink-0">
-              <Button onClick={() => { setSrMenuOpen(false); setPanel("episodes"); }}
-                className="flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-semibold hg-chip hg-ink-2 pressable" aria-label="选集">
-                <IList size={13} />选集
-              </Button>
-            </div>
-            )}
-            <div className="relative shrink-0">
-              <Button onClick={() => { setSrMenuOpen(false); setRateMenuOpen((v) => !v); }}
-                className={`flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`} aria-label="倍速选择" aria-expanded={rateMenuOpen}>
-                <IBoltF size={12} />{effRate}x
-              </Button>
-              {rateMenuOpen && (
-                <RateMenu current={rate} onSelect={(r) => { setRate(r); videoRef.current?.rate(r); setRateMenuOpen(false); }} />
-              )}
-            </div>
-            <div className="relative shrink-0">
-              <Button onClick={() => { setRateMenuOpen(false); setSrMenuOpen((v) => !v); }}
-                className={`flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${store.srMode !== "off" ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`} aria-label="超分选择" aria-expanded={srMenuOpen}>
-                <ISparkF size={12} />{SR_SHORT_LABEL[store.srMode]}
-              </Button>
-              {srMenuOpen && (
-                <SuperResMenu current={store.srMode} placement="up" align="right" onSelect={(m) => { store.setSrMode(m); store.toast(`画质增强：${SR_PRESET_MAP[m].hudText}`, m === "off" ? "info" : "ok"); setSrMenuOpen(false); }} />
-              )}
-            </div>
-            {!rotated && (
-              <Button onClick={exitFs} aria-label="退出全屏"
+          {/* Muse 2026-11-18 (2.2.0 修复): 底栏溢出重排。根因：@media(pointer:coarse) 下
+              .ios-button 有 44px 最小尺寸地板（styles/ios.css），合并时按 32px 估宽必溢出，
+              末尾退出钮被挤出屏幕。按实尺寸排版：时间合并一段（2.1.5 定版）、超分纯图标
+              （高亮示状态）、静音在 ≤360px 撤出本栏（非全屏右上组仍有）；竖屏退出钮移出
+              横排固定右端，横排右内边距预留其宽（54px），不许再被挤掉。顺序仍为
+              选集 > 倍速 > 超分（2.1.4 定版），ml-auto 改挂常驻的倍速槽，单集时右段不塌。
+              几何由 scripts/test-layout.mjs 按视口矩阵守门。 */}
+          <div className="absolute inset-x-0 z-40"
+            style={{ bottom: rotated ? 10 : "calc(var(--sab, 0px) + 10px)" }}>
+            <div className="flex items-center gap-[3px]"
+              style={{
+                paddingLeft: rotated ? "calc(var(--sat, 0px) + 16px)" : vpLandscape ? 16 : 6,
+                paddingRight: rotated ? "calc(var(--sab, 0px) + 16px)" : vpLandscape ? 16 : 54,
+              }}>
+              <Button onClick={() => videoRef.current?.toggle()}
                 className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable">
+                {paused ? <IPlayF size={16} /> : <IPauseF size={15} />}
+              </Button>
+              <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold hg-ink-2 tabular-nums">
+                <PlaybackTime clock={playbackClock} />/<span className="hg-ink-4">{fmtTime(duration)}</span>
+              </span>
+              <Button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}
+                className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable max-[360px]:hidden">
+                {muted ? <IVolMute size={15} /> : <IVol size={15} />}
+              </Button>
+              {episodes.length > 1 && (
+                <Button onClick={() => { setSrMenuOpen(false); setPanel("episodes"); }}
+                  className="flex items-center gap-1 px-1 h-8 rounded-full text-[12px] font-semibold hg-chip hg-ink-2 pressable shrink-0 max-[340px]:text-[11px]" aria-label="选集">
+                  <IList size={13} />选集
+                </Button>
+              )}
+              <div className="relative shrink-0 ml-auto">
+                <Button onClick={() => { setSrMenuOpen(false); setRateMenuOpen((v) => !v); }}
+                  className={`flex items-center gap-1 px-1 h-8 rounded-full text-[12px] font-bold pressable max-[340px]:text-[11px] ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`} aria-label="倍速选择" aria-expanded={rateMenuOpen}>
+                  <IBoltF size={12} />{effRate}x
+                </Button>
+                {rateMenuOpen && (
+                  <RateMenu current={rate} onSelect={(r) => { setRate(r); videoRef.current?.rate(r); setRateMenuOpen(false); }} />
+                )}
+              </div>
+              <div className="relative shrink-0">
+                <Button onClick={() => { setRateMenuOpen(false); setSrMenuOpen((v) => !v); }}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center pressable ${store.srMode !== "off" ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`} aria-label={`超分选择：${SR_SHORT_LABEL[store.srMode]}`} aria-expanded={srMenuOpen} aria-pressed={store.srMode !== "off"}>
+                  <ISparkF size={15} />
+                </Button>
+                {srMenuOpen && (
+                  <SuperResMenu current={store.srMode} placement="up" align="right" onSelect={(m) => { store.setSrMode(m); store.toast(`画质增强：${SR_PRESET_MAP[m].hudText}`, m === "off" ? "info" : "ok"); setSrMenuOpen(false); }} />
+                )}
+              </div>
+            </div>
+            {!rotated && !vpLandscape && (
+              <Button onClick={exitFs} aria-label="退出全屏"
+                className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable absolute"
+                style={{ right: 4, top: "50%", transform: "translateY(-50%)" }}>
                 <ICompress size={15} />
               </Button>
             )}
