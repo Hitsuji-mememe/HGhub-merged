@@ -105,13 +105,16 @@ pub async fn fetch_range_direct(
 ) -> Result<RangeFetch, String> {
     let referer = format!("{}/", base());
     let range = format!("bytes={start}-{end}");
+    // Accept-Encoding 写死 identity（Muse 2026-11-18）：客户端默认开 gzip/brotli
+    // 自动解压，若边缘对 Range 响应做了内容编码，解压后字节与 Range 偏移不是
+    // 同一套坐标系，拼片会静默错位。Range 语义只对 identity 实体成立，写死。
     let resp = get_with_dns_h(
         url,
         Duration::from_secs(20),
         None,
         Some(&referer),
         false,
-        &[("Range", &range)],
+        &[("Range", &range), ("Accept-Encoding", "identity")],
     )
     .await?;
     let status = resp.status().as_u16();
