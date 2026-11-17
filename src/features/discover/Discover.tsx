@@ -90,7 +90,6 @@ export function TopicsPage({ onBack, wide }: { onBack: () => void; wide: boolean
                 </div>
                 <div className="p-2.5">
                   <div className="text-[14px] font-semibold text-on clamp-1 leading-tight">{t.title}</div>
-                  {t.intro && <div className="text-[12px] text-mut clamp-2 mt-1 leading-relaxed">{t.intro}</div>}
                 </div>
               </Button>
             ))}
