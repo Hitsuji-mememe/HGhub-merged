@@ -21,7 +21,9 @@ import { PreferenceStorageNotice } from "../../shared/ui/PreferenceStorageNotice
 import { createHoldSpeed, shiftHoldSpeed, stageXY, HOLD_DELAY_MS, type HoldSpeed } from "./mobileHold";
 import { SR_PRESET_MAP, SR_SHORT_LABEL, SuperResMenu } from "../playback/SuperResCanvas";
 import { useFsIdle } from "./fsIdle";
-import { pickLine } from "../../shared/network/autoLine";
+import { RateMenu } from "./RateMenu";
+import { prewarmFirstSegment } from "./prewarm";
+import { useStallHeal } from "./stallHeal";
 import { useFeedDetails } from "./useFeedDetails";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
@@ -44,135 +46,7 @@ type Props = {
   startTime?: number;
 };
 
-const RATES = [0.75, 1, 1.25, 1.5, 2, 3];
-
 const stripHtml = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
-
-/**
- * 全屏底栏倍速直达选单（深色毛玻璃浮层，样式对齐 SuperResMenu）：点选即定档并
- * 一直生效，取代原「⚡ 钮点按循环切档」；长按只作临时 2x 快进（2.0.4）。
- */
-function RateMenu({
-  current,
-  onSelect,
-}: {
-  current: number;
-  onSelect: (r: number) => void;
-}) {
-  return (
-    <div
-      role="menu"
-      aria-label="倍速选择"
-      data-no-gesture
-      onPointerDown={(e) => e.stopPropagation()}
-      onTouchStart={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-      style={{
-        position: "absolute",
-        bottom: "calc(100% + 8px)",
-        right: 0,
-        width: 168,
-        background: "rgba(14, 17, 24, 0.92)",
-        backdropFilter: "blur(18px)",
-        WebkitBackdropFilter: "blur(18px)",
-        border: "1px solid rgba(255, 255, 255, 0.14)",
-        boxShadow: "0 14px 36px rgba(0, 0, 0, 0.56)",
-        borderRadius: 14,
-        padding: 6,
-        zIndex: 60,
-      }}
-      className="a-fade">
-      <div className="flex items-center justify-between px-2.5 pt-1 pb-1.5 text-[10.5px] font-semibold text-white/55">
-        <span className="flex items-center gap-1">
-          <IBoltF size={11} className="text-primary" />
-          <span>播放倍速</span>
-        </span>
-        <span className="text-[10px] text-white/40">点选生效</span>
-      </div>
-      <div className="flex flex-col gap-0.5">
-        {RATES.map((r) => {
-          const active = current === r;
-          return (
-            <button
-              key={r}
-              type="button"
-              role="menuitemradio"
-              aria-checked={active}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect(r);
-              }}
-              className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-[10px] text-left transition-colors pressable ${
-                active ? "bg-white/14" : "hover:bg-white/8"
-              }`}>
-              <span className={`text-[12px] font-bold ${active ? "text-primary" : "text-white/95"}`}>{r}x</span>
-              {active && <ICheck size={14} className="text-primary shrink-0" />}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-
-/* ── 下一条首分片预热（2.0.6） ──────────────────────────────
- * 取流路径（VideoSurface）：hls.js 用默认 loader 向 playlist(src)
- * （即 `{LOCAL}/hls?u=…`）拉清单，分片与 key 的地址是 Rust 在清单里改写好的
- * `{LOCAL}/seg?u=…`；两类请求都经 Rust `media::handle` 的进程内缓存
- * （PL_CACHE 按 `{prefix}|{上游地址}`、SEG_CACHE 按上游地址）。
- * 所以这里用 fetch() 走与播放器逐字相同的 URL 把清单与首分片先拉一遍，
- * 就能把同一份缓存填好——用户切过去时 hls.js 的请求直接命中。
- * 全程只用 fetch、不碰播放器的 hls 实例，不污染 2.0.5 的分片统计与自愈判据。 */
-function firstUriLine(text: string): string | null {
-  for (const line of text.split("\n")) {
-    const t = line.trim();
-    if (t && !t.startsWith("#")) return t;
-  }
-  return null;
-}
-
-function resolveUri(u: string, base: string): string {
-  try { return new URL(u, base).href; } catch { return u; }
-}
-
-async function prewarmFirstSegment(videoId: number, rawUrl: string, signal: AbortSignal): Promise<void> {
-  const t0 = performance.now();
-  const ms = () => Math.round(performance.now() - t0);
-  try {
-    const plUrl = playlist(rawUrl);
-    const r = await fetch(plUrl, { signal });
-    if (!r.ok) {
-      tracePlayback("feed.prewarm", { video_id: videoId, stage: "playlist_fail", status: r.status, ms: ms() });
-      return;
-    }
-    let text = await r.text();
-    tracePlayback("feed.prewarm", { video_id: videoId, stage: "playlist", ms: ms() });
-    /* 主清单（多码率）：第一条 URI 行是子清单，它经 /seg 返回时会被二次改写，照拉一遍 */
-    if (text.includes("#EXT-X-STREAM-INF")) {
-      const variant = firstUriLine(text);
-      if (!variant) return;
-      const vr = await fetch(resolveUri(variant, plUrl), { signal });
-      if (!vr.ok) return;
-      text = await vr.text();
-    }
-    /* init 段（fMP4 的 EXT-X-MAP）先热，再热首个媒体分片；
-       URL 全部取自改写后清单的原文，与 hls.js 实际请求逐字一致，缓存键才对得上 */
-    const mapUri = /#EXT-X-MAP:[^\n]*URI="([^"]+)"/.exec(text)?.[1];
-    if (mapUri) {
-      const mr = await fetch(resolveUri(mapUri, plUrl), { signal });
-      await mr.arrayBuffer();
-      if (signal.aborted) return;
-      tracePlayback("feed.prewarm", { video_id: videoId, stage: "map", ms: ms() });
-    }
-    const seg = firstUriLine(text);
-    if (!seg) return;
-    const sr = await fetch(resolveUri(seg, plUrl), { signal });
-    if (!sr.ok) return;
-    const buf = await sr.arrayBuffer();
-    tracePlayback("feed.prewarm", { video_id: videoId, stage: "segment", ms: ms(), bytes: buf.byteLength });
-  } catch { /* 取消或失败一律静默：预热只是加速，失败不影响正常播放路径 */ }
-}
 
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, onBlocked, startEp, startTime }: Props) {
   const store = useStore();
@@ -245,13 +119,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [rateMenuOpen, setRateMenuOpen] = useState(false);
   const [srMenuOpen, setSrMenuOpen] = useState(false);
   const [waiting, setWaiting] = useState(false);
-  /* 卡顿自愈（2.0.5，Muse 2026-11-18 移植）：分片吞吐窗口 / waiting 时刻 / 自愈护栏 / 重解析续播待办 */
-  const fragWindowRef = useRef<{ slow: boolean; kbps: number }[]>([]);
-  const lastStallAtRef = useRef(0);
-  const healStateRef = useRef<{ lastAt: number; counts: Record<string, number>; pendingKey: string | null; pendingAt: number }>(
-    { lastAt: 0, counts: {}, pendingKey: null, pendingAt: 0 },
-  );
-  const healResumeRef = useRef<{ key: string; t: number } | null>(null);
   const [err, setErr] = useState("");
   const [panel, setPanel] = useState<"episodes" | "comments" | "article" | "detail" | null>(null);
   /* 续播：拿到时长后再 seek 一次（只对进入时那一条生效） */
@@ -354,65 +221,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      切集后新集重新优先高清；网络类失败不锁。 */
   const [hevcDeadKey, setHevcDeadKey] = useState("");
   const playUrl = preferHevc && hevcUrl && hevcDeadKey !== playKey ? hevcUrl : mainUrl;
-  const playKeyRef = useRef(playKey);
-  playKeyRef.current = playKey;
-
-  /* ── 卡顿自愈（2.0.5） ── 最近 3 片吞吐都低于码率且刚发生 waiting 才触发：
-     pickLine("stall", true) 重选线；真的切线后清本集地址缓存重解析并接回位置。
-     护栏：全局间隔 ≥90s、同集 ≤2 次、手动暂停不触发。 */
-  const maybeHealStall = () => {
-    if (isDesktop || !active) return;
-    const v = videoRef.current?.el();
-    if (!v || paused || v.paused || v.ended) return;
-    const now = Date.now();
-    if (!lastStallAtRef.current || now - lastStallAtRef.current > 30_000) return;
-    const hs = healStateRef.current;
-    if (now - hs.lastAt < 90_000) return;
-    if ((hs.counts[playKey] || 0) >= 2) return;
-    hs.lastAt = now;
-    hs.counts[playKey] = (hs.counts[playKey] || 0) + 1;
-    hs.pendingKey = playKey;
-    hs.pendingAt = now;
-    const rates = fragWindowRef.current.map((w) => Math.round(w.kbps)).join("/");
-    fragWindowRef.current = [];
-    lastStallAtRef.current = 0;
-    tracePlayback("line.stallHeal", { stage: "trigger", video_id: curId, episode: curEp, frag_kbps: rates, heal_count: hs.counts[playKey] });
-    void pickLine("stall", true).then(() => {
-      if (healStateRef.current.pendingKey === playKey) healStateRef.current.pendingKey = null;
-    });
-  };
-
-  const onFragStats = (st: { bytes: number; loadMs: number; fragDuration: number; bitrate: number }) => {
-    if (isDesktop || !active) return;
-    const loadSec = st.loadMs / 1000;
-    if (loadSec <= 0 || st.bytes <= 0) return;
-    const kbps = (st.bytes * 8) / loadSec / 1000;
-    const slow = st.bitrate > 0 ? kbps < st.bitrate / 1000 : st.fragDuration > 0 && loadSec > st.fragDuration;
-    const win = fragWindowRef.current;
-    win.push({ slow, kbps });
-    if (win.length > 3) win.shift();
-    if (win.length === 3 && win.every((w) => w.slow)) maybeHealStall();
-  };
-
-  useEffect(() => {
-    const onLineChanged = () => {
-      const hs = healStateRef.current;
-      if (!hs.pendingKey || Date.now() - hs.pendingAt > 60_000) return;
-      const key = hs.pendingKey;
-      hs.pendingKey = null;
-      if (key !== playKeyRef.current) return;
-      const v = videoRef.current?.el();
-      const t = v && Number.isFinite(v.currentTime) ? v.currentTime : 0;
-      if (t > 1) healResumeRef.current = { key, t };
-      tracePlayback("line.stallHeal", { stage: "re-resolve", key, resume_t: Math.round(t * 10) / 10 });
-      setPlayUrls((m) => { if (!m[key]) return m; const n = { ...m }; delete n[key]; return n; });
-      setHevcUrls((m) => { if (!m[key]) return m; const n = { ...m }; delete n[key]; return n; });
-      setErr("");
-      setProxyRetry((n) => n + 1);
-    };
-    window.addEventListener("hg:line-changed", onLineChanged);
-    return () => window.removeEventListener("hg:line-changed", onLineChanged);
-  }, []);
+  /* 卡顿自愈（2.0.5）：逻辑在 ./stallHeal，Feed 只接线 */
+  const { lastStallAtRef, healResumeRef, onFragStats, resetHealWindow } = useStallHeal({
+    active, isDesktop, playKey, curId, curEp, videoRef, paused,
+    setPlayUrls, setHevcUrls, setErr, setProxyRetry,
+  });
   const measurementKey = JSON.stringify([accountScope, store.lineEpoch, permissionKey, playKey, playUrl]);
   const videoSize = vsize.key === measurementKey ? vsize : { key: measurementKey, w: 0, h: 0 };
   // 等播放画面就绪再提示，启动动画/协议、加载失败和其他面板不叠加教程。
@@ -752,8 +565,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   useEffect(() => {
     setDuration(0); setErr(""); setWaiting(true); setPaused(false);
     setPlayingKey("");
-    fragWindowRef.current = [];
-    lastStallAtRef.current = 0;
+    resetHealWindow();
     playbackClock.publish(0);
     setPortraitFit("contain");
   }, [playKey]);

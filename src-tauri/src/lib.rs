@@ -17,6 +17,8 @@ mod logging;
 mod macos_titlebar;
 mod media;
 mod media_dns;
+mod range_fetch;
+mod speed_probe;
 mod net;
 mod network_policy;
 mod playback_log;

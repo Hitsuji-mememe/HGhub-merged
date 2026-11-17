@@ -62,7 +62,7 @@ static CLIENT_GENERATION: AtomicU64 = AtomicU64::new(0);
 // Only a different effective configuration invalidates completed media caches.
 static MEDIA_CONFIG_GENERATION: AtomicU64 = AtomicU64::new(0);
 static MEDIA_CONFIG_FINGERPRINT: Lazy<Mutex<Option<u64>>> = Lazy::new(|| Mutex::new(None));
-const CLIENT_TTL: Duration = Duration::from_secs(30);
+pub(crate) const CLIENT_TTL: Duration = Duration::from_secs(30);
 type ClientCache = HashMap<String, (Instant, Arc<reqwest::Client>)>;
 static CLIENTS: Lazy<Mutex<ClientCache>> = Lazy::new(|| Mutex::new(HashMap::new()));
 static MEDIA_DNS_ROUTES: Lazy<Mutex<crate::media_dns::Routes>> =
@@ -71,7 +71,7 @@ static LAST_HEAL: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
 static NEXT_EDGE: AtomicU64 = AtomicU64::new(0);
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(0);
 
-pub use client::{fetch_range_direct, get, refresh_client, RangeFetch, UA};
+pub use client::{client_for_dns, doh_resolver_client, get, refresh_client, UA};
 pub(crate) use client::{request_scope, RequestScope};
 pub use diagnostics::{diagnose, proxy_state, test_proxy};
 pub use edge::{edge, fetch_bytes};

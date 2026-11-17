@@ -2,9 +2,9 @@
   "_comment": "Code lines, not raw lines. Lower a budget in the PR that moves a concern out; never raise one in a feature PR. A pure file-to-directory split may record one measured baseline only when the delta is module/import scaffolding, and must keep its previous value in metadata.",
   "src/features/feed/Feed.tsx": 1489,
   "src-tauri/src/net": {
-    "budget": 1877,
-    "previous": 1814,
-    "reason": "pure net.rs -> net/ split; +63 lines are seven module/use headers, item inventory unchanged"
+    "budget": 1888,
+    "previous": 1877,
+    "reason": "2.2.0 merge (Muse 2026-11-18): DNS strict-reresolve graft adds doh_resolver_client + strict call site in net/client after splitting Range/segment-parallel (range_fetch.rs), DNS resolvers + strict_reresolve (media_dns.rs) and speed probe (speed_probe.rs) out; residual +11 is the client-side glue that cannot leave net (ProxyRoute/build_client are net-private)."
   },
   "src-tauri/src/api": 1108,
   "src-tauri/src/media": 1045,

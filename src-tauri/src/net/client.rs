@@ -21,7 +21,7 @@ pub const UA: &str =
 /// 注意：reqwest 的 `system-proxy` 只在构建时读一次注册表 / 环境变量。代理软件被关掉后，
 /// 旧客户端仍会往 `127.0.0.1:7897` 建隧道，症状是满屏 `tunnel error: failed to create
 /// underlying connection`（浏览器却是通的，因为它每次都重读系统代理）。所以这里允许重建。
-pub(super) fn build_client(host: &str, addrs: &[SocketAddr], route: &ProxyRoute) -> Result<reqwest::Client, String> {
+pub(crate) fn build_client(host: &str, addrs: &[SocketAddr], route: &ProxyRoute) -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
         .user_agent(UA)
         .timeout(Duration::from_secs(20))
@@ -216,28 +216,9 @@ pub(super) fn client_key(strict: bool, host: &str, port: u16, public_dns: bool, 
 }
 
 
-fn ipv4_kind(o: [u8; 4]) -> &'static str {
-    let v4 = std::net::Ipv4Addr::from(o);
-    if v4.is_loopback() { "loopback" } else if o == [0, 0, 0, 0] { "unspecified" }
-    else if o[0] == 198 && (o[1] == 18 || o[1] == 19) { "fake_ip" }
-    else if v4.is_private() { "private" } else if v4.is_link_local() { "link_local" }
-    else if v4.is_broadcast() { "broadcast" } else { "public" }
-}
-
-fn ip_kind(ip: std::net::IpAddr) -> &'static str {
-    match ip {
-        std::net::IpAddr::V4(v4) => ipv4_kind(v4.octets()),
-        std::net::IpAddr::V6(v6) => {
-            if v6.is_loopback() { "loopback" } else if v6.is_unspecified() { "unspecified" }
-            else if let Some(v4) = v6.to_ipv4_mapped() { ipv4_kind(v4.octets()) } else { "public" }
-        }
-    }
-}
-
-/// 阿里 DoH 的解析客户端：bootstrap 地址已钉死，且强制直连（mode=Off → no_proxy）。
-/// DoH 若跟随应用代理从境外出口出去，阿里会按出口地理位置返回海外 CDN 节点，
-/// 正是家里 WiFi 被 fake-ip 带偏后要绕开的坑，所以这里不接受任何代理路线。
-fn doh_resolver() -> Result<reqwest::Client, String> {
+/// DoH 解析专用客户端（钉阿里 DoH 主机到 bootstrap 地址、直连无代理）。
+/// media_dns 的 strict 解析链经此取客户端。
+pub fn doh_resolver_client() -> Result<reqwest::Client, String> {
     let direct = ProxyRoute {
         mode: crate::proxy::Mode::Off,
         explicit: None,
@@ -247,100 +228,7 @@ fn doh_resolver() -> Result<reqwest::Client, String> {
     build_client(crate::media_dns::HOST, &crate::media_dns::BOOTSTRAP, &direct)
 }
 
-/// 经阿里 DoH 拿真实地址并做与系统解析同一套地址校验；TTL 与客户端缓存上限取小。
-async fn resolve_via_doh(host: &str, port: u16, strict: bool) -> Result<(Vec<SocketAddr>, Duration), String> {
-    let resolver = doh_resolver()?;
-    let resolution = crate::media_dns::resolve(&resolver, host, port).await?;
-    network_policy::check_addresses_with_mode(&resolution.addresses, strict)?;
-    Ok((resolution.addresses, CLIENT_TTL.min(resolution.ttl)))
-}
-
-/// 全 fake 时的第一绕行（Muse 2026-11-14，2.0.9）：向 223.5.5.5:53 走普通 UDP
-/// DNS 直查拿真实地址。2.0.8 真机已钉死家里 DoH（443）通道不通，所以顺序是
-/// UDP → DoH → fake 回退。UDP 答案若仍全是 fake 段（被网关劫持回假答案）视为失败；
-/// 其余校验与 DoH 路径同一套（check_addresses_with_mode）。
-async fn resolve_via_udp(host: &str, port: u16, strict: bool) -> Result<(Vec<SocketAddr>, Duration), String> {
-    let resolution = crate::media_dns::resolve_udp(host, port).await?;
-    if !resolution.addresses.is_empty()
-        && resolution
-            .addresses
-            .iter()
-            .all(|addr| ip_kind(addr.ip()) == "fake_ip")
-    {
-        return Err("备用 DNS 返回内网或保留地址".into());
-    }
-    network_policy::check_addresses_with_mode(&resolution.addresses, strict)?;
-    Ok((resolution.addresses, CLIENT_TTL.min(resolution.ttl)))
-}
-
-/// 握手竞速重排（Muse 2026-11-14，2.0.9）：媒体主机的系统答案常有 2–9 个真实
-/// 地址但顺序随机、快慢悬殊（Hark 实测同一主机国内 IP 握手 0.10s、海外 IP
-/// 0.65–2.76s），原序钉给 reqwest 时先连上谁全凭运气。对前 8 个地址并发 TCP
-/// connect 竞速（总窗口 300ms；有 <150ms 连上即可提前收工）：连上的按 RTT 升序
-/// 排前，未连上/超时的保持原相对顺序跟在后面（可能只是慢、不是死，不能丢）；
-/// 全都没连上则原序原样返回。竞速连接连上即弃、不发任何数据。
-async fn race_answers(addrs: &[SocketAddr]) -> (Vec<SocketAddr>, Option<u64>) {
-    const RACE_WINDOW: Duration = Duration::from_millis(300);
-    const FAST_ENOUGH: Duration = Duration::from_millis(150);
-    const MAX_RACED: usize = 8;
-    let mut set = tokio::task::JoinSet::new();
-    for (index, addr) in addrs.iter().take(MAX_RACED).enumerate() {
-        let addr = *addr;
-        set.spawn(async move {
-            let started = Instant::now();
-            // TcpStream 连上后立即 drop：只测握手 RTT，不发任何数据。
-            tokio::net::TcpStream::connect(addr)
-                .await
-                .ok()
-                .map(|_| (index, started.elapsed()))
-        });
-    }
-    let mut connected: Vec<(usize, Duration)> = Vec::new();
-    let deadline = tokio::time::sleep(RACE_WINDOW);
-    tokio::pin!(deadline);
-    loop {
-        tokio::select! {
-            joined = set.join_next() => {
-                match joined {
-                    Some(Ok(Some(hit))) => {
-                        let fast_enough = hit.1 < FAST_ENOUGH;
-                        connected.push(hit);
-                        if fast_enough {
-                            break;
-                        }
-                    }
-                    Some(_) => {} // 该地址连接失败，继续等其余
-                    None => break, // 全部竞速任务已结束
-                }
-            }
-            _ = &mut deadline => break,
-        }
-    }
-    set.abort_all();
-    if connected.is_empty() {
-        return (addrs.to_vec(), None);
-    }
-    connected.sort_by_key(|(index, rtt)| (*rtt, *index));
-    let first_ms = connected.first().map(|(_, rtt)| rtt.as_millis() as u64);
-    let mut reordered: Vec<SocketAddr> = connected.iter().map(|(index, _)| addrs[*index]).collect();
-    for (index, addr) in addrs.iter().enumerate() {
-        if !connected.iter().any(|(hit, _)| *hit == index) {
-            reordered.push(*addr);
-        }
-    }
-    (reordered, first_ms)
-}
-
-/// network.resolve 诊断用：把一组解析答案按 ip_kind 归类成去重排序后的种类数组，
-/// 让真机日志能直接看出答案构成是纯 fake-ip、纯公网还是混合（Muse 2026-11-14，2.0.8 定位绕行未触发用）。
-fn resolve_kinds(addrs: &[SocketAddr]) -> Vec<&'static str> {
-    let mut kinds: Vec<&'static str> = addrs.iter().map(|addr| ip_kind(addr.ip())).collect();
-    kinds.sort_unstable();
-    kinds.dedup();
-    kinds
-}
-
-async fn client_for_dns(raw: &str, public_dns: bool) -> Result<(url::Url, Arc<reqwest::Client>), String> {
+pub async fn client_for_dns(raw: &str, public_dns: bool) -> Result<(url::Url, Arc<reqwest::Client>), String> {
     let strict = network_policy::strict_security();
     let target = network_policy::parse_target_with_mode(raw, strict)?;
     let host = target.host_str().ok_or("目标缺少主机名")?;
@@ -364,41 +252,7 @@ async fn client_for_dns(raw: &str, public_dns: bool) -> Result<(url::Url, Arc<re
         (resolution.addresses, CLIENT_TTL.min(resolution.ttl))
     } else if strict {
 let resolved = network_policy::resolve_target(&target, strict).await?;
-        let system_kinds = resolve_kinds(&resolved);
-        let all_fake = !resolved.is_empty() && resolved.iter().all(|addr| ip_kind(addr.ip()) == "fake_ip");
-        if all_fake {
-            // 系统 DNS 给的全是 fake-ip：那是网关伪造并接管的地址，拿它当真公网 IP
-            // 直连会被带到代理出口侧解析、多半落到海外节点。绕行顺序（2.0.9）：
-            // 先 UDP 直查阿里（家里 443 不通时 53 常还活着），失败再原 DoH；两条都
-            // 断才回退 fake 地址建客户端，保住纯 TUN 环境可用。
-            match resolve_via_udp(host, port, strict).await {
-                Ok(real) => {
-                    crate::playback_log::record("network.resolve", json!({"host": host, "kinds": resolve_kinds(&real.0), "count": real.0.len(), "all_fake": true, "branch": "udp_dns"}));
-                    real
-                }
-                Err(udp_error) => match resolve_via_doh(host, port, strict).await {
-                    Ok(real) => {
-                        crate::playback_log::record("network.dns_fallback", json!({"resource": crate::playback_log::resource_id(raw), "public_dns": true, "reason": "fake_ip"}));
-                        crate::playback_log::record("network.resolve", json!({"host": host, "kinds": resolve_kinds(&real.0), "count": real.0.len(), "all_fake": true, "branch": "doh"}));
-                        real
-                    }
-                    Err(error) => {
-                        // 绕行失败回退 fake 地址也要留痕，否则真机上分不清是「全假判断没成立」还是「DoH 飞快失败被吞」（2.0.8）；2.0.9 起同条带上 udp_error，区分两条绕行各死在哪。
-                        crate::playback_log::record("network.resolve", json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": true, "branch": "fake_fallback", "doh_error": error, "udp_error": udp_error}));
-                        (resolved, CLIENT_TTL)
-                    }
-                },
-            }
-        } else if resolved.len() >= 2 {
-            // 答案全是真地址但顺序随机、快慢悬殊：握手竞速重排后再钉住（2.0.9 修复一）。
-            let (raced, first_ms) = race_answers(&resolved).await;
-            crate::playback_log::record("network.resolve", json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": false, "branch": "system_raced", "first_ms": first_ms}));
-            (raced, CLIENT_TTL)
-        } else {
-            crate::playback_log::record("network.resolve", json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": false, "branch": "system"}));
-            (resolved, CLIENT_TTL)
-        }
-    } else {
+        crate::media_dns::strict_reresolve(raw, host, port, strict, resolved).await    } else {
         (Vec::new(), CLIENT_TTL)
     };
     let http = Arc::new(build_client(host, &addrs, &route)?);
@@ -485,107 +339,3 @@ pub(super) async fn get_with_dns(
     .map_err(|_| "请求超时".to_string())?
 }
 
-pub(super) async fn get_with_dns_h(
-    raw: &str,
-    timeout: Duration,
-    accept: Option<&str>,
-    referer: Option<&str>,
-    public_dns: bool,
-    extra_headers: &[(&str, &str)],
-) -> Result<reqwest::Response, String> {
-    tokio::time::timeout(timeout, async {
-        let policy_error = |phase: &str, error: String| {
-            crate::playback_log::record("network.target_failed", json!({"resource": crate::playback_log::resource_id(raw), "phase": phase, "error_kind": crate::playback_log::error_kind(&error)}));
-            error
-        };
-        let mut next = network_policy::parse_target(raw).map_err(|e| policy_error("parse", e))?;
-        for hop in 0..=5 {
-            let resolving = Instant::now();
-            let (target, http) = client_for_dns(next.as_str(), public_dns).await.map_err(|e| policy_error("dns_or_client", e))?;
-            crate::playback_log::record("network.target_ready", json!({"resource": crate::playback_log::resource_id(raw), "target_resource": crate::playback_log::resource_id(target.as_str()), "dns_or_client_ms": resolving.elapsed().as_millis() as u64, "hop": hop}));
-            let mut request = http.get(target.clone()).timeout(timeout);
-            if let Some(value) = accept {
-                request = request.header("Accept", value);
-            }
-            if let Some(value) = referer {
-                request = request.header("Referer", value);
-            }
-            for (name, value) in extra_headers {
-                request = request.header(*name, *value);
-            }
-            let response = request.send().await.map_err(|e| err_text(&e))?;
-            if !matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
-                return Ok(response);
-            }
-            if hop == 5 {
-                return Err("重定向次数超过限制".into());
-            }
-            let location = response
-                .headers()
-                .get(reqwest::header::LOCATION)
-                .and_then(|h| h.to_str().ok())
-                .ok_or("重定向缺少有效 Location")?;
-            next = network_policy::redirect_target(&target, location).map_err(|e| policy_error("redirect", e))?;
-            crate::playback_log::record("network.redirect", json!({"resource": crate::playback_log::resource_id(raw), "from": crate::playback_log::resource_id(target.as_str()), "to": crate::playback_log::resource_id(next.as_str()), "status": response.status().as_u16(), "hop": hop + 1}));
-        }
-        Err("重定向次数超过限制".into())
-    })
-    .await
-    .map_err(|_| "请求超时".to_string())?
-}
-
-/// 一次 Range 抓取的结果（状态码 / 总长 / 类型 / 字节）。
-pub struct RangeFetch {
-    pub status: u16,
-    /// Content-Range 里的总长；服务器没给或给 `*` 时为 None。
-    pub total: Option<u64>,
-    pub ctype: Option<String>,
-    pub bytes: Vec<u8>,
-}
-
-/// 解析 `Content-Range: bytes 0-65535/1234567` 的总长部分。
-fn parse_content_range_total(value: &str) -> Option<u64> {
-    let (_, total) = value.rsplit_once('/')?;
-    let total = total.trim();
-    if total == "*" {
-        return None;
-    }
-    total.parse::<u64>().ok().filter(|n| *n > 0)
-}
-
-/// 带 Range 头拉一段字节，走系统 DNS 路径（与 fetch_bytes_direct 同路，不翻公共 DNS）。
-/// 客户端构造、UA、Referer 都与 fetch_bytes 一致，只是多个 Range 头和状态码语义：
-/// 206＝分段命中（看 total 规划后续）；200＝服务器忽略 Range、响应即全量；非 2xx 直接报错。
-pub async fn fetch_range_direct(
-    url: &str,
-    start: u64,
-    end: u64,
-) -> Result<RangeFetch, String> {
-    let referer = format!("{}/", base());
-    let range = format!("bytes={start}-{end}");
-    let resp = get_with_dns_h(
-        url,
-        Duration::from_secs(20),
-        None,
-        Some(&referer),
-        false,
-        &[("Range", &range)],
-    )
-    .await?;
-    let status = resp.status().as_u16();
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
-    }
-    let total = resp
-        .headers()
-        .get(reqwest::header::CONTENT_RANGE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(parse_content_range_total);
-    let ctype = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-    let bytes = resp.bytes().await.map_err(|e| err_text(&e))?.to_vec();
-    Ok(RangeFetch { status, total, ctype, bytes })
-}
