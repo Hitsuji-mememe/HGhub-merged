@@ -210,8 +210,15 @@ try {
       assert(sb && sb.x >= -1 && sb.x + sb.width <= viewport[0] + 1, `${name}: episodes sheet out of viewport ${JSON.stringify(sb)}`);
       await page.getByRole("button", { name: "关闭", exact: true }).click();
       await sheet.waitFor({ state: "hidden" });
-      // Exit path works end to end.
+      // Exit path works end to end. (接棒同上: 退全屏过渡的 keepAlive 续播可能
+      // 把已暂停的视频拉回播放、控件随之隐藏; 等其耗尽后若在播则单击暂停,
+      // 再验「全屏」钮可见——验的仍是出口可达性本身。)
       await page.getByRole("button", { name: "退出全屏", exact: true }).click();
+      await page.waitForTimeout(1400);
+      if (await page.evaluate(() => !document.querySelector("video")?.paused)) {
+        await tapCenter();
+        await page.waitForFunction(() => document.querySelector("video")?.paused === true);
+      }
       await page.getByRole("button", { name: "全屏", exact: true }).waitFor({ state: "visible" });
       result.status = "passed";
       console.log(`PASS ${name}`);
