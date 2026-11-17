@@ -49,6 +49,13 @@ pub(crate) struct Resolution {
 }
 
 fn answers(value: &Value, port: u16) -> Result<Resolution, String> {
+    answers_typed(value, port, 1)
+}
+
+/// 按记录类型（1=A / 28=AAAA）解析 DoH JSON 答案。卫生校验两路同一套：
+/// 任一地址是内网/保留或 fake 段（含 IPv4 映射形态），整份答案一票否决，
+/// 与 UDP 路径 parse_udp_answers 的口径一致（Muse 2026-11-18 补 AAAA）。
+fn answers_typed(value: &Value, port: u16, qtype: u64) -> Result<Resolution, String> {
     if value["Status"].as_u64() != Some(0) {
         return Err("备用 DNS 解析失败".into());
     }
@@ -57,21 +64,34 @@ fn answers(value: &Value, port: u16) -> Result<Resolution, String> {
     let mut ttl = 30;
     for record in records {
         ttl = ttl.min(record["TTL"].as_u64().unwrap_or(0));
-        if record["type"].as_u64() != Some(1) {
+        if record["type"].as_u64() != Some(qtype) {
             continue;
         }
-        let ip: Ipv4Addr = record["data"]
-            .as_str()
-            .ok_or("备用 DNS 地址无效")?
-            .parse()
-            .map_err(|_| "备用 DNS 地址无效")?;
-        let [first, second, _, _] = ip.octets();
-        if !network_policy::allowed_ip(ip.into())
-            || (first == 198 && (18..=20).contains(&second))
-        {
+        let data = record["data"].as_str().ok_or("备用 DNS 地址无效")?;
+        let ip: IpAddr = match qtype {
+            1 => data
+                .parse::<Ipv4Addr>()
+                .map(IpAddr::from)
+                .map_err(|_| "备用 DNS 地址无效")?,
+            _ => data
+                .parse::<Ipv6Addr>()
+                .map(IpAddr::from)
+                .map_err(|_| "备用 DNS 地址无效")?,
+        };
+        let fake = match ip {
+            IpAddr::V4(v4) => {
+                let [first, second, _, _] = v4.octets();
+                first == 198 && (18..=20).contains(&second)
+            }
+            IpAddr::V6(v6) => v6.to_ipv4_mapped().is_some_and(|v4| {
+                let [first, second, _, _] = v4.octets();
+                first == 198 && (18..=20).contains(&second)
+            }),
+        };
+        if !network_policy::allowed_ip(ip) || fake {
             return Err("备用 DNS 返回内网或保留地址".into());
         }
-        addresses.push(SocketAddr::new(ip.into(), port));
+        addresses.push(SocketAddr::new(ip, port));
     }
     addresses.sort_unstable();
     addresses.dedup();
@@ -84,14 +104,41 @@ fn answers(value: &Value, port: u16) -> Result<Resolution, String> {
     })
 }
 
-pub(crate) async fn resolve(
+/// 合并 A/AAAA 两路 DoH 答案（与 resolve_udp 同语义）：各路已独立做完卫生
+/// 校验，任一路成功即用；TTL 取小、排序去重、总数封顶；两路皆失败才报错。
+fn merge_resolutions(
+    a: Result<Resolution, String>,
+    aaaa: Result<Resolution, String>,
+) -> Result<Resolution, String> {
+    let mut addresses = Vec::new();
+    let mut ttl = Duration::from_secs(30);
+    let mut error: Option<String> = None;
+    for result in [a, aaaa] {
+        match result {
+            Ok(resolution) => {
+                ttl = ttl.min(resolution.ttl);
+                addresses.extend(resolution.addresses);
+            }
+            Err(e) => error = Some(e),
+        }
+    }
+    addresses.sort_unstable();
+    addresses.dedup();
+    if addresses.is_empty() || addresses.len() > 32 {
+        return Err(error.unwrap_or_else(|| "备用 DNS 没有可用地址".into()));
+    }
+    Ok(Resolution { addresses, ttl })
+}
+
+async fn resolve_query(
     http: &reqwest::Client,
     host: &str,
     port: u16,
+    qtype: u64,
 ) -> Result<Resolution, String> {
     let mut response = http
         .get(format!("https://{HOST}/resolve"))
-        .query(&[("name", host), ("type", "A")])
+        .query(&[("name", host), ("type", if qtype == 28 { "AAAA" } else { "A" })])
         .timeout(Duration::from_secs(4))
         .send()
         .await
@@ -106,7 +153,22 @@ pub(crate) async fn resolve(
         bytes.extend_from_slice(&chunk);
     }
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| "备用 DNS 响应无效")?;
-    answers(&value, port)
+    answers_typed(&value, port, qtype)
+}
+
+/// DoH 双查（Muse 2026-11-18）：与 UDP 路径 resolve_udp 对齐，A 与 AAAA
+/// 并发各一次（tokio::join，总等待仍是一轮 4s 超时的量级，不串行叠加），
+/// 合并语义见 merge_resolutions。此前 DoH 只查 A，走 DoH 恢复的域名丢 IPv6。
+pub(crate) async fn resolve(
+    http: &reqwest::Client,
+    host: &str,
+    port: u16,
+) -> Result<Resolution, String> {
+    let (a, aaaa) = tokio::join!(
+        resolve_query(http, host, port, 1),
+        resolve_query(http, host, port, 28),
+    );
+    merge_resolutions(a, aaaa)
 }
 
 // ===== UDP 直查（Muse 2026-11-14，2.0.9）=====
@@ -365,6 +427,86 @@ mod tests {
         for response in [json!({"Status":3}), json!({"Status":0,"Answer":[]})] {
             assert!(answers(&response, 443).is_err());
         }
+    }
+
+    #[test]
+    fn doh_aaaa_answers_parse_public_v6_and_veto_dirty_ones() {
+        let result = answers_typed(
+            &json!({"Status":0,"Answer":[
+                {"type":5,"data":"edge.example.","TTL":5},
+                {"type":28,"data":"2606:4700:4700::1111","TTL":60},
+                {"type":28,"data":"2606:4700:4700::1111","TTL":60},
+                {"type":1,"data":"1.1.1.1","TTL":60}
+            ]}),
+            8443,
+            28,
+        )
+        .unwrap();
+        assert_eq!(
+            result.addresses,
+            vec!["[2606:4700:4700::1111]:8443".parse().unwrap()]
+        );
+        assert_eq!(result.ttl, Duration::from_secs(5));
+        // 脏地址一票否决：回环/链路本地/ULA/IPv4 映射形态的 fake 段，混在好答案里也整份作废。
+        for ip in ["::1", "fe80::1", "fd00::1", "::ffff:198.18.0.1", "not-an-ip"] {
+            assert!(
+                answers_typed(
+                    &json!({"Status":0,"Answer":[
+                        {"type":28,"data":"2606:4700:4700::1111","TTL":60},
+                        {"type":28,"data":ip,"TTL":60}
+                    ]}),
+                    443,
+                    28
+                )
+                .is_err(),
+                "{ip}"
+            );
+        }
+        // AAAA 查询的响应里只有 A 记录等于没有可用地址。
+        assert!(answers_typed(
+            &json!({"Status":0,"Answer":[{"type":1,"data":"1.1.1.1","TTL":60}]}),
+            443,
+            28
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn doh_merge_keeps_whichever_side_succeeded() {
+        let a = Resolution {
+            addresses: vec!["1.1.1.1:443".parse().unwrap()],
+            ttl: Duration::from_secs(20),
+        };
+        let aaaa = Resolution {
+            addresses: vec!["[2606:4700:4700::1111]:443".parse().unwrap()],
+            ttl: Duration::from_secs(10),
+        };
+        let only_a = merge_resolutions(
+            Ok(Resolution {
+                addresses: a.addresses.clone(),
+                ttl: a.ttl,
+            }),
+            Err("备用 DNS 请求失败".into()),
+        )
+        .unwrap();
+        assert_eq!(only_a.addresses, a.addresses);
+        let only_aaaa = merge_resolutions(
+            Err("备用 DNS 请求失败".into()),
+            Ok(Resolution {
+                addresses: aaaa.addresses.clone(),
+                ttl: aaaa.ttl,
+            }),
+        )
+        .unwrap();
+        assert_eq!(only_aaaa.addresses, aaaa.addresses);
+        let both = merge_resolutions(Ok(a), Ok(aaaa)).unwrap();
+        assert_eq!(both.addresses.len(), 2);
+        assert_eq!(both.ttl, Duration::from_secs(10));
+        assert!(merge_resolutions(
+            Err("备用 DNS 请求失败".into()),
+            Err("备用 DNS 响应无效".into())
+        )
+        .is_err());
     }
 
     #[test]

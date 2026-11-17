@@ -25,7 +25,8 @@
   `proxy_override()`、`system_explicit_proxy()`、`gnome_proxy()`、`windows_proxy_enabled()`、
   `macos_proxy_enabled()`。
 - 公网 DNS 回退：[`src-tauri/src/media_dns.rs`](../../src-tauri/src/media_dns.rs) 的 `HOST`、
-  `BOOTSTRAP`、`resolve()`、`answers()`、`eligible()`、`Routes`。
+  `BOOTSTRAP`、`resolve()`（A/AAAA 并发双查，`merge_resolutions()` 合并）、
+  `answers_typed()`、`eligible()`、`Routes`。
 - 地址策略：[`src-tauri/src/network_policy.rs`](../../src-tauri/src/network_policy.rs) 的
   `strict_security()`、`parse_target()`、`parse_target_with_mode()`、`allowed_ip()`、
   `resolve_target()`、`redirect_target()`。
