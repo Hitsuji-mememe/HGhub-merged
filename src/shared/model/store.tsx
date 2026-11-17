@@ -79,8 +79,8 @@ type Persist = GuestData & {
 const LS = STORAGE_KEYS.app;
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
-  muted: true, muteOnStartup: true, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: false,
-  fsIdleSecs: 3,
+  muted: true, muteOnStartup: true, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: true,
+  fsIdleSecs: 0,
 };
 
 /** 旧版本 history 是 number[]，读出来时升级成带进度的结构 */
@@ -118,7 +118,7 @@ function loadPersist(): Persist {
       }
     } catch { /* ignore */ }
     const fsIdleSecs = [0, 3, 5, 10].includes(p.fsIdleSecs) ? p.fsIdleSecs : DEFAULTS.fsIdleSecs;
-    return { ...p, swipeEp, muteOnStartup, muted: muteOnStartup || p.muted === true, fsIdleSecs, history: normalizeHistory(p.history) };
+    return { ...p, swipeEp, muteOnStartup, muted: muteOnStartup || p.muted === true, fsIdleSecs, preferHevc: true, history: normalizeHistory(p.history) };
   } catch {
     return DEFAULTS;
   }
@@ -398,7 +398,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setP((s) => ({ ...s, preferHevc: on }));
   }, []);
   const setFsIdleSecs = useCallback((secs: number) => {
-    setP((s) => ({ ...s, fsIdleSecs: [0, 3, 5, 10].includes(secs) ? secs : 3 }));
+    setP((s) => ({ ...s, fsIdleSecs: [0, 3, 5, 10].includes(secs) ? secs : 0 }));
   }, []);
   const setVolume = useCallback((v: number) => {
     const volume = Math.max(0, Math.min(1, v));
