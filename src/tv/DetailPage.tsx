@@ -113,7 +113,7 @@ export default function DetailPage({ content, sourceKey, progress, favorite, onF
       </div>
       {error ? <div className="tv-detail-message" role="alert"><p>{error}</p><div data-tv-region="detail-retry"><button data-tv-focus={`detail:${key}:retry`} onClick={() => setRetry(value => value + 1)}>重试</button></div></div> : !displayed ? <p role="status">正在加载详情…</p> : null}
       {!!parts.length && <div className="tv-detail-episodes"><h2>{content.kind === "post" ? "视频分段" : "剧集"}</h2><div className="tv-detail-episode-grid" data-tv-region="detail-episodes" data-tv-columns="5">
-        {parts.map(part => <button key={part.id} data-tv-focus={`detail:${key}:part:${part.id}`} onClick={() => onPlay(item, part.id, progress?.key === key && progress.part === part.id ? progress.seconds : 0)}>{part.label}{resumable && progress!.part === part.id ? <small>上次观看</small> : null}</button>)}
+        {parts.map(part => <button key={part.id} data-tv-focus={`detail:${key}:part:${part.id}`} title={part.label} onClick={() => onPlay(item, part.id, progress?.key === key && progress.part === part.id ? progress.seconds : 0)}><span>{part.label}</span>{resumable && progress!.part === part.id ? <small>上次观看</small> : null}</button>)}
       </div></div>}
     </>}
     {more && !blocked && <TvModal id={`detail-tags:${key}`} title="屏蔽标签" onClose={() => setMore(false)}>
