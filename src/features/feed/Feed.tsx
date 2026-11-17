@@ -154,6 +154,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     x: number; y: number; startY: number; t: number; timer: number | null;
     mode: "idle" | "hold" | "scrub" | "pan"; base: number; width: number; playing: boolean;
     rotated: boolean;
+    /* 左边缘（20px）起手：优先给返回手势；rawX/rawY 为屏幕坐标（旋转舞台下方向判定不走舞台坐标） */
+    edge: boolean; edgeBack: boolean; rawX: number; rawY: number;
   } | null>(null);
   /* 单击只管显隐（即时）；双击无专属动作（双击暂停已删，2026-11-18 用户裁定） */
   /* 系统是否真的转成了横屏（iOS 原生旋转后为 true） */
@@ -639,6 +641,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     else el.requestFullscreen().catch(() => {});
   };
 
+  /* 左边缘右滑返回（iOS back 手势，Muse 2026-11-18）：与硬件返回同序——
+     先关面板，再退全屏，最后回上一级（context 模式 onBack；home 根层无上一级，不动作）。
+     面板以 Sheet 呈现时手势落在弹层自身（DialogFrame 同样支持边缘右滑关闭）。 */
+  const doEdgeBack = () => {
+    if (panel || tagMenu) { closePanels(); return; }
+    if (fs) { exitFs(); return; }
+    if (onBack) onBack();
+  };
+
   /* —— 长按固定 2x（松手恢复） / 横拖定位 / 单击显隐 —— */
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (isDesktop || controlsLocked || !active || showHoldGuide) return;
@@ -671,10 +682,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       x: sx, y: sy, startY: sy, t: Date.now(), base: videoRef.current?.el()?.currentTime ?? playbackClock.getSnapshot(), width,
       mode: "idle" as "idle" | "hold" | "scrub" | "pan",
       rotated: rot,
+      edge: (e.clientX - rect.left) <= 20, edgeBack: false, rawX: e.clientX, rawY: e.clientY,
       playing: videoRef.current?.el()?.paused === false,
       timer: window.setTimeout(() => {
         const cur = gesture.current;
-        if (!cur || cur.mode !== "idle") return;
+        if (!cur || cur.mode !== "idle" || cur.edge) return;
         cur.mode = "hold";
         /* Muse 2026-11-18 (真机反馈修回 2.1.5 定版): 长按去分区、固定 2x——任意位置
            长按即临时加速，松手立即恢复原速，绝不锁定、不换挡。合并时引入的左右滑
@@ -708,6 +720,18 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
     /* 长按中：固定 2x，移动不做任何事，松手恢复（定版语义） */
     if (g.mode === "hold") return;
+
+    /* 左边缘起手优先给返回手势（Muse 2026-11-18）：方向未定前不许 scrub/pan
+       抢占（hold 已在 timer 处被 edge 挡下）；屏幕坐标右滑占优即锁定 edgeBack。
+       判定用 clientX/Y 而非舞台坐标——CSS 旋转舞台下屏幕方向与舞台方向不同，
+       iOS 返回手势认的是屏幕左边缘。 */
+    if (g.edge) {
+      if (!g.edgeBack) {
+        const dxS = e.clientX - g.rawX, dyS = e.clientY - g.rawY;
+        if (dxS > 28 && dxS > Math.abs(dyS) * 1.5) g.edgeBack = true;
+      }
+      return;
+    }
 
     if (g.mode === "idle") {
       if (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy)) {
@@ -761,6 +785,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       if (g.playing && active) videoRef.current?.play();
       return;
     }
+    /* 边缘返回：已锁定 edgeBack 且右滑过 64px 才执行；边缘起手但未成手势的，
+       拖动一律吞掉（不落 pan/切集），只有轻点（<10px）放行到下方单击分支。 */
+    if (g.edgeBack) {
+      if (!cancelled && e && e.clientX - g.rawX > 64) doEdgeBack();
+      return;
+    }
+    if (g.edge && (cancelled || !e || Math.hypot(e.clientX - g.rawX, e.clientY - g.rawY) >= 10)) return;
     /* 上下划手势（swipeEp 开启时 overlay 是 touch-action:none，
        原生滚动不参与，这里抬手一次性判定；关着时走原生滚动切剧） */
     if (!cancelled && e && g.mode === "pan") {
