@@ -218,9 +218,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const mainUrl = playUrls[playKey] || "";
   const hevcUrl = hevcUrls[playKey] || "";
   /* Muse 2026-11-18 (2.2.0 合并, 移植 2.1.4): HEVC 回退按集锁定——解码/格式类失败只锁当前集，
-     切集后新集重新优先高清；网络类失败不锁。 */
-  const [hevcDeadKey, setHevcDeadKey] = useState("");
-  const playUrl = preferHevc && hevcUrl && hevcDeadKey !== playKey ? hevcUrl : mainUrl;
+     切集后新集重新优先高清；网络类失败不锁。
+     审计修订（同日）: 单值锁会被后一集覆盖、切回已锁集时重试+重复弹提示 → 改 Set 保全历史；
+     锁键带 lineEpoch，切线后旧锁自然失效（坏流可能只是单线路问题）；分类收窄见 onError。 */
+  const [hevcDeadKeys, setHevcDeadKeys] = useState<ReadonlySet<string>>(new Set());
+  const hevcKey = `${store.lineEpoch}:${playKey}`;
+  const playUrl = preferHevc && hevcUrl && !hevcDeadKeys.has(hevcKey) ? hevcUrl : mainUrl;
   /* 卡顿自愈（2.0.5）：逻辑在 ./stallHeal，Feed 只接线 */
   const { lastStallAtRef, healResumeRef, onFragStats, resetHealWindow } = useStallHeal({
     active, isDesktop, playKey, curId, curEp, videoRef, paused,
@@ -1152,9 +1155,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   onError={(m) => {
                     if (!isCurrentPlayback()) return;
                     setErr(m); setWaiting(false);
-                    const decodeErr = /mediaError|bufferAppend|bufferAppending|decode|MEDIA_ERR|SRC_NOT_SUPPORTED|format/i.test(m);
-                    if (decodeErr && preferHevc && hevcUrl && hevcDeadKey !== playKey) {
-                      setHevcDeadKey(playKey);
+                    /* 分类只认解码/格式证据：旧正则的裸 mediaError 会把 bufferStalled/bufferFull
+                       等非解码 fatal 也锁死（审计实测命中）；hls 串形如 mediaError/<details>，
+                       原生串靠 mediaErrors 的 (decode)/(format) token 命中。 */
+                    const decodeErr = /bufferAppend|decode|SRC_NOT_SUPPORTED|format/i.test(m);
+                    if (decodeErr && preferHevc && hevcUrl && !hevcDeadKeys.has(hevcKey)) {
+                      setHevcDeadKeys((prev) => new Set(prev).add(hevcKey));
                       toast("本集高清播不了，已切标准", "info");
                     }
                   }} />
