@@ -214,8 +214,42 @@ export function observeHls(hls: Hls, trace: (event: string, data?: Data) => void
       const end = () => trace("mms.endstreaming");
       source.addEventListener("startstreaming", start);
       source.addEventListener("endstreaming", end);
-      hls.once(Hls.Events.DESTROYING, () => { source.removeEventListener("startstreaming", start); source.removeEventListener("endstreaming", end); });
+      /* MediaSource 状态跃迁（Muse 2026-11-18 诊断探针，仅记录不改行为）：
+         2.2.0 修复版真机出现「分片已下载但不 buffered、无 error」的无声停滞，
+         FRAG_LOADED 与 FRAG_BUFFERED 之间缺一环证据——补 sourceopen/ended/close
+         与 readyState，配合下方 BUFFER_APPENDED / SourceBuffer 事件钉死卡点。 */
+      const state = (name: string) => () => trace(`mse.${name}`, { ready_state: source.readyState });
+      const onOpen = state("sourceopen"), onEnded = state("sourceended"), onClose = state("sourceclose");
+      source.addEventListener("sourceopen", onOpen);
+      source.addEventListener("sourceended", onEnded);
+      source.addEventListener("sourceclose", onClose);
+      hls.once(Hls.Events.DESTROYING, () => {
+        source.removeEventListener("startstreaming", start); source.removeEventListener("endstreaming", end);
+        source.removeEventListener("sourceopen", onOpen); source.removeEventListener("sourceended", onEnded); source.removeEventListener("sourceclose", onClose);
+      });
     }
+  });
+  /* append 链探针（同上，仅记录）：BUFFER_APPENDED 是 FRAG_BUFFERED 的前一环，
+     SourceBuffer 的 updateend/error 区分「没调 append / 调了没完成 / 完成了但
+     buffered 没涨」三种根因。 */
+  hls.on(Hls.Events.BUFFER_APPENDED, (_event, data) => {
+    if (!playbackLogEnabled()) return;
+    const spans: Data = {};
+    for (const [kind, value] of Object.entries(data.timeRanges)) if (value) spans[kind] = ranges(value);
+    trace("hls.buffer_appended", { sb_type: data.type, fragment: data.frag.sn, start: round(data.frag.start), duration: round(data.frag.duration), ranges: spans });
+  });
+  hls.on(Hls.Events.BUFFER_CREATED, (_event, data) => {
+    const removers: Array<() => void> = [];
+    for (const [kind, track] of Object.entries(data.tracks)) {
+      const buffer = track?.buffer;
+      if (!buffer) continue;
+      const onUpdateEnd = () => { if (playbackLogEnabled()) trace("mse.updateend", { sb_type: kind, updating: buffer.updating, buffered: ranges(buffer.buffered) }); };
+      const onError = () => trace("mse.sb_error", { sb_type: kind });
+      buffer.addEventListener("updateend", onUpdateEnd);
+      buffer.addEventListener("error", onError);
+      removers.push(() => { buffer.removeEventListener("updateend", onUpdateEnd); buffer.removeEventListener("error", onError); });
+    }
+    if (removers.length) hls.once(Hls.Events.DESTROYING, () => removers.forEach(fn => fn()));
   });
   hls.on(Hls.Events.MANIFEST_PARSED, () => trace("hls.manifest", { levels: hls.levels.length }));
   for (const event of [Hls.Events.FRAG_LOADING, Hls.Events.FRAG_LOADED, Hls.Events.FRAG_BUFFERED, Hls.Events.FRAG_LOAD_EMERGENCY_ABORTED] as const) {
