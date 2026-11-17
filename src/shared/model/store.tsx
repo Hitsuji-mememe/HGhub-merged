@@ -402,17 +402,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setMuted = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setP((s) => ({ ...s, muted: typeof v === "function" ? v(s.muted) : v }));
   }, []);
-  const setMuteOnStartup = useCallback((on: boolean) => {
-    setP((s) => ({ ...s, muteOnStartup: on }));
+  /* Muse 2026-11-18 (fe-audit): 四项定版写死——setter 保留签名兼容既有调用点，
+     但忽略入参：loadPersist 只在冷启动强制，会话内任何调用都不许关掉定版值。 */
+  const setMuteOnStartup = useCallback((_on: boolean) => {
+    setP((s) => ({ ...s, muteOnStartup: true }));
   }, []);
-  const setSwipeEp = useCallback((on: boolean) => {
-    setP((s) => ({ ...s, swipeEp: on }));
+  const setSwipeEp = useCallback((_on: boolean) => {
+    setP((s) => ({ ...s, swipeEp: true }));
   }, []);
-  const setPreferHevc = useCallback((on: boolean) => {
-    setP((s) => ({ ...s, preferHevc: on }));
+  const setPreferHevc = useCallback((_on: boolean) => {
+    setP((s) => ({ ...s, preferHevc: true }));
   }, []);
-  const setFsIdleSecs = useCallback((secs: number) => {
-    setP((s) => ({ ...s, fsIdleSecs: [0, 3, 5, 10].includes(secs) ? secs : 0 }));
+  const setFsIdleSecs = useCallback((_secs: number) => {
+    setP((s) => ({ ...s, fsIdleSecs: 0 }));
   }, []);
   const setSrMode = useCallback((srMode: SuperResMode) => {
     setP((s) => ({ ...s, srMode }));
