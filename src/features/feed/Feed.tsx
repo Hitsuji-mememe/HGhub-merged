@@ -851,6 +851,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       if (i !== idxRef.current) resolveSwipe(i);
     }
     setClean(false);
+    setSrMenuOpen(false); /* SR 菜单开合状态不跨全屏/普通模式串场 */
     setFs(true);
     wake();
     keepAlive();
@@ -866,6 +867,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   const exitFs = useCallback(() => {
     setClean(false);
+    setSrMenuOpen(false);
     setFs(false);
   }, [setClean, setFs]);
 
@@ -1279,6 +1281,19 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     <ICommentF size={26} className="hg-ink hg-ov-shadow" />
                     <span className="text-[12px] hg-ink-2 hg-ov-shadow tabular-nums">{fmt(meta.comment)}</span>
                   </Button>
+                  {/* Muse 2026-11-18 (真机反馈): 普通模式补超分入口——与全屏底栏同一颗菜单
+                      （同一 store.srMode / SuperResMenu），不必先进全屏才能调画质。 */}
+                  {kind === "video" && (
+                    <div className="relative">
+                      <Button onClick={() => setSrMenuOpen((v) => !v)} aria-label={`超分选择：${SR_SHORT_LABEL[store.srMode]}`} aria-expanded={srMenuOpen} aria-pressed={store.srMode !== "off"} className="flex flex-col items-center gap-1 pressable">
+                        <ISparkF size={26} className={store.srMode !== "off" ? "text-primary" : "hg-ink hg-ov-shadow"} />
+                        <span className="text-[12px] hg-ink-2 hg-ov-shadow">超分</span>
+                      </Button>
+                      {srMenuOpen && (
+                        <SuperResMenu current={store.srMode} placement="up" align="right" onSelect={(m) => { store.setSrMode(m); store.toast(`画质增强：${SR_PRESET_MAP[m].hudText}`, m === "off" ? "info" : "ok"); setSrMenuOpen(false); }} />
+                      )}
+                    </div>
+                  )}
                   <Button onClick={() => enterFs(landscapeVideo)} className="flex flex-col items-center gap-1 pressable" aria-label="全屏">
                     <IExpand size={26} className="hg-ink hg-ov-shadow" />
                     <span className="text-[12px] hg-ink-2 hg-ov-shadow">全屏</span>
