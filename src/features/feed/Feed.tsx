@@ -26,8 +26,8 @@ import { prewarmFirstSegment } from "./prewarm";
 import { useStallHeal } from "./stallHeal";
 import { useFeedDetails } from "./useFeedDetails";
 import {
-  IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
-  ICheck, ILink, IList, IPauseF, IPlayF, ISearch, ISparkF, IStar, IStarF, IVertSwap, IVol, IVolMute,
+  IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICompress, IExpand, IFileText,
+  ICheck, ILink, IList, IPauseF, IPlayF, ISearch, ISparkF, IVertSwap, IVol, IVolMute,
 } from "../../shared/ui/icons";
 
 type Props = {
@@ -139,7 +139,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 控件闲置隐藏：桌面 2.8s；移动全屏按设置秒数（#146-3） */
   const { idle, setIdle, wake, arm } = useFsIdle(isDesktop, fs, paused, store.fsIdleSecs, boxRef);
   const [fullscreen, setFullscreen] = useState(false);
-  const [heartBurst, setHeartBurst] = useState(0);
+  /* 点赞动画计数 heartBurst 已随社交栏撤下删除（2026-11-18） */
   /* —— 移动端手势 —— */
   const [holdSpeed, setHoldSpeed] = useState(0);
   const [holdSlow, setHoldSlow] = useState(false);
@@ -997,7 +997,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     try {
       await setLiked(kind, curId, curEp, on);
       if (!actionIsCurrent()) return;
-      if (on) setHeartBurst((n) => n + 1);
       toast(on ? "已加入喜欢" : "已取消喜欢", on ? "heart" : "info");
     } catch (error) {
       if (actionIsCurrent()) toast(error instanceof Error ? error.message : "点赞失败，请重试", "info");
@@ -1037,16 +1036,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     setPanel(null);
   };
 
-  const likeCount = useMemo(() => {
-    const base = meta.like;
-    const loadedLiked = kind === "video" && detail?.interaction?.liked
-      && (detail.interaction.liked_ep === undefined || detail.interaction.liked_ep === curEp);
-    return Math.max(0, base + Number(liked) - Number(!!loadedLiked));
-  }, [meta.like, liked, kind, detail?.interaction, curEp]);
-  const collectCount = useMemo(() => {
-    const loadedCollected = kind === "video" && detail?.interaction?.collected;
-    return Math.max(0, meta.collect + Number(collected) - Number(!!loadedCollected));
-  }, [meta.collect, collected, kind, detail?.interaction]);
+  /* likeCount/collectCount 计数 memo 已随社交栏撤下删除（2026-11-18）：
+     计数不再在播放画面呈现；liked/collected 状态本身保留（详情与键盘 L/S 仍用）。 */
 
   const detailBody = (onClose?: () => void) => <VideoDetailsPanel meta={meta} videoId={curId} episodeCount={episodes.length}
     related={related} following={store.follows.includes(meta.authorId)} followPending={followPending}
@@ -1248,27 +1239,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   </div>
                 </div>
               )}
-              {/* 右侧操作栏（移动端）：收藏 / 评论 / 全屏 / 分享
+              {/* 右侧操作栏（移动端）：只留播放控制（超分 / 全屏）。
+                  Muse 2026-11-18 (用户裁定): 社交栏（点赞/收藏/评论+计数）整栏撤下——
+                  游客不可用、纯遮挡；评论收进底部面板页签，点赞/收藏只在详情内。
                   颜色写死不跟主题走：浅色主题下这些字必须仍是白色 */}
               {!fs && !clean && !isDesktop && (
                 <div className="mobile-video-action-rail absolute right-3 z-20 flex flex-col items-center gap-[16px]"
                   style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset + 92}px)` }}>
-                  {kind === "video" && (
-                    <Button onClick={() => void onLike()} disabled={likePending} aria-busy={likePending} className="flex flex-col items-center gap-1 pressable" aria-pressed={liked} aria-label="点赞">
-                      {liked ? <IHeartF size={27} className="text-neon" /> : <IHeart size={27} className="hg-ink hg-ov-shadow" />}
-                      <span className="text-[12px] text-white/90 tabular-nums">{fmt(likeCount)}</span>
-                    </Button>
-                  )}
-                  <Button onClick={() => void onFav()} disabled={collectPending} aria-busy={collectPending} className="flex flex-col items-center gap-1 pressable" aria-pressed={collected} aria-label="收藏">
-                    {collected ? <IStarF size={27} className="hg-gold" /> : <IStar size={27} className="hg-ink hg-ov-shadow" />}
-                    <span className="text-[12px] text-white/90 tabular-nums">{fmt(collectCount)}</span>
-                  </Button>
-                  <Button onClick={() => setPanel("comments")} className="flex flex-col items-center gap-1 pressable" aria-label={`评论 ${fmt(meta.comment)} 条`}>
-                    <ICommentF size={26} className="hg-ink hg-ov-shadow" />
-                    <span className="text-[12px] hg-ink-2 hg-ov-shadow tabular-nums">{fmt(meta.comment)}</span>
-                  </Button>
-                  {/* Muse 2026-11-18 (真机反馈): 普通模式补超分入口——与全屏底栏同一颗菜单
-                      （同一 store.srMode / SuperResMenu），不必先进全屏才能调画质。 */}
+                  {/* 超分入口与全屏底栏同一颗菜单（同一 store.srMode / SuperResMenu） */}
                   {kind === "video" && (
                     <div className="relative">
                       <Button onClick={() => setSrMenuOpen((v) => !v)} aria-label={`超分选择：${SR_SHORT_LABEL[store.srMode]}`} aria-expanded={srMenuOpen} aria-pressed={store.srMode !== "off"} className="flex flex-col items-center gap-1 pressable">
@@ -1301,29 +1279,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 </div>
 
                 {kind === "video" && (
-                  <>
-                    <Button onClick={() => void onLike()} disabled={likePending} aria-busy={likePending} aria-label="点赞" className="flex flex-col items-center gap-1 pressable" aria-pressed={liked}>
-                      <span key={heartBurst} className={heartBurst ? "a-pop" : ""}>
-                        {liked ? <IHeartF size={30} className="text-neon" /> : <IHeart size={30} className="text-white tsh" />}
-                      </span>
-                      <span className="text-[12px] text-white/90 tabular-nums">{fmt(likeCount)}</span>
-                    </Button>
-
-                    <Button onClick={() => setPanel("comments")} aria-label={`评论 ${fmt(meta.comment)} 条`} className="flex flex-col items-center gap-1 pressable">
-                      <ICommentF size={27} className="text-white tsh" />
-                      <span className="text-[12px] text-white/90 tabular-nums">{fmt(meta.comment)}</span>
-                    </Button>
-
-                    <Button onClick={() => void onFav()} disabled={collectPending} aria-busy={collectPending} aria-label="收藏" className="flex flex-col items-center gap-1 pressable" aria-pressed={collected}>
-                      {collected ? <IStarF size={27} className="hg-gold" /> : <IStar size={27} className="hg-ink hg-ov-shadow" />}
-                      <span className="text-[12px] text-white/90 tabular-nums">{fmt(meta.collect)}</span>
-                    </Button>
-
-                    <Button onClick={() => setPanel("episodes")} aria-label="选集" className="flex flex-col items-center gap-1 pressable">
-                      <IList size={26} className="text-white tsh" />
-                      <span className="text-[12px] text-white/90">选集</span>
-                    </Button>
-                  </>
+                  /* 社交钮（点赞/评论/收藏）已随移动端同批撤下（2026-11-18 用户裁定）；
+                     本栏只留选集直达，评论走停靠面板页签 */
+                  <Button onClick={() => setPanel("episodes")} aria-label="选集" className="flex flex-col items-center gap-1 pressable">
+                    <IList size={26} className="text-white tsh" />
+                    <span className="text-[12px] text-white/90">选集</span>
+                  </Button>
                 )}
 
               </div>
@@ -1583,26 +1544,40 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </>
       )}
 
-      {/* 选集 / 评论：桌面停靠在右侧（画面让位），移动端底部弹层 */}
+      {/* 选集 / 详情 / 评论三页签面板：桌面停靠在右侧（画面让位），移动端底部弹层。
+          Muse 2026-11-18 (用户裁定): 评论从独立弹层并入本面板页签——入口一按开面板、
+          落点跟随入口语义（选集入口落选集、详情入口落详情），页签间一按切换。 */}
       {isDesktop ? (
         <div className={`desktop-dock-panel ${panel ? "is-open" : ""}`}>
           <div className="desktop-dock-inner">
-            {panel === "detail" ? detailBody(() => setPanel(null)) : panel === "episodes" ? (
-              <EpisodesPanel videoId={curId} episodes={episodes} current={curEp} onPick={pickEp} onClose={() => setPanel(null)} />
-            ) : panel === "comments" ? (
-              <CommentsPanel videoId={curId} ep={curEp} total={meta.comment} kind={kind} onClose={() => setPanel(null)} />
+            {(panel === "detail" || panel === "episodes" || panel === "comments") ? (
+              <>
+                <div className="shrink-0 flex items-center gap-2 px-4 pt-3 pb-2">
+                  <SegmentedControl className="flex-1" aria-label="剧集面板" activeIndex={panel === "episodes" ? 0 : panel === "detail" ? 1 : 2}>
+                    {([["episodes", "选集"], ["detail", "详情"], ["comments", "评论"]] as const).map(([k, l]) => (
+                      <Button aria-pressed={panel === k} key={k} onClick={() => setPanel(k)}>{l}</Button>
+                    ))}
+                  </SegmentedControl>
+                  <Button onClick={() => setPanel(null)} aria-label="关闭"
+                    className="ios-icon-button">
+                    <IClose size={14} />
+                  </Button>
+                </div>
+                <div className="flex-1 min-h-0">
+                  {panel === "episodes" ? (
+                    <EpisodesPanel bare videoId={curId} episodes={episodes} current={curEp} onPick={pickEp} onClose={() => setPanel(null)} />
+                  ) : panel === "comments" ? (
+                    <CommentsPanel videoId={curId} ep={curEp} total={meta.comment} kind={kind} onClose={() => setPanel(null)} />
+                  ) : (
+                    detailBody(() => setPanel(null))
+                  )}
+                </div>
+              </>
             ) : null}
           </div>
         </div>
       ) : (
         <>
-          {/* 评论：移动端底部弹层（右侧操作栏「评论」入口） */}
-          <Sheet open={active && panel === "comments"} onClose={() => setPanel(null)}>
-            <div className="flex flex-col" style={{ height: "72dvh" }}>
-              <CommentsPanel videoId={curId} ep={curEp} total={meta.comment} kind={kind} onClose={() => setPanel(null)} />
-            </div>
-          </Sheet>
-
           {/* 吃瓜图文正文 */}
           <Sheet open={active && panel === "article"} onClose={() => setPanel(null)}>
             <div className="flex flex-col" style={{ height: "78dvh" }}>
@@ -1610,12 +1585,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             </div>
           </Sheet>
 
-          <Sheet open={active && (panel === "detail" || panel === "episodes")} label={panel === "detail" ? "视频详情" : "选集"} onClose={() => setPanel(null)}>
+          <Sheet open={active && (panel === "detail" || panel === "episodes" || panel === "comments")} label={panel === "episodes" ? "选集" : panel === "detail" ? "视频详情" : "评论"} onClose={() => setPanel(null)}>
             <div className="video-details-sheet">
-              {/* 双栏抽屉：详情 / 选集 */}
+              {/* 三页签抽屉：选集 / 详情 / 评论，落点跟随打开它的入口 */}
               <div className="shrink-0 flex items-center gap-2 px-4 pb-2">
-                <SegmentedControl className="flex-1" aria-label="剧集面板" activeIndex={panel === "detail" ? 0 : 1}>
-                  {([["detail", "详情"], ["episodes", "选集"]] as const).map(([k, l]) => (
+                <SegmentedControl className="flex-1" aria-label="剧集面板" activeIndex={panel === "episodes" ? 0 : panel === "detail" ? 1 : 2}>
+                  {([["episodes", "选集"], ["detail", "详情"], ["comments", "评论"]] as const).map(([k, l]) => (
                     <Button aria-pressed={panel === k} key={k} onClick={() => setPanel(k)}>{l}</Button>
                   ))}
                 </SegmentedControl>
@@ -1628,6 +1603,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               <div className="flex-1 min-h-0">
                 {panel === "episodes" ? (
                   <EpisodesPanel bare videoId={curId} episodes={episodes} current={curEp} onPick={pickEp} onClose={() => setPanel(null)} />
+                ) : panel === "comments" ? (
+                  <CommentsPanel videoId={curId} ep={curEp} total={meta.comment} kind={kind} onClose={() => setPanel(null)} />
                 ) : (
                   detailBody()
                 )}
