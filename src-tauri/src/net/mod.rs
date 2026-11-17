@@ -71,7 +71,7 @@ static LAST_HEAL: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
 static NEXT_EDGE: AtomicU64 = AtomicU64::new(0);
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(0);
 
-pub use client::{get, refresh_client, UA};
+pub use client::{fetch_range_direct, get, refresh_client, RangeFetch, UA};
 pub(crate) use client::{request_scope, RequestScope};
 pub use diagnostics::{diagnose, proxy_state, test_proxy};
 pub use edge::{edge, fetch_bytes};
