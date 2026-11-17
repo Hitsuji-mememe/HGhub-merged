@@ -129,22 +129,6 @@ export default function PlayerControls({
             </div>
           )}
         </div>
-        <div className="player-speed-slot">
-          <Button className={`player-control player-speed ${srMode !== "off" ? "is-on" : ""}`} aria-label="超分" aria-haspopup="menu" aria-expanded={srOpen}
-            data-tooltip="画质超分" onClick={() => setSrOpen((v) => !v)}>
-            <ISparkF size={17} />
-          </Button>
-          {srOpen && (
-            <div className="player-speed-menu" role="menu" aria-label="超分档位">
-              <span className="player-menu-title">画质超分</span>
-              {SR_PRESETS.map((p) => (
-                <Button key={p.id} role="menuitemradio" aria-checked={srMode === p.id} onClick={() => { store?.setSrMode?.(p.id); setSrOpen(false); }}>
-                  <span>{p.name}</span>{srMode === p.id && <ICheck size={14} />}
-                </Button>
-              ))}
-            </div>
-          )}
-        </div>
         <div className="player-volume">
           <Button className="player-control" aria-label={muted ? "开启声音" : "静音"} data-tooltip="静音 M" onClick={onMute}>
             {muted || volume === 0 ? <IVolMute size={20} strokeWidth={1.6} /> : <IVol size={20} strokeWidth={1.6} />}
@@ -156,6 +140,22 @@ export default function PlayerControls({
           </div>
         </div>
         <Button className="player-control" aria-label="画中画" data-tooltip="画中画" onClick={onPip}><IPip size={20} strokeWidth={1.6} /></Button>
+        <div className="player-sr-slot">
+          <Button className={`player-control player-speed ${srMode !== "off" ? "is-on" : ""}`} aria-label="超分" aria-haspopup="menu" aria-expanded={srOpen}
+            data-tooltip="画质超分" onClick={() => setSrOpen((v) => !v)}>
+            <ISparkF size={17} />
+          </Button>
+          {srOpen && (
+            <div className="player-sr-menu" role="menu" aria-label="超分档位">
+              <span className="player-menu-title">画质超分</span>
+              {SR_PRESETS.map((p) => (
+                <Button key={p.id} role="menuitemradio" aria-checked={srMode === p.id} onClick={() => { store?.setSrMode?.(p.id); setSrOpen(false); }}>
+                  <span>{p.name}</span>{srMode === p.id && <ICheck size={14} />}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
         {!fullscreen && onTheater && (
           <Button className={`player-control ${theater ? "is-on" : ""}`} aria-label="影院模式" aria-pressed={theater}
             data-tooltip="影院模式 T" onClick={onTheater}><ITheater size={20} strokeWidth={1.6} /></Button>

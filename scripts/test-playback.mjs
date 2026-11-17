@@ -153,10 +153,12 @@ async function speedMenuKeyboardChecks(page, paused) {
 async function gestureChecks(page) {
   await page.goto(`${report.ui}/tests/player-seek.html?diagnostics=1&proxy=${encodeURIComponent(report.media)}`);
   const guide = page.getByRole("dialog", { name: "视频长按操作提示", exact: true });
-  await guide.waitFor({ state: "visible" });
-  await page.waitForFunction(() => document.querySelector("video")?.paused);
-  await guide.getByRole("button", { name: "知道了", exact: true }).click();
-  await guide.waitFor({ state: "hidden" });
+  // 2.2.0 合并定版 (Muse 2026-11-18): 长按引导已按 2.1.1 定版移除, 引导在场才关, 不在场直接继续。
+  if (await guide.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false)) {
+    await page.waitForFunction(() => document.querySelector("video")?.paused);
+    await guide.getByRole("button", { name: "知道了", exact: true }).click();
+    await guide.waitFor({ state: "hidden" });
+  }
   await page.waitForFunction(() => document.querySelector("video")?.currentTime > 1 && !document.querySelector("video").paused);
   const video = page.locator('video');
   const tap = () => page.evaluate(() => {
@@ -197,9 +199,11 @@ async function portraitFitChecks(page) {
 
   await open(report.portraitMedia);
   const guide = page.getByRole("dialog", { name: "视频长按操作提示", exact: true });
-  await guide.waitFor({ state: "visible" });
-  await guide.getByRole("button", { name: "知道了", exact: true }).click();
-  await guide.waitFor({ state: "hidden" });
+  // 同上: 长按引导已移除, 在场才关。
+  if (await guide.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false)) {
+    await guide.getByRole("button", { name: "知道了", exact: true }).click();
+    await guide.waitFor({ state: "hidden" });
+  }
   await page.waitForFunction(() => {
     const v = document.querySelector("video");
     return v && v.videoWidth === 360 && v.videoHeight === 640 && v.currentTime > 1 && !v.paused;
