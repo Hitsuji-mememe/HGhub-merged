@@ -217,8 +217,9 @@ pub(super) fn client_key(strict: bool, host: &str, port: u16, public_dns: bool, 
 
 
 /// DoH 解析专用客户端（钉阿里 DoH 主机到 bootstrap 地址、直连无代理）。
-/// media_dns 的 strict 解析链经此取客户端。
-pub fn doh_resolver_client() -> Result<reqwest::Client, String> {
+/// media_dns 的 strict 解析链经此取客户端。仅 crate 内可见（Muse 2026-11-18 收紧）：
+/// 该客户端无条件 no_proxy，被 crate 外或无关模块复用会绕过应用代理策略。
+pub(crate) fn doh_resolver_client() -> Result<reqwest::Client, String> {
     let direct = ProxyRoute {
         mode: crate::proxy::Mode::Off,
         explicit: None,
