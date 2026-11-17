@@ -11,22 +11,20 @@ import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
 import { setBackHandler } from "../../shared/lib/back";
 import { copyText } from "../../shared/lib/clipboard";
 import {
-  PlaybackLock, PlaybackProgress, PlaybackTime, PlayerControls, VideoSurface,
+  PlaybackProgress, PlaybackTime, PlayerControls, VideoSurface,
   createPlaybackClock, type VideoHandle,
 } from "../playback";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
-import { TagBlockMenu } from "../../shared/ui/TagBlockMenu";
 import VideoDetailsPanel from "./VideoDetailsPanel";
 import { PreferenceStorageNotice } from "../../shared/ui/PreferenceStorageNotice";
-import MobileHoldGuide from "./MobileHoldGuide";
-import { createHoldSpeed, getHoldZone, shiftHoldSpeed, stageXY, HOLD_DELAY_MS, HOLD_LOCK_DISTANCE, type HoldSpeed, type HoldZone } from "./mobileHold";
+import { createHoldSpeed, shiftHoldSpeed, stageXY, HOLD_DELAY_MS, type HoldSpeed } from "./mobileHold";
+import { SR_PRESET_MAP, SR_SHORT_LABEL, SuperResMenu } from "../playback/SuperResCanvas";
 import { useFsIdle } from "./fsIdle";
-import { useMobileHoldGuide } from "./useMobileHoldGuide";
 import { useFeedDetails } from "./useFeedDetails";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
-  ILink, IList, ILockF, IPauseF, IPlayF, ISearch, IStar, IStarF, IVertSwap, IVol, IVolMute,
+  ICheck, ILink, IList, IPauseF, IPlayF, ISearch, ISparkF, IStar, IStarF, IVertSwap, IVol, IVolMute,
 } from "../../shared/ui/icons";
 
 type Props = {
@@ -45,11 +43,82 @@ type Props = {
   startTime?: number;
 };
 
+const RATES = [0.75, 1, 1.25, 1.5, 2, 3];
+
+const stripHtml = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * 全屏底栏倍速直达选单（深色毛玻璃浮层，样式对齐 SuperResMenu）：点选即定档并
+ * 一直生效，取代原「⚡ 钮点按循环切档」；长按只作临时 2x 快进（2.0.4）。
+ */
+function RateMenu({
+  current,
+  onSelect,
+}: {
+  current: number;
+  onSelect: (r: number) => void;
+}) {
+  return (
+    <div
+      role="menu"
+      aria-label="倍速选择"
+      data-no-gesture
+      onPointerDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: "absolute",
+        bottom: "calc(100% + 8px)",
+        right: 0,
+        width: 168,
+        background: "rgba(14, 17, 24, 0.92)",
+        backdropFilter: "blur(18px)",
+        WebkitBackdropFilter: "blur(18px)",
+        border: "1px solid rgba(255, 255, 255, 0.14)",
+        boxShadow: "0 14px 36px rgba(0, 0, 0, 0.56)",
+        borderRadius: 14,
+        padding: 6,
+        zIndex: 60,
+      }}
+      className="a-fade">
+      <div className="flex items-center justify-between px-2.5 pt-1 pb-1.5 text-[10.5px] font-semibold text-white/55">
+        <span className="flex items-center gap-1">
+          <IBoltF size={11} className="text-primary" />
+          <span>播放倍速</span>
+        </span>
+        <span className="text-[10px] text-white/40">点选生效</span>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        {RATES.map((r) => {
+          const active = current === r;
+          return (
+            <button
+              key={r}
+              type="button"
+              role="menuitemradio"
+              aria-checked={active}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(r);
+              }}
+              className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-[10px] text-left transition-colors pressable ${
+                active ? "bg-white/14" : "hover:bg-white/8"
+              }`}>
+              <span className={`text-[12px] font-bold ${active ? "text-primary" : "text-white/95"}`}>{r}x</span>
+              {active && <ICheck size={14} className="text-primary shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, onBlocked, startEp, startTime }: Props) {
   const store = useStore();
-  const { isLiked, isFav, setLiked, setCollected, setFollowing, actionPending, accountScope, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen, swipeEp, setSwipeEp, preferHevc, setPreferHevc } = store;
+  const { isLiked, isFav, setLiked, setCollected, setFollowing, actionPending, accountScope, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen, swipeEp, preferHevc, setPreferHevc } = store;
   const isDesktop = !isMobile;
-  const holdGuide = useMobileHoldGuide();
   const contentPreferences = useContentPreferences();
   const { preferences, revision, blockReason } = contentPreferences;
   const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
@@ -112,8 +181,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [duration, setDuration] = useState(0);
   const [vsize, setVsize] = useState({ key: "", w: 0, h: 0 });
   const [paused, setPaused] = useState(false);
-  const [controlsLocked, setControlsLocked] = useState(false);
+  const controlsLocked = false;
   const [rate, setRate] = useState(1);
+  const [rateMenuOpen, setRateMenuOpen] = useState(false);
+  const [srMenuOpen, setSrMenuOpen] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [err, setErr] = useState("");
   const [panel, setPanel] = useState<"episodes" | "comments" | "article" | "detail" | null>(null);
@@ -139,10 +210,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* —— 移动端手势 —— */
   const [holdSpeed, setHoldSpeed] = useState(0);
   const [holdSlow, setHoldSlow] = useState(false);
-  const [speedLock, setSpeedLock] = useState(0);
-  const [lockArmed, setLockArmed] = useState(false);
   const holdRef = useRef(false);
-  const lockArmedRef = useRef(false);
   const [scrub, setScrub] = useState<{ pct: number; target: number } | null>(null);
   const scrubTarget = useRef<number | null>(null);
   /* 进度条拖动 */
@@ -152,7 +220,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const gesture = useRef<{
     x: number; y: number; startY: number; t: number; timer: number | null;
     mode: "idle" | "hold" | "scrub" | "pan"; base: number; width: number; playing: boolean;
-    zone: HoldZone; speed: HoldSpeed | null; rotated: boolean;
+    speed: HoldSpeed | null; rotated: boolean;
   } | null>(null);
   /* 单击 / 双击判定：单击净屏，双击暂停 */
   const lastTapRef = useRef<{ timer: number | null; clean?: boolean; idle?: boolean }>({ timer: null });
@@ -182,7 +250,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const allowed = !filtering || (tagsReady && !blocked);
   const closePanels = () => { setPanel(null); setTagMenu(false); };
   const openPreferences = () => { closePanels(); store.push({ kind: "settings", section: "内容偏好" }); };
-  const openTagMenu = () => { setPanel(null); setTagMenu(true); };
+  const openTagMenu = openPreferences;
   const openTag = (tag: string) => { closePanels(); store.push({ kind: "tag", tag, name: tag }); };
   useEffect(() => { setTagMenu(false); }, [curId, store.lineEpoch, accountScope]);
   useEffect(() => { if (blocked && mode === "home" && active) onBlocked?.(curId); }, [blocked, mode, active, curId, onBlocked]);
@@ -220,8 +288,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const measurementKey = JSON.stringify([accountScope, store.lineEpoch, permissionKey, playKey, playUrl]);
   const videoSize = vsize.key === measurementKey ? vsize : { key: measurementKey, w: 0, h: 0 };
   // 等播放画面就绪再提示，启动动画/协议、加载失败和其他面板不叠加教程。
-  const showHoldGuide = !isDesktop && !holdGuide.seen && active && allowed
-    && !!playUrl && duration > 0 && !err && !panel && !tagMenu && !controlsLocked;
+  /* Muse 2026-11-18 (2.2.0 合并): 长按引导浮层按 2.1.1 定版移除，恒 false */
+  const showHoldGuide = false;
   useEffect(() => {
     const retry = () => {
       setErr("");
@@ -297,14 +365,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const posterUrl = cover(meta.cover, 900);
   const articleHtml = kind === "post" && !post?.video_url ? (post?.content || "") : "";
 
-  /* 分享：复制播放链接 */
-  const shareLink = () => {
-    const u = kind === "post" ? (posts[curId]?.video_url || meta.title) : `https://huangguoai.com/video/${curId}/`;
-    copyText(u).then(() => toast("链接已复制", "ok")).catch(() => toast("复制失败", "info"));
-  };
-
-  /* 倍速：中心小方块打开偏好，右上长按 2x 起、左右滑换挡，左下 0.5x。 */
-  const effRate = holdSpeed || speedLock || (holdSlow ? 0.5 : rate);
+  /* 倍速：底栏 RateMenu 定档；长按任意位置临时加速（2x 起、左右滑换挡），松手恢复 */
+  const effRate = holdSpeed || (holdSlow ? 0.5 : rate);
   /* 沉浸全屏 + 横屏视频 → 舞台旋转 90°，看起来就是横屏 */
   const rotated = !isDesktop && fs && videoSize.w > videoSize.h && videoSize.h > 0 && !vpLandscape;
   const landscapeVideo = videoSize.w > 0 && videoSize.h > 0 && videoSize.w > videoSize.h;
@@ -624,8 +686,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       if (gesture.current?.timer) window.clearTimeout(gesture.current.timer);
       gesture.current = null;
       if (holdRef.current) { holdRef.current = false; setHoldSpeed(0); setHoldSlow(false); }
-      lockArmedRef.current = false;
-      setLockArmed(false);
       setZoom((z) => ({ ...z, g: true }));
       return;
     }
@@ -635,28 +695,21 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const rot = rotated;
     const width = (rot ? rect.height : el.clientWidth) || 1;
     const [sx, sy] = stageXY(rot, e.clientX, e.clientY);
-    // 按视觉矩形求真正的正方形；CSS 旋转全屏时也与蒙板标记重合。
-    const zone = getHoldZone(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     const g = {
       x: sx, y: sy, startY: sy, t: Date.now(), base: videoRef.current?.el()?.currentTime ?? playbackClock.getSnapshot(), width,
       mode: "idle" as "idle" | "hold" | "scrub" | "pan",
-      zone, speed: null, rotated: rot,
+      speed: null, rotated: rot,
       playing: videoRef.current?.el()?.paused === false,
       timer: window.setTimeout(() => {
         const cur = gesture.current;
         if (!cur || cur.mode !== "idle") return;
         cur.mode = "hold";
-        if (cur.zone === "menu") {
-          holdRef.current = false;
-          openTagMenu();
-        } else {
-          holdRef.current = true;
-          if (cur.zone === "slow") setHoldSlow(true);
-          else { cur.speed = createHoldSpeed(cur.x); setHoldSpeed(cur.speed.rate); }
-        }
-        setLockArmed(false);
-        lockArmedRef.current = false;
+        /* Muse 2026-11-18 (2.2.0 合并): 长按去分区（2.1.1 定版）——任意位置长按即临时加速，
+           按住左右滑换挡 2/3/4/6x，松手立即恢复原速，绝不锁定（用户 2026-11-18 纠正定版）。 */
+        holdRef.current = true;
+        cur.speed = createHoldSpeed(cur.x);
+        setHoldSpeed(cur.speed.rate);
         try { navigator.vibrate?.(25); } catch { /* ignore */ }
       }, HOLD_DELAY_MS) as unknown as number,
     };
@@ -682,15 +735,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const [sx, sy] = stageXY(g.rotated, e.clientX, e.clientY);
     const dx = sx - g.x, dy = sy - g.y;
 
-    /* 长按中：右上加速区上滑 64px 进入「松开即锁定」；减速/不感兴趣区不锁 */
+    /* 长按中：左右滑换挡（增量累计），松手恢复；无锁定 */
     if (g.mode === "hold") {
-      if (g.zone !== "fast") return;
       const step = g.speed && shiftHoldSpeed(g.speed, sx); if (step) setHoldSpeed(step);
-      const armed = g.startY - sy > HOLD_LOCK_DISTANCE;
-      if (armed !== lockArmedRef.current) {
-        lockArmedRef.current = armed;
-        setLockArmed(armed);
-      }
       return;
     }
 
@@ -728,21 +775,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
        但 holdRef 若留在 true，下面的 touchmove 会一直 preventDefault，
        整个列表就再也滑不动（表现为「播放后不能上滑」）。 */
     if (holdRef.current) { holdRef.current = false; setHoldSpeed(0); setHoldSlow(false); }
-    const wasLockArmed = lockArmedRef.current;
-    if (lockArmedRef.current) { lockArmedRef.current = false; setLockArmed(false); }
     if (!g) return;
     if (g.timer) window.clearTimeout(g.timer);
 
     if (g.mode === "hold") {
+      /* 松手即恢复原速：无条件复位，不留任何锁定态（定版语义） */
       holdRef.current = false;
       setHoldSpeed(0);
       setHoldSlow(false);
-      if (!cancelled && wasLockArmed) {
-        setSpeedLock(g.speed?.rate || 2);
-        toast(`已锁定 ${g.speed?.rate || 2}x 倍速 · 点顶部标签解除`, "info");
-      }
-      lockArmedRef.current = false;
-      setLockArmed(false);
       return;
     }
     if (g.mode === "scrub") {
@@ -814,7 +854,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     lastTapRef.current.timer = null;
     gesture.current = null;
     holdRef.current = false;
-    lockArmedRef.current = false;
   }, [playKey]);
 
   /* 进出全屏：iOS 会在这时把播放打断，过渡期多补几次 play() */
@@ -925,7 +964,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     keepAliveTimers.current = [];
   }, []);
 
-  const lockControls = () => { setPanel(null); setControlsLocked(true); };
 
   /* 长按倍速期间禁止原生滚动，否则上滑会被列表吃掉、锁不住倍速 */
   useEffect(() => {
@@ -1251,20 +1289,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {!fs && !clean && !isDesktop && (
                 <div className="mobile-video-action-rail absolute right-3 z-20 flex flex-col items-center gap-[16px]"
                   style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset + 92}px)` }}>
-                  {episodes.length > 1 && (
-                    <Button type="button" onClick={() => { setSwipeEp(!swipeEp); toast(swipeEp ? "上下划切集已关闭" : "上下划切集已开启"); }}
-                      className="flex flex-col items-center gap-1 pressable" aria-pressed={swipeEp} aria-label="上下划切集开关">
-                      <IVertSwap size={26} className={swipeEp ? "hg-gold hg-ov-shadow" : "hg-ink hg-ov-shadow"} />
-                      <span className="text-[12px] hg-ov-shadow" style={{ color: swipeEp ? "#f3c969" : undefined }}>切集</span>
-                    </Button>
-                  )}
-                  {hevcUrl && (
-                    <Button type="button" onClick={() => { setPreferHevc(!preferHevc); toast(preferHevc ? "已切回标准画质" : "已切换高清 HEVC", "ok"); }}
-                      className="flex flex-col items-center gap-1 pressable" aria-pressed={preferHevc} aria-label="画质切换">
-                      <span className={`flex items-center justify-center h-[22px] min-w-[30px] px-1 rounded-md text-[12px] font-bold hg-ov-shadow ${preferHevc ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>{preferHevc ? "HD" : "标清"}</span>
-                      <span className="text-[12px] hg-ov-shadow" style={{ color: preferHevc ? "#fff" : undefined }}>{preferHevc ? "高清" : "标清"}</span>
-                    </Button>
-                  )}
                   {kind === "video" && (
                     <Button onClick={() => void onLike()} disabled={likePending} aria-busy={likePending} className="flex flex-col items-center gap-1 pressable" aria-pressed={liked} aria-label="点赞">
                       {liked ? <IHeartF size={27} className="text-neon" /> : <IHeart size={27} className="hg-ink hg-ov-shadow" />}
@@ -1282,10 +1306,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   <Button onClick={() => enterFs(landscapeVideo)} className="flex flex-col items-center gap-1 pressable" aria-label="全屏">
                     <IExpand size={26} className="hg-ink hg-ov-shadow" />
                     <span className="text-[12px] hg-ink-2 hg-ov-shadow">全屏</span>
-                  </Button>
-                  <Button onClick={shareLink} className="flex flex-col items-center gap-1 pressable" aria-label="分享">
-                    <ILink size={25} className="hg-ink hg-ov-shadow" />
-                    <span className="text-[12px] hg-ink-2 hg-ov-shadow">分享</span>
                   </Button>
                 </div>
               )}
@@ -1329,10 +1349,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   </>
                 )}
 
-                <Button onClick={shareLink} aria-label="分享" className="flex flex-col items-center gap-1 pressable">
-                  <ILink size={25} className="text-white tsh" />
-                  <span className="text-[12px] text-white/90">分享</span>
-                </Button>
               </div>
               )}
 
@@ -1347,13 +1363,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                       第 {curEp}/{episodes.length} 集
                     </span>
                   )}
-                   {hevcUrl && (
-                     <Button type="button" aria-pressed={preferHevc}
-                       onClick={() => { setPreferHevc(!preferHevc); toast(preferHevc ? "已切回标准画质" : "已切换高清 HEVC", "ok"); }}
-                       className={`shrink-0 h-[18px] px-1.5 rounded-md text-[12px] font-bold flex items-center pressable transition-colors ${preferHevc ? "bg-primary text-on-primary" : "text-white border border-white/30"}`}>
-                       {preferHevc ? "HD" : "标清"}
-                     </Button>
-                   )}
                    {!!meta.score && (
                   <span className="shrink-0 text-[12px] font-bold hg-gold hg-ov-shadow">{meta.score.toFixed(1)} 分</span>
                   )}
@@ -1463,8 +1472,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           dockInset={panel ? 372 : 0}
           nextDisabled={!episodes.some((e) => e.ep_num === curEp + 1) && index >= effectiveVideoIds.length - 1}
           nextTitle={episodes.some((e) => e.ep_num === curEp + 1) ? "下一集 E" : "下一部 ↓"}
-          swipeEp={swipeEp}
-          onToggleSwipe={() => { setSwipeEp(!swipeEp); toast(swipeEp ? "上下划切集已关闭" : "上下划切集已开启"); }}
+          swipeEp
           onToggle={() => videoRef.current?.toggle()}
           onSeek={(t, source) => { videoRef.current?.seek(t, source); playbackClock.publish(t); }}
           onSeekInteraction={(phase, input, target, pointerTarget) => videoRef.current?.trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget })}
@@ -1472,7 +1480,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           onMute={() => setMuted((m) => !m)}
           onVolume={(v) => setVolume(v)}
           onPip={togglePip}
-          onLock={lockControls}
           onTheater={() => setTheater((v) => !v)}
           onFullscreen={toggleFull}
           onNext={() => {
@@ -1485,16 +1492,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
       {/* 移动端：倍速状态 / 锁定提示 */}
       {/* 锁定提示并入倍速胶囊：锁定只看上滑距离，不存在「拖到某个位置」的目标 */}
-      {!isDesktop && (holdSpeed || holdSlow || speedLock || rate !== 1) && (holdSpeed || holdSlow || !fs || !idle) && (
+      {!isDesktop && (holdSpeed || holdSlow || rate !== 1) && (holdSpeed || holdSlow || !fs || !idle) && (
         <Button
-          onClick={() => {
-            if (speedLock) { setSpeedLock(0); toast("已解除倍速锁定", "info"); }
-            else if (rate !== 1 && !holdSpeed) setRate(1);
-          }}
+          onClick={() => { if (rate !== 1 && !holdSpeed) { setRate(1); videoRef.current?.rate(1); } }}
           className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[13px] font-semibold whitespace-nowrap pressable"
-          style={{ top: "calc(var(--sat, 0px) + 54px)", background: "rgba(0,0,0,.18)", color: lockArmed || speedLock ? "rgba(255,255,255,.95)" : "rgba(255,255,255,.85)" }}>
+          style={{ top: "calc(var(--sat, 0px) + 54px)", background: "rgba(0,0,0,.18)", color: "rgba(255,255,255,.85)" }}>
           <IBoltF size={13} />
-          {effRate}x {holdSpeed ? (lockArmed ? "松手锁定" : "上滑后松手锁定") : speedLock ? "已锁定 · 点按解除" : holdSlow ? "减速中 · 松开恢复" : "倍速"}
+          {effRate}x {holdSpeed ? "加速中 · 松开恢复" : holdSlow ? "减速中 · 松开恢复" : "倍速 · 点按恢复 1x"}
         </Button>
       )}
 
@@ -1520,14 +1524,16 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       {/* 移动端：沉浸全屏（安卓 WebView 不支持 Fullscreen API，改用应用内沉浸层） */}
       {!isDesktop && fs && !idle && (
         <>
+          {rotated && (
           <Button onClick={exitFs} aria-label="退出全屏"
             className="hg-chip-strong absolute z-40 w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1"
             style={{
-              top: rotated ? 12 : "calc(var(--sat, 0px) + 6px)",
-              right: rotated ? "calc(var(--sab, 0px) + 12px)" : 12,
+              top: 12,
+              right: "calc(var(--sab, 0px) + 12px)",
             }}>
             <ICompress size={18} />
           </Button>
+          )}
           <div className="absolute inset-x-0 z-40 flex items-center gap-3 px-4"
             style={{
               bottom: rotated ? 10 : "calc(var(--sab, 0px) + 10px)",
@@ -1539,24 +1545,42 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {paused ? <IPlayF size={18} /> : <IPauseF size={17} />}
             </Button>
             <PlaybackTime clock={playbackClock} className="shrink-0 text-[12px] font-semibold hg-ink-2 tabular-nums" />
-            <Button
-              onClick={() => {
-                if (speedLock) { setSpeedLock(0); return; }
-                const seq = [1, 1.25, 1.5, 2];
-                const i = seq.indexOf(rate);
-                setRate(seq[(i + 1) % seq.length]);
-              }}
-              className={`ml-auto shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`}>
-              <IBoltF size={12} />{effRate}x
+            <span className="shrink-0 text-[12px] hg-ink-4 tabular-nums">/ {fmtTime(duration)}</span>
+            <Button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}
+              className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable">
+              {muted ? <IVolMute size={15} /> : <IVol size={15} />}
             </Button>
-            {curEp < episodes.length && (
-              <Button onClick={() => pickEp(curEp + 1)}
-                className="shrink-0 flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-semibold hg-chip hg-ink-2 pressable"
-                aria-label={`下一集 第${curEp + 1}集`}>
-                <IVertSwap size={12} />下集
+            {/* Muse 2026-11-18 (2.2.0 合并): 底栏顺序按 2.1.4 定版 选集 > 倍速 > 超分；无下集钮 */}
+            <div className="ml-auto relative shrink-0">
+              <Button onClick={() => { setSrMenuOpen(false); setPanel("episodes"); }}
+                className="flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-semibold hg-chip hg-ink-2 pressable" aria-label="选集">
+                <IList size={13} />选集
+              </Button>
+            </div>
+            <div className="relative shrink-0">
+              <Button onClick={() => { setSrMenuOpen(false); setRateMenuOpen((v) => !v); }}
+                className={`flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`} aria-label="倍速选择" aria-expanded={rateMenuOpen}>
+                <IBoltF size={12} />{effRate}x
+              </Button>
+              {rateMenuOpen && (
+                <RateMenu current={rate} onSelect={(r) => { setRate(r); videoRef.current?.rate(r); setRateMenuOpen(false); }} />
+              )}
+            </div>
+            <div className="relative shrink-0">
+              <Button onClick={() => { setRateMenuOpen(false); setSrMenuOpen((v) => !v); }}
+                className={`flex items-center gap-1 px-2.5 h-8 rounded-full text-[13px] font-bold pressable ${store.srMode !== "off" ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`} aria-label="超分选择" aria-expanded={srMenuOpen}>
+                <ISparkF size={12} />{SR_SHORT_LABEL[store.srMode]}
+              </Button>
+              {srMenuOpen && (
+                <SuperResMenu current={store.srMode} placement="up" align="right" onSelect={(m) => { store.setSrMode(m); store.toast(`画质增强：${SR_PRESET_MAP[m].hudText}`, m === "off" ? "info" : "ok"); setSrMenuOpen(false); }} />
+              )}
+            </div>
+            {!rotated && (
+              <Button onClick={exitFs} aria-label="退出全屏"
+                className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable">
+                <ICompress size={15} />
               </Button>
             )}
-            <span className="shrink-0 text-[12px] hg-ink-4 tabular-nums">{fmtTime(duration)}</span>
           </div>
         </>
       )}
@@ -1626,15 +1650,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1">
             {muted ? <IVolMute size={17} /> : <IVol size={17} />}
           </Button>}
-          <Button onClick={lockControls} aria-label="锁定播放控制" title="锁定播放控制" aria-pressed={false}
-            className={`hg-chip ${fs ? "w-11 h-11" : "w-9 h-9"} rounded-full flex items-center justify-center pressable elev-1`}><ILockF size={17} /></Button>
           {!fs && !clean && <Button onClick={() => store.setTab("search")} aria-label="搜索"
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><ISearch size={18} /></Button>}
         </div>
       )}
-      <TagBlockMenu open={active && tagMenu} tags={meta.tags} onClose={() => setTagMenu(false)} onSettings={openPreferences} />
-      {!isDesktop && <MobileHoldGuide open={showHoldGuide} onClose={holdGuide.dismiss} target={holdTargetRef} bottomInset={bottomInset} />}
-      {controlsLocked && <PlaybackLock active={active} onUnlock={() => { setControlsLocked(false); wake(); }} />}
     </div>
   );
 }

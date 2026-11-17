@@ -131,7 +131,7 @@ function loadPersist(): Persist {
       : rawSr === "off" || rawSr === "natural" || rawSr === "cinema" || rawSr === "crisp" || rawSr === "anime_3d" || rawSr === "anime_2d"
         ? rawSr
         : "natural";
-    return { ...p, swipeEp, srMode, muteOnStartup: true, muted: true, fsIdleSecs: 0, preferHevc: true, history: normalizeHistory(p.history) };
+    return { ...p, swipeEp: true, srMode, muteOnStartup: true, muted: true, fsIdleSecs: 0, preferHevc: true, history: normalizeHistory(p.history) };
   } catch {
     return DEFAULTS;
   }
