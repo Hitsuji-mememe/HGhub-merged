@@ -98,9 +98,8 @@
 
 ```sh
 pnpm build
-pnpm test:playback --scenarios seek,legacy,stall,lifecycle,mms,gesture,proxy,ios-native,recovery,review
+pnpm test:playback --scenarios seek,legacy,lifecycle,gesture,proxy,portrait-fit,ios-native,recovery,review,tv
 node scripts/test-ios-native-media.mjs
-node scripts/test-linux-media-policy.mjs
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 

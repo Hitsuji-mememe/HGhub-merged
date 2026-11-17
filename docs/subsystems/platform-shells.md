@@ -145,9 +145,6 @@ loopback、Windows 的自定义标题栏与注册表代理判断、Android 的 W
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 pnpm build
 node scripts/test-ios-native-media.mjs
-node scripts/test-linux-media-policy.mjs
-node scripts/test-mobile-layout.mjs
-node scripts/test-ios-ui.mjs
 ```
 
 单元测试覆盖 macOS 红绿灯居中、Apple 代理匹配、Linux 响应头/HEAD、iOS 请求校验和媒体

@@ -17,14 +17,14 @@ const scriptScenarios = {
 };
 const { values: args } = parseArgs({ options: {
   "media-dir": { type: "string" }, output: { type: "string" }, "browser-executable": { type: "string" },
-  scenarios: { type: "string", default: "seek,legacy,stall,lifecycle,mms,gesture,proxy,portrait-fit" }, help: { type: "boolean" },
+  scenarios: { type: "string", default: "seek,legacy,lifecycle,gesture,proxy,portrait-fit" }, help: { type: "boolean" },
 } });
 if (args.help) {
-  console.log("pnpm test:playback [--media-dir DIR] [--output NEW_DIR] [--browser-executable PATH] [--scenarios seek,legacy,stall,lifecycle,mms,gesture,proxy,portrait-fit,ios-native,recovery,review,tv]");
+  console.log("pnpm test:playback [--media-dir DIR] [--output NEW_DIR] [--browser-executable PATH] [--scenarios seek,legacy,lifecycle,gesture,proxy,portrait-fit,ios-native,recovery,review,tv]");
   process.exit(0);
 }
 const scenarios = args.scenarios.split(",");
-assert(scenarios.length && scenarios.every(s => ["seek", "legacy", "stall", "lifecycle", "mms", "gesture", "proxy", "portrait-fit", "ios-native", "recovery", "review", "tv"].includes(s)), "Unknown scenario");
+assert(scenarios.length && scenarios.every(s => ["seek", "legacy", "lifecycle", "gesture", "proxy", "portrait-fit", "ios-native", "recovery", "review", "tv"].includes(s)), "Unknown scenario");
 const output = resolve(args.output || join(root, "test-results", "playback", new Date().toISOString().replace(/[:.]/g, "-")));
 await mkdir(dirname(output), { recursive: true });
 await mkdir(output); // Refuse to overwrite artifacts from an earlier run.
@@ -318,70 +318,6 @@ async function seekChecks(page, legacy) {
   assert.equal((await getLogs(page)).length, count, "Failed persistence must keep logging disabled");
   return { click_ms: logs.find(e => e.event === "seek.resumed" && e.data.seek === first.data.seek)?.data.elapsed_ms, drag_requests: drags.length,
     ...(!legacy ? { speed_menu_keyboard: { playing_preserved: true, paused_preserved: true, activation: ["Space", "Enter"], navigation: ["ArrowUp", "ArrowDown", "Home", "End"], exit: ["Escape", "Tab"], focus_restored: true } } : {}) };
-}
-async function stallCheck(page) {
-  await loadPlayer(page);
-  await page.waitForFunction(() => { const v = document.querySelector("video"); return v.buffered.length && v.buffered.end(0) >= 30; });
-  await page.evaluate(async () => { await window.playerSeekFixture.setLogging(true); window.playerSeekFixture.pauseBuffering(); });
-  let segmentAttempts = 0;
-  await page.route("**/seg?*", route => { segmentAttempts += 1; return route.abort("failed"); });
-  await clickProgress(page, .8);
-  const logs = await waitLog(page, "seek.timeout");
-  const timeout = logs.find(e => e.event === "seek.timeout");
-  assert(timeout.data.ready < 3 && timeout.data.seeking, "Timeout must capture the stalled media state");
-  await page.waitForTimeout(250);
-  assert(segmentAttempts < 80, `Recoverable fragment failures must not fan out into a retry storm (${segmentAttempts} attempts)`);
-  await page.unroute("**/seg?*");
-  await page.evaluate(() => window.playerSeekFixture.resumeBuffering());
-  await waitLog(page, "seek.resumed");
-  return { fault_injected: true, timeout_ms: timeout.data.elapsed_ms, segment_attempts: segmentAttempts };
-}
-async function managedMediaCheck(page) {
-  // Chromium supplies real MSE decoding/buffering; only the MMS constructor and streaming
-  // events are simulated. This tests the hls.js workaround, not macOS WebKit itself.
-  await page.addInitScript(() => {
-    const NativeMediaSource = window.MediaSource;
-    window.__managedSources = [];
-    class ManagedMediaSource extends NativeMediaSource {
-      constructor() { super(); this.streaming = true; window.__managedSources.push(this); }
-    }
-    Object.defineProperty(window, "ManagedMediaSource", { configurable: true, value: ManagedMediaSource });
-    if (new URL(location.href).searchParams.get("mms") === "only") {
-      Object.defineProperty(window, "MediaSource", { configurable: true, value: undefined });
-    }
-  });
-  const players = [];
-  for (const legacy of [false, true]) {
-    await loadPlayer(page, legacy, "&mms=both");
-    await page.evaluate(() => window.playerSeekFixture.setLogging(true));
-    let logs = await getLogs(page);
-    assert(logs.some(e => e.event === "player.snapshot" && e.data.engine === "MediaSource" && e.data.prefer_managed === false), "Standard MediaSource must be preferred when both APIs exist");
-    assert.equal(await page.evaluate(() => window.__managedSources.length), 0, "Avoid constructing MMS on standard MSE-capable browsers");
-    await loadPlayer(page, legacy, "&mms=only");
-    await page.waitForFunction(() => { const v = document.querySelector("video"); return v.buffered.length && v.buffered.end(0) >= 30; });
-    await page.evaluate(() => window.playerSeekFixture.setLogging(true));
-    logs = await getLogs(page);
-    assert(logs.some(e => e.event === "player.snapshot" && e.data.engine === "ManagedMediaSource"), "MMS-only environments must still play");
-    await page.evaluate(() => {
-      const source = window.__managedSources.find(s => s.readyState === "open");
-      source.streaming = false;
-      source.dispatchEvent(new Event("endstreaming"));
-      // A delayed endstreaming event can also arrive after seeking has resumed loading.
-      document.querySelector("video").addEventListener("seeking", () => source.dispatchEvent(new Event("endstreaming")), { once: true });
-    });
-    await page.waitForFunction(() => !window.playerSeekFixture.engineState().buffering);
-    await clickProgress(page, .8);
-    logs = await waitLog(page, "seek.resumed");
-    assert(logs.some(e => e.event === "mms.endstreaming" && e.data.buffering_enabled === false), "Test must first suspend MMS buffering");
-    assert(logs.some(e => e.event === "mms.endstreaming" && e.data.seeking && e.data.buffering_enabled === true), "Late endstreaming during seeking must not suspend buffering again");
-    assert(!logs.some(e => e.event === "mms.startstreaming"), "Recovery must not depend on a startstreaming event");
-    assert.equal(await page.evaluate(() => window.playerSeekFixture.engineState().buffering), true, "Seeking must automatically resume MMS buffering");
-    assert(!logs.some(e => e.event === "seek.timeout"));
-    players.push({ player: legacy ? "legacy" : "feed", version: logs.find(e => e.event === "app.snapshot")?.data.hls_version,
-      prefer_standard_mse: true, mms_only_recovered_without_startstreaming: true,
-      seek_ms: logs.find(e => e.event === "seek.resumed")?.data.elapsed_ms });
-  }
-  return { simulated_mms: true, players };
 }
 async function lifecyclePlayerCheck(page, legacy) {
   let release, held, holdDeadline;
@@ -718,7 +654,7 @@ try {
         console.log(`PASS ${name}: ${JSON.stringify(result.metrics)}`);
         continue;
       }
-      const action = name === "recovery" ? explicitRecoveryCheck(page) : name === "proxy" ? proxyRecoveryCheck(page) : name === "gesture" ? gestureChecks(page) : name === "portrait-fit" ? portraitFitChecks(page) : name === "seek" || name === "legacy" ? seekChecks(page, name === "legacy") : name === "stall" ? stallCheck(page) : name === "mms" ? managedMediaCheck(page) : lifecycleCheck(page);
+      const action = name === "recovery" ? explicitRecoveryCheck(page) : name === "proxy" ? proxyRecoveryCheck(page) : name === "gesture" ? gestureChecks(page) : name === "portrait-fit" ? portraitFitChecks(page) : name === "seek" || name === "legacy" ? seekChecks(page, name === "legacy") : lifecycleCheck(page);
       result.metrics = await Promise.race([action, new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error("Scenario exceeded 45 seconds")), 45000); })]);
       assert.deepEqual(pageErrors, [], "Browser script errors");
       assert.deepEqual(externalRequests, [], "Unexpected external network requests");

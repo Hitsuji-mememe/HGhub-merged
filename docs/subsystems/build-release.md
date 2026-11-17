@@ -51,7 +51,7 @@ ad-hoc 签名都不应进入仓库或本机脚本输出。
    `rust`：Linux 系统依赖、`cargo check --all-targets`、`cargo test --lib`。
    `smoke`：安装 Chromium，解析 `BROWSER_EXECUTABLE`，运行 `pnpm test:smoke` 的四个稳定用例。
 5. `playback.yml` 和 `build-ios.yml` 都是 `workflow_dispatch`，不在每个 PR 自动跑。前者需要
-   FFmpeg + Chromium，按 `seek,legacy,stall,lifecycle,mms` 等场景输出诊断；后者只验证 iOS
+   FFmpeg + Chromium，按 `seek,legacy,lifecycle,gesture,proxy` 等场景输出诊断；后者只验证 iOS
    工程能编出未签名 ipa。
 6. `release.yml` 在推送 `v*` tag 或手动触发时运行；在分支上手动运行且 `tag` 留空时，
    只构建所选范围，不发布 GitHub Release。各平台构建 job 先跑

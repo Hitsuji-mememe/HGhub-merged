@@ -119,7 +119,6 @@
 ```sh
 node scripts/test-storage-migration.mjs
 node scripts/test-account-sync-empty-state.mjs
-node scripts/test-clear-history-confirm.mjs
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 

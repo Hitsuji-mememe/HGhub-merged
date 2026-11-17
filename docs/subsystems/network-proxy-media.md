@@ -110,7 +110,6 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib
 node scripts/test-network-settings.mjs
 node scripts/test-diagnostic-copy.mjs
 node scripts/test-ios-native-media.mjs
-node scripts/test-linux-media-policy.mjs
 ```
 
 `src-tauri/src/net/`、`media_dns.rs`、`media/*`、`network_policy.rs` 的单元测试覆盖信封形状、重试终止、

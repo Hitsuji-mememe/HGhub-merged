@@ -91,11 +91,9 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
 pnpm build
 pnpm test:smoke
 pnpm test:api-loading
-pnpm test:channel-pagination
-pnpm test:topic-pagination
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
 `test:smoke` 当前包含 `api-loading`、`storage-migration`、`line-selection`、
-`diagnostic-copy`；分页脚本单独运行。浏览器 fixture 使用 mock Tauri IPC 且阻断外部请求，
+`diagnostic-copy`。浏览器 fixture 使用 mock Tauri IPC 且阻断外部请求，
 不能证明真实上游的正文结构或账号接口；真实接口变化需要另加网络隔离的 fixture 或手动验证。

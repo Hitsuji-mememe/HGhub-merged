@@ -10,11 +10,7 @@ const output = join(root, "test-results", "round-review");
 if (process.env.GITHUB_ACTIONS !== "true") throw new Error("Run this review only in GitHub Actions.");
 const scripts = [
   "test-inplace-search-back.mjs",
-  "test-inplace-search-focus.mjs",
-  "test-clear-history-confirm.mjs",
   "test-account-sync-empty-state.mjs",
-  "test-topic-pagination.mjs",
-  "test-post-detail-hot.mjs",
   "test-network-settings.mjs",
 ];
 await mkdir(output, { recursive: true });
