@@ -18,7 +18,7 @@ import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
 import VideoDetailsPanel from "./VideoDetailsPanel";
 import { PreferenceStorageNotice } from "../../shared/ui/PreferenceStorageNotice";
-import { createHoldSpeed, shiftHoldSpeed, stageXY, HOLD_DELAY_MS, type HoldSpeed } from "./mobileHold";
+import { stageXY, HOLD_DELAY_MS } from "./mobileHold";
 import { SR_PRESET_MAP, SR_SHORT_LABEL, SuperResMenu } from "../playback/SuperResCanvas";
 import { useFsIdle } from "./fsIdle";
 import { RateMenu } from "./RateMenu";
@@ -153,7 +153,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const gesture = useRef<{
     x: number; y: number; startY: number; t: number; timer: number | null;
     mode: "idle" | "hold" | "scrub" | "pan"; base: number; width: number; playing: boolean;
-    speed: HoldSpeed | null; rotated: boolean;
+    rotated: boolean;
   } | null>(null);
   /* 单击 / 双击判定：单击切显隐（即时），双击切播放（第二击不动显隐，防闪烁） */
   const lastTapRef = useRef<{ timer: number | null }>({ timer: null });
@@ -316,7 +316,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const posterUrl = cover(meta.cover, 900);
   const articleHtml = kind === "post" && !post?.video_url ? (post?.content || "") : "";
 
-  /* 倍速：底栏 RateMenu 定档；长按任意位置临时加速（2x 起、左右滑换挡），松手恢复 */
+  /* 倍速：底栏 RateMenu 定档；长按任意位置固定 2x 临时加速，松手恢复 */
   const effRate = holdSpeed || (holdSlow ? 0.5 : rate);
   /* 沉浸全屏 + 横屏视频 → 舞台旋转 90°，看起来就是横屏 */
   const rotated = !isDesktop && fs && videoSize.w > videoSize.h && videoSize.h > 0 && !vpLandscape;
@@ -640,7 +640,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     else el.requestFullscreen().catch(() => {});
   };
 
-  /* —— 长按 2x（上滑锁定） / 横拖定位 / 单击暂停 —— */
+  /* —— 长按固定 2x（松手恢复） / 横拖定位 / 单击显隐·双击暂停 —— */
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (isDesktop || controlsLocked || !active || showHoldGuide) return;
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -671,17 +671,17 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const g = {
       x: sx, y: sy, startY: sy, t: Date.now(), base: videoRef.current?.el()?.currentTime ?? playbackClock.getSnapshot(), width,
       mode: "idle" as "idle" | "hold" | "scrub" | "pan",
-      speed: null, rotated: rot,
+      rotated: rot,
       playing: videoRef.current?.el()?.paused === false,
       timer: window.setTimeout(() => {
         const cur = gesture.current;
         if (!cur || cur.mode !== "idle") return;
         cur.mode = "hold";
-        /* Muse 2026-11-18 (2.2.0 合并): 长按去分区（2.1.1 定版）——任意位置长按即临时加速，
-           按住左右滑换挡 2/3/4/6x，松手立即恢复原速，绝不锁定（用户 2026-11-18 纠正定版）。 */
+        /* Muse 2026-11-18 (真机反馈修回 2.1.5 定版): 长按去分区、固定 2x——任意位置
+           长按即临时加速，松手立即恢复原速，绝不锁定、不换挡。合并时引入的左右滑
+           换挡 2/3/4/6x 被用户裁定为多余复杂（松手恢复后下次仍从 2x 起、用不上），已删。 */
         holdRef.current = true;
-        cur.speed = createHoldSpeed(cur.x);
-        setHoldSpeed(cur.speed.rate);
+        setHoldSpeed(2);
         try { navigator.vibrate?.(25); } catch { /* ignore */ }
       }, HOLD_DELAY_MS) as unknown as number,
     };
@@ -707,11 +707,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const [sx, sy] = stageXY(g.rotated, e.clientX, e.clientY);
     const dx = sx - g.x, dy = sy - g.y;
 
-    /* 长按中：左右滑换挡（增量累计），松手恢复；无锁定 */
-    if (g.mode === "hold") {
-      const step = g.speed && shiftHoldSpeed(g.speed, sx); if (step) setHoldSpeed(step);
-      return;
-    }
+    /* 长按中：固定 2x，移动不做任何事，松手恢复（定版语义） */
+    if (g.mode === "hold") return;
 
     if (g.mode === "idle") {
       if (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy)) {
