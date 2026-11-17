@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 /** 播放器控件闲置自动隐藏（#146-3）。
  * 桌面：2.8s，键盘聚焦控件/菜单时不隐藏（原行为不变）。
  * 移动沉浸全屏：按设置秒数（0=不自动隐藏）；单击的显隐由 Feed 的
- * lastTap 语义直接 setIdle 切换，这里只负责唤醒后的重新计时。 */
+ * 单击语义直接 setIdle 切换，这里只负责唤醒后的重新计时。 */
 export function useFsIdle(isDesktop: boolean, fs: boolean, paused: boolean, mobileSecs: number, boxRef: RefObject<HTMLDivElement | null>) {
   const [idle, setIdle] = useState(false);
   const timer = useRef<number | undefined>(undefined);

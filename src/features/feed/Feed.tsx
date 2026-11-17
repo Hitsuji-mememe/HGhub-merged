@@ -155,8 +155,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     mode: "idle" | "hold" | "scrub" | "pan"; base: number; width: number; playing: boolean;
     rotated: boolean;
   } | null>(null);
-  /* 单击 / 双击判定：单击切显隐（即时），双击切播放（第二击不动显隐，防闪烁） */
-  const lastTapRef = useRef<{ timer: number | null }>({ timer: null });
+  /* 单击只管显隐（即时）；双击无专属动作（双击暂停已删，2026-11-18 用户裁定） */
   /* 系统是否真的转成了横屏（iOS 原生旋转后为 true） */
   const [vpLandscape, setVpLandscape] = useState(
     () => typeof window !== "undefined" && window.innerWidth > window.innerHeight,
@@ -640,7 +639,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     else el.requestFullscreen().catch(() => {});
   };
 
-  /* —— 长按固定 2x（松手恢复） / 横拖定位 / 单击显隐·双击暂停 —— */
+  /* —— 长按固定 2x（松手恢复） / 横拖定位 / 单击显隐 —— */
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (isDesktop || controlsLocked || !active || showHoldGuide) return;
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -783,21 +782,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       }
     }
     if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260) {
-      /* 首击立即翻转显隐；第二击只切播放、不再动显隐（Muse 2026-11-18 真机反馈）：
-         旧实现第二击恢复首击前的显隐，控制层在一次双击内翻转两次，肉眼即闪烁。
-         双击净效果 = 首击的一次显隐翻转 + 一次播放切换。 */
-      if (lastTapRef.current.timer) {
-        window.clearTimeout(lastTapRef.current.timer);
-        lastTapRef.current.timer = null;
-        videoRef.current?.toggle();
-      } else {
-        setClean(!clean);
-        if (!isDesktop && fs) setIdle(!idle);
-        if (!isDesktop && fs && idle) arm();
-        lastTapRef.current.timer = window.setTimeout(() => {
-          lastTapRef.current.timer = null;
-        }, 230) as unknown as number;
-      }
+      /* 单击只管显隐、即时生效（Muse 2026-11-18 用户裁定）：双击暂停已删除，
+         双击无专属动作——两次单击即两次翻转、净效果为零；暂停只走显性播放钮
+         （全屏底栏/桌面控制条的播放键）。不再有双击判定窗口与待定计时器。 */
+      setClean(!clean);
+      if (!isDesktop && fs) setIdle(!idle);
+      if (!isDesktop && fs && idle) arm();
     }
   };
 
@@ -807,8 +797,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       onUp(true);
       pointersRef.current.clear();
       pinchRef.current = null;
-      if (lastTapRef.current.timer) window.clearTimeout(lastTapRef.current.timer);
-      lastTapRef.current.timer = null;
     }
     // Cancel pending gestures when the page is hidden or controls are locked.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -816,8 +804,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   useEffect(() => () => {
     if (gesture.current?.timer) window.clearTimeout(gesture.current.timer);
-    if (lastTapRef.current.timer) window.clearTimeout(lastTapRef.current.timer);
-    lastTapRef.current.timer = null;
     gesture.current = null;
     holdRef.current = false;
     /* Muse 2026-11-18 (审计修复): 切集时只复位 holdRef 不够——holdSpeed 状态会残留，

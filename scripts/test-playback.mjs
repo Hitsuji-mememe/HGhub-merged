@@ -173,21 +173,21 @@ async function gestureChecks(page) {
   await tap();
   await page.waitForFunction(() => document.querySelector('.player-root')?.dataset.clean === 'true');
   const singleTapMs = Date.now()-start;
-  assert(singleTapMs < 230, 'First tap must update before the old double-tap waiting window');
+  assert(singleTapMs < 230, 'Single tap must toggle chrome immediately (no waiting window)');
   await page.waitForTimeout(250);
   await tap();
   await page.waitForFunction(() => document.querySelector('.player-root')?.dataset.clean === 'false');
   await page.waitForTimeout(250);
   const wasPaused = await video.evaluate(v=>v.paused);
-  await tap(); await tap();
-  await page.waitForFunction(paused => document.querySelector('video').paused !== paused, wasPaused);
-  // 断言接棒 (Muse 2026-11-18, 按测试删除/适配规矩): 原断言保护「双击恢复
-  // 首击前显隐 + 切播放一次」；用户真机裁定第二击不再恢复显隐（控制层在双击内
-  // 翻转两次即闪烁），契约改为「第二击只切播放、显隐停留在首击翻转后的状态」。
-  // 本段进入双击前 clean='false'（上文单击已翻回），首击翻为 'true'、第二击不动
-  // → 终值 'true'；旧实现恢复显隐会得到 'false'，本断言在旧代码上失败。
-  // 「切播放一次」仍由上一行 waitForFunction 守。
-  assert.equal(await clean(), 'true', 'Double tap toggles playback once; second tap must not restore/flip chrome');
+  await tap(); await page.waitForTimeout(80); await tap();
+  await page.waitForTimeout(150);
+  // 断言接棒 (Muse 2026-11-18, 二次改派): 初版断言保护「双击切播放」，
+  // 中途契约曾改为「第二击只切播放、不动显隐」，均已被用户最终裁定作废——
+  // 双击暂停整个删除，双击无专属动作，暂停只走显性播放钮。
+  // 接棒断言：双击后播放状态不变（任何双击暂停实现都会翻转 paused → 失败）、
+  // 显隐回到双击前状态（两次单击各翻转一次、净效果为零；进入本段前 clean='false'）。
+  assert.equal(await video.evaluate(v=>v.paused), wasPaused, 'Double tap must not change playback state (double-tap pause removed)');
+  assert.equal(await clean(), 'false', 'Double tap leaves chrome at its pre-double-tap state');
   return {singleTapMs};
 }
 
