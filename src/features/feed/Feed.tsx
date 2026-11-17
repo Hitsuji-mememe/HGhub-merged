@@ -309,7 +309,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const rotated = !isDesktop && fs && videoSize.w > videoSize.h && videoSize.h > 0 && !vpLandscape;
   const landscapeVideo = videoSize.w > 0 && videoSize.h > 0 && videoSize.w > videoSize.h;
   /* 竖屏快捷胶囊的显隐：不卸载、只改 opacity，这样淡入淡出都能过渡（#19） */
-  const capsuleOn = !fs && !clean && !isDesktop && (landscapeVideo || zoom.s > 1.05);
+  const capsuleOn = !fs && !clean && !isDesktop && zoom.s > 1.05;
 
   /* ── 上下划切集 ──────────────────────────────────────────
    * 「上下划切集」开启时，播放区 overlay 的 touch-action 是 none，
