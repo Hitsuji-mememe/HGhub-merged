@@ -20,7 +20,8 @@ import { TagBlockMenu } from "../../shared/ui/TagBlockMenu";
 import VideoDetailsPanel from "./VideoDetailsPanel";
 import { PreferenceStorageNotice } from "../../shared/ui/PreferenceStorageNotice";
 import MobileHoldGuide from "./MobileHoldGuide";
-import { getHoldZone, HOLD_DELAY_MS, HOLD_LOCK_DISTANCE, type HoldZone } from "./mobileHold";
+import { createHoldSpeed, getHoldZone, shiftHoldSpeed, stageXY, HOLD_DELAY_MS, HOLD_LOCK_DISTANCE, type HoldSpeed, type HoldZone } from "./mobileHold";
+import { useFsIdle } from "./fsIdle";
 import { useMobileHoldGuide } from "./useMobileHoldGuide";
 import { useFeedDetails } from "./useFeedDetails";
 import {
@@ -131,31 +132,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const setClean = store.setClean;
   const setFs = store.setFs;
 
-  /* 桌面：鼠标闲置 2.8s 自动隐藏播放器 UI（沉浸） */
-  const [idle, setIdle] = useState(false);
-  const idleTimer = useRef<number | undefined>(undefined);
-  const wake = useCallback(() => {
-    setIdle(false);
-    window.clearTimeout(idleTimer.current);
-    idleTimer.current = window.setTimeout(() => {
-      // Keyboard users must keep seeing the focused control/menu.
-      if (!boxRef.current?.parentElement?.contains(document.activeElement) || !document.activeElement?.closest(".desktop-controls")) setIdle(true);
-    }, 2800);
-  }, []);
-  useEffect(() => {
-    if (!isDesktop) return undefined;
-    wake();
-    return () => window.clearTimeout(idleTimer.current);
-  }, [isDesktop, wake]);
-  useEffect(() => {
-    if (paused) { setIdle(false); window.clearTimeout(idleTimer.current); }
-  }, [paused]);
+  /* 控件闲置隐藏：桌面 2.8s；移动全屏按设置秒数（#146-3） */
+  const { idle, setIdle, wake, arm } = useFsIdle(isDesktop, fs, paused, store.fsIdleSecs, boxRef);
   const [fullscreen, setFullscreen] = useState(false);
   const [heartBurst, setHeartBurst] = useState(0);
   /* —— 移动端手势 —— */
-  const [holdSpeed, setHoldSpeed] = useState(false);
+  const [holdSpeed, setHoldSpeed] = useState(0);
   const [holdSlow, setHoldSlow] = useState(false);
-  const [speedLock, setSpeedLock] = useState(false);
+  const [speedLock, setSpeedLock] = useState(0);
   const [lockArmed, setLockArmed] = useState(false);
   const holdRef = useRef(false);
   const lockArmedRef = useRef(false);
@@ -168,7 +152,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const gesture = useRef<{
     x: number; y: number; startY: number; t: number; timer: number | null;
     mode: "idle" | "hold" | "scrub" | "pan"; base: number; width: number; playing: boolean;
-    zone: HoldZone;
+    zone: HoldZone; speed: HoldSpeed | null; rotated: boolean;
   } | null>(null);
   /* 单击 / 双击判定：单击净屏，双击暂停 */
   const lastTapRef = useRef<{ timer: number | null; clean?: boolean; idle?: boolean }>({ timer: null });
@@ -319,8 +303,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     copyText(u).then(() => toast("链接已复制", "ok")).catch(() => toast("复制失败", "info"));
   };
 
-  /* 倍速：中心小方块打开偏好，外侧右上 2.0x / 左下 0.5x。 */
-  const effRate = holdSpeed || speedLock ? 2 : holdSlow ? 0.5 : rate;
+  /* 倍速：中心小方块打开偏好，右上长按 2x 起、左右滑换挡，左下 0.5x。 */
+  const effRate = holdSpeed || speedLock || (holdSlow ? 0.5 : rate);
   /* 沉浸全屏 + 横屏视频 → 舞台旋转 90°，看起来就是横屏 */
   const rotated = !isDesktop && fs && videoSize.w > videoSize.h && videoSize.h > 0 && !vpLandscape;
   const landscapeVideo = videoSize.w > 0 && videoSize.h > 0 && videoSize.w > videoSize.h;
@@ -639,7 +623,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       };
       if (gesture.current?.timer) window.clearTimeout(gesture.current.timer);
       gesture.current = null;
-      if (holdRef.current) { holdRef.current = false; setHoldSpeed(false); setHoldSlow(false); }
+      if (holdRef.current) { holdRef.current = false; setHoldSpeed(0); setHoldSlow(false); }
       lockArmedRef.current = false;
       setLockArmed(false);
       setZoom((z) => ({ ...z, g: true }));
@@ -647,15 +631,17 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
     if (gesture.current || e.button !== 0) return;
     const el = e.currentTarget;
-    const width = el.clientWidth || 1;
     const rect = el.getBoundingClientRect();
+    const rot = rotated;
+    const width = (rot ? rect.height : el.clientWidth) || 1;
+    const [sx, sy] = stageXY(rot, e.clientX, e.clientY);
     // 按视觉矩形求真正的正方形；CSS 旋转全屏时也与蒙板标记重合。
     const zone = getHoldZone(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     const g = {
-      x: e.clientX, y: e.clientY, startY: e.clientY, t: Date.now(), base: videoRef.current?.el()?.currentTime ?? playbackClock.getSnapshot(), width,
+      x: sx, y: sy, startY: sy, t: Date.now(), base: videoRef.current?.el()?.currentTime ?? playbackClock.getSnapshot(), width,
       mode: "idle" as "idle" | "hold" | "scrub" | "pan",
-      zone,
+      zone, speed: null, rotated: rot,
       playing: videoRef.current?.el()?.paused === false,
       timer: window.setTimeout(() => {
         const cur = gesture.current;
@@ -667,7 +653,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         } else {
           holdRef.current = true;
           if (cur.zone === "slow") setHoldSlow(true);
-          else setHoldSpeed(true);
+          else { cur.speed = createHoldSpeed(cur.x); setHoldSpeed(cur.speed.rate); }
         }
         setLockArmed(false);
         lockArmedRef.current = false;
@@ -693,13 +679,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
     const g = gesture.current;
     if (!g || isDesktop) return;
-    const dx = e.clientX - g.x;
-    const dy = e.clientY - g.y;
+    const [sx, sy] = stageXY(g.rotated, e.clientX, e.clientY);
+    const dx = sx - g.x, dy = sy - g.y;
 
     /* 长按中：右上加速区上滑 64px 进入「松开即锁定」；减速/不感兴趣区不锁 */
     if (g.mode === "hold") {
       if (g.zone !== "fast") return;
-      const armed = g.startY - e.clientY > HOLD_LOCK_DISTANCE;
+      const step = g.speed && shiftHoldSpeed(g.speed, sx); if (step) setHoldSpeed(step);
+      const armed = g.startY - sy > HOLD_LOCK_DISTANCE;
       if (armed !== lockArmedRef.current) {
         lockArmedRef.current = armed;
         setLockArmed(armed);
@@ -740,7 +727,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     /* 长按状态必须无条件复位：切集 / 组件重建会把手势对象清掉，
        但 holdRef 若留在 true，下面的 touchmove 会一直 preventDefault，
        整个列表就再也滑不动（表现为「播放后不能上滑」）。 */
-    if (holdRef.current) { holdRef.current = false; setHoldSpeed(false); setHoldSlow(false); }
+    if (holdRef.current) { holdRef.current = false; setHoldSpeed(0); setHoldSlow(false); }
     const wasLockArmed = lockArmedRef.current;
     if (lockArmedRef.current) { lockArmedRef.current = false; setLockArmed(false); }
     if (!g) return;
@@ -748,11 +735,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
     if (g.mode === "hold") {
       holdRef.current = false;
-      setHoldSpeed(false);
+      setHoldSpeed(0);
       setHoldSlow(false);
       if (!cancelled && wasLockArmed) {
-        setSpeedLock(true);
-        toast("已锁定 2.0x 倍速 · 点顶部标签解除", "info");
+        setSpeedLock(g.speed?.rate || 2);
+        toast(`已锁定 ${g.speed?.rate || 2}x 倍速 · 点顶部标签解除`, "info");
       }
       lockArmedRef.current = false;
       setLockArmed(false);
@@ -769,8 +756,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     /* 上下划手势（swipeEp 开启时 overlay 是 touch-action:none，
        原生滚动不参与，这里抬手一次性判定；关着时走原生滚动切剧） */
     if (!cancelled && e && g.mode === "pan") {
-      const dy = e.clientY - g.startY;
-      const dx2 = e.clientX - g.x;
+      const [ux, uy] = stageXY(g.rotated, e.clientX, e.clientY);
+      const dy = uy - g.startY;
+      const dx2 = ux - g.x;
       if (Math.abs(dy) > 56 && Math.abs(dy) > Math.abs(dx2)) {
         const dir = dy < 0 ? 1 : -1;
         const ep = epMap[curId] || 1;
@@ -792,12 +780,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         lastTapRef.current.timer = null;
         setClean(lastTapRef.current.clean ?? false);
         if (!isDesktop && fs) setIdle(lastTapRef.current.idle ?? false);
+        if (!isDesktop && fs && !lastTapRef.current.idle) arm();
         videoRef.current?.toggle();
       } else {
         lastTapRef.current.clean = clean;
         lastTapRef.current.idle = idle;
         setClean(!clean);
         if (!isDesktop && fs) setIdle(!idle);
+        if (!isDesktop && fs && idle) arm();
         lastTapRef.current.timer = window.setTimeout(() => {
           lastTapRef.current.timer = null;
         }, 230) as unknown as number;
@@ -862,7 +852,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         } catch { /* ignore */ }
       }
     }
-  }, [isDesktop, keepAlive, resolveSwipe, effectiveVideoIds.length, setClean, setFs]);
+  }, [isDesktop, keepAlive, resolveSwipe, effectiveVideoIds.length, setClean, setFs, wake]);
 
   const exitFs = useCallback(() => {
     setClean(false);
@@ -890,6 +880,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         if (prev !== isLand && active) {
           setFs(isLand);
           keepAlive();
+          wake();
         }
         return isLand;
       });
@@ -900,7 +891,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       window.removeEventListener("resize", onViewportChange);
       window.removeEventListener("orientationchange", onViewportChange);
     };
-  }, [isDesktop, active, setFs, keepAlive]);
+  }, [isDesktop, active, setFs, keepAlive, wake]);
 
   /* 全屏切换或视口旋转后校准滚动容器 scrollTop：
      - 进入全屏时非当前项已隐藏，当前项位于顶部 scrollTop = 0；
@@ -1103,8 +1094,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       inert={!active || undefined}
       aria-hidden={!active || undefined}
       onFocusCapture={() => { if (active && isDesktop) wake(); }}
-      onPointerMove={() => { if (isDesktop || fs) wake(); }}
-      onPointerDown={() => { if (!isDesktop && fs) wake(); }}>
+      onPointerMove={() => { if (isDesktop) wake(); }}>
       <div className="absolute inset-0" inert={controlsLocked}>
       {/* 氛围背景 */}
       {!isDesktop && posterUrl && (
@@ -1131,7 +1121,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             <section key={vid} className={sectionClass} inert={!isActive || undefined} aria-hidden={!isActive || undefined}>
               {isActive && playUrl ? (
                 <div ref={holdTargetRef} data-mobile-hold-target={!isDesktop || undefined}
-                  className="absolute inset-0" style={{ touchAction: swipeEp ? "none" : "pan-y" }}
+                  className="absolute inset-0" style={{ touchAction: fs || swipeEp ? "none" : "pan-y" }}
                   onPointerDown={onDown} onPointerMove={onMove} onPointerUp={(e) => onUp(false, e)} onPointerCancel={(e) => onUp(true, e)} onLostPointerCapture={(e) => onUp(true, e)}>
                 <div style={{ position: "absolute", inset: 0, transform: isDesktop ? undefined : `translate3d(${zoom.x}px, ${zoom.y}px, 0) scale(${zoom.s})`, transformOrigin: "center center", transition: isDesktop || zoom.g ? "none" : "transform .18s ease-out" }}>
                 <VideoSurface ref={videoRef} src={playUrl} poster={posterUrl} autoPlay active={active && !tagMenu && !showHoldGuide} muted={muted}
@@ -1497,21 +1487,21 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       {!isDesktop && (holdSpeed || holdSlow || speedLock || rate !== 1) && (!fs || !idle) && (
         <Button
           onClick={() => {
-            if (speedLock) { setSpeedLock(false); toast("已解除倍速锁定", "info"); }
+            if (speedLock) { setSpeedLock(0); toast("已解除倍速锁定", "info"); }
             else if (rate !== 1 && !holdSpeed) setRate(1);
           }}
-          className={`absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-3.5 h-8 rounded-full backdrop-blur-md text-[13px] font-bold elev-2 pressable ${speedLock ? "bg-primary text-on-primary" : "hg-chip hg-gold"}`}
-          style={{ top: "calc(var(--sat, 0px) + 54px)" }}>
+          className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[13px] font-semibold pressable"
+          style={{ top: "calc(var(--sat, 0px) + 54px)", background: "rgba(0,0,0,.18)", color: speedLock ? "rgba(255,255,255,.95)" : "rgba(255,255,255,.85)" }}>
           <IBoltF size={13} />
           {effRate}x {speedLock ? "已锁定 · 点按解除" : holdSpeed ? "倍速中 · 松开恢复" : holdSlow ? "减速中 · 松开恢复" : "倍速"}
         </Button>
       )}
       {!isDesktop && holdSpeed && (
         <div
-          className={`absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-4 h-10 rounded-xl backdrop-blur-md elev-2 ${lockArmed ? "bg-primary text-on-primary" : "hg-chip-strong hg-ink-2"}`}
-          style={{ top: "38%" }}>
+          className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-4 h-10 rounded-xl"
+          style={{ top: "38%", background: "rgba(0,0,0,.18)", color: lockArmed ? "#fff" : "rgba(255,255,255,.85)" }}>
           <ILockF size={16} />
-          <span className="text-[14px] font-bold">{lockArmed ? "松开锁定 2.0x" : "上滑到此锁定倍速"}</span>
+          <span className="text-[14px] font-semibold">{lockArmed ? `松开锁定 ${holdSpeed}x` : "上滑到此锁定倍速"}</span>
         </div>
       )}
 
@@ -1558,7 +1548,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             <PlaybackTime clock={playbackClock} className="shrink-0 text-[12px] font-semibold hg-ink-2 tabular-nums" />
             <Button
               onClick={() => {
-                if (speedLock) { setSpeedLock(false); return; }
+                if (speedLock) { setSpeedLock(0); return; }
                 const seq = [1, 1.25, 1.5, 2];
                 const i = seq.indexOf(rate);
                 setRate(seq[(i + 1) % seq.length]);
