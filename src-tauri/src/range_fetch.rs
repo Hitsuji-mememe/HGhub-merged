@@ -67,14 +67,32 @@ pub struct RangeFetch {
     pub bytes: Vec<u8>,
 }
 
-/// 解析 `Content-Range: bytes 0-65535/1234567` 的总长部分。
-fn parse_content_range_total(value: &str) -> Option<u64> {
-    let (_, total) = value.rsplit_once('/')?;
-    let total = total.trim();
-    if total == "*" {
+/// 解析 `Content-Range: bytes 0-65535/1234567` 为 (首字节, 末字节, 总长)。
+/// 总长为 `*` 时为 None；单位不是 bytes 或任一数字无效时整头视为无效。
+fn parse_content_range(value: &str) -> Option<(u64, u64, Option<u64>)> {
+    let (unit, rest) = value.trim().split_once(' ')?;
+    if !unit.eq_ignore_ascii_case("bytes") {
         return None;
     }
-    total.parse::<u64>().ok().filter(|n| *n > 0)
+    let (range, total) = rest.trim().rsplit_once('/')?;
+    let (start, end) = range.trim().split_once('-')?;
+    let start = start.trim().parse::<u64>().ok()?;
+    let end = end.trim().parse::<u64>().ok()?;
+    if end < start {
+        return None;
+    }
+    let total = total.trim();
+    let total = if total == "*" {
+        None
+    } else {
+        Some(total.parse::<u64>().ok().filter(|n| *n > 0)?)
+    };
+    Some((start, end, total))
+}
+
+/// 解析 `Content-Range: bytes 0-65535/1234567` 的总长部分。
+fn parse_content_range_total(value: &str) -> Option<u64> {
+    parse_content_range(value).and_then(|(_, _, total)| total)
 }
 
 /// 带 Range 头拉一段字节，走系统 DNS 路径（与 fetch_bytes_direct 同路，不翻公共 DNS）。
@@ -100,10 +118,13 @@ pub async fn fetch_range_direct(
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
     }
-    let total = resp
+    let content_range = resp
         .headers()
         .get(reqwest::header::CONTENT_RANGE)
         .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let total = content_range
+        .as_deref()
         .and_then(parse_content_range_total);
     let ctype = resp
         .headers()
@@ -111,6 +132,25 @@ pub async fn fetch_range_direct(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
     let bytes = resp.bytes().await.map_err(|e| err_text(&e))?.to_vec();
+    // fix(rust-audit): 206 此前只验状态+长度、从不核对 Content-Range 偏移。
+    // 服务器（或重定向落点）若回了另一段同长度字节，拼片总长照样对得上，
+    // 损坏分片会被当好片缓存/播出。这里要求 206 必带合法 Content-Range，
+    // 且起点与请求一致、终点不越请求区间、区间长度与实体长度一致；
+    // 任一不符整段判失败，由调用方回退单连接全量抓取（不拼片）。
+    // 终点小于请求终点是合法的 EOF 截断（探针请求越过文件尾），后续
+    // 规划/拼片的长度校验会处理；200 不走此校验（响应即全量）。
+    if status == 206 {
+        let (range_start, range_end, _) = content_range
+            .as_deref()
+            .and_then(parse_content_range)
+            .ok_or("HTTP 206 缺少有效 Content-Range")?;
+        if range_start != start
+            || range_end > end
+            || range_end - range_start + 1 != bytes.len() as u64
+        {
+            return Err("HTTP 206 Content-Range 与请求区间不一致".into());
+        }
+    }
     Ok(RangeFetch { status, total, ctype, bytes })
 }
 
