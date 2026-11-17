@@ -118,7 +118,7 @@ function loadPersist(): Persist {
       }
     } catch { /* ignore */ }
     const fsIdleSecs = [0, 3, 5, 10].includes(p.fsIdleSecs) ? p.fsIdleSecs : DEFAULTS.fsIdleSecs;
-    return { ...p, swipeEp, muteOnStartup, muted: muteOnStartup || p.muted === true, fsIdleSecs, preferHevc: true, history: normalizeHistory(p.history) };
+    return { ...p, swipeEp, muteOnStartup: true, muted: true, fsIdleSecs: 0, preferHevc: true, history: normalizeHistory(p.history) };
   } catch {
     return DEFAULTS;
   }

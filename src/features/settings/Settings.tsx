@@ -22,7 +22,7 @@ type SettingGroup = typeof SETTING_GROUPS[number];
 /* 独立设置页：线路 / 外观 / 播放 / 本地数据 / 清理缓存 / 网络诊断 / 关于
    入口：Windows 侧栏「设置」、Android「我的」右上角齿轮 */
 export default function Settings({ onBack, initialSection }: { onBack: () => void; wide: boolean; initialSection?: "内容偏好" }) {
-  const { theme, themePreference, setTheme, favs, history, muteOnStartup, setMuteOnStartup, fsIdleSecs, setFsIdleSecs, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast } = useStore();
+  const { theme, themePreference, setTheme, favs, history, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast } = useStore();
   const [about, setAbout] = useState(false);
   const [agreementOpen, setAgreementOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -134,29 +134,6 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
                 ))}
               </SegmentedControl>
             </div>
-          </>)}
-
-          {section("播放", <>
-            <div className="flex items-center gap-3 px-3.5 py-3">
-              <span className="ios-setting-icon"><IVolMute size={16} /></span>
-              <div className="flex-1 min-w-0">
-                <div className="text-[14px] text-on">启动时静音</div>
-                <div className="text-[12px] text-mut">默认开启，每次启动均静音；关闭后记住上次静音状态。下次启动生效。</div>
-              </div>
-              <Toggle desktop on={muteOnStartup} onChange={setMuteOnStartup} label="启动时静音" />
-            </div>
-            {isMobile && <div className="flex flex-wrap items-center gap-3 px-3.5 py-3">
-              <span className="ios-setting-icon"><ICompress size={16} /></span>
-              <div className="flex-1 min-w-0">
-                <div className="text-[14px] text-on">全屏无操作自动隐藏控件</div>
-                <div className="text-[12px] text-mut">全屏播放时控件闲置后自动隐藏，单击画面可再显示</div>
-              </div>
-              <SegmentedControl className="w-full" aria-label="全屏无操作自动隐藏控件" activeIndex={[0, 3, 5, 10].indexOf(fsIdleSecs)}>
-                {([[0, "关"], [3, "3秒"], [5, "5秒"], [10, "10秒"]] as const).map(([secs, label]) => (
-                  <Button key={secs} type="button" aria-pressed={fsIdleSecs === secs} onClick={() => setFsIdleSecs(secs)}>{label}</Button>
-                ))}
-              </SegmentedControl>
-            </div>}
           </>)}
 
           {section("内容偏好", <ContentPreferencesSettings />)}
