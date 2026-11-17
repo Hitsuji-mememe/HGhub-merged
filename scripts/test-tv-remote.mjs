@@ -164,6 +164,9 @@ try {
   await scenario("agreement-gate-single-controller", async () => {
     const { page } = await open({ accepted: false });
     await page.locator('[data-tv-focus="agreement-checkbox"]').waitFor();
+    // markStartupReady fires in TvStartup's passive effect, which can land a
+    // tick after the agreement DOM is visible. Wait for the signal itself.
+    await page.waitForFunction(() => window.__tvFixture.startupReady === 1);
     const pre = await page.evaluate(() => ({ ready: window.__tvFixture.startupReady, keys: window.__tvFixture.keyboardListeners,
       native: window.__tvFixture.nativeListeners, requests: window.__tvFixture.calls.filter(call => /^(api_|app_boot|line_auto|line_health)/.test(call.command)) }));
     assert.equal(pre.ready, 1); assert.equal(pre.keys, 1); assert.equal(pre.native, 1); assert.deepEqual(pre.requests, []);
