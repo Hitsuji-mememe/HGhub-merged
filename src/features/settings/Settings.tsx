@@ -1,6 +1,6 @@
 import { Button, SegmentedControl, Surface, TextArea } from "../../shared/ui/ios/controls";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { api, APP_VERSION, hostOf, isMobile, logLine, platform, type UpdateInfo } from "../../shared/api/api";
+import { api, APP_VERSION, hostOf, isMobile, logLine, platform } from "../../shared/api/api";
 import { useStore } from "../../shared/model/store";
 import { Modal, Toggle } from "../../shared/ui/ui";
 import LinePicker from "./LinePicker";
@@ -33,10 +33,6 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
   const [clearError, setClearError] = useState("");
   const [lineError, setLineError] = useState("");
   const [clearing, setClearing] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [update, setUpdate] = useState<UpdateInfo | null>(null);
-  /** 应用内更新进行到哪一步（空串=没在更新） */
-  const [updating, setUpdating] = useState("");
   const playbackLog = usePlaybackLog();
   const [copyingLog, setCopyingLog] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
@@ -73,38 +69,6 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
       window.removeEventListener("hg:auto-line-changed", sync);
     };
   }, []);
-
-  const checkUpdate = async () => {
-    if (checking) return;
-    setChecking(true);
-    try {
-      const info = await api.checkUpdate();
-      if (info.has_update) setUpdate(info);
-      else toast(`已是最新版本 v${info.current}`, "ok");
-    } catch (e) {
-      toast((e as Error).message || "检查更新失败", "info");
-    } finally {
-      setChecking(false);
-    }
-  };
-  /** 更新：用系统浏览器打开下载页，由系统/浏览器完成下载与安装。
-   *
-   * 不再自己下载 APK 并调安装器 —— 那条路在安卓上要额外过 FileProvider
-   * 与「安装未知应用」授权，失败点多，体验并不比浏览器好。
-   */
-  const doUpdate = async () => {
-    if (!update) return;
-    setUpdating("打开中…");
-    try {
-      await api.openUrl(update.url);
-    } catch (e) {
-      await copyText(update.url)
-        .then(() => toast("下载地址已复制，可在浏览器粘贴打开", "ok"))
-        .catch(() => toast((e as Error).message || "打开失败", "info"));
-    } finally {
-      setUpdating("");
-    }
-  };
 
   return (
     <div className="ios-page ios-settings-page absolute inset-0 bg-bg flex flex-col">
@@ -265,14 +229,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
             {playbackLog.path && <details className="ios-settings-log-path text-[12px] text-mut"><summary className="cursor-pointer py-3">查看日志保存位置</summary><p className="break-all select-text pb-3">{playbackLog.path}</p></details>}
           </>)}
           {section("其他", <>
-            <Button onClick={checkUpdate} disabled={checking} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable disabled:opacity-60">
-              <span className="ios-setting-icon">{checking ? <Loader label="正在检查更新" className="size-4" /> : <IRefresh size={16} />}</span>
-              <div className="flex-1">
-                <div className="text-[14px] text-on">检查更新</div>
-                <div className="text-[12px] text-mut">{checking ? "检查中…" : `当前 v${APP_VERSION} · 对比 GitHub Release`}</div>
-              </div>
-              <IChevR size={15} className="text-mut" />
-            </Button>
+            
             <Button onClick={() => setAgreementOpen(true)} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable">
               <span className="ios-setting-icon"><ILockF size={16} /></span>
               <div className="flex-1 min-w-0">
@@ -399,27 +356,6 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
         </div>
       </Modal>
 
-      <Modal label="发现新版本" open={!!update?.has_update} onClose={() => setUpdate(null)} width={392}>
-        <div className="p-5">
-          <div className="text-[16px] font-bold text-on">发现新版本</div>
-          <p className="text-[12px] text-mut mt-1.5">
-            v{update?.current} → <b className="text-on">v{update?.latest}</b>
-            {update?.published_at ? ` · ${update.published_at.slice(0, 10)}` : ""}
-          </p>
-          {!!update?.notes && (
-            <Surface className="mt-3 max-h-[180px] scroll-y rounded-(--r-sm) bg-s2 p-3 text-[12px] text-mut whitespace-pre-wrap leading-relaxed">{update.notes}</Surface>
-          )}
-          <div className="flex gap-2 mt-4">
-            <Button onClick={() => setUpdate(null)} disabled={!!updating}
-              className="flex-1 h-9 rounded-(--r-ctl) bg-s3 text-[14px] text-on/80 pressable disabled:opacity-60">稍后</Button>
-            <Button onClick={() => void doUpdate()} disabled={!!updating}
-              className="flex-1 h-9 rounded-(--r-ctl) bg-primary text-[14px] font-semibold text-on-primary pressable disabled:opacity-60">
-              {updating || "前往下载"}
-            </Button>
-          </div>
-          <details className="text-[12px] text-mut mt-2.5"><summary className="py-3 cursor-pointer">下载地址</summary><p className="break-all select-text">{update?.url}</p></details>
-        </div>
-      </Modal>
     </div>
   );
 }

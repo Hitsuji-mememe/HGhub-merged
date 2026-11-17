@@ -115,41 +115,8 @@ function ProfileContent({ wide }: { wide: boolean }) {
       </div>
 
       <div className="ios-page-body flex-1 scroll-y px-4 pt-2 pb-24">
-        {/* 资料卡：已登录 / 未登录（点开登录抽屉） */}
-        {user ? (
-          <Surface className="ios-account-card flex items-center gap-3.5 a-rise">
-            <Avatar size={56} name={user.nickname} hue={280} ring />
-            <div className="flex-1 min-w-0">
-              <div className="text-[16px] font-bold text-on truncate">{user.nickname}</div>
-              <div className="text-[12px] text-mut mt-0.5">@{user.username} · ID {user.id}</div>
-              <div className="flex gap-3 mt-2 text-[12px] text-mut">
-                <span>点赞 <b className="text-on">{fmt(user.counts?.like)}</b></span>
-                <span>收藏 <b className="text-on">{fmt(user.counts?.collect)}</b></span>
-                <span>关注 <b className="text-on">{fmt(user.counts?.following)}</b></span>
-              </div>
-            </div>
-            <Button onClick={() => { setLogoutError(""); setLogoutOpen(true); }}
-              className="ios-icon-button" aria-label="退出登录">
-              <ILogout size={17} />
-            </Button>
-          </Surface>
-        ) : (
-          <Button onClick={() => setLoginOpen(true)}
-            className="ios-account-card w-full text-left flex items-center gap-3.5 pressable a-rise">
-            <Avatar size={56} icon={<IUser size={26} />} hue={220} ring />
-            <div className="flex-1 min-w-0">
-              <div className="text-[16px] font-bold text-on">未登录</div>
-              <div className="text-[12px] text-mut mt-0.5">登录后查看账号收藏、关注和观看记录</div>
-              <div className="flex gap-3 mt-2 text-[12px] text-mut">
-                <span>收藏 <b className="text-on">{favs.length}</b></span>
-                <span>观看 <b className="text-on">{history.length}</b></span>
-              </div>
-            </div>
-            <span className="flex items-center gap-0.5 h-8 pl-3 pr-2 rounded-full bg-primary text-on-primary text-[12px] font-semibold">
-              登录<IChevR size={13} />
-            </span>
-          </Button>
-        )}
+        {/* Muse 2026-11-18 (2.2.0 合并, 移植 2.1.1): 登录脸整体移除——用户长期游客模式，
+            「我的」打开直接是本地收藏/观看历史；底层 accountData 本地存储不动。 */}
 
         {user && accountSync.error && <div role="alert" className="mt-3 rounded-(--r-sm) bg-s3 p-3 text-[13px]">
           <p className="text-danger break-words">{accountSync.error}</p>
