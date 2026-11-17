@@ -12,16 +12,19 @@ import { chromium } from "playwright-core";
 import { createServer as createViteServer } from "vite";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const scriptScenarios = {
+  tv: { script: "test-tv-remote.mjs", timeout: 480000, metrics: { transport: "mock Tauri IPC; actual TV bootstrap, worker, library and player" } },
+};
 const { values: args } = parseArgs({ options: {
   "media-dir": { type: "string" }, output: { type: "string" }, "browser-executable": { type: "string" },
   scenarios: { type: "string", default: "seek,legacy,stall,lifecycle,mms,gesture,proxy,portrait-fit" }, help: { type: "boolean" },
 } });
 if (args.help) {
-  console.log("pnpm test:playback [--media-dir DIR] [--output NEW_DIR] [--browser-executable PATH] [--scenarios seek,legacy,stall,lifecycle,mms,gesture,proxy,portrait-fit,ios-native,recovery,review]");
+  console.log("pnpm test:playback [--media-dir DIR] [--output NEW_DIR] [--browser-executable PATH] [--scenarios seek,legacy,stall,lifecycle,mms,gesture,proxy,portrait-fit,ios-native,recovery,review,tv]");
   process.exit(0);
 }
 const scenarios = args.scenarios.split(",");
-assert(scenarios.length && scenarios.every(s => ["seek", "legacy", "stall", "lifecycle", "mms", "gesture", "proxy", "portrait-fit", "ios-native", "recovery", "review"].includes(s)), "Unknown scenario");
+assert(scenarios.length && scenarios.every(s => ["seek", "legacy", "stall", "lifecycle", "mms", "gesture", "proxy", "portrait-fit", "ios-native", "recovery", "review", "tv"].includes(s)), "Unknown scenario");
 const output = resolve(args.output || join(root, "test-results", "playback", new Date().toISOString().replace(/[:.]/g, "-")));
 await mkdir(dirname(output), { recursive: true });
 await mkdir(output); // Refuse to overwrite artifacts from an earlier run.
@@ -604,7 +607,7 @@ async function explicitRecoveryCheck(page) {
 }
 
 try {
-  if (scenarios.some(name => name !== "ios-native")) {
+  if (scenarios.some(name => name !== "ios-native" && name !== "tv")) {
     let mediaDir = args["media-dir"] && resolve(args["media-dir"]);
     if (!mediaDir) {
       temporaryMedia = await mkdtemp(join(tmpdir(), "hghubx-playback-")); mediaDir = temporaryMedia;
@@ -623,6 +626,33 @@ try {
   }
   for (const name of scenarios) {
     const dir = join(output, name); await mkdir(dir);
+    if (name === "tv") {
+      const result = { name, status: "running", started: new Date().toISOString() }; report.cases.push(result);
+      let stdout = "", stderr = "";
+      try {
+        const child = await promisify(execFile)(process.execPath, [join(root, "scripts", scriptScenarios.tv.script)], {
+          cwd: root, encoding: "utf8", timeout: scriptScenarios.tv.timeout, maxBuffer: 8 * 1024 * 1024,
+          env: { ...process.env, ...(args["browser-executable"] ? { BROWSER_EXECUTABLE: args["browser-executable"] } : {}) },
+        });
+        stdout = child.stdout; stderr = child.stderr;
+        result.metrics = { exit_code: 0, ...scriptScenarios.tv.metrics };
+        result.status = "passed"; console.log(`PASS ${name}: ${JSON.stringify(result.metrics)}`);
+      } catch (error) {
+        stdout = error.stdout || ""; stderr = error.stderr || "";
+        result.status = "failed"; result.error = error.message;
+        result.exit_code = typeof error.code === "number" ? error.code : null;
+        result.signal = error.signal || null;
+        console.error(`FAIL ${name}: ${error.message}`);
+      } finally {
+        if (stdout) process.stdout.write(stdout);
+        if (stderr) process.stderr.write(stderr);
+        await writeFile(join(dir, "stdout.log"), stdout);
+        await writeFile(join(dir, "stderr.log"), stderr);
+        result.finished = new Date().toISOString();
+        await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+      }
+      continue;
+    }
     if (name === "ios-native") {
       const result = { name, status: "running", started: new Date().toISOString() }; report.cases.push(result);
       let stdout = "", stderr = "";
