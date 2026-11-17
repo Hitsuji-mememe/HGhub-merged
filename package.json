@@ -11,6 +11,7 @@
     "dev:tv": "node scripts/build-android-tv.mjs --dev",
     "preview": "vite preview",
     "test:playback": "node scripts/test-playback.mjs",
+    "test:layout": "node scripts/test-layout.mjs",
     "test:api-loading": "node scripts/test-api-loading.mjs",
     "test:diagnostic-copy": "node scripts/test-diagnostic-copy.mjs",
     "test:storage-migration": "node scripts/test-storage-migration.mjs",

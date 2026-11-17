@@ -91,10 +91,12 @@ api.play = async () => {
   if (fixture.rejectPlaybackApi) throw new Error("fixture playback API unavailable");
   return { id: 991, ep_num: 1, title: "Seek fixture", duration: 90, video_url: "https://media.fixture.invalid/list.m3u8" };
 };
+// 布局门禁需要多集形态（全屏底栏「选集」钮只在多集时出现）：?episodes=N 扩集数，默认 1 不影响既有场景。
+const fixtureEpisodes = Math.max(1, Number(new URLSearchParams(location.search).get("episodes")) || 1);
 api.video = async () => ({
   id: 991, title: "Seek fixture", description: "", cover: "", tags: [], score: 0,
-  episode_count: 1, total_episodes: 1,
-  episodes: [{ ep_num: 1, title: "one", duration: 90, status: 1 }],
+  episode_count: fixtureEpisodes, total_episodes: fixtureEpisodes,
+  episodes: Array.from({ length: fixtureEpisodes }, (_, i) => ({ ep_num: i + 1, title: `ep${i + 1}`, duration: 90, status: 1 })),
   counts: { like: 0, collect: 0, comment: 0, hot: 0 },
   author: { id: 1, name: "Fixture" }, is_finished: true, is_original: 0,
 });

@@ -20,11 +20,11 @@ const { values: args } = parseArgs({ options: {
   scenarios: { type: "string", default: "seek,legacy,lifecycle,gesture,proxy,portrait-fit" }, help: { type: "boolean" },
 } });
 if (args.help) {
-  console.log("pnpm test:playback [--media-dir DIR] [--output NEW_DIR] [--browser-executable PATH] [--scenarios seek,legacy,lifecycle,gesture,proxy,portrait-fit,ios-native,recovery,review,tv]");
+  console.log("pnpm test:playback [--media-dir DIR] [--output NEW_DIR] [--browser-executable PATH] [--scenarios seek,legacy,lifecycle,gesture,proxy,portrait-fit,ios-native,recovery,review,tv,layout]");
   process.exit(0);
 }
 const scenarios = args.scenarios.split(",");
-assert(scenarios.length && scenarios.every(s => ["seek", "legacy", "lifecycle", "gesture", "proxy", "portrait-fit", "ios-native", "recovery", "review", "tv"].includes(s)), "Unknown scenario");
+assert(scenarios.length && scenarios.every(s => ["seek", "legacy", "lifecycle", "gesture", "proxy", "portrait-fit", "ios-native", "recovery", "review", "tv", "layout"].includes(s)), "Unknown scenario");
 const output = resolve(args.output || join(root, "test-results", "playback", new Date().toISOString().replace(/[:.]/g, "-")));
 await mkdir(dirname(output), { recursive: true });
 await mkdir(output); // Refuse to overwrite artifacts from an earlier run.
@@ -547,7 +547,7 @@ async function explicitRecoveryCheck(page) {
 }
 
 try {
-  if (scenarios.some(name => name !== "ios-native" && name !== "tv")) {
+  if (scenarios.some(name => name !== "ios-native" && name !== "tv" && name !== "layout")) {
     let mediaDir = args["media-dir"] && resolve(args["media-dir"]);
     if (!mediaDir) {
       temporaryMedia = await mkdtemp(join(tmpdir(), "hghubx-playback-")); mediaDir = temporaryMedia;
@@ -576,6 +576,35 @@ try {
         });
         stdout = child.stdout; stderr = child.stderr;
         result.metrics = { exit_code: 0, ...scriptScenarios.tv.metrics };
+        result.status = "passed"; console.log(`PASS ${name}: ${JSON.stringify(result.metrics)}`);
+      } catch (error) {
+        stdout = error.stdout || ""; stderr = error.stderr || "";
+        result.status = "failed"; result.error = error.message;
+        result.exit_code = typeof error.code === "number" ? error.code : null;
+        result.signal = error.signal || null;
+        console.error(`FAIL ${name}: ${error.message}`);
+      } finally {
+        if (stdout) process.stdout.write(stdout);
+        if (stderr) process.stderr.write(stderr);
+        await writeFile(join(dir, "stdout.log"), stdout);
+        await writeFile(join(dir, "stderr.log"), stderr);
+        result.finished = new Date().toISOString();
+        await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+      }
+      continue;
+    }
+    if (name === "layout") {
+      // 布局几何门禁（Muse 2026-11-18，用户直令新增）：独立脚本自带 vite/媒体夹具，
+      // 按视口矩阵断言控件几何（在视口内/可命中/不重叠），补 DOM 存在性测试的盲区。
+      const result = { name, status: "running", started: new Date().toISOString() }; report.cases.push(result);
+      let stdout = "", stderr = "";
+      try {
+        const child = await promisify(execFile)(process.execPath, [join(root, "scripts/test-layout.mjs"), "--output", join(dir, "run")], {
+          cwd: root, encoding: "utf8", timeout: 480000, maxBuffer: 4 * 1024 * 1024,
+          env: { ...process.env, ...(args["browser-executable"] ? { BROWSER_EXECUTABLE: args["browser-executable"] } : {}) },
+        });
+        stdout = child.stdout; stderr = child.stderr;
+        result.metrics = { exit_code: 0, transport: "browser fixture; viewport geometry matrix" };
         result.status = "passed"; console.log(`PASS ${name}: ${JSON.stringify(result.metrics)}`);
       } catch (error) {
         stdout = error.stdout || ""; stderr = error.stderr || "";
