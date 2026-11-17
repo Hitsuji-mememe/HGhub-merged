@@ -39,6 +39,10 @@ loopback、Windows 的自定义标题栏与注册表代理判断、Android 的 W
   `DesktopTitleBar`/`win-titlebar`、`DesktopRail`；移动壳见
   [`src/app/App.tsx`](../../src/app/App.tsx) 的 `TabBar`/`MobileShell` 和
   [`src/shared/ui/ios/`](../../src/shared/ui/ios/)。
+- 移动端页签横滑（2026-11-18 补，用户裁定）：`AppBody` 的页签层支持触摸横滑
+  切换四页签——仅页签根层（无栈页/登录/全屏）、非播放面（`.player-root` 内
+  横滑是 seek，不启用）、避开输入框与横向滚动容器；拖动跟手、过 72px 切换、
+  否则回弹，指示看 TabBar 当前页签。全屏播放不启用。
 
 ## 主运行时路径
 

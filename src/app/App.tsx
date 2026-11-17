@@ -144,6 +144,56 @@ function AppBody() {
   }, [stack.length, pop, setTab, loginOpen, setLoginOpen, fs, setFs]);
 
   const pageActive = stack.length === 0 && !loginOpen;
+
+  /* 页签横滑切换（Muse 2026-11-18，用户裁定；限非全屏、非播放面）：
+     仅触摸、仅页签根层（无栈页/登录/全屏）；起始点在播放面（.player-root，
+     横滑是 seek）、输入框或横向滚动容器（分类 chip 行等）内不起。
+     拖动跟手（整层 translateX，首尾页签方向加阻尼），过 72px 切换、否则回弹；
+     切换指示由底部 TabBar 的当前页签呈现。全屏播放不启用（手势归播放器）。 */
+  const TAB_ORDER: Tab[] = ["home", "search", "category", "profile"];
+  const tabSwipeRef = useRef<HTMLDivElement>(null);
+  const tabSwipe = useRef<{ id: number; x: number; y: number; claimed: boolean; dx: number } | null>(null);
+  const onTabSwipeDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = tabSwipeRef.current;
+    if (el) el.style.transition = "none";
+    tabSwipe.current = null;
+    if (e.pointerType !== "touch" || stack.length || loginOpen || fs) return;
+    const t = e.target as HTMLElement;
+    if (t.closest(".player-root, .ios-overlay, input, textarea, [contenteditable=\"true\"]")) return;
+    for (let n: HTMLElement | null = t; n && n !== e.currentTarget; n = n.parentElement) {
+      const s = getComputedStyle(n);
+      if ((s.overflowX === "auto" || s.overflowX === "scroll") && n.scrollWidth > n.clientWidth + 1) return;
+    }
+    tabSwipe.current = { id: e.pointerId, x: e.clientX, y: e.clientY, claimed: false, dx: 0 };
+  };
+  const onTabSwipeMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const s = tabSwipe.current;
+    if (!s || e.pointerId !== s.id) return;
+    const dx = e.clientX - s.x, dy = e.clientY - s.y;
+    if (!s.claimed) {
+      if (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy) * 1.3) s.claimed = true;
+      else return;
+    }
+    s.dx = dx;
+    const idx = TAB_ORDER.indexOf(tab);
+    const resisted = (dx > 0 && idx === 0) || (dx < 0 && idx === TAB_ORDER.length - 1) ? dx * 0.35 : dx;
+    const el = tabSwipeRef.current;
+    if (el) el.style.transform = `translateX(${resisted}px)`;
+  };
+  const onTabSwipeEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    const s = tabSwipe.current;
+    tabSwipe.current = null;
+    const el = tabSwipeRef.current;
+    if (el) {
+      el.style.transition = "transform .22s cubic-bezier(.2,0,0,1)";
+      el.style.transform = "translateX(0px)";
+    }
+    if (!s || e.pointerId !== s.id || !s.claimed) return;
+    const idx = TAB_ORDER.indexOf(tab);
+    if (s.dx <= -72 && idx < TAB_ORDER.length - 1) setTab(TAB_ORDER[idx + 1]);
+    else if (s.dx >= 72 && idx > 0) setTab(TAB_ORDER[idx - 1]);
+  };
+
   const bottomInset = fs || clean ? 0 : 74;
   /* 栈页（从搜索/分类/我的进入的播放页、图文页）没有底栏，
      底部只让出安全区。之前多留了 20px，视频底边会露出一条
@@ -153,7 +203,11 @@ function AppBody() {
   return (
     <div className={`absolute inset-0 flex bg-canvas plat-${platform}`}>
       <div ref={mainRef} className="relative flex-1 min-w-0 overflow-hidden win-main">
-        <MainTabs wide={wide} pageActive={pageActive} bottomInset={bottomInset} />
+        <div ref={tabSwipeRef} className="absolute inset-0" style={{ touchAction: "pan-y" }}
+          onPointerDown={onTabSwipeDown} onPointerMove={onTabSwipeMove}
+          onPointerUp={onTabSwipeEnd} onPointerCancel={onTabSwipeEnd}>
+          <MainTabs wide={wide} pageActive={pageActive} bottomInset={bottomInset} />
+        </div>
 
         {stack.map((p, i) => (
           <div key={p.key} inert={i !== stack.length - 1 || loginOpen} aria-hidden={i !== stack.length - 1 || loginOpen} className="absolute inset-0 z-30 bg-bg a-page-in" style={{ boxShadow: "-18px 0 40px rgba(0,0,0,.5)" }}>
