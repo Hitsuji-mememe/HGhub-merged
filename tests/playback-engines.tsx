@@ -6,7 +6,7 @@
  * 由 scripts/test-playback-engines.mjs 驱动，结果挂 window.__engines。 */
 import { AppendStallWatchdog, type StallClock } from "../src/features/playback/appendStallWatchdog";
 import { nativeFallbackState, noteNativeFallback, playbackSource } from "../src/features/playback/mediaTransport";
-import { effectiveSrMode, srDemote } from "../src/features/playback/SuperResCanvas";
+import { effectiveSrMode, srContentRect, srDemote, srHasConfirmedFrame } from "../src/features/playback/SuperResCanvas";
 
 class FakeClock implements StallClock {
   now = 0;
@@ -209,6 +209,20 @@ function run() {
   results.c_pref_off = effectiveSrMode("off", 720, 1280, { bitrateBps: 500_000, fps: 30 });
   results.c_unknown_size = effectiveSrMode("auto", 0, 0);
   results.c_demote = [srDemote("crisp", 1), srDemote("natural", 1), srDemote("off", 1), srDemote("crisp", 2)];
+
+  /* ── D SR 黑场自检纯判据：内容矩形避黑边 + 有效帧门控 ── */
+  // 竖屏源（720x1280）进横画布（1920x1080）：内容居中、左右各留 656.25 黑边
+  results.d_rect_wide_canvas = srContentRect(1920, 1080, 720, 1280, "contain");
+  // 横屏源（1920x1080）进竖画布（1080x1920）：内容居中、上下各留 656.25 黑边
+  results.d_rect_tall_canvas = srContentRect(1080, 1920, 1920, 1080, "contain");
+  // cover 无黑边：矩形即全画布
+  results.d_rect_cover = srContentRect(1920, 1080, 720, 1280, "cover");
+  // rVFC 可用：没回调过就是没确认（哪怕 readyState 已满）
+  results.d_frame_rvfc_pending = srHasConfirmedFrame({ requestVideoFrameCallback: () => 0, readyState: 4, videoWidth: 720, videoHeight: 1280 }, false);
+  results.d_frame_rvfc_seen = srHasConfirmedFrame({ requestVideoFrameCallback: () => 0, readyState: 4, videoWidth: 720, videoHeight: 1280 }, true);
+  // rVFC 不可用：回落 readyState>=2 且尺寸已知
+  results.d_frame_fallback_ready = srHasConfirmedFrame({ readyState: 2, videoWidth: 720, videoHeight: 1280 }, false);
+  results.d_frame_fallback_notready = srHasConfirmedFrame({ readyState: 1, videoWidth: 720, videoHeight: 1280 }, false);
 
   return results;
 }

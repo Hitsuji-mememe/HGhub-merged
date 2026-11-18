@@ -81,6 +81,15 @@ try {
   check("C unknown size -> natural", r.c_unknown_size, "natural");
   check("C demote ladder", r.c_demote, ["natural", "off", "off", "off"]);
 
+  // D — SR black-frame self-check pure predicates
+  check("D content rect excludes side bars (portrait in landscape)", r.d_rect_wide_canvas, { x: 656.25, y: 0, w: 607.5, h: 1080 });
+  check("D content rect excludes top/bottom bars (landscape in portrait)", r.d_rect_tall_canvas, { x: 0, y: 656.25, w: 1080, h: 607.5 });
+  check("D content rect is full canvas for cover", r.d_rect_cover, { x: 0, y: 0, w: 1920, h: 1080 });
+  check("D rVFC pending means no confirmed frame", r.d_frame_rvfc_pending, false);
+  check("D rVFC seen confirms frame", r.d_frame_rvfc_seen, true);
+  check("D no-rVFC fallback accepts readyState>=2 with size", r.d_frame_fallback_ready, true);
+  check("D no-rVFC fallback rejects readyState<2", r.d_frame_fallback_notready, false);
+
   await writeFile(join(output, "report.json"), JSON.stringify({ report, results: r }, null, 2));
   if (report.failed.length) {
     console.error(`playback-engines: ${report.failed.length} FAILED\n${report.failed.join("\n")}`);

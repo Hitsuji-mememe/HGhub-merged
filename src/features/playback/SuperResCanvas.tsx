@@ -147,6 +147,65 @@ export function srDemote(mode: SuperResMode, steps: number): SuperResMode {
   return ladder[Math.min(ladder.length - 1, idx + steps)];
 }
 
+/* ── SR 像素自检三判据（Muse 2026-11-18，黑场片头误判整集降级修复）──
+ * 判据一·有效帧已达：计数前必须先确认首个有效帧真的呈现过（见
+ * srHasConfirmedFrame）。没出画时读到的黑是「还没有帧」，不是「纹理坏死」。
+ * 判据二·采样在内容矩形内：采样点只落在 contain 内容矩形内部（见
+ * srContentRect），不采画布黑边——竖屏源在横画布上左右黑边、横屏源在
+ * 竖画布上上下黑边，采到黑边等于拿画幅外的填充冒充画面内容。
+ * 判据三·黑场降级暂定可撤销：由黑像素触发的降级只是暂定（provisional），
+ * 主循环低频复查，采到非黑立即撤销恢复 WebGL；只有 texImage 抛错、
+ * WebGL 初始化失败、上下文丢失这类硬故障才是锁定降级（locked）。
+ * 为什么黑像素不能单独判死：自检读的是源纹理经 shader 绘制后的画布像素，
+ * 合法黑场片头的源帧本身就是黑的——「源纹理是黑内容」与「输出坏死成黑」
+ * 在像素上不可区分。黑像素只能证明这一帧是黑的，证明不了管线坏死，
+ * 所以必须留可撤销口子兜底，不能凭黑像素把整集锁死在 SVG 档。 */
+
+/** 黑场计数只在起播窗口内累计：currentTime 超过此值不再新触发黑场判定
+ * （窗口外靠暂定撤销处理已触发的；长黑场片头过窗即按内容对待）。 */
+export const SR_BLACK_WINDOW_END_S = 10;
+/** 窗口内连续全黑采样达到此帧数且 currentTime≥0.45 才暂定降级（沿用旧阈值 8）。 */
+export const SR_BLACK_SAMPLE_FRAMES = 8;
+/** 暂定降级期间的复查 cadence：主循环每 N 帧才做一次真实绘制+采样。 */
+export const SR_PROVISIONAL_RECHECK_EVERY = 30;
+
+export type SrFallbackKind = "none" | "provisional" | "locked";
+
+/** contain 内容矩形（画布像素坐标；y 为距底边偏移——矩形垂直居中，
+ * 距顶与距底相同，readPixels 的左下原点不影响居中矩形）。cover 无黑边
+ * （画面铺满且裁切），矩形即全画布。尺寸未知时同样回落全画布。 */
+export function srContentRect(
+  cw: number,
+  ch: number,
+  vw: number,
+  vh: number,
+  fit: "contain" | "cover",
+): { x: number; y: number; w: number; h: number } {
+  if (fit === "cover" || vw <= 0 || vh <= 0 || cw <= 0 || ch <= 0) {
+    return { x: 0, y: 0, w: Math.max(0, cw), h: Math.max(0, ch) };
+  }
+  const canvasAr = cw / ch;
+  const videoAr = vw / vh;
+  if (canvasAr > videoAr) {
+    const w = ch * videoAr;
+    return { x: (cw - w) / 2, y: 0, w, h: ch };
+  }
+  const h = cw / videoAr;
+  return { x: 0, y: (ch - h) / 2, w: cw, h };
+}
+
+/** 有效帧判据：requestVideoFrameCallback 可用时只认它至少回调过一次
+ * （回调 = 解码器真的呈现了一帧；部分 WebView 上 readyState≥2 会先于
+ * 首帧呈现成立，拿它计数会把「还没出画」误读成「纹理全黑」）。rVFC
+ * 不可用时才回落 readyState≥2 且视频尺寸已知的组合判据。 */
+export function srHasConfirmedFrame(
+  video: { requestVideoFrameCallback?: unknown; readyState: number; videoWidth: number; videoHeight: number },
+  vfcSeen: boolean,
+): boolean {
+  if (typeof video.requestVideoFrameCallback === "function") return vfcSeen;
+  return video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0;
+}
+
 /**
  * 播放器超分多档位直达选单（深色毛玻璃浮层，兼容竖屏 / 横屏 / 独立播放器）。
  */
@@ -745,7 +804,17 @@ export default function SuperResCanvas({
 
   const verifiedRef = useRef(false);
   const blackFramesRef = useRef(0);
-  const fallbackReportedRef = useRef(false);
+  /* 降级状态（黑场修复后的最小结构）：none=WebGL 正常；
+   * provisional=黑场暂定降级（可撤销，主循环低频复查中）；
+   * locked=硬故障锁定降级（换源才复位，沿用旧闩锁语义）。
+   * ref 是主循环的同步事实源，fallbackKind state 是给渲染与主循环
+   * effect 启停用的镜像——两者由 trigger/revoke 三个函数成对维护。 */
+  const fallbackRef = useRef<{ kind: SrFallbackKind; reason: string | null }>({ kind: "none", reason: null });
+  const [fallbackKind, setFallbackKind] = useState<SrFallbackKind>("none");
+  /* 首个有效帧是否已由 rVFC 回调确认（自检门控，见 srHasConfirmedFrame）。 */
+  const validFrameSeenRef = useRef(false);
+  /* 暂定降级期间的复查帧计数（每 SR_PROVISIONAL_RECHECK_EVERY 帧采样一次）。 */
+  const provisionalFrameRef = useRef(0);
   const probeBufRef = useRef(new Uint8Array(4));
   const drawFrameRef = useRef<(() => void) | null>(null);
   const syncSizeRef = useRef<(() => void) | null>(null);
@@ -762,19 +831,59 @@ export default function SuperResCanvas({
   fpsRef.current = fps;
 
   const triggerFallback = (reason: string) => {
-    if (fallbackReportedRef.current) return;
-    fallbackReportedRef.current = true;
+    /* 锁定降级：硬故障专用（WebGL 初始化失败 / 上下文丢失 / texImage
+     * 抛错）。已锁定不重复上报；暂定降级可被硬故障升级为锁定（那说明
+     * 纹理是真坏了，不是黑场内容）。首次进入才通知 VideoSurface 切
+     * SVG 滤镜，升级时滤镜已经挂着、不重复通知。 */
+    if (fallbackRef.current.kind === "locked") return;
+    const wasNone = fallbackRef.current.kind === "none";
+    fallbackRef.current = { kind: "locked", reason };
+    setFallbackKind("locked");
+    setSvgFallback(true);
+    setCanvasReady(false);
+    if (wasNone) onFallbackChange?.(true);
+    onTrace?.("sr.svg_fallback", { reason, mode: modeRef.current });
+  };
+
+  const triggerProvisionalFallback = (reason: string) => {
+    /* 黑场暂定降级：只由 black_texture_samples 进入。先切 SVG 滤镜保
+     * 画面，但主循环不停（见主循环 provisional 分支），后续采到非黑
+     * 立即撤销——合法黑场片头靠这条路自证清白。 */
+    if (fallbackRef.current.kind !== "none") return;
+    fallbackRef.current = { kind: "provisional", reason };
+    setFallbackKind("provisional");
+    /* 让进入暂定后的第一次主循环绘制立即复查，此后每 N 帧一次。 */
+    provisionalFrameRef.current = SR_PROVISIONAL_RECHECK_EVERY - 1;
     setSvgFallback(true);
     setCanvasReady(false);
     onFallbackChange?.(true);
-    onTrace?.("sr.svg_fallback", { reason, mode: modeRef.current });
+    onTrace?.("sr.svg_fallback", { reason, mode: modeRef.current, provisional: true });
+  };
+
+  const revokeProvisionalFallback = () => {
+    /* 撤销黑场暂定降级：复查采到非黑像素 = 纹理管线活着，之前的黑是
+     * 内容本身。清掉暂定位、恢复 WebGL 路径，并直接标记已验证（这帧
+     * 采样就是管线健康的证据，不必再走一遍起播自检）。 */
+    if (fallbackRef.current.kind !== "provisional") return;
+    fallbackRef.current = { kind: "none", reason: null };
+    setFallbackKind("none");
+    blackFramesRef.current = 0;
+    provisionalFrameRef.current = 0;
+    verifiedRef.current = true;
+    setSvgFallback(false);
+    setCanvasReady(true);
+    onFallbackChange?.(false);
+    onTrace?.("sr.black_fallback_revoked", { mode: modeRef.current });
   };
 
   // 换源时重置像素健康自检与性能降档
   useEffect(() => {
     verifiedRef.current = false;
     blackFramesRef.current = 0;
-    fallbackReportedRef.current = false;
+    fallbackRef.current = { kind: "none", reason: null };
+    validFrameSeenRef.current = false;
+    provisionalFrameRef.current = 0;
+    setFallbackKind("none");
     frameCostRef.current = { sum: 0, n: 0 };
     setDemote(0);
     setSvgFallback(false);
@@ -845,7 +954,9 @@ export default function SuperResCanvas({
     const video = videoRef.current as VideoWithVfc | null;
     const canvas = canvasRef.current;
     const pipe = glRef.current;
-    if (!video || !canvas || !pipe || svgFallback || activeMode === "off" || !active) {
+    /* 只有锁定降级才停主循环；暂定（黑场）降级必须让循环活着复查，
+     * 否则撤销无从发生——这是旧闩锁「触发即停循环」的关键差别。 */
+    if (!video || !canvas || !pipe || fallbackKind === "locked" || activeMode === "off" || !active) {
       return;
     }
 
@@ -854,7 +965,14 @@ export default function SuperResCanvas({
     let vfcId = 0;
 
     const drawFrame = () => {
-      if (cancelled || fallbackReportedRef.current) return;
+      if (cancelled || fallbackRef.current.kind === "locked") return;
+      /* 暂定降级复查 cadence：画布此时不可见（SVG 滤镜顶着画面），除
+       * 每第 N 帧做一次真实绘制+采样外其余帧跳过全部 GL 工作。<video>
+       * 本体一直在出画——节流只作用于自检复查，不推迟任何出画。 */
+      if (fallbackRef.current.kind === "provisional") {
+        provisionalFrameRef.current += 1;
+        if (provisionalFrameRef.current % SR_PROVISIONAL_RECHECK_EVERY !== 0) return;
+      }
       const vw = video.videoWidth || 0;
       const vh = video.videoHeight || 0;
       if (vw <= 0 || vh <= 0 || video.readyState < 2) return;
@@ -881,20 +999,31 @@ export default function SuperResCanvas({
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindVertexArray(null);
 
-        // 首帧像素健康自检：确认视频帧非纯黑后展示画布并停止回读，避免影响性能
-        if (!verifiedRef.current && video.currentTime > 0.05 && !video.paused) {
+        /* 首帧像素健康自检（三判据见文件上方 srContentRect 注释块）：
+         * 未验证时采样验证；暂定降级时同一样本兼作复查，采到非黑即撤销。
+         * 门控（srHasConfirmedFrame）只推迟「判定」，不推迟绘制本身：
+         * drawFrame 从第一帧起照常 texImage+绘制，<video> 出画顺序与
+         * 画布首帧呈现都不受门控影响。 */
+        const wantRecheck = fallbackRef.current.kind === "provisional";
+        const wantVerify =
+          !verifiedRef.current &&
+          !video.paused &&
+          video.currentTime > 0.05 &&
+          srHasConfirmedFrame(video, validFrameSeenRef.current);
+        if (wantRecheck || wantVerify) {
+          const rect = srContentRect(cw, ch, vw, vh, fitRef.current);
           const pts: [number, number][] = [
             [0.5, 0.5],
-            [0.35, 0.38],
-            [0.65, 0.38],
-            [0.35, 0.62],
-            [0.65, 0.62],
+            [0.3, 0.3],
+            [0.7, 0.3],
+            [0.3, 0.7],
+            [0.7, 0.7],
           ];
           const buf = probeBufRef.current;
           let nonBlack = false;
           for (const [fx, fy] of pts) {
-            const px = Math.max(0, Math.min(cw - 1, Math.round(cw * fx)));
-            const py = Math.max(0, Math.min(ch - 1, Math.round(ch * fy)));
+            const px = Math.max(0, Math.min(cw - 1, Math.round(rect.x + rect.w * fx)));
+            const py = Math.max(0, Math.min(ch - 1, Math.round(rect.y + rect.h * fy)));
             gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
             if (buf[0] + buf[1] + buf[2] > 6) {
               nonBlack = true;
@@ -902,19 +1031,25 @@ export default function SuperResCanvas({
             }
           }
           if (nonBlack) {
-            verifiedRef.current = true;
-            setCanvasReady(true);
-            onTrace?.("sr.webgl2_ready", {
-              mode: modeRef.current,
-              vw,
-              vh,
-              cw,
-              ch,
-            });
-          } else {
+            if (wantRecheck) {
+              revokeProvisionalFallback();
+            } else {
+              verifiedRef.current = true;
+              setCanvasReady(true);
+              onTrace?.("sr.webgl2_ready", {
+                mode: modeRef.current,
+                vw,
+                vh,
+                cw,
+                ch,
+              });
+            }
+          } else if (!wantRecheck && video.currentTime < SR_BLACK_WINDOW_END_S) {
+            /* 全黑计数只在起播窗口（<10s）内累计：窗口外不再新触发黑场
+             * 判定；暂定态的复查全黑则什么都不做、保持暂定等下轮复查。 */
             blackFramesRef.current += 1;
-            if (blackFramesRef.current >= 8 && video.currentTime >= 0.45) {
-              triggerFallback("black_texture_samples");
+            if (blackFramesRef.current >= SR_BLACK_SAMPLE_FRAMES && video.currentTime >= 0.45) {
+              triggerProvisionalFallback("black_texture_samples");
             }
           }
         }
@@ -922,7 +1057,7 @@ export default function SuperResCanvas({
         // 预算按源帧间隔缩放（整改 4）：处理是逐视频帧的（rVFC），30fps 源
         // 帧间隔 33ms、16ms 是半帧预算；60fps 源帧间隔只有 16.7ms，固定
         // 16ms 等于占满整帧——预算取 min(16ms, 55% 帧间隔)，fps 未知用 16ms。
-        if (costStart) {
+        if (costStart && fallbackRef.current.kind === "none") {
           const cost = frameCostRef.current;
           cost.sum += performance.now() - costStart;
           cost.n += 1;
@@ -943,10 +1078,13 @@ export default function SuperResCanvas({
     };
 
     const scheduleNext = () => {
-      if (cancelled || fallbackReportedRef.current || rafId || vfcId) return;
+      if (cancelled || fallbackRef.current.kind === "locked" || rafId || vfcId) return;
       if (typeof video.requestVideoFrameCallback === "function" && !video.paused) {
         vfcId = video.requestVideoFrameCallback(() => {
           vfcId = 0;
+          /* rVFC 回调即「首个有效帧已呈现」的确认信号：先置位再绘制，
+           * 让这一帧的自检就能用上（门控判据见 srHasConfirmedFrame）。 */
+          validFrameSeenRef.current = true;
           drawFrame();
           if (!video.paused) scheduleNext();
         });
@@ -1001,7 +1139,7 @@ export default function SuperResCanvas({
       video.removeEventListener("pause", onPauseOrSeek);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, demote, active, ready, fit, svgFallback, srcKey]);
+  }, [mode, demote, active, ready, fit, fallbackKind, srcKey]);
 
   const showCanvas = activeMode !== "off" && active && ready && !svgFallback && canvasReady;
 
