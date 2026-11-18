@@ -156,6 +156,7 @@ class AvProtoPlugin: Plugin {
   }
 
   private func addCloseButton(to vc: AVPlayerViewController) {
+    guard let overlay = vc.contentOverlayView else { return }
     let button = UIButton(type: .system)
     button.setTitle("关闭自检", for: .normal)
     button.setTitleColor(.white, for: .normal)
@@ -164,10 +165,10 @@ class AvProtoPlugin: Plugin {
     button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
     button.addTarget(self, action: #selector(onCloseButton), for: .touchUpInside)
     button.translatesAutoresizingMaskIntoConstraints = false
-    vc.contentOverlayView.addSubview(button)
+    overlay.addSubview(button)
     NSLayoutConstraint.activate([
-      button.topAnchor.constraint(equalTo: vc.contentOverlayView.safeAreaLayoutGuide.topAnchor, constant: 10),
-      button.trailingAnchor.constraint(equalTo: vc.contentOverlayView.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+      button.topAnchor.constraint(equalTo: overlay.safeAreaLayoutGuide.topAnchor, constant: 10),
+      button.trailingAnchor.constraint(equalTo: overlay.safeAreaLayoutGuide.trailingAnchor, constant: -12),
       button.heightAnchor.constraint(equalToConstant: 30),
     ])
   }
@@ -276,7 +277,13 @@ class AvProtoPlugin: Plugin {
   }
 
   private func runVariantLoad(_ item: AVPlayerItem) {
-    let asset = item.asset
+    // .variants 键挂在 AVURLAsset 上（CI 第二跑编译错误实证）；本原型条目
+    // 恒由 URL 创建，asset 实际即 AVURLAsset，转换失败则如实记错。
+    guard let asset = item.asset as? AVURLAsset else {
+      checks["variants"] = ["error": "asset 非 AVURLAsset，无法读变体"]
+      logEvent("variants", "跳过：asset 非 AVURLAsset")
+      return
+    }
     Task { [weak self] in
       guard let self = self else { return }
       do {
