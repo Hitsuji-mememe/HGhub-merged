@@ -52,7 +52,7 @@ const stripHtml = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, "
 
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, onBlocked, startEp, startTime }: Props) {
   const store = useStore();
-  const { isLiked, isFav, setLiked, setCollected, setFollowing, actionPending, accountScope, muted, setMuted, volume, setVolume, rate, setRate, toast, addHistory, user, setLoginOpen, swipeEp, preferHevc, setPreferHevc } = store;
+  const { isLiked, isFav, setLiked, setCollected, setFollowing, actionPending, accountScope, muted, setMuted, volume, setVolume, rate, setRate, toast, addHistory, user, setLoginOpen, preferHevc, setPreferHevc } = store;
   const isDesktop = !isMobile;
   const contentPreferences = useContentPreferences();
   const { preferences, revision, blockReason } = contentPreferences;
@@ -348,11 +348,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      捏回去（Muse 2026-11-18 portrait-fit 回归实锤）。 */
   const capsuleOn = !fs && !isDesktop && zoom.s > 1.05;
 
-  /* ── 上下划切集 ──────────────────────────────────────────
-   * 「上下划切集」开启时，播放区 overlay 的 touch-action 是 none，
-   * 原生滚动不参与：上/下划手势在抬手时一次性判定——
-   * 有上一/下一集就切集；没有就切上一/下一部剧。
-   * 关闭时保持原生滚动，停稳 150ms 后按所在屏切剧。
+  /* ── 竖滑切作品（2026-11-18 用户真机纠正，推翻凌晨「滑动切集恒开」）──
+   * 竖滑恒沿 feed 流切换下一个/上一个作品，绝不在同一作品内换集；
+   * 集内切换只走选集抽屉 / 操作行上下集钮 / 片尾自动下一集。
+   * 普通态走原生滚动（touch-action: pan-y），停稳 150ms 后按所在屏
+   * 切作品；全屏态滚动锁定（overflow-hidden），手势在抬手时一次性
+   * 判定、按 index 直切。swipeEp 字段自此恒 false，仅留旧配置兼容。
    */
   const idxRef = useRef(index);
   idxRef.current = index;
@@ -406,28 +407,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     el.scrollTo({ top: next * el.clientHeight, behavior: "smooth" });
   }, [index, effectiveVideoIds.length]);
 
-  /* 统一的上下切换：swipeEp 开启且为多集视频时优先切集，否则切剧。
-     桌面端键盘 ↑↓ 与右侧按钮都走这里，和移动端上下划手势保持一致。 */
+  /* 统一的上下切换：恒切作品（竖滑语义定版，见上方注释）。
+     桌面端键盘 ↑↓ 与右侧按钮都走这里，和移动端竖滑保持一致。 */
   const stepDir = useCallback((dir: number) => {
-    if (swipeEp && kind === "video") {
-      const ep = epMap[curId] || 1;
-      const total = episodes.length;
-      const want = dir === 1 ? (total === 0 || ep < total ? ep + 1 : 0) : (ep > 1 ? ep - 1 : 0);
-      if (want) {
-        setEpMap((m) => ({ ...m, [curId]: want }));
-        setPanel(null);
-        return;
-      }
-    }
     go(dir);
-  }, [swipeEp, kind, epMap, curId, episodes.length, go]);
+  }, [go]);
 
   const canStep = (dir: number) => {
-    if (swipeEp && kind === "video") {
-      const ep = epMap[curId] || 1;
-      const total = episodes.length;
-      if (dir === 1 ? (total === 0 || ep < total) : ep > 1) return true;
-    }
     const next = index + dir;
     return next >= 0 && next < effectiveVideoIds.length;
   };
@@ -821,24 +807,20 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       return;
     }
     if (g.edge && (cancelled || !e || Math.hypot(e.clientX - g.rawX, e.clientY - g.rawY) >= 10)) return;
-    /* 上下划手势（swipeEp 开启时 overlay 是 touch-action:none，
-       原生滚动不参与，这里抬手一次性判定；关着时走原生滚动切剧） */
+    /* 竖滑手势（竖滑语义定版：恒切作品）：普通态 overlay 是
+       touch-action:pan-y，原生滚动接管、本分支不到达；全屏态滚动
+       锁定（touch-action:none + overflow-hidden），这里抬手一次性
+       判定、按 index 直切下一/上一作品，绝不切集。 */
     if (!cancelled && e && g.mode === "pan") {
       const [ux, uy] = stageXY(g.rotated, e.clientX, e.clientY);
       const dy = uy - g.startY;
       const dx2 = ux - g.x;
       if (Math.abs(dy) > 56 && Math.abs(dy) > Math.abs(dx2)) {
-        const dir = dy < 0 ? 1 : -1;
-        const ep = epMap[curId] || 1;
-        const total = episodes.length;
-        const want = dir === 1 ? (total === 0 || ep < total ? ep + 1 : 0) : (ep > 1 ? ep - 1 : 0);
-        if (swipeEp && kind === "video" && want) {
-          setEpMap((m) => ({ ...m, [curId]: want }));
-          toast(`第 ${want}集${total ? ` / ${total}` : ""}`, "info");
-          try { navigator.vibrate?.(12); } catch { /* ignore */ }
-          return;
+        if (fs) {
+          const dir = dy < 0 ? 1 : -1;
+          const next = Math.max(0, Math.min(effectiveVideoIds.length - 1, idxRef.current + dir));
+          if (next !== idxRef.current) resolveSwipe(next);
         }
-        if (swipeEp) { go(dir); return; }
       }
     }
     if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260) {
@@ -1212,7 +1194,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             <section key={vid} className={sectionClass} inert={!isActive || undefined} aria-hidden={!isActive || undefined}>
               {isActive && playUrl ? (
                 <div ref={holdTargetRef} data-mobile-hold-target={!isDesktop || undefined}
-                  className="absolute inset-0" style={{ touchAction: fs || swipeEp ? "none" : "pan-y" }}
+                  className="absolute inset-0" style={{ touchAction: fs ? "none" : "pan-y" }}
                   onPointerDown={onDown} onPointerMove={onMove} onPointerUp={(e) => onUp(false, e)} onPointerCancel={(e) => onUp(true, e)} onLostPointerCapture={(e) => onUp(true, e)}>
                 <div style={{ position: "absolute", inset: 0, transform: isDesktop ? undefined : `translate3d(${zoom.x}px, ${zoom.y}px, 0) scale(${zoom.s})`, transformOrigin: "center center", transition: isDesktop || zoom.g ? "none" : "transform .18s ease-out" }}>
                 <VideoSurface ref={videoRef} src={playUrl} poster={posterUrl} autoPlay active={active && !tagMenu && !showHoldGuide} muted={muted}
@@ -1513,7 +1495,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           dockInset={panel ? 372 : 0}
           nextDisabled={!episodes.some((e) => e.ep_num === curEp + 1) && index >= effectiveVideoIds.length - 1}
           nextTitle={episodes.some((e) => e.ep_num === curEp + 1) ? "下一集 E" : "下一部 ↓"}
-          swipeEp
           onToggle={() => videoRef.current?.toggle()}
           onSeek={(t, source) => { videoRef.current?.seek(t, source); playbackClock.publish(t); }}
           onSeekInteraction={(phase, input, target, pointerTarget) => videoRef.current?.trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget })}

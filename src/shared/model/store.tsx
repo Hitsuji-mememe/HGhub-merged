@@ -74,7 +74,9 @@ type Persist = GuestData & {
   muteOnStartup: boolean;
   volume: number;
   searchHist: string[];
-  /** 上下划切集：多集短剧上下滑就换集，而不是换下一部 */
+  /** 旧「上下划切集」字段，仅作旧配置兼容保留：2026-11-18 用户真机纠正
+      推翻该定版——竖滑恒沿 feed 切作品，集内切换只走选集抽屉/上下集钮/
+      片尾自动。恒 false（load 强制 + setter 恒写 false）。 */
   swipeEp: boolean;
   /** 优先高清：有 HEVC 就用 HEVC，播不了自动回退标准 */
   preferHevc: boolean;
@@ -93,7 +95,7 @@ type Persist = GuestData & {
 const LS = STORAGE_KEYS.app;
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
-  muted: true, muteOnStartup: true, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: true,
+  muted: true, muteOnStartup: true, volume: 0.7, searchHist: [], swipeEp: false, preferHevc: true,
   fsIdleSecs: 3,
   srMode: "natural",
   srPref: "auto",
@@ -120,20 +122,10 @@ function normalizeHistory(raw: unknown): WatchProgress[] {
 function loadPersist(): Persist {
   try {
     const raw = readStorage(LS);
-    const swipeMigration = readStorage(STORAGE_KEYS.swipeEp);
     if (!raw) return DEFAULTS;
     const p = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persist>) };
     // 只在启动时应用；本次使用中取消静音不会关闭此偏好。
     const muteOnStartup = p.muteOnStartup !== false;
-    /* 1.2.9 起上下划默认就是切集。老配置里 swipeEp 存的 false 是当年的默认值，
-       不是用户主动关的，所以这里做一次性迁移；用户之后自己关掉不会再被改回来。 */
-    let swipeEp = p.swipeEp !== false;
-    try {
-      if (swipeMigration !== "1") {
-        swipeEp = true;
-        localStorage.setItem(STORAGE_KEYS.swipeEp, "1");
-      }
-    } catch { /* ignore */ }
     const fsIdleSecs = [0, 3, 5, 10].includes(p.fsIdleSecs) ? p.fsIdleSecs : DEFAULTS.fsIdleSecs;
     /* 超分档位归一化：LNPANDY 早期版本用过 fsr / anime 两个旧名，映射到现档位 */
     const rawSr = (p as { srMode?: string }).srMode;
@@ -145,8 +137,10 @@ function loadPersist(): Persist {
         : "natural";
     const srPref: SrPref = (p as { srPref?: string }).srPref === "off" ? "off" : "auto";
     /* fsIdleSecs 于 2026-11-18 用户重新裁定解硬：默认 3 秒（与官方一致）、
-       尊重存量取值；其余三项写死（swipeEp/muteOnStartup+muted/preferHevc）不动 */
-    return { ...p, swipeEp: true, srMode, srPref, muteOnStartup: true, muted: true, fsIdleSecs, preferHevc: true, history: normalizeHistory(p.history) };
+       尊重存量取值。写死项：muteOnStartup+muted/preferHevc 恒 true；
+       swipeEp 同日被用户真机纠正推翻（竖滑切作品、非切集），恒 false——
+       1.2.9 的一次性迁移（旧 false 视为默认、强制改 true）就此废止。 */
+    return { ...p, swipeEp: false, srMode, srPref, muteOnStartup: true, muted: true, fsIdleSecs, preferHevc: true, history: normalizeHistory(p.history) };
   } catch {
     return DEFAULTS;
   }
@@ -419,13 +413,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setMuted = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setP((s) => ({ ...s, muted: typeof v === "function" ? v(s.muted) : v }));
   }, []);
-  /* Muse 2026-11-18 (fe-audit): 四项定版写死——setter 保留签名兼容既有调用点，
-     但忽略入参：loadPersist 只在冷启动强制，会话内任何调用都不许关掉定版值。 */
+  /* Muse 2026-11-18 (fe-audit): 定版写死——setter 保留签名兼容既有调用点，
+     但忽略入参：loadPersist 只在冷启动强制，会话内任何调用都不许改掉定版值。
+     swipeEp 的定版值同日经用户真机纠正由 true 改 false（竖滑切作品）。 */
   const setMuteOnStartup = useCallback((_on: boolean) => {
     setP((s) => ({ ...s, muteOnStartup: true }));
   }, []);
   const setSwipeEp = useCallback((_on: boolean) => {
-    setP((s) => ({ ...s, swipeEp: true }));
+    setP((s) => ({ ...s, swipeEp: false }));
   }, []);
   const setPreferHevc = useCallback((_on: boolean) => {
     setP((s) => ({ ...s, preferHevc: true }));

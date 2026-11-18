@@ -17,8 +17,11 @@ const state = {
 };
 // 迁移会为新字段补默认值（#146-3 全屏闲置隐藏秒数）：旧种子不带该字段，落盘应补齐。
 // 接棒 (Muse 2026-11-18): fsIdleSecs 写死 0 被用户重新裁定解硬——默认 3 秒
-// (与官方一致)、尊重存量, 不再 load 时强制归零; 启动静音/滑动切集仍写死强制。
-const migrated = { ...state, fsIdleSecs: 3, muteOnStartup: true, muted: true, swipeEp: true };
+// (与官方一致)、尊重存量, 不再 load 时强制归零; 启动静音仍写死强制。
+// 再接棒 (同日真机纠正): swipeEp 写死值由 true 改 false——原断言保护
+// 「1.2.9 一次性迁移把旧 false 强制改 true (上下划切集定版)」; 用户真机
+// 纠正竖滑应切作品、非切集, 该定版推翻, load 恒归 false, 由本断言接棒。
+const migrated = { ...state, fsIdleSecs: 3, muteOnStartup: true, muted: true, swipeEp: false };
 const oldData = {
   hghub_app_v1: JSON.stringify(state), hghub_swipe_ep_v2: "1", hghub_theme: "light",
 };
@@ -112,12 +115,14 @@ try {
   {
     const { context, page } = await open({ hghub_app_v1: JSON.stringify({ ...state, history: [44] }) });
     const value = await snapshot(page);
-    assert.equal(value.swipeEp, true);
+    // 接棒 (Muse 2026-11-18): 原断言 swipeEp === true 保护 1.2.9 一次性
+    // 迁移 (旧 false 强制改 true); 竖滑切作品定版后 load 恒归 false。
+    assert.equal(value.swipeEp, false);
     assert.equal(value.history[0].id, 44);
     assert.equal(value.history[0].ep, 1);
     assert.equal(value.history[0].t, 0);
     await context.close();
-    console.log("PASS: historical history format and the original one-time swipe upgrade still work");
+    console.log("PASS: historical history format survives and swipeEp now normalizes to false");
   }
   for (const failure of ["write", "remove"]) {
     const { context, page } = await open(oldData, failure);
