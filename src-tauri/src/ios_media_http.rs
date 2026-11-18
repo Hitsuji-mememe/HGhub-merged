@@ -74,7 +74,13 @@ enum Handler {
 impl Handler {
     async fn response(&self, request: &Request, origin: &str) -> Response<Vec<u8>> {
         match self {
-            Self::Media => crate::media::handle(&request.path, &request.query, origin, request.range.as_deref()).await,
+            Self::Media => {
+                let response = crate::media::handle(&request.path, &request.query, origin, request.range.as_deref()).await;
+                // 门3 记账出口（Muse 2026-11-19）：仅原型自检会话期间记录，
+                // 无会话时为无操作；只记类别/状态/字节数，不碰响应本身。
+                crate::proto_lab::note_response(&request.path, response.status().as_u16(), response.body());
+                response
+            }
             #[cfg(test)]
             Self::Fixture(calls) => {
                 calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -221,6 +227,8 @@ async fn serve(mut stream: TcpStream, endpoint: &Endpoint, handler: &Handler) ->
         Ok(request) => request,
         Err(status) => return write_response(&mut stream, head, None, error_response(status)).await,
     };
+    // 门3 独立计数（Muse 2026-11-19）：与记账出口分开计数，会话结束对账。
+    crate::proto_lab::note_request();
     let response = handler.response(&request, &endpoint.origin).await;
     write_response(&mut stream, request.head, request.origin.as_deref(), response).await
 }

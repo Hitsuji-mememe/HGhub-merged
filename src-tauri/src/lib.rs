@@ -23,6 +23,7 @@ mod net;
 mod net_diag;
 mod network_policy;
 mod playback_log;
+mod proto_lab;
 mod proxy;
 mod publish_parser;
 mod search_hot;
@@ -31,6 +32,21 @@ mod updater;
 
 use api::Api;
 use tauri::Manager;
+
+/// 门3 会话开关（Muse 2026-11-19，AVFoundation 原型）：自检页在原生
+/// 播放开始前打开记账、结束后取对账报告。记账本体在 proto_lab，
+/// 回环服务无会话时零记录、行为不变。
+#[tauri::command]
+fn proto_session_begin() -> Result<String, String> {
+    let id = format!("proto-{}", proto_lab::now_ms_pub());
+    proto_lab::begin(id.clone());
+    Ok(id)
+}
+
+#[tauri::command]
+fn proto_session_end() -> Result<proto_lab::ProtoReport, String> {
+    proto_lab::finish().ok_or_else(|| "没有进行中的原型自检会话".to_string())
+}
 
 /// AVFoundation loads media outside WKWebView's custom protocol handler.
 /// Start its loopback bridge only when an iOS native player requests it.
@@ -216,6 +232,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             api::platform::app_boot,
             media_http_origin,
+            proto_session_begin,
+            proto_session_end,
             playback_log::playback_log_status,
             playback_log::playback_log_set,
             playback_log::playback_log_write,
