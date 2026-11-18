@@ -58,3 +58,4 @@
 1. 在对应子系统页确认这是当前行为变化，不是提案。
 2. 加一条能让旧代码失败的测试，并在本表新增一行。
 3. 来源列写真实 commit/PR 或代码路径；不确定的写“待核实”，不要猜编号。
+| 2026-11-18 | 诊断日志启动失败整场静默、报告误报无播放 | 真机：在播且当前集源有数据，报告却显示「无最近播放记录」、流水全空 | init 状态读取一次失败即发布 error 且不再重试，本会话全部 trace 被门控丢弃；报告又把读取失败/日志为空与没播过合并成同一句，无从判别 | init 改退避重试四次（0/1.5s/4s/10s）全败才落 error 态；trace 在 ready 前入队、init 完成统一 flush；报告明示三态：读取失败/日志为空/无播放记录 | `src/shared/diagnostics/playbackDiagnostics.ts`；`src/shared/diagnostics/diagnosticReport.ts`；`scripts/test-diagnostic-copy.mjs` 日志为空/读取失败两场景 |

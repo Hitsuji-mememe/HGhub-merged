@@ -33,13 +33,17 @@ export const usePlaybackLog = () => useSyncExternalStore(subscribe, () => state)
 export const playbackLogEnabled = () => state.enabled && !state.pending && !state.error;
 
 export function tracePlayback(event: string, data: Data = {}) {
-  if (!playbackLogEnabled()) return;
+  /* 只有 error 态（初始化多次重试仍失败）才丢弃；ready 之前先入队，
+   * init 完成时统一 flush——旧实现在 init 完成前静默丢事件，启动
+   * 竞态下事件丢失会让报告误判（2026-11-18 终版加固）。 */
+  if (state.error) return;
   // Bounded batches; sustained dragging must not create unlimited IPC or disk work.
   if (queue.length >= 512) {
     queue.splice(0, queue.length - 510);
     queue.unshift({ event: "queue.dropped", data: { session } });
   }
   queue.push({ event, data: { ...data, session, at: new Date().toISOString(), mono_ms: Math.round(performance.now()) } });
+  if (!state.ready) return;
   if (!timer) timer = setTimeout(() => { void flushPlaybackLog(); }, 250);
 }
 
@@ -54,16 +58,31 @@ export async function flushPlaybackLog() {
 }
 
 export function initPlaybackLog() {
-  return init ??= playbackLogApi.status().then(async saved => {
+  return init ??= (async () => {
     /* 记录始终开启（2026-11-18 收官批 D 钉死）：原开关只管细节粒度，
      * 诊断合并后设置页不再有开关——状态为关时自动打开并持久化，
-     * 保证诊断报告永远有最近播放流水可用。set 失败不挡启动。 */
-    if (!saved.enabled) {
-      try { saved = await playbackLogApi.set(true); } catch { /* 保持原状态，下次启动再试 */ }
+     * 保证诊断报告永远有最近播放流水可用。set 失败不挡启动。
+     * 启动重试（同日晚终版加固）：冷启动/全新安装首启时日志状态
+     * 可能尚未就绪，旧实现一次失败即整场静默——真机实锤在播却零
+     * 记录、报告误报无播放。退避重试四次，全败才落 error 态，且
+     * 报告会明示日志状态，不再假装没播过。 */
+    const delays = [0, 1500, 4000, 10000];
+    for (let attempt = 0; attempt < delays.length; attempt++) {
+      if (delays[attempt] > 0) await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+      try {
+        let saved = await playbackLogApi.status();
+        if (!saved.enabled) {
+          try { saved = await playbackLogApi.set(true); } catch { /* 保持原状态，下次启动再试 */ }
+        }
+        publish({ ...saved, ready: true });
+        void flushPlaybackLog();
+        tracePlayback("app.start", { version: __APP_VERSION__, platform: navigator.platform, user_agent: navigator.userAgent, hls_version: Hls.version, media_source: !!window.MediaSource, managed_media_source: "ManagedMediaSource" in window });
+        return;
+      } catch { /* 状态未就绪：退避后重试 */ }
     }
-    publish({ ...saved, ready: true });
-    tracePlayback("app.start", { version: __APP_VERSION__, platform: navigator.platform, user_agent: navigator.userAgent, hls_version: Hls.version, media_source: !!window.MediaSource, managed_media_source: "ManagedMediaSource" in window });
-  }).catch(() => { init = undefined; publish({ error: "无法读取诊断日志设置" }); });
+    init = undefined;
+    publish({ error: "无法读取诊断日志设置" });
+  })();
 }
 
 export async function setPlaybackLog(on: boolean) {

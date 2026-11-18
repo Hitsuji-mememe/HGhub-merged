@@ -244,6 +244,11 @@ speedText = `App 通道 ${mbps(bytes, num(sab.a_ms))} · 直连 ${mbps(num(sab.b
 
 const entries = logR.status === "fulfilled"? parseLog(String(logR.value?? "")): [];
 const flow = entries.length? analyzeFlow(entries): null;
+/* 日志状态明示（2026-11-18 终版加固）：读取失败/日志为空与「没播过」
+ * 是三回事——旧实现一律显示「无最近播放记录」，真机出现过在播却零
+ * 记录时误导判读。报告必须能自证记录通道是否活着。 */
+const logReadFailed = logR.status !== "fulfilled";
+const logEmpty = !logReadFailed && entries.length === 0;
 const fallback = nativeFallbackState();
 const facts = readPlaybackFacts();
 
@@ -255,7 +260,7 @@ lines.push(`网络：${diagR.status === "fulfilled"? shortVerdict(diag): "诊断
 lines.push(`当前线路：${currentHost}（自动选线 ${autoLineEnabled()? "开": "关"}）`);
 lines.push(`各线延迟${probeCount!= null? `（候选 ${probeCount} 条）`: ""}：${probeText}`);
 lines.push(`分片吞吐：${speedText}`);
-lines.push(`最近播放：${flow? `${flow.verdict}${flow.startupMs!= null? ` · 起播约 ${(flow.startupMs / 1000).toFixed(1)}s`: ""}`: "无最近播放记录"}`);
+lines.push(`最近播放：${logReadFailed? "未知（诊断日志读取失败）": logEmpty? "未知（诊断日志为空——记录未启动或未写入）": flow? `${flow.verdict}${flow.startupMs!= null? ` · 起播约 ${(flow.startupMs / 1000).toFixed(1)}s`: ""}`: "无最近播放记录"}`);
 /* 本会话逐次汇总（复审批 §6）：只看最近一次会把前面的失败藏掉——
  * 频繁切换的用户要先看全会话的成败分布。aborted（主动切走）单列、
  * 不算失败；起播中位/最慢只取干净出画，恢复耗时不混入。 */
@@ -317,7 +322,7 @@ if (flow && flow.demoteCount > 0) lines.push(`超分降档：本会话 ${flow.de
 lines.push(`选线现状：当前 ${currentHost}${round && Date.now() - round.at < 10 * 60_000? `；最近轮次探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}${flow? `；本会话切线 ${flow.lineSwitchCount} 次${flow.confirmPendingCount > 0? ` · 两轮确认待确认 ${flow.confirmPendingCount} 次`: ""}`: ""}`);
 lines.push("");
 lines.push("── 最近一次播放流水 ──────────────");
-lines.push(flow? flow.table: "（无记录）");
+lines.push(flow? flow.table: logReadFailed? "（诊断日志读取失败——本次无法提供播放流水）": logEmpty? "（诊断日志为空——记录可能未成功开启）": "（无记录）");
 /* 此前异常摘要（复审批 §6.5）：只列出过事的播放（卡死后出画/未能
  * 出画），全顺时不占篇幅；诊断要找的是「哪一次出的事」，不是流水账。 */
 if (flow && flow.plays.length > 1) {

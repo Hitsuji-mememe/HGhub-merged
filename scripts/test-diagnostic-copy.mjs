@@ -51,7 +51,7 @@ report.external.push(route.request().url());
 return route.abort();
 });
 await page.addInitScript((healthyLog) => {
-const fixture = { failDiag: false, failCopy: false, diagCalls: 0, nativeCopies: [], webCopies: 0, calls: [], logText: healthyLog, logSetArgs: []};
+const fixture = { failDiag: false, failCopy: false, failLogRead: false, diagCalls: 0, nativeCopies: [], webCopies: 0, calls: [], logText: healthyLog, logSetArgs: []};
 Object.assign(window, {
 isTauri: true,
 diagnosticCopyFixture: fixture,
@@ -72,7 +72,7 @@ fixture.diagCalls++;
 if (fixture.failDiag) throw "fixture: diagnostic unavailable";
 return { verdict: "ok_proxy", summary: "应用 HTTP 请求已成功", host: "fixture.invalid", base: "https://fixture.invalid", dns: { count: 1}, tcp: { ok: false, timeout: true, proxy_bypassed: true, family: "IPv6"}, http: { status: 200, proxy_configured: true}, env: { app_proxy_mode: "custom", app_proxy: "http://127.0.0.1:7897"}, runtime: { os: "ios", arch: "aarch64", ver: "fixture"}, speed_ab: { bytes: 2097152, a_ms: 900, b_ms: 1500, host: "cdn.fixture.invalid"}};
 }
-if (command === "playback_log_read") return fixture.logText;
+if (command === "playback_log_read") { if (fixture.failLogRead) throw new Error("fixture: log read unavailable"); return fixture.logText;}
 if (command === "plugin:clipboard-manager|write_text") {
 if (fixture.failCopy) throw "fixture: clipboard unavailable";
 fixture.nativeCopies.push(args.text);
@@ -152,6 +152,24 @@ const degradedText = await degradedBox.inputValue();
 assert(degradedText.includes("网络：诊断失败（net_diag 不可用）"), "net_diag 失败未降级标注");
 assert(degradedText.includes("── 最近一次播放流水"), "其余段落不应被拖垮");
 report.passed.push("net_diag failure degrades only its own line; the rest of the report still generates");
+
+/* ── 日志为空：报告明示记录未启动，不冒充「无播放」（终版加固回归） ── */
+await load();
+await page.evaluate(() => { window.diagnosticCopyFixture.logText = "";});
+const emptyBox = await generate();
+const emptyText = await emptyBox.inputValue();
+assert(emptyText.includes("最近播放：未知（诊断日志为空"), "日志为空未明示");
+assert(emptyText.includes("（诊断日志为空——记录可能未成功开启）"), "流水段未明示日志为空");
+report.passed.push("Empty log: report states the log is empty instead of claiming no playback");
+
+/* ── 日志读取失败：报告明示通道故障（终版加固回归） ── */
+await load();
+await page.evaluate(() => { window.diagnosticCopyFixture.failLogRead = true;});
+const failBox = await generate();
+const failText = await failBox.inputValue();
+assert(failText.includes("最近播放：未知（诊断日志读取失败）"), "日志读取失败未明示");
+assert(failText.includes("（诊断日志读取失败——本次无法提供播放流水）"), "流水段未明示读取失败");
+report.passed.push("Log read failure: report states the diagnostics channel failed");
 
 assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
 await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2));
