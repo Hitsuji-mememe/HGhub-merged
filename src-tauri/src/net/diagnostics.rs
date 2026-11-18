@@ -431,6 +431,47 @@ fn proxy_probe_error(error: reqwest::Error) -> String {
 /// 网络自检：DNS / TCP / HTTP / 代理环境变量，用于远程定位「打不开」。
 ///
 /// 结论直接给在 `verdict` / `summary` / `advice` 里，用户复制出去就能看懂。
+/// iOS 真实系统版本（Muse 2026-11-18）：WebView UA 的 OS 号在新系统上
+/// 被冻结（真机 27.3 beta 自报 18.7），诊断报告据此误标；改从 UIDevice
+/// systemVersion 直读。非 iOS 或读取失败返回 None，报告宁缺毋假。
+#[cfg(target_os = "ios")]
+fn ios_system_version() -> Option<String> {
+    use std::ffi::{c_char, c_void, CStr};
+    extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend();
+    }
+    unsafe {
+        let msg0: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
+            std::mem::transmute(objc_msgSend as *const ());
+        let dev_cls = objc_getClass(b"UIDevice\0".as_ptr() as *const c_char);
+        if dev_cls.is_null() {
+            return None;
+        }
+        let dev = msg0(dev_cls, sel_registerName(b"currentDevice\0".as_ptr() as *const c_char));
+        if dev.is_null() {
+            return None;
+        }
+        let ver = msg0(dev, sel_registerName(b"systemVersion\0".as_ptr() as *const c_char));
+        if ver.is_null() {
+            return None;
+        }
+        let msg_str: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *const c_char =
+            std::mem::transmute(objc_msgSend as *const ());
+        let ptr = msg_str(ver, sel_registerName(b"UTF8String\0".as_ptr() as *const c_char));
+        if ptr.is_null() {
+            return None;
+        }
+        CStr::from_ptr(ptr).to_str().ok().map(str::to_owned)
+    }
+}
+
+#[cfg(not(target_os = "ios"))]
+fn ios_system_version() -> Option<String> {
+    None
+}
+
 pub async fn diagnose() -> Value {
     let cur = base();
     let host = url::Url::parse(&cur)
@@ -522,6 +563,7 @@ pub async fn diagnose() -> Value {
             "os": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
             "ver": env!("CARGO_PKG_VERSION"),
+            "os_ver": ios_system_version(),
         },
     })
 }

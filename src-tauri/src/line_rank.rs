@@ -105,7 +105,7 @@ async fn throughput_inner(origin: &str) -> Option<u64> {
 /// 给已延迟探测的候选补吞吐并排名，产出与旧 pick_from_hits 同形状的结果
 /// （base/tier/ms/reason/candidates），candidates 附每条的 kbps。
 /// 吞吐探测串行且最多测前 4 条可达候选（主站优先、其余按延迟升序）。
-pub async fn pick_ranked(hits: Vec<(String, String, u64)>) -> Value {
+pub async fn pick_ranked(hits: Vec<(String, String, u64)>, current: Option<&str>) -> Value {
     let mut ordered = hits;
     ordered.sort_by_key(|(tier, _, ms)| (tier != "main", *ms));
     let mut measures: Vec<LineMeasure> = Vec::new();
@@ -115,10 +115,30 @@ pub async fn pick_ranked(hits: Vec<(String, String, u64)>) -> Value {
     }
     let candidates: Vec<Value> = measures.iter().map(LineMeasure::json).collect();
     match rank_lines(&measures) {
-        Some(winner) => json!({ "base": winner.url, "tier": winner.tier, "ms": winner.ms,
+        Some(winner) => {
+            /* 粘性（Muse 2026-11-18 真机反馈「线路一直变」）：度量是单次
+             * 采样、噪声大，路况整体波动时名次每轮翻转、播放被反复打断。
+             * 当前线路只要还够用就留任：吞吐不低于胜者 60%（即胜者快
+             * 不到 1.7 倍）不换；缺吞吐数据时延迟不超胜者 2 倍不换。
+             * 当前线路不可达（不在 measures 里）或明显更差才真切换。 */
+            let winner = match current {
+                Some(cur) if winner.url != cur => match measures.iter().find(|m| m.url == cur) {
+                    Some(cur_m) => {
+                        let keep = match (cur_m.bps, winner.bps) {
+                            (Some(cb), Some(wb)) => cb * 100 >= wb * 60,
+                            _ => cur_m.ms <= winner.ms.saturating_mul(2),
+                        };
+                        if keep { cur_m } else { winner }
+                    }
+                    None => winner,
+                },
+                _ => winner,
+            };
+            json!({ "base": winner.url, "tier": winner.tier, "ms": winner.ms,
             "kbps": winner.bps.map(|b| b / 1000),
             "reason": if winner.tier == "main" { "main-ok" } else { "mirror-ok" },
-            "candidates": candidates }),
+            "candidates": candidates })
+        }
         None => json!({ "base": "", "tier": "none", "ms": 0, "reason": "all-down", "candidates": candidates }),
     }
 }

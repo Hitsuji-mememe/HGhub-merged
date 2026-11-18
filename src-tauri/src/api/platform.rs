@@ -143,6 +143,22 @@ fn request_ios_orientation(landscape: bool) {
                 msg1_void(vc_cls, sel_attempt);
             }
         }
+
+        /* 状态栏随全屏方向走（Muse 2026-11-18）：横屏看剧时系统时间/静音
+         * 铃铛悬在画面顶端正中挡画面，用户真机指出。Info.ios.plist 已设
+         * UIViewControllerBasedStatusBarAppearance=false，此处经 UIApplication
+         * setStatusBarHidden:withAnimation: 切换（横屏隐藏、竖屏恢复，淡入淡出）。
+         * 调用失败静默——最坏情况与现状一致（状态栏常显），不影响旋转。 */
+        if !app_cls.is_null() {
+            let sel_shared = sel_registerName(b"sharedApplication\0".as_ptr() as *const c_char);
+            let app = msg0(app_cls, sel_shared);
+            if !app.is_null() {
+                let sel_hide = sel_registerName(b"setStatusBarHidden:withAnimation:\0".as_ptr() as *const c_char);
+                let msg_hide: unsafe extern "C" fn(*mut c_void, *mut c_void, bool, usize) =
+                    std::mem::transmute(objc_msgSend as *const ());
+                msg_hide(app, sel_hide, landscape, 1);
+            }
+        }
     }
 }
 

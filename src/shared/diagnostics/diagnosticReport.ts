@@ -187,11 +187,12 @@ lines.push("── 硬数据 ─────────────────
 const rt = obj(diag.runtime);
 const osText = [str(rt.os), str(rt.arch)].filter(Boolean).join(" ") || platform;
 /* iOS 版本对本 App 的播放故障定性是关键变量（27.3 beta 的 MMS 停滞
-   签名），net_diag 只给 os/arch，从 WebView UA 补解析（2026-11-18 晚
-   审计补项；解析不到就省略，不编造）。 */
-const ua = typeof navigator!== "undefined"? navigator.userAgent: "";
-const iosMatch = ua.match(/OS (\d+)_(\d+)(?:_(\d+))?/);
-const iosText = iosMatch? ` · iOS ${iosMatch[1]}.${iosMatch[2]}${iosMatch[3]? `.${iosMatch[3]}`: ""}`: "";
+   签名）。原从 WebView UA 解析是错的：UA 的 OS 号在新系统上被冻结，
+   真机 27.3 beta 自报 18.7（2026-11-18 真机实锤）。改用 net_diag
+   runtime.os_ver（Rust 侧 UIDevice.systemVersion 直读）；读不到就
+   省略，不拿 UA 假数充数。 */
+const osVer = str(rt.os_ver);
+const iosText = osVer? ` · iOS ${osVer}`: "";
 lines.push(`App 版本：${APP_VERSION} · 平台：${osText}${iosText}`);
 if (facts) {
 const kbps = facts.bitrateBps? Math.round(facts.bitrateBps / 1000): null;

@@ -111,7 +111,7 @@ function MainTabs({ wide, pageActive, bottomInset }: { wide: boolean; pageActive
 }
 
 function AppBody() {
-  const { platform, tab, setTab, stack, pop, push, loginOpen, setLoginOpen, fs, setFs, clean } = useStore();
+  const { platform, tab, setTab, stack, pop, push, loginOpen, setLoginOpen, fs, setFs, clean, setClean } = useStore();
   const mainRef = useRef<HTMLDivElement>(null);
   const [wide, setWide] = useState(false);
 
@@ -204,6 +204,14 @@ function AppBody() {
       el.removeEventListener("touchend", onEnd);
     };
   }, [tab, stack, fs, loginOpen, setTab, pop, push]);
+
+  /* clean 是播放器沉浸态、只属于 home（Muse 2026-11-18 真机 bug）：
+     沉浸态下链式手势可直接离 home（手势不要求先唤醒控件），clean 不清
+     会让 TabBar 在所有页签被全局隐藏、底部留白同时归零——滑进搜索页
+     底部按键消失即此故。在此统一收口：tab 一离开 home 即清 clean，
+     覆盖手势/快捷键/顶栏钮全部离 home 路径；回 home 控件先全显，
+     与进/退全屏的「恢复入口优先」一致。 */
+  useEffect(() => { if (tab !== "home" && clean) setClean(false); }, [tab, clean, setClean]);
 
   const pageActive = stack.length === 0 && !loginOpen;
   /* 播放器即首页（蓝图 P0，Muse 2026-11-18）：home 页签就是播放面，

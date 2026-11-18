@@ -187,7 +187,7 @@ pub async fn auto_pick() -> Value {
         json!({ "base": "", "tier": "none", "ms": 0, "reason": "all-down",
             "candidates": hits.iter().map(Hit::json).collect::<Vec<_>>() })
     } else {
-        crate::line_rank::pick_ranked(ok).await
+        crate::line_rank::pick_ranked(ok, Some(&crate::net::base())).await
     };
     if let Err(error) = listing {
         result["mirror_error"] = json!(error);

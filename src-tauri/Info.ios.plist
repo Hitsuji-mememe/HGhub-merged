@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <!-- 状态栏由应用统一控制（Muse 2026-11-18）：关掉 VC-based 外观后，
+       api/platform.rs 才能经 UIApplication 在横屏全屏时隐藏状态栏、
+       竖屏恢复；否则系统时间/静音铃铛悬在横屏画面顶端正中挡画面。 -->
+  <key>UIViewControllerBasedStatusBarAppearance</key>
+  <false/>
   <!-- Tauri merges this into the generated app before every iOS build.
        iOS 17+ applies ATS to IP addresses; only the native media loopback
        transport needs an HTTP exception. Earlier iOS versions allow IPs. -->
