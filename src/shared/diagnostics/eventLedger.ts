@@ -170,6 +170,50 @@ export function recordIfCurrent(
   }
 }
 
+export type LedgerIntegrity = {
+  /** 保留窗口内相邻序号的缺口总数（应为 0：序号由本模块单调分配，
+   * 窗口内断裂只可能来自数据损坏或并发写账竞态）。 */
+  seqGaps: number;
+  /** 保留窗口内重复出现的序号数（应为 0）。 */
+  seqDuplicates: number;
+  /** 已被保留窗口截断的旧事件数（= 已记总数 − 窗口内条数；是设计内
+   * 的有界保留，不算丢失，但报告必须让读者看见窗口之外还有多少）。 */
+  truncated: number;
+  /** 归属某播放器实例的事件数（instanceId 非 null）。 */
+  instanceLinked: number;
+  /** 会话级事件数（instanceId 为 null）。 */
+  sessionLevel: number;
+  /** 归属实例已注销的事件数：迟到事件在写账前已被 isCurrent 拦下，
+   * 窗口内出现这类只可能是实例正常销毁后的历史事件（信息项，
+   * 非损坏指标；真正的迟到丢弃看 droppedLate）。 */
+  orphanedInstance: number;
+};
+
+/** 账本完整性验证（Muse 2026-11-19 fix2 B2）：对快照做结构核对，
+ * 供诊断报告自证流水未被污染。纯函数、无副作用。 */
+export function validateLedgerIntegrity(snap: LedgerSnapshot): LedgerIntegrity {
+  const evs = snap.events;
+  let seqGaps = 0;
+  let seqDuplicates = 0;
+  const seen = new Set<number>();
+  for (let i = 0; i < evs.length; i++) {
+    if (seen.has(evs[i].seq)) seqDuplicates++;
+    seen.add(evs[i].seq);
+    if (i > 0) {
+      const delta = evs[i].seq - evs[i - 1].seq;
+      if (delta > 1) seqGaps += delta - 1;
+    }
+  }
+  return {
+    seqGaps,
+    seqDuplicates,
+    truncated: Math.max(0, snap.recorded - evs.length),
+    instanceLinked: evs.filter(e => e.instanceId != null).length,
+    sessionLevel: evs.filter(e => e.instanceId == null).length,
+    orphanedInstance: evs.filter(e => e.instanceId != null && !active.has(e.instanceId)).length,
+  };
+}
+
 /** 只读快照，供诊断报告头读取完整性计数。旁路：失败时返回空计数快照。 */
 export function snapshot(): LedgerSnapshot {
   try {

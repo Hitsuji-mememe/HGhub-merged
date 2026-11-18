@@ -22,6 +22,12 @@ export function nativeFallbackState(): { reason: string; at: number } | null {
   return nativeFallback;
 }
 
+/** 仅测试夹具用（fix2 B1）：会话降级是进程级单向状态，夹具需在
+ * 场景间隔离重置；生产路径不调用。 */
+export function resetNativeFallbackForTests(): void {
+  nativeFallback = null;
+}
+
 /** Only our own media routes carry a wrapped upstream URL. An upstream ?u= is opaque. */
 export function playbackSource(src: string, hlsSupported: boolean): PlaybackSource {
   let route = "";

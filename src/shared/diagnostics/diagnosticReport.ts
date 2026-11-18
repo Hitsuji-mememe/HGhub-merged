@@ -21,7 +21,7 @@ import { nativeFallbackState} from "../../features/playback/mediaTransport";
 import { playbackLogApi} from "./playbackDiagnostics";
 import { readPlaybackFacts} from "./playbackFacts";
 import { shortVerdict} from "./netDiagReport";
-import { snapshot as ledgerSnapshot} from "./eventLedger";
+import { snapshot as ledgerSnapshot, validateLedgerIntegrity} from "./eventLedger";
 import { formatGpuProbeLines, getCachedGpuProbe} from "./gpuProbe";
 import { feedTraceSnapshot, feedTraceSummary} from "../lib/feedTrace";
 
@@ -297,7 +297,11 @@ lines.push(`${new Date().toLocaleString("zh-CN", { hour12: false})}`);
 lines.push(`构建：${BUILD_STAMP}`);
 try {
 const snap = ledgerSnapshot();
-lines.push(`会话：${snap.sessionId} · 账本 已记 ${snap.recorded} · 迟到丢弃 ${snap.droppedLate}`);
+const integrity = validateLedgerIntegrity(snap);
+/* 完整性四数入报告（fix2 B2）：序号缺口/重复应为 0；截断数是保留
+ * 窗口之外的历史（设计内有界）；未终态以逐次播放的 current 计数
+ * 为准（见下方「本会话播放」行），账本层无独立生命周期。 */
+lines.push(`会话：${snap.sessionId} · 账本 已记 ${snap.recorded} · 迟到丢弃 ${snap.droppedLate} · 完整性 缺口 ${integrity.seqGaps} / 重复 ${integrity.seqDuplicates} / 窗口外截断 ${integrity.truncated}`);
 } catch {
 lines.push("会话：未知（事件账本不可用）");
 }

@@ -16,8 +16,8 @@ import { useSeekInput } from "./useSeekInput";
 import { useInlinePlayerFullscreen } from "./useInlinePlayerFullscreen";
 import "../../styles/post-player.css";
 import { ICompress, IExpand, IPauseF, IPlayF, IVol, IVolMute } from "../../shared/ui/icons";
-import { useStore } from "../../shared/model/store";
-import SuperResCanvas, { effectiveSrMode, SuperResSvgDefs, getSvgFilterUrl } from "./SuperResCanvas";
+import { useStore, type SuperResMode } from "../../shared/model/store";
+import SuperResCanvas, { effectiveSrMode, SuperResSvgDefs, getSvgFilterUrl, srVideoFilterMode } from "./SuperResCanvas";
 
 type Props = {
   src: string;              // 原始 m3u8 地址
@@ -81,6 +81,14 @@ export default function Player({
   const [srSize, setSrSize] = useState({ w: 0, h: 0 });
   const [srDensity, setSrDensity] = useState<{ bitrateBps: number; fps?: number } | null>(null);
   const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h, srDensity ?? undefined);
+  /* U1 保底回报补接（Muse 2026-11-19 fix2 B3 不对称答复：漏接）：
+   * VideoSurface 早已接 onActiveModeChange 并据 srVideoFilterMode 在
+   * WebGL 降到 off 时挂 SVG natural 保底，Player 此前未接——同一
+   * 「默认增强档不缺席」承诺在帖子播放器里缺席（判档 off/性能降 off
+   * 时直接裸播无保底）。无任何设计理由区别对待，属漏接，现补齐，
+   * 选档纯函数与 VideoSurface 共用一份。 */
+  const [canvasSrMode, setCanvasSrMode] = useState<SuperResMode>(srMode);
+  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback });
   const seek = useSeekInput({ time, duration, enabled: active && !controlsLocked, resetKey: src,
     onInteraction: (phase, input, target, pointerTarget) => trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget }),
     onSeek: (target, input) => {
@@ -164,6 +172,7 @@ export default function Player({
         video,
         isCurrent: () => hlsRef.current === hls,
         isPlayWanted: () => activity.isPlayWanted(),
+        pauseState: () => activity.pauseState(),
         attemptRef: stallAttemptRef,
         traceStall: (_state, attempt) => trace("hls.append_stall", { attempt }),
         retry: (reason) => proxyRecovery.retry(reason, true),
@@ -258,7 +267,7 @@ export default function Player({
         muted={muted}
         loop={loop}
         className="w-full h-full object-contain bg-black"
-        style={svgFallback ? { filter: getSvgFilterUrl(srMode) } : undefined}
+        style={filterMode ? { filter: getSvgFilterUrl(filterMode) } : undefined}
         onClick={toggle}
         onLoadedData={() => setVideoReady(true)}
         onCanPlay={() => setVideoReady(true)}
@@ -285,6 +294,7 @@ export default function Player({
         fit="contain"
         srcKey={src}
         onFallbackChange={setSvgFallback}
+        onActiveModeChange={setCanvasSrMode}
         onTrace={trace}
       />
 

@@ -5,7 +5,8 @@
  * 1080p→crisp、720p 低密度→natural 等，含真实采样锚点）。
  * 由 scripts/test-playback-engines.mjs 驱动，结果挂 window.__engines。 */
 import { AppendStallWatchdog, type StallClock } from "../src/features/playback/appendStallWatchdog";
-import { nativeFallbackState, noteNativeFallback, playbackSource } from "../src/features/playback/mediaTransport";
+import { nativeFallbackState, noteNativeFallback, playbackSource, resetNativeFallbackForTests } from "../src/features/playback/mediaTransport";
+import { createStallWatchdog } from "../src/features/playback/stallWatchdogWiring";
 import { effectiveSrMode, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
 
 class FakeClock implements StallClock {
@@ -244,6 +245,120 @@ function run() {
   results.u_filter_webgl_presenting = srVideoFilterMode({ srPref: "auto", srMode: "crisp", canvasMode: "crisp", svgFallback: false }) ?? null;
   results.u_filter_demoted_off = srVideoFilterMode({ srPref: "auto", srMode: "crisp", canvasMode: "off", svgFallback: false }) ?? null;
   results.u_filter_svg_fallback = srVideoFilterMode({ srPref: "auto", srMode: "cinema", canvasMode: "cinema", svgFallback: true }) ?? null;
+
+  /* ── W 接线级矩阵（fix2 B1）：createStallWatchdog 的真实升级链——
+   * 判死→重建→再判死→会话降级→名额用尽报错，及三道门控（旧实例 /
+   * 无意愿 / paused_by_user）与谓词救场。F6 测的是看门狗类本身与
+   * 模拟 policy；这里测的是两处播放入口共用的那份真实接线。 ── */
+  {
+    resetNativeFallbackForTests();
+    const fakeVideo = (bufferedLen = 0) => ({
+      buffered: { length: bufferedLen, end: () => 5 },
+      paused: true, readyState: 0,
+    }) as unknown as HTMLVideoElement;
+    const harness = (over: { wanted?: boolean; current?: boolean; pause?: "playing" | "paused_by_user" | "paused_by_system"; bufferedLen?: number; attempt?: number } = {}) => {
+      const clock = new FakeClock();
+      const calls = { retry: [] as string[], exhausted: [] as string[], traced: [] as { state: string; attempt: number }[] };
+      const attemptRef = { current: over.attempt ?? 0 };
+      const wd = createStallWatchdog({
+        video: fakeVideo(over.bufferedLen ?? 0),
+        isCurrent: () => over.current !== false,
+        isPlayWanted: () => over.wanted !== false,
+        pauseState: () => over.pause ?? "playing",
+        attemptRef,
+        traceStall: (state, attempt) => calls.traced.push({ state, attempt }),
+        retry: (reason) => calls.retry.push(reason),
+        onExhausted: (m) => calls.exhausted.push(m),
+        clock, timeoutMs: 4000,
+      });
+      return { clock, calls, attemptRef, wd };
+    };
+    /* W1 首次判死 → 原地重建，attempt 递增、取证先行 */
+    {
+      const h = harness();
+      h.wd.fragLoaded();
+      h.clock.advance(4000);
+      results.w1_first_stall_retry = h.calls.retry;
+      results.w1_attempt_after = h.attemptRef.current;
+      results.w1_traced = h.calls.traced;
+      h.wd.dispose();
+    }
+    /* W2 二次判死（attempt=1）→ 会话降级并走 fallback 重建 */
+    {
+      resetNativeFallbackForTests();
+      const h = harness({ attempt: 1 });
+      h.wd.fragLoaded();
+      h.clock.advance(4000);
+      results.w2_second_stall_retry = h.calls.retry;
+      results.w2_fallback_noted = nativeFallbackState() !== null;
+      h.wd.dispose();
+    }
+    /* W3 降级名额已占用 → 不再静默，明确报错且不重建 */
+    {
+      const h = harness({ attempt: 1 });
+      h.wd.fragLoaded();
+      h.clock.advance(4000);
+      results.w3_exhausted_message = h.calls.exhausted;
+      results.w3_no_retry = h.calls.retry;
+      h.wd.dispose();
+    }
+    /* W4 用户已暂停（无意愿）→ 判死不升级：不取证、不重建、不计数 */
+    {
+      const h = harness({ wanted: false });
+      h.wd.fragLoaded();
+      h.clock.advance(8000);
+      results.w4_paused_no_retry = h.calls.retry;
+      results.w4_paused_no_trace = h.calls.traced;
+      results.w4_attempt_unchanged = h.attemptRef.current;
+      h.wd.dispose();
+    }
+    /* W5 旧实例判死 → 丢弃（换源后旧 hls 的回调不许动新源） */
+    {
+      const h = harness({ current: false });
+      h.wd.fragLoaded();
+      h.clock.advance(4000);
+      results.w5_stale_no_retry = h.calls.retry;
+      results.w5_stale_no_exhausted = h.calls.exhausted;
+      h.wd.dispose();
+    }
+    /* W6 paused_by_user（即使 wanted 读数异常为真）→ 硬门控不升级。
+     * 不变量：用户明确暂停后，任何自愈不得重建/自动播放。 */
+    {
+      const h = harness({ pause: "paused_by_user", wanted: true });
+      h.wd.fragLoaded();
+      h.clock.advance(8000);
+      results.w6_user_pause_no_retry = h.calls.retry;
+      results.w6_user_pause_attempt = h.attemptRef.current;
+      h.wd.dispose();
+    }
+    /* W7 paused_by_system（系统挂起后恢复）→ 不挡升级，照常重建 */
+    {
+      const h = harness({ pause: "paused_by_system" });
+      h.wd.fragLoaded();
+      h.clock.advance(4000);
+      results.w7_system_pause_retry = h.calls.retry;
+      h.wd.dispose();
+    }
+    /* W8 buffered-no-play 第二臂 → 同链升级（buffered 已达但不出画） */
+    {
+      const h = harness({ bufferedLen: 1 });
+      h.wd.fragLoaded();
+      h.wd.buffered();
+      h.clock.advance(4000);
+      results.w8_buffered_no_play_retry = h.calls.retry;
+      results.w8_buffered_no_play_state = h.calls.traced.map(t => t.state);
+      h.wd.dispose();
+    }
+    /* W9 到点复查谓词救场：事件漏报但 video.buffered 已有 → 不判死 */
+    {
+      const h = harness({ bufferedLen: 1 });
+      h.wd.fragLoaded();
+      h.clock.advance(8000);
+      results.w9_predicate_rescue = h.calls.retry;
+      h.wd.dispose();
+    }
+    resetNativeFallbackForTests();
+  }
 
   return results;
 }

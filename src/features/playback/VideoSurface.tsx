@@ -263,6 +263,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         video,
         isCurrent: () => hlsRef.current === hls,
         isPlayWanted: () => activity.isPlayWanted(),
+        pauseState: () => activity.pauseState(),
         attemptRef: stallAttemptRef,
         traceStall: (state, attempt) => {
           let bufEnd = -1;

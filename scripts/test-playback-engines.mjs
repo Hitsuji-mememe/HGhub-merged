@@ -103,6 +103,26 @@ try {
   check("U1 floor engages when perf-demoted to off", r.u_filter_demoted_off, "natural");
   check("U1 svg fallback keeps mode filter", r.u_filter_svg_fallback, "cinema");
 
+  // W — wiring-level stall escalation matrix (fix2 B1)
+  check("W1 first stall retries in place", r.w1_first_stall_retry, ["append_stall"]);
+  check("W1 attempt incremented", r.w1_attempt_after, 1);
+  check("W1 stall traced before acting", r.w1_traced, [{ state: "not-started", attempt: 0 }]);
+  check("W2 second stall retries via fallback", r.w2_second_stall_retry, ["append_stall_fallback"]);
+  check("W2 session fallback noted", r.w2_fallback_noted, true);
+  check("W3 exhausted surfaces message", r.w3_exhausted_message, ["视频卡死且自动恢复已用尽，请点重试或切换线路"]);
+  check("W3 exhausted does not retry", r.w3_no_retry, []);
+  check("W4 user-unwanted stall does not retry", r.w4_paused_no_retry, []);
+  check("W4 user-unwanted stall does not trace", r.w4_paused_no_trace, []);
+  check("W4 attempt unchanged", r.w4_attempt_unchanged, 0);
+  check("W5 stale instance stall dropped (retry)", r.w5_stale_no_retry, []);
+  check("W5 stale instance stall dropped (exhausted)", r.w5_stale_no_exhausted, []);
+  check("W6 paused_by_user blocks escalation", r.w6_user_pause_no_retry, []);
+  check("W6 paused_by_user attempt unchanged", r.w6_user_pause_attempt, 0);
+  check("W7 paused_by_system still escalates", r.w7_system_pause_retry, ["append_stall"]);
+  check("W8 buffered-no-play escalates", r.w8_buffered_no_play_retry, ["append_stall"]);
+  check("W8 buffered-no-play state label", r.w8_buffered_no_play_state, ["buffered-no-play"]);
+  check("W9 deadline predicate rescue", r.w9_predicate_rescue, []);
+
   await writeFile(join(output, "report.json"), JSON.stringify({ report, results: r }, null, 2));
   if (report.failed.length) {
     console.error(`playback-engines: ${report.failed.length} FAILED\n${report.failed.join("\n")}`);

@@ -1,5 +1,5 @@
 import Hls, { type FragLoadedData } from "hls.js";
-import { AppendStallWatchdog, type AppendStallState } from "./appendStallWatchdog";
+import { AppendStallWatchdog, type AppendStallState, type StallClock } from "./appendStallWatchdog";
 import { noteNativeFallback } from "./mediaTransport";
 
 /* ── append 卡死看门狗共享接线（U4 真收敛，Muse 2026-11-18）──
@@ -23,6 +23,10 @@ export function createStallWatchdog(opts: {
   isCurrent: () => boolean;
   /** 播放意愿（activity.isPlayWanted）：两道意愿门控共用。 */
   isPlayWanted: () => boolean;
+  /** 三态暂停状态（activity.pauseState，fix2 B）：paused_by_user 时
+   * 判死一律不升级——用户明确暂停是硬意愿，不许任何自愈据此重建
+   * 或播放；与 isPlayWanted 并存（后者兜底来源未知的暂停）。 */
+  pauseState?: () => "playing" | "paused_by_user" | "paused_by_system";
   /** 同一源的判死计数（换源清零由调用方守，见各组件 stallSrcRef）。 */
   attemptRef: { current: number };
   /** 判死取证：调用方按各自字段组 trace（attempt 传的是递增前的值）。 */
@@ -31,15 +35,22 @@ export function createStallWatchdog(opts: {
   retry: (reason: StallRetryReason) => void;
   /** 自动恢复用尽时的报错通道：调用方落到自己的 onError / errMsg。 */
   onExhausted: (message: string) => void;
+  /** 测试注入（fix2 B1 接线级矩阵）：假时钟/短窗口；生产不传。 */
+  clock?: StallClock;
+  timeoutMs?: number;
 }): AppendStallWatchdog {
   return new AppendStallWatchdog({
+    clock: opts.clock,
+    timeoutMs: opts.timeoutMs,
     hasBuffered: () => { try { return opts.video.buffered.length > 0 && opts.video.buffered.end(opts.video.buffered.length - 1) > 0; } catch { return false; } },
     isPlaying: () => !opts.video.paused && opts.video.readyState >= 2,
     shouldEscalate: () => opts.isPlayWanted(),
     onStall: (state) => {
       if (!opts.isCurrent()) return;
-      /* 意愿门控：起播期已被用户暂停的源不判死——他不想播，卡不卡
-       * 死与他无关；恢复意愿时活动层会重新 play。 */
+      /* 意愿门控：用户明确暂停（paused_by_user）不判死——他不想播，
+       * 卡不卡死与他无关；恢复意愿时活动层会重新 play。isPlayWanted
+       * 兜底来源未知的暂停（fix2 B 三态门控）。 */
+      if (opts.pauseState?.() === "paused_by_user") return;
       if (!opts.isPlayWanted()) return;
       opts.traceStall(state, opts.attemptRef.current);
       if (opts.attemptRef.current < 1) {

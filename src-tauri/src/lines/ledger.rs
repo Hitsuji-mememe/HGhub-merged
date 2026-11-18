@@ -172,3 +172,98 @@ pub fn note_auto_switch(from: &str, _to: &str) {
         breaker_note(&mut state, from, Instant::now());
     }
 }
+
+/* ── 账本完整性验证（Muse 2026-11-19 fix2 B2）──────────────────
+ * Batch D 接排序的前置门：账本数值必须可信。本组测试钉住四件事：
+ * EWMA 数学与最小样本门、异常值（0/溢出）不污染、事件计数有界
+ * 累加、熔断的窗口/总量/退避语义。全局账本用唯一 origin 隔离。 */
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn uniq(tag: &str) -> String {
+        format!("https://ledger-test-{tag}.example")
+    }
+
+    #[test]
+    fn throughput_gate_requires_min_samples() {
+        let origin = uniq("gate");
+        assert_eq!(tiebreak_bps(&origin), None, "无样本必须无决胜值");
+        record_throughput(&origin, 8_000_000);
+        record_throughput(&origin, 8_000_000);
+        assert_eq!(tiebreak_bps(&origin), None, "样本 < 3 不许参与决胜");
+        record_throughput(&origin, 8_000_000);
+        let v = tiebreak_bps(&origin).expect("3 样本后应有决胜值");
+        assert!((v - 8_000_000.0).abs() < 1.0, "恒定样本 EWMA 应等于样本值, got {v}");
+    }
+
+    #[test]
+    fn ewma_weights_new_sample_at_alpha() {
+        let origin = uniq("ewma");
+        record_throughput(&origin, 10_000_000);
+        record_throughput(&origin, 20_000_000);
+        record_throughput(&origin, 20_000_000);
+        // 10M → 10+0.3*10=13M → 13+0.3*7=15.1M
+        let v = tiebreak_bps(&origin).expect("应有决胜值");
+        assert!((v - 15_100_000.0).abs() < 1.0, "EWMA 应按 alpha=0.3 演进, got {v}");
+    }
+
+    #[test]
+    fn zero_and_outlier_samples_do_not_poison() {
+        let origin = uniq("outlier");
+        record_throughput(&origin, 0);
+        let stats = snapshot(&origin).expect("条目应存在");
+        assert_eq!(stats.throughput_samples, 0, "bps=0 不计样本");
+        assert_eq!(stats.ewma_bps, None);
+        record_throughput(&origin, 5_000_000);
+        record_throughput(&origin, 5_000_000);
+        record_throughput(&origin, 5_000_000);
+        let before = tiebreak_bps(&origin).expect("应有决胜值");
+        // u64 极值样本：EWMA 演进后仍须有限正数，不许把账本毒成 inf/NaN
+        record_throughput(&origin, u64::MAX);
+        let stats = snapshot(&origin).expect("条目应存在");
+        if let Some(v) = stats.ewma_bps {
+            assert!(v.is_finite() && v > 0.0, "EWMA 必须保持有限正数, got {v}");
+        }
+        let _ = before;
+    }
+
+    #[test]
+    fn event_counters_accumulate() {
+        let origin = uniq("events");
+        record_event(&origin, LineEvent::Stall);
+        record_event(&origin, LineEvent::Stall);
+        record_event(&origin, LineEvent::Recovery);
+        record_event(&origin, LineEvent::Fallback);
+        let stats = snapshot(&origin).expect("条目应存在");
+        assert_eq!(stats.stall, 2);
+        assert_eq!(stats.recovery, 1);
+        assert_eq!(stats.fallback, 1);
+        assert_eq!(stats.throughput_samples, 0);
+    }
+
+    #[test]
+    fn breaker_window_total_and_backoff() {
+        let mut state = Breaker::default();
+        let now = Instant::now();
+        assert!(breaker_allows(&mut state, "https://a.example", now));
+        breaker_note(&mut state, "https://a.example", now);
+        // 被切走的线路 120s 内不许切回
+        assert!(!breaker_allows(&mut state, "https://a.example", now));
+        assert!(breaker_allows(&mut state, "https://b.example", now));
+        // 窗口上限：10 分钟内记满 4 次后第 5 次不许
+        for i in 0..3 {
+            breaker_note(&mut state, &format!("https://w{i}.example"), now);
+        }
+        assert!(!breaker_allows(&mut state, "https://c.example", now), "窗口满应拦");
+        // 窗口过期后自动恢复（退避也一并到期）
+        let later = now + AUTO_SWITCH_WINDOW + Duration::from_secs(121);
+        assert!(breaker_allows(&mut state, "https://a.example", later), "过期应自动恢复");
+        // 进程期总量上限独立于窗口
+        let mut s2 = Breaker::default();
+        for i in 0..AUTO_SWITCH_SESSION_MAX {
+            breaker_note(&mut s2, &format!("https://t{i}.example"), now + AUTO_SWITCH_WINDOW * (i + 1));
+        }
+        assert!(!breaker_allows(&mut s2, "https://z.example", now + AUTO_SWITCH_WINDOW * 99), "总量满应拦");
+    }
+}
