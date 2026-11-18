@@ -10,6 +10,7 @@ import { Img, Sheet } from "../../shared/ui/ui";
 import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
 import { DesktopSocialButtons, MobileActionRail, useSocialCounts } from "./ActionRail";
 import { LandHint } from "./LandHint";
+import { useProgressFlush } from "./useProgressFlush";
 import { setBackHandler } from "../../shared/lib/back";
 import { copyText } from "../../shared/lib/clipboard";
 import {
@@ -51,7 +52,7 @@ const stripHtml = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, "
 
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, onBlocked, startEp, startTime }: Props) {
   const store = useStore();
-  const { isLiked, isFav, setLiked, setCollected, setFollowing, actionPending, accountScope, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen, swipeEp, preferHevc, setPreferHevc } = store;
+  const { isLiked, isFav, setLiked, setCollected, setFollowing, actionPending, accountScope, muted, setMuted, volume, setVolume, rate, setRate, toast, addHistory, user, setLoginOpen, swipeEp, preferHevc, setPreferHevc } = store;
   const isDesktop = !isMobile;
   const contentPreferences = useContentPreferences();
   const { preferences, revision, blockReason } = contentPreferences;
@@ -116,7 +117,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [vsize, setVsize] = useState({ key: "", w: 0, h: 0 });
   const [paused, setPaused] = useState(false);
   const controlsLocked = false;
-  const [rate, setRate] = useState(1);
+  /* 倍速为全局记忆（store.rate，蓝图 P4）：Feed 本地状态已回退，与帖子播放器同源 */
   const [rateMenuOpen, setRateMenuOpen] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [err, setErr] = useState("");
@@ -587,8 +588,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     return () => ctrl.abort();
   }, [active, kind, playingKey, playKey, nextVideoId, curEp, episodes, playUrls]);
 
-  /* 切换条目/集数时重置播放状态 */
+  /* 续播多点保存（蓝图 P4）：暂停/切后台/离开即时刷盘，守卫见 useProgressFlush */
+  const flushProgressRef = useProgressFlush({ kind, paused, liveRef, playGuard, actionContext, historyWriter });
+
+  /* 切换条目/集数时重置播放状态（重置前尝试刷上一集位置：守卫仍对账
+     旧 playKey 时才写，选集路径已在 pickEp 同步刷过，此处兜底滑动切条目） */
   useEffect(() => {
+    flushProgressRef.current();
     setDuration(0); setErr(""); setWaiting(true); setPaused(false);
     setPlayingKey("");
     resetHealWindow();
@@ -600,15 +606,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   useEffect(() => { videoRef.current?.volume(volume); }, [volume]);
   /* 倍速同步（长按 2x / 锁定 2x / 基准倍速） */
   useEffect(() => { videoRef.current?.rate(effRate); }, [effRate, playKey]);
-
-  /* 离开播放页时把最后位置落盘 */
-  useEffect(() => () => {
-    const s = liveRef.current;
-    if (kind === "video" && s.id && s.dur && playGuard.current.allowed && playGuard.current.id === s.id
-      && actionContext.current.accountScope === s.accountScope
-      && playGuard.current.playKey === `${s.id}:${s.ep}` && playGuard.current.permissionKey === s.permissionKey) historyWriter.current(s.id, s.ep, s.t, s.dur);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   /* 键盘 */
   useEffect(() => {
@@ -1131,6 +1128,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   };
 
   const pickEp = (ep: number) => {
+    flushProgressRef.current(); // 切集前先刷当前集位置（此刻 liveRef/playGuard 仍是旧集）
     setEpMap((m) => ({ ...m, [curId]: ep }));
     setPanel(null);
   };

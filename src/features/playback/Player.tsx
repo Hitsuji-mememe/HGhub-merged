@@ -49,12 +49,14 @@ export default function Player({
   const [waiting, setWaiting] = useState(false);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [rate, setRate] = useState(1);
   const [errMsg, setErrMsg] = useState<string>("");
   const controlsLocked = false;
   const [videoReady, setVideoReady] = useState(false);
   const [svgFallback, setSvgFallback] = useState(false);
   const store = useStore();
+  /* 倍速全局记忆（蓝图 P4）：与 Feed 同源（store.rate），本地状态已回退 */
+  const rate = store.rate;
+  const setRate = store.setRate;
   /* 超分全自动（2026-11-18）：档位由 srPref + 本源分辨率推导，入口已撤 */
   const [srSize, setSrSize] = useState({ w: 0, h: 0 });
   const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h);

@@ -86,6 +86,8 @@ type Persist = GuestData & {
   srMode: SuperResMode;
   /** 超分覆盖项（设置页唯一入口）：auto=自动选档，off=强制关闭 */
   srPref: SrPref;
+  /** 全局倍速（蓝图 P4）：Feed 与帖子播放器同源，改一处全局生效、重启保留 */
+  rate: number;
 };
 
 const LS = STORAGE_KEYS.app;
@@ -95,6 +97,7 @@ const DEFAULTS: Persist = {
   fsIdleSecs: 3,
   srMode: "natural",
   srPref: "auto",
+  rate: 1,
 };
 
 /** 旧版本 history 是 number[]，读出来时升级成带进度的结构 */
@@ -217,6 +220,7 @@ type Store = {
   srMode: SuperResMode; setSrMode: (m: SuperResMode) => void; cycleSrMode: () => void;
   srPref: SrPref; setSrPref: (p: SrPref) => void;
   volume: number; setVolume: (v: number) => void;
+  rate: number; setRate: (v: number) => void;
   searchHist: string[]; addSearch: (q: string) => void; clearSearchHist: () => void;
   strictSecurity: boolean; strictSecurityReady: boolean; securityPending: boolean; cliRelaxed: boolean; setStrictSecurity: (on: boolean) => Promise<void>;
   toasts: Toast[]; toast: (msg: string, icon?: Toast["icon"]) => void;
@@ -445,6 +449,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const volume = Math.max(0, Math.min(1, v));
     setP((s) => ({ ...s, volume, muted: volume === 0 }));
   }, []);
+  const setRate = useCallback((v: number) => {
+    const rate = Number.isFinite(v) ? Math.max(0.25, Math.min(4, v)) : 1;
+    setP((s) => ({ ...s, rate }));
+  }, []);
 
   const value = useMemo<Store>(() => ({
     platform: envPlatform,
@@ -457,7 +465,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCollected: account.setCollected, setLiked: account.setLiked, setFollowing: account.setFollowing, actionPending: account.actionPending,
     toggleLikeLocal: account.toggleLikeLocal, toggleFavLocal: account.toggleFavLocal, toggleFollowLocal: account.toggleFollowLocal,
     addHistory: account.addHistory, clearHistory: account.clearHistory,
-    muted: p.muted, setMuted, volume: p.volume, setVolume, theater, setTheater, fs, setFs, clean, setClean,
+    muted: p.muted, setMuted, volume: p.volume, setVolume, rate: p.rate, setRate, theater, setTheater, fs, setFs, clean, setClean,
     muteOnStartup: p.muteOnStartup, setMuteOnStartup,
     swipeEp: p.swipeEp, setSwipeEp,
     preferHevc: p.preferHevc, setPreferHevc,

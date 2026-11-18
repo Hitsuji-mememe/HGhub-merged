@@ -81,7 +81,7 @@ try {
     assert.equal(await page.evaluate(() => window.initialTheme), true);
     const saved = await storage(page);
     assert.deepEqual(Object.keys(saved).sort(), ["hghubx_app_v1", "hghubx_swipe_ep_v2", "hghubx_theme"]);
-    assert.deepEqual(JSON.parse(saved.hghubx_app_v1), { ...migrated, srMode: "natural", srPref: "auto" }); // 落盘含超分模式与超分偏好 (2.2.0 合并新增字段; srPref 为超分全自动默认值)
+    assert.deepEqual(JSON.parse(saved.hghubx_app_v1), { ...migrated, srMode: "natural", srPref: "auto", rate: 1 }); // 落盘含超分模式与超分偏好 (2.2.0 合并新增字段; srPref 为超分全自动默认值; rate 为蓝图 P4 全局倍速默认值，接棒同处)
     await page.evaluate(() => window.storageMigrationFixture.setTheme("system"));
     await page.waitForFunction(() => localStorage.getItem("hghubx_theme") === "system");
     await page.emulateMedia({ colorScheme: "dark" });
