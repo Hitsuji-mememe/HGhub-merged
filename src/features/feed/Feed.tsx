@@ -165,6 +165,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [zoom, setZoom] = useState({ s: 1, x: 0, y: 0, g: false });
   /* 竖屏下看横屏视频：contain = 完整显示，cover = 放大铺满 */
   const [portraitFit, setPortraitFit] = useState<"contain" | "cover">("contain");
+  /* 单击/双击判定（上游 v2.2.0 lastTapRef 同位）：第一击的显隐快照 + 判定计时器 */
+  const tapJudgeRef = useRef<{ timer: number; clean: boolean; idle: boolean } | null>(null);
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchRef = useRef<{ d0: number; mx0: number; my0: number; s0: number; x0: number; y0: number } | null>(null);
 
@@ -834,17 +836,34 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       }
     }
     if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260) {
-      /* 单击视频区只做一件事：切换控件显隐（解耦版，Muse 2026-11-18，
-         废止 781df98 抖音式单击暂停）：单击暂停把「调选集/倍速必须先暂停、
-         藏控件必须先播放」耦在一起，用户裁定操作逻辑出问题。现单击即时
-         翻显隐、不碰播放状态、无判定窗口；暂停/播放只走中央大钮与底栏钮。
-         暂停态例外：单击不隐藏（锁定可见，防藏没恢复入口），只确保全显。
-         双击无专属动作（两次单击显隐翻两次、净效果为零）。按钮/进度条/
-         面板都不在手势面内，落在其上不会触发本分支。 */
-      const isPausedNow = videoRef.current?.el()?.paused ?? paused;
-      if (isPausedNow) { setClean(false); setIdle(false); }
-      else if (fsUi) { if (idle) { wake(); setClean(false); } else { setIdle(true); setClean(true); } }
-      else setClean((v) => !v);
+      /* 单击/双击判定（Muse 2026-11-18 用户改派定版，判定结构与上游
+         v2.2.0 lastTapRef 同位）：第一击只快照显隐并起 250ms 判定计时、
+         不执行任何变更；窗口内第二击到达 = 双击——取消待执行显隐（显隐
+         从未变过，天然无闪烁）、恢复快照兜底、改判切换暂停/播放且不碰
+         显隐；窗口到期才执行单击显隐。绝不用「先翻显隐、第二击再翻
+         回来」：中间态会真实渲染，正是用户骂的闪烁来源。单击显隐语义
+         沿解耦版（只翻显隐不碰播放；暂停态只确保全显、锁显由暂停
+         effect 兜底）；延迟是双击判定的必要代价。暂停/播放双路径并存：
+         双击画面 + 控制层底部中央钮，各自单义、不算耦合。按钮/进度条/
+         面板不落在手势面内，不触发本分支。 */
+      if (tapJudgeRef.current) {
+        window.clearTimeout(tapJudgeRef.current.timer);
+        const snap = tapJudgeRef.current;
+        tapJudgeRef.current = null;
+        setClean(snap.clean);
+        if (fsUi) setIdle(snap.idle);
+        videoRef.current?.toggle();
+      } else {
+        const snap = { clean, idle, fsUi };
+        const timer = window.setTimeout(() => {
+          tapJudgeRef.current = null;
+          if (videoRef.current?.el()?.paused) { setClean(false); setIdle(false); return; }
+          if (snap.fsUi) {
+            if (snap.idle) { wake(); setClean(false); } else { setIdle(true); setClean(true); }
+          } else setClean(!snap.clean);
+        }, 250) as unknown as number;
+        tapJudgeRef.current = { timer, clean, idle };
+      }
     }
   };
 
@@ -854,6 +873,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       onUp(true);
       pointersRef.current.clear();
       pinchRef.current = null;
+      /* 待判定的单击不许跨页/跨锁执行（与上游 lastTapRef 清理同位） */
+      if (tapJudgeRef.current) { window.clearTimeout(tapJudgeRef.current.timer); tapJudgeRef.current = null; }
     }
     // Cancel pending gestures when the page is hidden or controls are locked.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -861,6 +882,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   useEffect(() => () => {
     if (gesture.current?.timer) window.clearTimeout(gesture.current.timer);
+    if (tapJudgeRef.current) window.clearTimeout(tapJudgeRef.current.timer);
+    tapJudgeRef.current = null;
     gesture.current = null;
     holdRef.current = false;
     /* Muse 2026-11-18 (审计修复): 切集时只复位 holdRef 不够——holdSpeed 状态会残留，

@@ -192,7 +192,11 @@ try {
           `${name}: portrait presentation must not render exit-fullscreen`);
         assertGeometry(await page.evaluate(PROBE, false), `${name} portrait-fs`, false);
         await tapUpper();
-        assert(!((await page.evaluate(PROBE, false)).keys["倍速选择"]), `${name}: tap must hide portrait-fs bar`);
+        // 单击延迟判定 (250ms 窗口) 后才执行显隐: 等底栏真隐藏再探针
+        await rateBtnP.waitFor({ state: "hidden" });
+        const probeAfterHide = await page.evaluate(PROBE, false);
+        const diag = await page.evaluate(() => ({ clean: document.querySelector(".player-root")?.dataset.clean, paused: document.querySelector("video")?.paused }));
+        assert(!probeAfterHide.keys["倍速选择"], `${name}: tap must hide portrait-fs bar; keys=${JSON.stringify(Object.keys(probeAfterHide.keys))} diag=${JSON.stringify(diag)}`);
         await tapUpper();
         await rateBtnP.waitFor({ state: "visible" });
         await rateBtnP.click();

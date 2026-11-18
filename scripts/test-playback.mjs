@@ -169,48 +169,79 @@ async function gestureChecks(page) {
     }));
   });
   const clean = () => page.locator('.player-root').getAttribute('data-clean');
-  // 断言接棒 (Muse 2026-11-18, 四度改写, 链条完整保留):
+  // 断言接棒 (Muse 2026-11-18, 五度改写, 链条完整保留):
   // 初版保护「双击切播放、单击 230ms 内翻转显隐」→ 二版 (删双击裁定) 保护
   // 「单击只翻转显隐、双击不改播放状态」→ 三版 (抖音式) 保护「单击切换
-  // 播放/暂停、显隐跟随播放状态、双击无专属动作」→ 本版 (解耦版, 用户真机
-  // 裁定废止三版): 单击暂停与单击显隐耦在同一手势上——想调选集/倍速必须
-  // 先暂停、想藏控件必须先播放, 操作逻辑互斥, 三版断言整体作废。
-  // 本版保护: ①单击只翻显隐、绝不改变播放状态 (无判定延迟的原保护点由
-  // 「单击→clean 立即翻转」接棒, 毫秒值沿旧口径只记录不设 bound——headless
-  // 软件 GL 挂账见 docs/lessons.md); ②暂停只走中央显性钮, 暂停态控件
-  // 锁定可见、单击既不隐藏也不恢复播放; ③中央钮可恢复播放, 恢复后单击
-  // 重获显隐切换; ④双击仍无专属动作 (显隐翻两次回原态、播放状态不变)。
-  // 断言写成状态相对式 (先读现态再验翻转), 不假设进入场景时的显隐初值。
+  // 播放/暂停、显隐跟随播放状态、双击无专属动作」→ 四版 (解耦版) 保护
+  // 「单击即时翻显隐、暂停只走中央钮、双击无专属动作」→ 本版 (用户改派
+  // 定版, 判定结构与上游 v2.2.0 lastTapRef 同位): 四版的「即时显隐」与
+  // 「双击无动作」作废——用户恢复双击切播放, 单击改为延迟判定: 第一击
+  // 只起 250ms 判定计时、不执行任何变更; 第二击到达则取消待执行显隐
+  // (显隐从未变过、天然无闪烁) 并改判双击切播放; 窗口到期才执行单击
+  // 显隐。延迟是双击判定的必要代价, 毫秒值只记录不设 bound (软件 GL
+  // 挂账见 docs/lessons.md)。
+  // 本版保护: ①单击在窗口内不提前变显隐 (防「先翻再翻回」的闪烁实现)、
+  // 到期后只翻显隐、绝不改变播放状态; ②双击切播放且不碰显隐 (终态与
+  // 击前一致); ③暂停双路径并存: 中央钮可暂停可恢复; 暂停态单击 (延迟
+  // 到期后) 仍锁显、不恢复播放。断言写成状态相对式, 不假设显隐初值。
   const tapFlip = async () => {
     const before = await clean();
     await tap();
     await page.waitForFunction(b => document.querySelector('.player-root')?.dataset.clean !== b, before);
   };
   const ensureVisible = async () => { if ((await clean()) === 'true') await tapFlip(); };
+  // 两击在同一次 evaluate 内背靠背同步派发: headless 软件 GL 每帧阻塞
+  // 主线程数百毫秒, 跨 evaluate 的间隔会被帧阻塞拉出 250ms 判定窗口、
+  // 误判成两次单击; 同步派发保证第二击在窗口内处理 (产品时序不变)。
+  const dblTap = async () => {
+    await page.evaluate(() => {
+      const surface = document.querySelector('video').parentElement.parentElement;
+      const bounds = surface.getBoundingClientRect();
+      for (let i = 0; i < 2; i++) for (const type of ['pointerdown', 'pointerup']) surface.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, pointerId: 91, pointerType: 'touch', button: 0, clientX: bounds.x + 100, clientY: bounds.y + 100,
+      }));
+    });
+  };
+  const c0 = await clean();
   const start = Date.now();
-  await tapFlip();
+  // 窗口内不变断言在页面主线程内观测 (MutationObserver 记录 data-clean
+  // 变化时刻): 测试机调度抖动 (evaluate 往返) 不进观测链, 180ms < 250ms
+  // 判定窗口, 窗口内出现任何一次变化即判闪烁路径。
+  await page.evaluate(() => {
+    window.__cleanLog = [];
+    const root = document.querySelector('.player-root');
+    window.__cleanT0 = Date.now();
+    window.__cleanObs = new MutationObserver(() => window.__cleanLog.push(Date.now()));
+    window.__cleanObs.observe(root, { attributes: true, attributeFilter: ['data-clean'] });
+  });
+  await tap();
+  await page.waitForTimeout(180);
+  const earlyChanges = await page.evaluate(() => { window.__cleanObs?.disconnect(); return window.__cleanLog.filter(t => t - window.__cleanT0 < 180).length; });
+  assert.equal(earlyChanges, 0, 'Single tap must not change chrome before the judge window expires');
+  await page.waitForFunction(b => document.querySelector('.player-root')?.dataset.clean !== b, c0);
   const singleTapMs = Date.now() - start;
   assert.equal(await video.evaluate(v => v.paused), false, 'Single tap toggles chrome only, never playback');
   await tapFlip();
-  assert.equal(await video.evaluate(v => v.paused), false, 'Second tap toggles chrome back, still playing');
+  assert.equal(await video.evaluate(v => v.paused), false, 'Second single tap toggles chrome back, still playing');
   await ensureVisible();
+  const cleanBeforeDbl = await clean();
+  await dblTap();
+  await page.waitForFunction(() => document.querySelector('video')?.paused === true);
+  assert.equal(await clean(), cleanBeforeDbl, 'Double tap toggles playback without touching chrome');
+  assert.equal(await clean(), 'false', 'Paused via double tap; chrome locked visible');
+  await tap();
+  await page.waitForTimeout(450);
+  assert.equal(await video.evaluate(v => v.paused), true, 'Single tap while paused does not resume playback');
+  assert.equal(await clean(), 'false', 'Single tap while paused does not hide chrome (locked visible)');
+  await dblTap();
+  await page.waitForFunction(() => document.querySelector('video')?.paused === false);
+  assert.equal(await clean(), 'false', 'Double tap resumes; chrome stays visible');
   await page.getByRole('button', { name: '暂停', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('video')?.paused === true);
-  assert.equal(await clean(), 'false', 'Paused via center button; chrome locked visible');
-  await tap();
-  await page.waitForTimeout(160);
-  assert.equal(await video.evaluate(v => v.paused), true, 'Tap while paused does not resume playback');
-  assert.equal(await clean(), 'false', 'Tap while paused does not hide chrome (locked visible)');
   await page.getByRole('button', { name: '播放', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('video')?.paused === false);
   await tapFlip();
-  assert.equal(await video.evaluate(v => v.paused), false, 'After resume, tap toggles chrome again');
-  const wasPaused = await video.evaluate(v => v.paused);
-  const cleanBefore = await clean();
-  await tap(); await page.waitForTimeout(80); await tap();
-  await page.waitForTimeout(160);
-  assert.equal(await video.evaluate(v => v.paused), wasPaused, 'Double tap has no dedicated action');
-  assert.equal(await clean(), cleanBefore, 'Double tap toggles chrome twice, back to prior state');
+  assert.equal(await video.evaluate(v => v.paused), false, 'After button resume, single tap toggles chrome again');
   return {singleTapMs};
 }
 
