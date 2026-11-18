@@ -17,15 +17,19 @@
  *   append-hung       —— append 已开始、一个宽限窗后仍未结束：判死；
  *   appended-no-buffer—— append 已结束但 buffered 仍为空：判死；
  *   （append 正在处理且未超时 → 不判死，自动延长一个宽限窗再复查。）
- * 「buffered 已增长但不 playing」不在本狗职责内：buffered() 一到即清狗，
- * 出画侧停滞由播放活动层（usePlaybackActivity 的 play 重试）负责。 */
+ * 「buffered 已增长但不 playing」由第二臂接管（2026-11-18 晚复审批，
+ * GPT §4.2 裁定成立）：此前头注释声称活动层 play 重试负责，实际活动层
+ * 只在页面激活/意图变化时重播、无超时守候——该状态曾无超时负责人。
+ * 现 buffered 首达后转入出画守候：窗口内 playing 不来且播放意愿在
+ * （shouldEscalate 门控，用户暂停不判死）→ 以 buffered-no-play 判死，
+ * 与 append 臂共用重建/降级链。 */
 
 export type StallClock = {
   setTimeout: (fn: () => void, ms: number) => unknown;
   clearTimeout: (handle: unknown) => void;
 };
 
-export type AppendStallState = "not-started" | "append-hung" | "appended-no-buffer";
+export type AppendStallState = "not-started" | "append-hung" | "appended-no-buffer" | "buffered-no-play";
 
 const systemClock: StallClock = {
   setTimeout: (fn, ms) => window.setTimeout(fn, ms),
@@ -34,12 +38,14 @@ const systemClock: StallClock = {
 
 export class AppendStallWatchdog {
   private timer: unknown = null;
+  private playTimer: unknown = null;
   private armed = false;
   private cleared = false;
   private disposed = false;
   private appendSeen = false;
   private appendInFlight = false;
   private extended = false;
+  private bufferedSeen = false;
 
   constructor(private opts: {
     /** 卡死判定窗口：首个 FragLoaded 后多久仍无 buffered 算停滞。 */
@@ -48,6 +54,8 @@ export class AppendStallWatchdog {
     /** 到点复查：已有可播缓冲则不算卡死（事件可能漏报）。 */
     hasBuffered: () => boolean;
     isPlaying: () => boolean;
+    /** 出画臂判死前的意愿门控：用户已暂停/不想播时不判死（缺省放行）。 */
+    shouldEscalate?: () => boolean;
     onStall: (state: AppendStallState) => void;
   }) {}
 
@@ -97,9 +105,32 @@ export class AppendStallWatchdog {
     this.appendInFlight = false;
   }
 
-  /** 分片已进入缓冲（FragBuffered / SourceBuffer updateend）——本源已活。 */
+  /** 分片已进入缓冲（FragBuffered / SourceBuffer updateend）：append 臂
+   * 达成使命撤防，转入出画守候（第二臂）——playing 在窗口内不来才判死。 */
   buffered(): void {
-    this.clear();
+    if (this.disposed || this.cleared || this.bufferedSeen) return;
+    this.bufferedSeen = true;
+    if (this.timer != null) {
+      this.clock.clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.opts.isPlaying()) {
+      this.clear();
+      return;
+    }
+    this.playTimer = this.clock.setTimeout(() => {
+      this.playTimer = null;
+      if (this.disposed || this.cleared) return;
+      if (this.opts.isPlaying() || !this.opts.hasBuffered()) {
+        this.cleared = true;
+        return;
+      }
+      if (this.opts.shouldEscalate && !this.opts.shouldEscalate()) {
+        this.cleared = true;
+        return;
+      }
+      this.opts.onStall("buffered-no-play");
+    }, this.opts.timeoutMs ?? 4000);
   }
 
   /** 已出画播放——本源已活。 */
@@ -113,6 +144,10 @@ export class AppendStallWatchdog {
       this.clock.clearTimeout(this.timer);
       this.timer = null;
     }
+    if (this.playTimer != null) {
+      this.clock.clearTimeout(this.playTimer);
+      this.playTimer = null;
+    }
   }
 
   dispose(): void {
@@ -120,6 +155,10 @@ export class AppendStallWatchdog {
     if (this.timer != null) {
       this.clock.clearTimeout(this.timer);
       this.timer = null;
+    }
+    if (this.playTimer != null) {
+      this.clock.clearTimeout(this.playTimer);
+      this.playTimer = null;
     }
   }
 }

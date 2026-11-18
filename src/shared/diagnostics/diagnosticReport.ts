@@ -80,6 +80,23 @@ demoteCount: number;
 /** 本会话实际切线次数与两轮确认待确认次数（线路乱跳的代理指标）。 */
 lineSwitchCount: number;
 confirmPendingCount: number;
+/** 逐次播放结局（复审批 §6）：频繁切换场景下逐次成败不可被最后一次掩盖。 */
+plays: PlayOutcome[];
+/** 干净出画的起播中位数（恢复耗时不混入）；无干净样本时 null。 */
+medianStartupMs: number | null;
+/** 最慢的干净出画及其播放序号；无样本时 null。 */
+slowest: { index: number; startupMs: number } | null;
+};
+
+/** 一次播放（一个 source.load 起）的最终结局。
+ * aborted＝被下一次 load 打断且无卡死/降级/传输错误证据（用户主动切
+ * 走），不入失败率；current＝最后一次尚无结论（进行中或刚失败待定）。 */
+export type PlayOutcome = {
+index: number;
+outcome: "success" | "recovered" | "failed" | "aborted" | "current";
+startupMs: number | null;
+stalls: number;
+fellBack: boolean;
 };
 
 export function analyzeFlow(entries: LogEntry[]): FlowResult | null {
@@ -100,6 +117,37 @@ const lastStallState = stallEvents.length? str(stallEvents[stallEvents.length - 
 const demoteCount = sessionEntries.filter(e => e.event === "web.sr.perf_demote").length;
 const lineSwitchCount = sessionEntries.filter(e => e.event === "web.line.pick" && e.data.switched === true).length;
 const confirmPendingCount = sessionEntries.filter(e => e.event === "web.line.confirmPending").length;
+
+/* 逐次播放切分（复审批 §6）：按 source.load 把本会话切成逐次播放，
+ * 每次定一个结局（口径见 PlayOutcome）。起播耗时以首帧呈现
+ * （media.first_frame）为准、无此信号回落 playing——playing 只是
+ * 「能播」的代理判定，不冒充首帧（§6.2）。 */
+const plays: PlayOutcome[] = [];
+{
+const loadIdxs: number[] = [];
+sessionEntries.forEach((e, i) => { if (e.event === "web.source.load") loadIdxs.push(i); });
+loadIdxs.forEach((li, k) => {
+const seg = sessionEntries.slice(li, k + 1 < loadIdxs.length? loadIdxs[k + 1]: undefined);
+const playingEv = seg.find(e => e.event === "web.media.playing");
+const frameEv = seg.find(e => e.event === "web.media.first_frame");
+const stalls = seg.filter(e => e.event === "web.hls.append_stall").length;
+const fellBack = seg.some(e => e.event === "web.playback.fallback");
+const hasError = seg.some(e => e.event === "web.source.transport_error");
+const isLast = k === loadIdxs.length - 1;
+let outcome: PlayOutcome["outcome"];
+if (playingEv) outcome = stalls > 0? "recovered": "success";
+else if (isLast) outcome = "current";
+else if (stalls > 0 || fellBack || hasError) outcome = "failed";
+else outcome = "aborted";
+const startEv = frameEv?? playingEv;
+plays.push({ index: k + 1, outcome, startupMs: startEv? Math.max(0, startEv.ts - seg[0].ts): null, stalls, fellBack });
+});
+}
+const cleanPlays = plays.filter(p => p.outcome === "success" && p.startupMs!= null);
+const cleanStarts = cleanPlays.map(p => p.startupMs as number).sort((a, b) => a - b);
+const medianStartupMs = cleanStarts.length? cleanStarts[Math.floor(cleanStarts.length / 2)]: null;
+const slowestPlay = cleanPlays.length? [...cleanPlays].sort((a, b) => (b.startupMs as number) - (a.startupMs as number))[0]: null;
+const slowest = slowestPlay? { index: slowestPlay.index, startupMs: slowestPlay.startupMs as number }: null;
 
 const reached = STAGES.map(stage => {
 const hit = tail.find(e => stage.events.includes(e.event));
@@ -131,7 +179,7 @@ verdict = "最近播放卡在 append（分片已下载、未入缓冲——appen
 } else {
 verdict = `最近播放卡在 ${furthest.label} 阶段`;
 }
-return { table: parts.join(" · "), verdict, startupMs, stalledThisSession, fallbackThisSession, stallCount, rebuildCount, fallbackCount, lastStallState, demoteCount, lineSwitchCount, confirmPendingCount};
+return { table: parts.join(" · "), verdict, startupMs, stalledThisSession, fallbackThisSession, stallCount, rebuildCount, fallbackCount, lastStallState, demoteCount, lineSwitchCount, confirmPendingCount, plays, medianStartupMs, slowest };
 }
 
 /* 看门狗四状态的人话标签：报告读者要一眼知道 append 死在哪一段。 */
@@ -139,6 +187,7 @@ const STALL_STATE_LABEL: Record<string, string> = {
 "not-started": "append 未开始（队列没动）",
 "append-hung": "append 处理中卡住",
 "appended-no-buffer": "append 已结束但缓冲为空",
+"buffered-no-play": "缓冲已增长但未出画",
 };
 
 export async function buildDiagnosticReport(): Promise<string> {
@@ -207,6 +256,20 @@ lines.push(`当前线路：${currentHost}（自动选线 ${autoLineEnabled()? "�
 lines.push(`各线延迟${probeCount!= null? `（候选 ${probeCount} 条）`: ""}：${probeText}`);
 lines.push(`分片吞吐：${speedText}`);
 lines.push(`最近播放：${flow? `${flow.verdict}${flow.startupMs!= null? ` · 起播约 ${(flow.startupMs / 1000).toFixed(1)}s`: ""}`: "无最近播放记录"}`);
+/* 本会话逐次汇总（复审批 §6）：只看最近一次会把前面的失败藏掉——
+ * 频繁切换的用户要先看全会话的成败分布。aborted（主动切走）单列、
+ * 不算失败；起播中位/最慢只取干净出画，恢复耗时不混入。 */
+if (flow && flow.plays.length > 1) {
+const n = (o: PlayOutcome["outcome"]) => flow.plays.filter(p => p.outcome === o).length;
+const bits = [`共 ${flow.plays.length} 次`, `出画 ${n("success")}`];
+if (n("recovered") > 0) bits.push(`卡死后出画 ${n("recovered")}`);
+if (n("failed") > 0) bits.push(`未能出画 ${n("failed")}`);
+if (n("aborted") > 0) bits.push(`主动中止 ${n("aborted")}`);
+if (n("current") > 0) bits.push("进行中 1");
+if (flow.medianStartupMs!= null) bits.push(`起播中位 ${(flow.medianStartupMs / 1000).toFixed(1)}s`);
+if (flow.slowest) bits.push(`最慢 ${(flow.slowest.startupMs / 1000).toFixed(1)}s（#${flow.slowest.index}）`);
+lines.push(`本会话播放：${bits.join(" · ")}`);
+}
 const healCounts = flow && flow.stallCount > 0? `（本会话卡死 ${flow.stallCount} 次 · 自愈重建 ${flow.rebuildCount} 次 · 降级 ${flow.fallbackCount} 次 · 最近卡死形态：${flow.lastStallState? STALL_STATE_LABEL[flow.lastStallState] ?? flow.lastStallState: "未记录"}）`: "";
 if (fallback || flow?.fallbackThisSession) lines.push(`会话降级：本会话已降级原生播放（append 停滞）${healCounts}`);
 else if (flow?.stalledThisSession) lines.push(`会话降级：发生过 append 卡死、已自愈重建（未降级）${healCounts}`);
@@ -243,7 +306,10 @@ const bpp = facts.bitrateBps && facts.w > 0 && facts.h > 0
    码率缺失时超分密度判据无从复核，报告要让读者看见这个缺口。编码
    同理入报告：超分阈值按编码族缩放（整改 4），无编码无从复核判档。 */
 const codecText = facts.codec? ` · 编码 ${facts.codec.split(".")[0]}`: " · 编码 未知";
-lines.push(`当前集源：${facts.w}x${facts.h}${codecText}${kbps? ` · 码率 ${kbps} kbps`: " · 码率 未知"}${bpp? ` · 密度 bpp ${bpp}`: ""} · 超分档位 ${facts.srMode}${facts.engine? ` · 引擎 ${facts.engine}`: ""}`);
+/* 帧率单列（复审批 §5.4）：编码已知/fps 未知/两者皆未知是三种状态，
+ * 帧成本预算与封顶判档都挂在 fps 上，不能塌缩进「编码未知」一格。 */
+const fpsText = facts.fps? ` · 帧率 ${facts.fps}fps`: " · 帧率 未知";
+lines.push(`当前集源：${facts.w}x${facts.h}${codecText}${fpsText}${kbps? ` · 码率 ${kbps} kbps`: " · 码率 未知"}${bpp? ` · 密度 bpp ${bpp}`: ""} · 超分档位 ${facts.srMode}${facts.engine? ` · 引擎 ${facts.engine}`: ""}`);
 } else {
 lines.push("当前集源：无（尚未播放）");
 }
@@ -252,5 +318,17 @@ lines.push(`选线现状：当前 ${currentHost}${round && Date.now() - round.at
 lines.push("");
 lines.push("── 最近一次播放流水 ──────────────");
 lines.push(flow? flow.table: "（无记录）");
+/* 此前异常摘要（复审批 §6.5）：只列出过事的播放（卡死后出画/未能
+ * 出画），全顺时不占篇幅；诊断要找的是「哪一次出的事」，不是流水账。 */
+if (flow && flow.plays.length > 1) {
+const anomalies = flow.plays.slice(0, -1).filter(p => p.outcome === "failed" || p.outcome === "recovered").slice(-4).reverse();
+for (const p of anomalies) {
+const bits = [p.outcome === "failed"? "未能出画": "卡死后出画"];
+if (p.stalls > 0) bits.push(`卡死 ${p.stalls} 次`);
+if (p.fellBack) bits.push("已降级原生");
+if (p.startupMs!= null) bits.push(`总耗时 ${(p.startupMs / 1000).toFixed(1)}s`);
+lines.push(`此前播放 #${p.index}：${bits.join(" · ")}`);
+}
+}
 return lines.join("\n");
 }

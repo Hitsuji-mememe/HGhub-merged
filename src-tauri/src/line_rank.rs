@@ -110,15 +110,39 @@ async fn throughput_inner(origin: &str) -> Option<u64> {
 /// 几十秒挤占播放带宽。
 const ROUND_BUDGET: Duration = Duration::from_secs(20);
 
+/// 吞吐池轮换游标（复审批 §3）：逐轮推进，保证池外候选长期轮得到
+/// 被测机会，而不是永远排在固定前几名之后。
+static ROTATE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// 给已延迟探测的候选补吞吐并排名，产出与旧 pick_from_hits 同形状的结果
 /// （base/tier/ms/reason/candidates），candidates 附每条的 kbps。
-/// 吞吐探测串行且最多测前 4 条可达候选（主站优先、其余按延迟升序）。
+/// 吞吐探测串行、池上限 4 条。池构成（2026-11-18 晚复审批，GPT 公平性
+/// 质疑后改）：旧制只取延迟前 4——池外候选永远测不到吞吐、永远赢不了，
+/// 当前线跌出前 4 还会被粘性当作不可达直接换掉。现池＝延迟前 2 +
+/// 当前线保底（可达且未入池时）+ 其余候选轮换 1 条。
 pub async fn pick_ranked(hits: Vec<(String, String, u64)>, current: Option<&str>) -> Value {
     let round_started = Instant::now();
     let mut ordered = hits;
     ordered.sort_by_key(|(tier, _, ms)| (tier != "main", *ms));
+    let mut pool: Vec<(String, String, u64)> = ordered.iter().take(2).cloned().collect();
+    if let Some(cur) = current {
+        if let Some(hit) = ordered.iter().find(|(_, u, _)| u.as_str() == cur) {
+            if !pool.contains(hit) {
+                pool.push(hit.clone());
+            }
+        }
+    }
+    if pool.len() < 4 {
+        let rest: Vec<&(String, String, u64)> =
+            ordered.iter().filter(|h| !pool.contains(h)).collect();
+        if !rest.is_empty() {
+            let idx = ROTATE.fetch_add(1, std::sync::atomic::Ordering::SeqCst) % rest.len();
+            pool.push(rest[idx].clone());
+        }
+    }
+    pool.sort_by_key(|(tier, _, ms)| (tier != "main", *ms));
     let mut measures: Vec<LineMeasure> = Vec::new();
-    for (tier, url, ms) in ordered.into_iter().take(4) {
+    for (tier, url, ms) in pool {
         let bps = if round_started.elapsed() > ROUND_BUDGET {
             None
         } else {

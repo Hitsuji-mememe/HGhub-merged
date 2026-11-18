@@ -87,6 +87,8 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   /* 码率样本（整改 4）：首分片对 VBR 源没代表性（片头黑场/Logo 会把
    * 码率拉得极低），改取前 3 个完整分片的中位数；换源清零。 */
   const srSamplesRef = useRef<number[]>([]);
+  /* 当前样本所属 level（复审批 §5.2）：与样本同生共灭，换源一并清零。 */
+  const srSampleLevelRef = useRef(-1);
   const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h, srDensity ?? undefined);
   /* 诊断报告的源规格读取点（收官批 D）：尺寸/密度/档位变化时发布快照 */
   useEffect(() => {
@@ -119,6 +121,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     setSrSize({ w: 0, h: 0 });
     setSrDensity(null);
     srSamplesRef.current = [];
+    srSampleLevelRef.current = -1;
     reportSize(videoRef.current);
   }, [measurementKey, src, active]);
 
@@ -228,9 +231,17 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       stallWatchdog = new AppendStallWatchdog({
         hasBuffered: () => { try { return video.buffered.length > 0 && video.buffered.end(video.buffered.length - 1) > 0; } catch { return false; } },
         isPlaying: () => !video.paused && video.readyState >= 2,
+        shouldEscalate: () => activity.isPlayWanted(),
         onStall: (state) => {
           if (hlsRef.current !== hls) return;
-          trace("hls.append_stall", { attempt: stallAttemptRef.current, state });
+          /* 意愿门控（复审批 §4.4）：起播期已被用户暂停的源不判死——
+           * 他不想播，卡不卡死与他无关；恢复意愿时活动层会重新 play。 */
+          if (!activity.isPlayWanted()) return;
+          /* 取证字段（复审批 §C）：根因未实锤前先把现场留全——判死时刻
+           * 的 readyState 与缓冲末端，下次故障靠它分辨死在哪一段。 */
+          let bufEnd = -1;
+          try { bufEnd = video.buffered.length > 0 ? Math.round(video.buffered.end(video.buffered.length - 1) * 10) / 10 : 0; } catch { /* 保持 -1 */ }
+          trace("hls.append_stall", { attempt: stallAttemptRef.current, state, rs: video.readyState, buf: bufEnd });
           if (stallAttemptRef.current < 1) {
             stallAttemptRef.current += 1;
             proxyRecovery.retry("append_stall", true);
@@ -252,14 +263,23 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         const st = data.frag.stats;
         /* 超分密度（收官批 C 项 + 整改 4）：完整分片实际码率取前 3 片
          * 中位数（单片对 VBR 无代表性）；fps/codec 取自 manifest level，
-         * 供判档按编码分阈值、fps 未知时走保守档。 */
-        if (st.loaded > 0 && data.frag.duration > 0 && srSamplesRef.current.length < 3) {
-          srSamplesRef.current = [...srSamplesRef.current, (st.loaded * 8) / data.frag.duration];
-          const sorted = [...srSamplesRef.current].sort((a, b) => a - b);
-          const median = sorted[Math.floor(sorted.length / 2)];
-          const level = hls.levels[data.frag.level];
-          const fps = level?.frameRate;
-          setSrDensity({ bitrateBps: median, fps: fps && fps > 0 ? fps : undefined, codec: level?.videoCodec || undefined });
+         * 供判档按编码分阈值、fps 未知时走保守档。样本必须同 level
+         * （复审批 §5.2）：ABR 中途切 level 时旧样本作废重采，否则两个
+         * 清晰度的码率混进同一个中位数。fps 只认 10–120 的合理区间，
+         * 声明异常值（时基垃圾数）按未知处理、不拿它算帧预算。 */
+        if (st.loaded > 0 && data.frag.duration > 0) {
+          if (srSampleLevelRef.current !== data.frag.level) {
+            srSampleLevelRef.current = data.frag.level;
+            srSamplesRef.current = [];
+          }
+          if (srSamplesRef.current.length < 3) {
+            srSamplesRef.current = [...srSamplesRef.current, (st.loaded * 8) / data.frag.duration];
+            const sorted = [...srSamplesRef.current].sort((a, b) => a - b);
+            const median = sorted[Math.floor(sorted.length / 2)];
+            const level = hls.levels[data.frag.level];
+            const fps = level?.frameRate;
+            setSrDensity({ bitrateBps: median, fps: fps && fps >= 10 && fps <= 120 ? fps : undefined, codec: level?.videoCodec || undefined });
+          }
         }
         const cb = fragStatsCbRef.current;
         if (!cb) return;
@@ -281,6 +301,14 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         onReady: () => { if (activity.isPlayWanted() && !resume) activity.play("native_autoplay", true); },
         onError: message => { trace("source.transport_error"); onError?.(message); },
       });
+    }
+
+    /* 首帧呈现信号（复审批 §6.2）：playing 只是「能播」不等于已出画；
+     * requestVideoFrameCallback 可用时记一次真实首帧，报告起播口径以它
+     * 为准、无此信号回落 playing（代理判定）。每源注册一次、回调自解。 */
+    const vfc = (video as unknown as { requestVideoFrameCallback?: (cb: () => void) => number }).requestVideoFrameCallback;
+    if (typeof vfc === "function") {
+      try { vfc.call(video, () => trace("media.first_frame")); } catch { /* 不可用则静默回落 */ }
     }
 
     return () => {
@@ -316,6 +344,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   };
 
   const handleVideoError = () => {
+    notePlaybackPlaying(false);
     if (hlsRef.current) return;
     onError?.(mediaErrorMessage(videoRef.current?.error ?? null));
   };
@@ -358,15 +387,15 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         onDuration?.(v.duration || 0);
         reportSize(v);
       }}
-      onPlay={() => { notePlaybackPlaying(true); if (activity.isActive()) onPlaying?.(); }}
-      onPause={() => { notePlaybackPlaying(false); onPause?.(); }}
+      onPlay={() => { if (activity.isActive()) { notePlaybackPlaying(true); onPlaying?.(); } }}
+      onPause={() => { if (activity.isActive()) notePlaybackPlaying(false); onPause?.(); }}
       onWaiting={() => onWaiting?.()}
       onPlaying={(e) => {
-        notePlaybackPlaying(true);
+        if (activity.isActive()) notePlaybackPlaying(true);
         reportSize(e.target as HTMLVideoElement);
         if (activity.isActive()) onPlaying?.();
       }}
-      onEnded={() => { if (activity.isActive()) onEnded?.(); }}
+      onEnded={() => { notePlaybackPlaying(false); if (activity.isActive()) onEnded?.(); }}
         onError={handleVideoError}
       />
       <SuperResCanvas
