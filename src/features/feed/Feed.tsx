@@ -170,10 +170,19 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const keepAliveTimers = useRef<number[]>([]);
   /* 双指缩放：scale 1~4，平移跟手指 */
   const [zoom, setZoom] = useState({ s: 1, x: 0, y: 0, g: false });
-  /* 横屏观看偏好（蓝图 P3）："" 未表态 / "landscape" 点过横屏观看 / "stay" 关过提示；
-     横屏源 fit 恒 contain 不裁切（原 portraitFit 铺满切换随蓝图回退，缩放仍可手动裁） */
-  const [landPref, setLandPref] = useState(() => { try { return localStorage.getItem("hghub_land_pref") || ""; } catch { return ""; } });
-  const landAutoKeyRef = useRef("");
+  /* 横屏：fit 恒 contain 不裁切（原 portraitFit 铺满切换随蓝图回退，缩放
+     仍可手动裁）。自动旋转已彻底取消（2026-11-18 缺陷8 用户真机裁定）：
+     滑到横屏源被自动转进横屏全屏是骚扰——进横屏只有一个入口，用户
+     亲手点顶栏全屏钮。P3 的偏好记忆与按集自动进逻辑全删，旧键
+     hghub_land_pref 就此弃用（不再读写）。LandHint 只剩指路职责：
+     landHintSeen 记「已见过提示」，提示在首个横屏条目出现、切走/
+     关闭/用过全屏钮后永不再现（只出现一次）。 */
+  const [landHintSeen, setLandHintSeen] = useState(() => { try { return localStorage.getItem("hghub_land_hint_seen") === "1"; } catch { return false; } });
+  const landHintKeyRef = useRef("");
+  const markLandHintSeen = useCallback(() => {
+    setLandHintSeen(true);
+    try { localStorage.setItem("hghub_land_hint_seen", "1"); } catch { /* ignore */ }
+  }, []);
   /* 单击/双击判定（上游 v2.2.0 lastTapRef 同位）：第一击的显隐快照 + 判定计时器；
      immersedKeyRef：开场默认沉浸（蓝图 P0）守卫——每集首次真正起播时收起控件
      一次（默认态只有视频），同一集内 seek/缓冲恢复不重复收起 */
@@ -917,34 +926,30 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
   }, [isDesktop, keepAlive, resolveSwipe, effectiveVideoIds.length, setClean, setFs, wake]);
 
-  /* 横屏偏好自动进横屏（蓝图 P3）：偏好为 landscape 时，横屏源每集首次
-     激活自动进横屏（landAutoKey 按集守卫——手动退出后不被拉回，下一集
-     再自动进）；进横屏复用同一播放元素，不重置进度。 */
+  /* LandHint「只出现一次」的记账：提示在某条目展示过、切到别的条目
+     即记已见；关闭提示或用过全屏钮同样记已见（见 markLandHintSeen
+     调用点）。自动进横屏逻辑已删（缺陷8），此处没有任何旋转动作。 */
   useEffect(() => {
-    if (!isDesktop && active && kind === "video" && landscapeVideo && !fs && !vpLandscape && landPref === "landscape" && landAutoKeyRef.current !== playKey) {
-      landAutoKeyRef.current = playKey;
-      enterFs(true);
-    }
-  }, [isDesktop, active, kind, landscapeVideo, fs, vpLandscape, landPref, playKey, enterFs]);
+    if (landHintSeen) return;
+    if (landHintKeyRef.current && landHintKeyRef.current !== playKey) { markLandHintSeen(); return; }
+    if (active && landscapeVideo && !fs) landHintKeyRef.current = playKey;
+  }, [playKey, active, landscapeVideo, fs, landHintSeen, markLandHintSeen]);
 
   const exitFs = useCallback(() => {
-    /* 退全屏回普通态先全显控件（恢复入口优先，解耦版）；之后显隐由单击决定。
-       同时把本集记入横屏自动进入守卫：手动退出后不被偏好自动进拉回
-       （蓝图 P3 口径，手动入口恒在、自动只认首次表态）。 */
-    landAutoKeyRef.current = playKey;
+    /* 退全屏回普通态先全显控件（恢复入口优先，解耦版）；之后显隐由单击决定 */
     setClean(false);
     setFs(false);
-  }, [setClean, setFs, playKey]);
+  }, [setClean, setFs]);
 
-  /* 顶栏全屏钮（缺陷7，2026-11-18 用户再裁定）：横屏源在控制层顶栏恒有
-     明确入口——点击进横屏全屏并记住偏好（同类后续自动进）；全屏时同位
-     变退出钮。竖屏源不渲染（竖屏已满屏呈现，无此语义）。 */
+  /* 顶栏全屏钮（缺陷7 + 缺陷8 收口，2026-11-18 用户再裁定）：横屏源在
+     控制层顶栏恒有明确入口，这是进横屏的唯一入口——点击进横屏全屏
+     （并记提示已见，不再指路）；全屏时同位变退出钮。竖屏源不渲染
+     （竖屏已满屏呈现，无此语义）。 */
   const toggleLandscapeFs = useCallback(() => {
     if (fs) { exitFs(); return; }
-    setLandPref("landscape");
-    try { localStorage.setItem("hghub_land_pref", "landscape"); } catch { /* ignore */ }
+    markLandHintSeen();
     enterFs(true);
-  }, [fs, exitFs, enterFs]);
+  }, [fs, exitFs, enterFs, markLandHintSeen]);
 
   useFsOrientation(fs, isDesktop, keepAlive);
 
@@ -1591,6 +1596,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             {episodes.length > 1 && <span className="shrink-0 text-[12px] font-semibold text-[#A1A5AD] hg-ov-shadow">第 {curEp} 集</span>}
             <span className="shrink-0 text-[11px] font-semibold text-[#A1A5AD] tabular-nums"><PlaybackTime clock={playbackClock} /> / {fmtTime(duration)}</span>
           </div>
+          {/* 热度只读指标（2026-11-18 用户定）：赞/藏/评三数字用来快速判断
+              热门程度，必须留——但只作只读文本随控制层出现，不做按钮
+              （收藏动作只在顶栏星钮、评论只从抽屉进）。独立一行右对齐，
+              不与剧名/时间行抢位、无重叠；格式沿上游万级口径 fmt()。 */}
+          <div className="px-4 pb-0.5 flex items-center justify-end gap-2.5 text-[11px] font-medium text-[#A1A5AD] tabular-nums">
+            <span>赞 {fmt(likeCount)}</span>
+            <span>藏 {fmt(collectCount)}</span>
+            <span>评 {fmt(meta.comment)}</span>
+          </div>
           <div className="px-4" style={{ height: 22 }}>
             <div ref={barRef} className="relative h-full" style={{ touchAction: "none" }}
               onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
@@ -1634,12 +1648,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </div>
       )}
 
-      {/* 横屏轻提示（蓝图 P3 + 缺陷7 改位）：仅未表态时、横屏源、非全屏、
-          竖屏视口出现一次；位置与顶栏全屏钮同位（顶栏下方右侧），指向该钮 */}
-      {!isDesktop && kind === "video" && landscapeVideo && !fs && !vpLandscape && active && !landPref && (
-        <LandHint top="calc(var(--sat, 0px) + 64px)"
-          onAccept={() => { setLandPref("landscape"); try { localStorage.setItem("hghub_land_pref", "landscape"); } catch { /* ignore */ } enterFs(true); }}
-          onDismiss={() => { setLandPref("stay"); try { localStorage.setItem("hghub_land_pref", "stay"); } catch { /* ignore */ } }} />
+      {/* 横屏轻提示（缺陷8 收口）：只指路、永不代为旋转——横屏源、非全屏、
+          竖屏视口、未见过提示时出现，位置与顶栏全屏钮同位（顶栏下方右侧） */}
+      {!isDesktop && kind === "video" && landscapeVideo && !fs && !vpLandscape && active && !landHintSeen && (
+        <LandHint top="calc(var(--sat, 0px) + 64px)" onDismiss={markLandHintSeen} />
       )}
 
       {/* 选集 / 详情 / 评论三页签面板：桌面停靠在右侧（画面让位），移动端底部弹层。

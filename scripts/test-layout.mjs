@@ -78,7 +78,7 @@ const PROBE = (worstTime) => {
   }
   const byLabel = name => document.querySelector(`button[aria-label="${name}"]`);
   const keys = {};
-  for (const name of ["返回", "选集", "倍速选择", "静音", "取消静音", "收藏", "全屏", "退出全屏"]) {
+  for (const name of ["返回", "选集", "倍速选择", "静音", "取消静音", "收藏", "搜索", "全屏", "退出全屏"]) {
     const el = byLabel(name);
     if (el && visible(el)) keys[name] = rectOf(el);
   }
@@ -171,7 +171,7 @@ try {
   const ui = `http://127.0.0.1:${vite.httpServer.address().port}`;
   browser = await chromium.launch({ headless: true, executablePath: process.env.BROWSER_EXECUTABLE || chromium.executablePath(), args: ["--autoplay-policy=no-user-gesture-required"] });
 
-  async function runCase(name, viewport, proxy, base, expectVideo, portraitSrc = false) {
+  async function runCase(name, viewport, proxy, base, expectVideo, portraitSrc = false, seedLandPref = false) {
     const result = { name, viewport, status: "running" };
     report.cases.push(result);
     mediaBase = base;
@@ -183,6 +183,13 @@ try {
     await page.addInitScript(() => {
       try { localStorage.setItem("hghubx_app_v1", JSON.stringify({ fsIdleSecs: 0 })); } catch { /* ignore */ }
     });
+    // 缺陷8 断言种子: 预置旧版横屏偏好键为 landscape——旧实现会据此在
+    // 条目激活时自动进横屏全屏, 新实现必须完全忽略该键 (自动旋转已删)。
+    if (seedLandPref) {
+      await page.addInitScript(() => {
+        try { localStorage.setItem("hghub_land_pref", "landscape"); } catch { /* ignore */ }
+      });
+    }
     await context.route("**/*", route => {
       const raw = route.request().url(), url = new URL(raw), mapped = fixtureMediaUrl(raw);
       if (mapped !== raw) return route.continue({ url: mapped });
@@ -198,6 +205,15 @@ try {
       // Non-fullscreen surface: no horizontal overflow, fullscreen entry visible & inside.
       const home = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, vw: window.innerWidth }));
       assert(home.scrollWidth <= home.vw + 1, `${name}: home overflow ${home.scrollWidth} > ${home.vw}`);
+      if (seedLandPref) {
+        // 自动旋转删除断言 (缺陷8 接棒): 旧偏好键在场 + 横屏源已起播
+        // 900ms 后, 方向必须仍保持竖屏呈现 (未被自动进横屏全屏),
+        // 且控制层全屏钮在位 (唯一入口) ——原 P3 断言保护「记住偏好后
+        // 自动进」, 用户真机裁定该行为本身即缺陷, 由本断言反向接棒。
+        await page.waitForTimeout(900);
+        const rootClass = await page.evaluate(() => document.querySelector(".player-root")?.className || "");
+        assert(!/fs-immersive/.test(rootClass), `${name}: legacy landscape preference must not auto-enter fullscreen (auto-rotate removed)`);
+      }
       if (portraitSrc) {
         // ── 竖屏即全屏呈现流程 (Muse 2026-11-18 断言接棒) ──
         // 原竖屏与横屏共用「点全屏钮 → 验退出钮可达」, 保护的是手动进全屏
@@ -325,7 +341,7 @@ try {
   }
 
   for (const vp of PORTRAIT_VIEWPORTS) await runCase(`portrait-${vp[0]}x${vp[1]}`, vp, portBase, portBase, [360, 640], true);
-  await runCase("portrait-393-rotated-source", [393, 852], landBase, landBase, [320, 180]);
+  await runCase("portrait-393-rotated-source", [393, 852], landBase, landBase, [320, 180], false, true);
   for (const vp of LANDSCAPE_VIEWPORTS) await runCase(`landscape-${vp[0]}x${vp[1]}`, vp, landBase, landBase, [320, 180]);
 } catch (error) {
   report.setup_error = error.message;
