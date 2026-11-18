@@ -36,11 +36,14 @@ type Props = {
    * 补进契约并透传全屏 hook 的作用域键（不变量 2：作用域进 key），
    * 缺省时 hook 自行回退 src。 */
   scopeKey?: string | number;
+  /* 跟版合并（同上）：上游 Posts 同时在传 volume（store 全局音量）；
+   * 我方帖子播放器此前无音量契约，补齐并落到 video 元素（iOS 上为 no-op）。 */
+  volume?: number;
 };
 
 export default function Player({
   src, poster, autoPlay, active = true, muted = false, loop = false, onEnded, onPlaying,
-  onTogglePlay, onToggleMute, controls = true, className = "", diagnosticContext = {},
+  onTogglePlay, onToggleMute, controls = true, className = "", diagnosticContext = {}, scopeKey, volume = 1,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const latestSource = useRef(src); latestSource.current = src;
@@ -53,8 +56,14 @@ export default function Player({
   if (stallSrcRef.current !== src) { stallSrcRef.current = src; stallAttemptRef.current = 0; }
   const { trace, requestSeek } = usePlayerDiagnostics(videoRef, hlsRef, { view: "post_detail", ...diagnosticContext, active, resource: mediaResource(src) });
   const activity = usePlaybackActivity(videoRef, hlsRef, { active, autoPlay: !!autoPlay, src, trace });
-  const { slotRef, wrapRef, host, full, fallback, toggleFull } = useInlinePlayerFullscreen({ active, src, videoRef, activity });
+  const { slotRef, wrapRef, host, full, fallback, toggleFull } = useInlinePlayerFullscreen({ active, src, scopeKey, videoRef, activity });
   const proxyRecovery = useProxyPlaybackRecovery(videoRef, src, activity, trace);
+  /* 音量契约落地（跟版合并，Muse 2026-11-18）：换源与音量变化时同步到
+   * video 元素；与静音相互独立（muted 走元素属性，volume 走增益）。 */
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v) { try { v.volume = Math.min(1, Math.max(0, volume)); } catch { /* iOS 忽略 */ } }
+  }, [volume, src]);
   const [playing, setPlaying] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [time, setTime] = useState(0);

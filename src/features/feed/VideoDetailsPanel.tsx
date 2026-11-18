@@ -66,7 +66,7 @@ export default function VideoDetailsPanel({ meta, videoId, episodeCount, related
       {related.length > 0 && <section className="video-details-section">
         <h3 className="video-details-section-heading">相关推荐</h3>
         <FilteredContent items={related.slice(0, 12)} scopeKey={videoId}>{visible => <div className="scroll-x flex gap-2.5 snap-x">
-          {visible.map(video => <RowCard key={video.id} v={video} onOpen={() => onRelated(video, visible)} />)}
+          {visible.map(video => <RowCard key={video.id} v={video} onOpen={() => onRelated(video)} />)}
         </div>}</FilteredContent>
       </section>}
     </div>
