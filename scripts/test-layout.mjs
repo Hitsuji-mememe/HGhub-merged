@@ -237,8 +237,8 @@ try {
         await rateBtnP.waitFor({ state: "visible" });
         assert.equal(await page.getByRole("button", { name: "退出全屏", exact: true }).count(), 0,
           `${name}: portrait presentation must not render exit-fullscreen`);
-        // 全屏钮负断言 (缺陷7 接棒): 竖屏源无横屏全屏语义, 顶栏不得出现
-        // 全屏钮 (横屏源正断言在下方横屏流程: 在位且热区 ≥44px)。
+        // 全屏钮负断言 (缺陷7 接棒): 竖屏源无横屏全屏语义, 控制层不得
+        // 出现全屏钮 (横屏源正断言在下方横屏流程: 在位且热区 ≥44px)。
         assert.equal(await page.getByRole("button", { name: "全屏", exact: true }).count(), 0,
           `${name}: portrait source must not render a fullscreen button`);
         assertGeometry(await page.evaluate(PROBE, false), `${name} portrait-fs`, false);
@@ -295,7 +295,7 @@ try {
       await tapCenter();
       const fsBtn = page.getByRole("button", { name: "全屏", exact: true });
       await fsBtn.waitFor({ state: "visible" });
-      // 全屏钮热区断言 (缺陷7): 横屏源控制层顶栏全屏钮必须 ≥44px。
+      // 全屏钮热区断言 (缺陷7; 位置由第11项定版在操作行右端): ≥44px。
       const fsBox = await fsBtn.boundingBox();
       assert(fsBox && fsBox.width >= 44 && fsBox.height >= 44,
         `${name}: fullscreen button hit area must be >= 44px, got ${JSON.stringify(fsBox)}`);
@@ -326,6 +326,23 @@ try {
       await sheet.waitFor({ state: "visible" });
       const sb = await sheet.boundingBox();
       assert(sb && sb.x >= -1 && sb.x + sb.width <= viewport[0] + 1, `${name}: episodes sheet out of viewport ${JSON.stringify(sb)}`);
+      // 单入口断言 (Muse 2026-11-18 第11项, 接棒): 原双入口形态保护
+      // 「选集/内容两钮各落其页、落点跟随入口」; 用户极简裁定合并后
+      // 接棒为: ①操作行无「内容」钮 ②选集钮恒落选集页 ③抽屉内三页签
+      // 可达 (切到评论) ④关后重开仍落选集 (无页签记忆)。
+      assert.equal(await page.getByRole("button", { name: "内容", exact: true }).count(), 0,
+        `${name}: ops row must not keep a separate 内容 entry (single 选集 entry)`);
+      const tabBtn = (n) => sheet.getByRole("button", { name: n, exact: true });
+      assert.equal(await tabBtn("选集").getAttribute("aria-pressed"), "true",
+        `${name}: 选集 entry must land on the episodes tab`);
+      await tabBtn("评论").click();
+      await page.waitForFunction(() => document.querySelector('.video-details-sheet button[aria-pressed="true"]')?.textContent?.includes("评论"));
+      await page.getByRole("button", { name: "关闭", exact: true }).click();
+      await sheet.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "选集", exact: true }).last().click();
+      await sheet.waitFor({ state: "visible" });
+      assert.equal(await tabBtn("选集").getAttribute("aria-pressed"), "true",
+        `${name}: reopening must land on episodes again (no tab memory)`);
       await page.getByRole("button", { name: "关闭", exact: true }).click();
       await sheet.waitFor({ state: "hidden" });
       // Exit path works end to end. (接棒同上: 退全屏过渡的 keepAlive 续播可能

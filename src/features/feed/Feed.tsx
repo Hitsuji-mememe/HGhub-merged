@@ -1556,8 +1556,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           移动端视频条目的信息与操作只属于这一层：顶栏（返回/集数定位/
           静音/搜索）+ 底部（剧名·集数与时间行/可拖进度条/操作行），同显
           同隐、不拆多个悬浮层；显隐走解耦模型（普通态 clean、全屏呈现态
-          idle；暂停不锁显，播放/暂停同权）。操作行固定构成：上一集 | 选集 | 暂停/播放
-          （底部中央 52px） | 下一集 | 内容 | 倍速指示。此前并存的全屏
+          idle；暂停不锁显，播放/暂停同权）。操作行固定构成：上一集 | 选集（抽屉单入口，
+          恒落选集页）| 暂停/播放（底部中央 52px）| 下一集 | 倍速 | 全屏（仅横屏源）。
+          蓝图双入口（选集/内容两钮）已按 2026-11-18 第11项极简裁定合并：
+          详情/评论只在抽屉内点页签到达。此前并存的全屏
           底栏、独立全屏进度条、两处退出钮与中央大钮至此合并回退——真实
           全屏的退出由顶栏返回承担（与硬件返回同序：先退全屏）。底栏
           44px 地板与不出视口的几何教训（2.2.0 溢出修复）由 test-layout
@@ -1585,13 +1587,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
             <ISearch size={18} />
           </Button>
-          {/* 全屏钮（缺陷7）：仅横屏源渲染，进/退同位，随控制层显隐 */}
-          {landscapeVideo && (
-            <Button onClick={toggleLandscapeFs} aria-label={fs ? "退出全屏" : "全屏"}
-              className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
-              {fs ? <ICompress size={18} /> : <IExpand size={18} />}
-            </Button>
-          )}
         </div>
       )}
       {!isDesktop && kind === "video" && (fsUi ? !idle : !clean) && (
@@ -1637,10 +1632,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               className="hg-chip w-11 h-11 rounded-full flex items-center justify-center pressable disabled:opacity-35">
               <INext size={18} />
             </Button>
-            <Button onClick={() => setPanel("detail")} aria-label="内容"
-              className="hg-chip h-11 px-3 rounded-full flex items-center gap-1 text-[13px] font-semibold pressable">
-              <IFileText size={15} />内容
-            </Button>
             <div className="relative">
               <Button onClick={() => setRateMenuOpen((v) => !v)} aria-label="倍速选择" aria-expanded={rateMenuOpen}
                 className={`h-11 px-3 rounded-full flex items-center gap-1 text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip"}`}>
@@ -1650,19 +1641,28 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 <RateMenu current={rate} onSelect={(r) => { setRate(r); videoRef.current?.rate(r); setRateMenuOpen(false); }} />
               )}
             </div>
+            {/* 全屏钮（缺陷7 入口、第11项定版位置）：操作行右端，仅横屏源
+                渲染，进/退同位，随控制层显隐 */}
+            {landscapeVideo && (
+              <Button onClick={toggleLandscapeFs} aria-label={fs ? "退出全屏" : "全屏"}
+                className="hg-chip w-11 h-11 rounded-full flex items-center justify-center pressable">
+                {fs ? <ICompress size={18} /> : <IExpand size={18} />}
+              </Button>
+            )}
           </div>
         </div>
       )}
 
       {/* 横屏轻提示（缺陷8 收口）：只指路、永不代为旋转——横屏源、非全屏、
-          竖屏视口、未见过提示时出现，位置与顶栏全屏钮同位（顶栏下方右侧） */}
+          竖屏视口、未见过提示时出现，位置与操作行全屏钮同位（底栏上方右侧） */}
       {!isDesktop && kind === "video" && landscapeVideo && !fs && !vpLandscape && active && !landHintSeen && (
-        <LandHint top="calc(var(--sat, 0px) + 64px)" onDismiss={markLandHintSeen} />
+        <LandHint bottom="calc(var(--sab, 0px) + 132px)" onDismiss={markLandHintSeen} />
       )}
 
       {/* 选集 / 详情 / 评论三页签面板：桌面停靠在右侧（画面让位），移动端底部弹层。
-          Muse 2026-11-18 (用户裁定): 评论从独立弹层并入本面板页签——入口一按开面板、
-          落点跟随入口语义（选集入口落选集、详情入口落详情），页签间一按切换。 */}
+          Muse 2026-11-18 (用户裁定): 评论从独立弹层并入本面板页签；移动端操作行
+          只剩「选集」单入口、恒落选集页（第11项合并裁定，推翻蓝图双入口），
+          详情/评论在面板内点页签切换、无页签记忆。 */}
       {isDesktop ? (
         <div className={`desktop-dock-panel ${panel ? "is-open" : ""}`}>
           <div className="desktop-dock-inner">
@@ -1703,7 +1703,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
           <Sheet open={active && (panel === "detail" || panel === "episodes" || panel === "comments")} label={panel === "episodes" ? "选集" : panel === "detail" ? "视频详情" : "评论"} onClose={() => setPanel(null)}>
             <div className="video-details-sheet">
-              {/* 三页签抽屉：选集 / 详情 / 评论，落点跟随打开它的入口 */}
+              {/* 三页签抽屉：选集 / 详情 / 评论，单入口恒落选集，页签内切换 */}
               <div className="shrink-0 flex items-center gap-2 px-4 pb-2">
                 <SegmentedControl className="flex-1" aria-label="剧集面板" activeIndex={panel === "episodes" ? 0 : panel === "detail" ? 1 : 2}>
                   {([["episodes", "选集"], ["detail", "详情"], ["comments", "评论"]] as const).map(([k, l]) => (
