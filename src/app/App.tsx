@@ -155,8 +155,10 @@ function AppBody() {
      体感是反的（用户原话：往左滑是向右、往右划是向左），以真机为准。
      播放器中部左划进搜索（与顶栏〈、放大镜同落搜索，〈落点已在
      Feed.goBack 改齐）；搜索右划回播放器、左划去分类；分类右划回搜索、
-     左划去我的；我的右划回分类、左划进设置（推栈）；设置页右划返回
-     我的、左划无动作（链尾）。链首（播放器）右划无动作。
+     左划去我的；我的右划回分类、左划进设置（推栈）；栈页（设置/吃瓜/
+     详情/频道/栈内 Feed 等全部）右划一律 pop 返回上一级、左划无动作
+     （2026-11-19 fix2 A1 补齐，此前只有设置页能滑回）。链首（播放器）
+     右划无动作。
      与播放器既有手势的冲突处理（以本链为准的除外，提交说明记账）：
      播放器左缘 24px 起手的右划仍归边缘返回手势（关面板/退全屏），
      本链只接中部起手；全屏（fs）中不触发本链；纵向滚动靠方向锁定
@@ -180,6 +182,9 @@ function AppBody() {
       }
       // 播放器左缘起手归边缘返回手势，本链只接中部
       if (tab === "home" && stack.length === 0 && t.clientX <= 24) blocked = true;
+      // 栈内 Feed 页同理：左缘起手归 Feed 自己的边缘返回（关面板/退全屏/
+      // 返回同序），本链若再 pop 会一次退两层（Muse 2026-11-19 fix2 A1）
+      if (stack[stack.length - 1]?.kind === "feed" && t.clientX <= 24) blocked = true;
       start = { x: t.clientX, y: t.clientY, blocked };
     };
     const onEnd = (e: TouchEvent) => {
@@ -194,7 +199,14 @@ function AppBody() {
       const right = dx > 0;
       const top = stack[stack.length - 1];
       if (top) {
-        if (top.kind === "settings" && right) pop();
+        /* 栈页右划一律返回上一级（Muse 2026-11-19 fix2 A1，用户真机反馈：
+           此前只有设置页能滑回，其余栈页手势被吞、只能点〈）。左划在栈页
+           无动作（链尾语义不变）。与既有手势的仲裁沿 E 项定版：全屏 fs
+           不触发本链（Feed 内 scrub 在 fs 态独占横拖）；非全屏中部横划
+           本就归本链（E 项真机裁定）；栈内 Feed 左缘起手已在 onStart
+           让给 Feed 边缘返回，避免双 pop；横滚区/输入框/dialog 起手
+           仍按上方 walk 拦截。 */
+        if (right) pop();
         return;
       }
       if (tab === "home") { if (!right) setTab("search"); }
