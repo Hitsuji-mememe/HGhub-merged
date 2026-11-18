@@ -206,6 +206,85 @@ export function srHasConfirmedFrame(
   return video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0;
 }
 
+/* ── U1 自动选档：合成层保底 + 帧成本双向调节（Muse 2026-11-18）──
+ * 用户侧零操作、无新设置项：档位完全由程序按「源分辨率/密度
+ * （effectiveSrMode）+ 实测帧成本（本节）」自动决定。既有 srPref
+ * （auto/off）原样保留：off 是用户显式关，两层全关；auto 下的 off
+ * 是程序判档关（高密度源），与显式关靠 pref 原值区分、不靠猜。
+ *
+ * 自动回退触发条件（全部程序内闭环，不需要用户介入）：
+ * 1) WebGL 帧成本超标 → 逐窗降档（见 srPerfStep），降到 off 后
+ *    VideoSurface 自动改挂合成层 SVG natural 保底（srVideoFilterMode），
+ *    WebGL 探针确认性能恢复后自动升回——回退与恢复都是自动的。
+ * 2) WebGL 硬故障（初始化失败/上下文丢失/texImage 抛错）→ 锁定
+ *    svgFallback（D 的 locked 路径），用本档位自己的 SVG 滤镜顶替。
+ * 3) 合成层保底只在 WebGL 不呈现时挂载；WebGL 一恢复呈现，同一渲染
+ *    内摘除，绝不双重处理；保底滤镜复用 svgFallback 已在产的同一套
+ *    SVG 卷积（SuperResSvgDefs 常驻），没有新增渲染路径。 */
+
+/** 升档迟滞：窗口均值低于预算的这个比例才算「有余量」（中性带防震荡）。 */
+export const SR_PROMOTE_HEADROOM = 0.5;
+/** 升档迟滞：连续达标窗口数达到此值才升一档（降档仍是单窗即降）。 */
+export const SR_PROMOTE_GOOD_WINDOWS = 3;
+/** 已降到 off 时的探针 cadence：每 N 帧才实测一帧 natural 档成本。 */
+export const SR_PROBE_EVERY = 30;
+/** 探针窗口：累计 N 个探针帧求均值（30×10≈300 帧 ≈ 30fps 下 10 秒一窗）。 */
+export const SR_PROBE_WINDOW_FRAMES = 10;
+
+/** 从本档出发最多还能降几步（再降档位也不变）。 */
+export function srMaxDemoteSteps(mode: SuperResMode): number {
+  let steps = 0;
+  while (steps < 8 && srDemote(mode, steps + 1) !== srDemote(mode, steps)) steps += 1;
+  return steps;
+}
+
+/** 帧成本窗口裁决（带迟滞的双向调节，根治旧「只降不升」B6）：
+ * - 降档快：单窗均值 > 预算 → 立即降一档（保流畅优先），达标计数清零；
+ * - 升档慢：均值 < 预算×SR_PROMOTE_HEADROOM 才累计一个达标窗，连续
+ *   SR_PROMOTE_GOOD_WINDOWS 窗才升一档；落在 [headroom, 预算] 中性带
+ *   的窗口清零计数——临界点附近不会升降震荡。
+ * 窗口长度沿用既有统计量级（正常 60 帧/窗，探针 10 帧/窗，见组件）。 */
+export function srPerfStep(
+  avgMs: number,
+  budgetMs: number,
+  demote: number,
+  maxDemote: number,
+  goodStreak: number,
+): { demote: number; goodStreak: number; action: "demote" | "promote" | "none" } {
+  if (avgMs > budgetMs) {
+    const next = Math.min(maxDemote, demote + 1);
+    return { demote: next, goodStreak: 0, action: next !== demote ? "demote" : "none" };
+  }
+  if (avgMs < budgetMs * SR_PROMOTE_HEADROOM) {
+    const streak = goodStreak + 1;
+    if (streak >= SR_PROMOTE_GOOD_WINDOWS && demote > 0) {
+      return { demote: demote - 1, goodStreak: 0, action: "promote" };
+    }
+    return { demote, goodStreak: streak, action: "none" };
+  }
+  return { demote, goodStreak: 0, action: "none" };
+}
+
+/** <video> 合成层滤镜选档（VideoSurface 用，纯函数）：
+ * - svgFallback 中（WebGL 锁定/暂定降级）→ 本档位自己的 SVG 滤镜（既有
+ *   路径；getSvgFilterUrl 会把 off 映射为无滤镜）；
+ * - 用户显式关（srPref==="off"）→ 无滤镜，两层全关（既有功能）；
+ * - WebGL 不呈现（canvasMode==="off"：自动判档 off 或性能降到 off）
+ *   且用户没关 → SVG natural 保底，默认增强档不缺席；
+ * - WebGL 正在呈现（canvasMode!=="off"）→ 无滤镜，canvas 独占呈现，
+ *   绝不叠加双重处理。 */
+export function srVideoFilterMode(args: {
+  srPref: SrPref;
+  srMode: SuperResMode;
+  canvasMode: SuperResMode;
+  svgFallback: boolean;
+}): SuperResMode | undefined {
+  if (args.svgFallback) return args.srMode;
+  if (args.srPref === "off") return undefined;
+  if (args.canvasMode === "off") return "natural";
+  return undefined;
+}
+
 /**
  * 播放器超分多档位直达选单（深色毛玻璃浮层，兼容竖屏 / 横屏 / 独立播放器）。
  */
@@ -768,6 +847,9 @@ type Props = {
   /** 源帧率（未知时缺失）：帧成本降档预算按帧间隔缩放（整改 4）。 */
   fps?: number;
   onFallbackChange?: (useSvgFallback: boolean) => void;
+  /** U1：把（降档后的）实际呈现档位报给 VideoSurface 决定合成层保底
+   * 是否挂载——WebGL 降到 off 时它才挂 SVG natural，呈现中永不叠加。 */
+  onActiveModeChange?: (mode: SuperResMode) => void;
   onTrace?: (event: string, data?: Record<string, unknown>) => void;
 };
 
@@ -790,6 +872,7 @@ export default function SuperResCanvas({
   srcKey = "",
   fps,
   onFallbackChange,
+  onActiveModeChange,
   onTrace,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -801,6 +884,16 @@ export default function SuperResCanvas({
   const [demote, setDemote] = useState(0);
   const frameCostRef = useRef({ sum: 0, n: 0 });
   const activeMode = srDemote(mode, demote);
+  /* U1 双向调节状态：连续达标窗计数（升档迟滞）与降到 off 后的探针
+   * 帧计数/成本窗。换源一并清零（见 srcKey effect）。 */
+  const goodStreakRef = useRef(0);
+  const probeFrameRef = useRef(0);
+  const probeCostRef = useRef({ sum: 0, n: 0 });
+  const activeModeCbRef = useRef(onActiveModeChange);
+  activeModeCbRef.current = onActiveModeChange;
+  useEffect(() => {
+    activeModeCbRef.current?.(activeMode);
+  }, [activeMode]);
 
   const verifiedRef = useRef(false);
   const blackFramesRef = useRef(0);
@@ -885,6 +978,9 @@ export default function SuperResCanvas({
     provisionalFrameRef.current = 0;
     setFallbackKind("none");
     frameCostRef.current = { sum: 0, n: 0 };
+    goodStreakRef.current = 0;
+    probeFrameRef.current = 0;
+    probeCostRef.current = { sum: 0, n: 0 };
     setDemote(0);
     setSvgFallback(false);
     setCanvasReady(false);
@@ -955,8 +1051,11 @@ export default function SuperResCanvas({
     const canvas = canvasRef.current;
     const pipe = glRef.current;
     /* 只有锁定降级才停主循环；暂定（黑场）降级必须让循环活着复查，
-     * 否则撤销无从发生——这是旧闩锁「触发即停循环」的关键差别。 */
-    if (!video || !canvas || !pipe || fallbackKind === "locked" || activeMode === "off" || !active) {
+     * 否则撤销无从发生——这是旧闩锁「触发即停循环」的关键差别。
+     * U1：activeMode 为 off 但 demote>0（被帧成本降下来的）也不停
+     * 循环——要留探针给自动升档；真 off（判档/用户关，demote=0）
+     * 才整体退出，行为与旧版一致。 */
+    if (!video || !canvas || !pipe || fallbackKind === "locked" || (activeMode === "off" && demote === 0) || !active) {
       return;
     }
 
@@ -972,6 +1071,14 @@ export default function SuperResCanvas({
       if (fallbackRef.current.kind === "provisional") {
         provisionalFrameRef.current += 1;
         if (provisionalFrameRef.current % SR_PROVISIONAL_RECHECK_EVERY !== 0) return;
+      }
+      /* U1 探针 cadence：已被帧成本降到 off 时画布不呈现（合成层保底
+       * 顶着），主循环只每 SR_PROBE_EVERY 帧实测一帧成本，其余帧跳过
+       * 全部 GL 工作——探针开销约全速的 1/30，不构成新的性能负担。 */
+      const probing = activeMode === "off";
+      if (probing) {
+        probeFrameRef.current += 1;
+        if (probeFrameRef.current % SR_PROBE_EVERY !== 0) return;
       }
       const vw = video.videoWidth || 0;
       const vh = video.videoHeight || 0;
@@ -1053,22 +1160,49 @@ export default function SuperResCanvas({
             }
           }
         }
-        // 性能兜底采样：60 帧窗口平均成本超预算且还能降 → 降一档并重开窗口。
-        // 预算按源帧间隔缩放（整改 4）：处理是逐视频帧的（rVFC），30fps 源
-        // 帧间隔 33ms、16ms 是半帧预算；60fps 源帧间隔只有 16.7ms，固定
-        // 16ms 等于占满整帧——预算取 min(16ms, 55% 帧间隔)，fps 未知用 16ms。
+        /* 性能调节（U1 双向，裁决见 srPerfStep）：60 帧窗口均值对预算——
+         * 超预算单窗降档、低于半预算连续 3 窗升档、中性带清零防震荡。
+         * 预算按源帧间隔缩放（整改 4）：处理是逐视频帧的（rVFC），30fps
+         * 源帧间隔 33ms、16ms 是半帧预算；60fps 源帧间隔只有 16.7ms，
+         * 固定 16ms 等于占满整帧——预算取 min(16ms, 55% 帧间隔)，fps
+         * 未知用 16ms。
+         * 探针态（已降到 off）改用探针窗：每 SR_PROBE_EVERY 帧实测一帧、
+         * SR_PROBE_WINDOW_FRAMES 帧一窗；uMode=0 在 shader 里走
+         * runNatural 分支，测的就是 natural 档单帧成本；探针只升不降
+         * （已在地板，srPerfStep 的降档在 demote=max 时天然无动作）。 */
         if (costStart && fallbackRef.current.kind === "none") {
-          const cost = frameCostRef.current;
-          cost.sum += performance.now() - costStart;
-          cost.n += 1;
-          if (cost.n >= 60) {
-            const avg = cost.sum / cost.n;
-            frameCostRef.current = { sum: 0, n: 0 };
-            const srcFps = fpsRef.current;
-            const budget = srcFps && srcFps > 0 ? Math.min(16, (0.55 * 1000) / srcFps) : 16;
-            if (avg > budget && srDemote(mode, demote + 1) !== activeMode) {
-              onTrace?.("sr.perf_demote", { from: activeMode, to: srDemote(mode, demote + 1), avg_ms: Math.round(avg * 10) / 10, budget_ms: Math.round(budget * 10) / 10 });
-              setDemote(demote + 1);
+          const srcFps = fpsRef.current;
+          const budget = srcFps && srcFps > 0 ? Math.min(16, (0.55 * 1000) / srcFps) : 16;
+          if (probing) {
+            const pc = probeCostRef.current;
+            pc.sum += performance.now() - costStart;
+            pc.n += 1;
+            if (pc.n >= SR_PROBE_WINDOW_FRAMES) {
+              const avg = pc.sum / pc.n;
+              probeCostRef.current = { sum: 0, n: 0 };
+              const step = srPerfStep(avg, budget, demote, srMaxDemoteSteps(mode), goodStreakRef.current);
+              goodStreakRef.current = step.goodStreak;
+              if (step.action === "promote") {
+                onTrace?.("sr.perf_promote", { from: activeMode, to: srDemote(mode, step.demote), avg_ms: Math.round(avg * 10) / 10, budget_ms: Math.round(budget * 10) / 10, probe: true });
+                setDemote(step.demote);
+              }
+            }
+          } else {
+            const cost = frameCostRef.current;
+            cost.sum += performance.now() - costStart;
+            cost.n += 1;
+            if (cost.n >= 60) {
+              const avg = cost.sum / cost.n;
+              frameCostRef.current = { sum: 0, n: 0 };
+              const step = srPerfStep(avg, budget, demote, srMaxDemoteSteps(mode), goodStreakRef.current);
+              goodStreakRef.current = step.goodStreak;
+              if (step.action === "demote") {
+                onTrace?.("sr.perf_demote", { from: activeMode, to: srDemote(mode, step.demote), avg_ms: Math.round(avg * 10) / 10, budget_ms: Math.round(budget * 10) / 10 });
+                setDemote(step.demote);
+              } else if (step.action === "promote") {
+                onTrace?.("sr.perf_promote", { from: activeMode, to: srDemote(mode, step.demote), avg_ms: Math.round(avg * 10) / 10, budget_ms: Math.round(budget * 10) / 10 });
+                setDemote(step.demote);
+              }
             }
           }
         }

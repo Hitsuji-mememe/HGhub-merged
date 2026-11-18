@@ -90,6 +90,19 @@ try {
   check("D no-rVFC fallback accepts readyState>=2 with size", r.d_frame_fallback_ready, true);
   check("D no-rVFC fallback rejects readyState<2", r.d_frame_fallback_notready, false);
 
+  // U1 — automatic tiering: hysteresis perf step + compositor floor decision
+  check("U1 bad window demotes immediately", r.u_demote_fast, "demote");
+  check("U1 first good window does not promote", r.u_promote_first_good, "none");
+  check("U1 neutral window resets good streak", r.u_promote_neutral_resets, "none");
+  check("U1 streak restarts after neutral", r.u_promote_streak_restarts, "none");
+  check("U1 three consecutive good windows promote", r.u_promote_after_3_good, "promote");
+  check("U1 demote capped at floor", r.u_demote_at_floor, [2, "none"]);
+  check("U1 floor is natural when auto-off", r.u_filter_auto_off, "natural");
+  check("U1 no floor when user explicitly off", r.u_filter_pref_off, null);
+  check("U1 no filter while WebGL presenting", r.u_filter_webgl_presenting, null);
+  check("U1 floor engages when perf-demoted to off", r.u_filter_demoted_off, "natural");
+  check("U1 svg fallback keeps mode filter", r.u_filter_svg_fallback, "cinema");
+
   await writeFile(join(output, "report.json"), JSON.stringify({ report, results: r }, null, 2));
   if (report.failed.length) {
     console.error(`playback-engines: ${report.failed.length} FAILED\n${report.failed.join("\n")}`);

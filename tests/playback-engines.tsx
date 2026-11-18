@@ -6,7 +6,7 @@
  * 由 scripts/test-playback-engines.mjs 驱动，结果挂 window.__engines。 */
 import { AppendStallWatchdog, type StallClock } from "../src/features/playback/appendStallWatchdog";
 import { nativeFallbackState, noteNativeFallback, playbackSource } from "../src/features/playback/mediaTransport";
-import { effectiveSrMode, srContentRect, srDemote, srHasConfirmedFrame } from "../src/features/playback/SuperResCanvas";
+import { effectiveSrMode, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
 
 class FakeClock implements StallClock {
   now = 0;
@@ -223,6 +223,27 @@ function run() {
   // rVFC 不可用：回落 readyState>=2 且尺寸已知
   results.d_frame_fallback_ready = srHasConfirmedFrame({ readyState: 2, videoWidth: 720, videoHeight: 1280 }, false);
   results.d_frame_fallback_notready = srHasConfirmedFrame({ readyState: 1, videoWidth: 720, videoHeight: 1280 }, false);
+
+  /* ── U1 自动选档：帧成本双向调节（迟滞）+ 合成层保底判定 ── */
+  {
+    // 预算 16：坏窗（20）单窗即降；好窗（4<8）须连续 3 窗才升；中性带（12）清零计数
+    let s = { demote: 0, goodStreak: 0 };
+    const feed = (avg: number) => { const r = srPerfStep(avg, 16, s.demote, 2, s.goodStreak); s = { demote: r.demote, goodStreak: r.goodStreak }; return r.action; };
+    results.u_demote_fast = feed(20);
+    results.u_promote_first_good = feed(4);
+    results.u_promote_neutral_resets = feed(12);
+    results.u_promote_streak_restarts = feed(4);
+    feed(4);
+    results.u_promote_after_3_good = feed(4);
+    results.u_demote_at_floor = (() => { let d = 2, g = 0; const r = srPerfStep(99, 16, d, 2, g); return [r.demote, r.action]; })();
+  }
+  // 合成层保底矩阵：[自动判档 off→natural 保底 / 显式关→无 / WebGL 呈现中→无（防双重）/
+  // 性能降到 off→natural 保底 / svgFallback→本档位滤镜]
+  results.u_filter_auto_off = srVideoFilterMode({ srPref: "auto", srMode: "off", canvasMode: "off", svgFallback: false }) ?? null;
+  results.u_filter_pref_off = srVideoFilterMode({ srPref: "off", srMode: "off", canvasMode: "off", svgFallback: false }) ?? null;
+  results.u_filter_webgl_presenting = srVideoFilterMode({ srPref: "auto", srMode: "crisp", canvasMode: "crisp", svgFallback: false }) ?? null;
+  results.u_filter_demoted_off = srVideoFilterMode({ srPref: "auto", srMode: "crisp", canvasMode: "off", svgFallback: false }) ?? null;
+  results.u_filter_svg_fallback = srVideoFilterMode({ srPref: "auto", srMode: "cinema", canvasMode: "cinema", svgFallback: true }) ?? null;
 
   return results;
 }

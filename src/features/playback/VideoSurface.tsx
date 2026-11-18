@@ -9,8 +9,8 @@ import { notePlaybackPlaying, publishPlaybackFacts } from "../../shared/diagnost
 import { usePlaybackActivity } from "./usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "./useProxyPlaybackRecovery";
 import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
-import { useStore } from "../../shared/model/store";
-import SuperResCanvas, { effectiveSrMode, getSvgFilterUrl, SuperResSvgDefs } from "./SuperResCanvas";
+import { useStore, type SuperResMode } from "../../shared/model/store";
+import SuperResCanvas, { effectiveSrMode, getSvgFilterUrl, srVideoFilterMode, SuperResSvgDefs } from "./SuperResCanvas";
 
 export type FragStats = { bytes: number; loadMs: number; fragDuration: number; bitrate: number };
 
@@ -101,6 +101,10 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   /* 当前样本所属 level（复审批 §5.2）：与样本同生共灭，换源一并清零。 */
   const srSampleLevelRef = useRef(-1);
   const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h, srDensity ?? undefined);
+  /* U1：SuperResCanvas 回报的实际呈现档位（含性能降档结果）。合成层
+   * 保底是否挂载按它判（见下方 videoFilter），不按判档 srMode 猜——
+   * 判档是 crisp 但已被降到 off 时，保底同样要顶上。 */
+  const [canvasSrMode, setCanvasSrMode] = useState<SuperResMode>(srMode);
   /* 诊断报告的源规格读取点（收官批 D）：尺寸/密度/档位变化时发布快照 */
   useEffect(() => {
     if (srSize.w <= 0 || srSize.h <= 0) return;
@@ -374,7 +378,13 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     onError?.(mediaErrorMessage(videoRef.current?.error ?? null));
   };
 
-  const videoFilter = svgFallback ? getSvgFilterUrl(srMode) : undefined;
+  /* U1 合成层选档（纯函数 srVideoFilterMode 判，触发条件全文在该函数
+   * 注释）：WebGL 呈现中不挂（防双重处理）；WebGL 不呈现（自动判档
+   * off / 性能降到 off）且用户未显式关时挂 SVG natural 保底；硬故障
+   * svgFallback 时挂本档位滤镜（既有路径）。保底的退出全自动：WebGL
+   * 升档恢复呈现的同一渲染内摘除，用户零操作。 */
+  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback });
+  const videoFilter = filterMode ? getSvgFilterUrl(filterMode) : undefined;
 
   return (
     <div className={`relative w-full h-full bg-black overflow-hidden ${className}`}>
@@ -433,6 +443,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         srcKey={src}
         fps={srDensity?.fps}
         onFallbackChange={setSvgFallback}
+        onActiveModeChange={setCanvasSrMode}
         onTrace={trace}
       />
     </div>
