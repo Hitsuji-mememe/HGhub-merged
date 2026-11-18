@@ -26,7 +26,9 @@
     "ios:icons": "node scripts/generate-ios-icons.mjs",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build",
-    "test:playback-engines": "node scripts/test-playback-engines.mjs"
+    "test:playback-engines": "node scripts/test-playback-engines.mjs",
+    "dev-fast": "tsc --noEmit --incremental && vite build",
+    "test-fast": "tsc --project tsconfig.tests.json --noEmit && node scripts/test-diagnostic-copy.mjs && node scripts/test-storage-migration.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
