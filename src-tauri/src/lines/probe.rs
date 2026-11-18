@@ -152,25 +152,13 @@ pub(crate) fn auto_candidates(items: &[Value], current: &str, trusted: impl Fn(&
     candidates
 }
 
-pub(crate) fn pick_from_hits(hits: &[Hit]) -> Value {
-    let winner = hits.iter().filter(|hit| hit.ok).min_by_key(|hit| hit.ms);
-    let candidates: Vec<_> = hits.iter().map(Hit::json).collect();
-    match winner {
-        Some(hit) => json!({ "base": hit.url, "tier": hit.tier, "ms": hit.ms,
-            "reason": if hit.tier == "main" { "main-ok" } else { "mirror-ok" }, "candidates": candidates }),
-        None => {
-            json!({ "base": "", "tier": "none", "ms": 0, "reason": "all-down", "candidates": candidates })
-        }
-    }
-}
-
-/// Prefer the real main API; otherwise probe trusted published mirrors in
-/// parallel. Publisher errors never discard another publisher's valid result.
+/// 自动选线（2026-11-18 收官批 D 重做）：延迟探测主站 + 全部可信发布
+/// 镜像，对可达者逐个拉真实分片测吞吐，按「吞吐为主、延迟为辅」综合
+/// 排名（crate::line_rank）。旧规则（主站活着直接用主站、只按延迟选、
+/// pick_from_hits）作废——延迟低不等于拉流快。全部不可达 → all-down，
+/// 调用方保持当前线路。发布页错误不丢弃已探到的候选，只记 mirror_error。
 pub async fn auto_pick() -> Value {
     let mut hits = vec![probe_hit("main", FIXED[0].1).await];
-    if hits[0].ok {
-        return pick_from_hits(&hits);
-    }
     let listing = mirrors().await;
     if let Ok(listing) = &listing {
         let items = listing
@@ -190,7 +178,17 @@ pub async fn auto_pick() -> Value {
             }
         }
     }
-    let mut result = pick_from_hits(&hits);
+    let ok: Vec<(String, String, u64)> = hits
+        .iter()
+        .filter(|hit| hit.ok)
+        .map(|hit| (hit.tier.to_string(), hit.url.clone(), hit.ms))
+        .collect();
+    let mut result = if ok.is_empty() {
+        json!({ "base": "", "tier": "none", "ms": 0, "reason": "all-down",
+            "candidates": hits.iter().map(Hit::json).collect::<Vec<_>>() })
+    } else {
+        crate::line_rank::pick_ranked(ok).await
+    };
     if let Err(error) = listing {
         result["mirror_error"] = json!(error);
     }

@@ -16,7 +16,7 @@ mod tests {
         absolute, merge_publishers, parse_mirrors, script_src, PublishedPage, FIXED, MIRROR_MAX,
         PUBLISH_PAGES,
     };
-    use super::probe::{auto_candidates, healthy_video_data, pick_from_hits, Hit};
+    use super::probe::{auto_candidates, healthy_video_data};
     use serde_json::{json, Value};
 
 
@@ -194,32 +194,23 @@ mod tests {
         }
     }
 
-    fn hit(url: &str, ok: bool, ms: u64) -> Hit {
-        Hit {
-            tier: "mirror",
-            url: url.into(),
-            ok,
-            reachable: true,
-            ms,
-            status: Some(200),
-            error: None,
-        }
-    }
-
     #[test]
     fn all_down_never_returns_a_line_to_switch_to() {
-        for hits in [vec![], vec![hit("https://bad.example", false, 1)]] {
-            let selected = pick_from_hits(&hits);
-            assert_eq!(selected["reason"], "all-down");
-            assert_eq!(selected["base"], "");
-            assert_eq!(selected["tier"], "none");
-        }
-        let selected = pick_from_hits(&[
-            hit("https://html.example", false, 1),
-            hit("https://slow.example", true, 20),
-            hit("https://fast.example", true, 8),
-        ]);
-        assert_eq!(selected["base"], "https://fast.example");
+        // 接棒（2026-11-18 收官批 D）：原断言经 pick_from_hits 守两件事——
+        // 全挂不给可切换线路、可达者按延迟选。选线规则已改为吞吐优先
+        // （line_rank::rank_lines 有专测：吞吐胜、同带延迟胜、无吞吐回退
+        // 延迟），pick_from_hits 随之删除；此处守剩余不变量：无候选时
+        // rank 无胜者（auto_pick 据此回 all-down、保持当前线路），且
+        // 无吞吐数据时仍按延迟选——原「fast 按延迟胜」语义在此延续。
+        assert!(crate::line_rank::rank_lines(&[]).is_none());
+        let unmeasured = [
+            crate::line_rank::LineMeasure { url: "https://slow.example".into(), tier: "mirror".into(), ms: 20, bps: None },
+            crate::line_rank::LineMeasure { url: "https://fast.example".into(), tier: "mirror".into(), ms: 8, bps: None },
+        ];
+        assert_eq!(
+            crate::line_rank::rank_lines(&unmeasured).map(|w| w.url.as_str()),
+            Some("https://fast.example")
+        );
     }
 
     #[test]

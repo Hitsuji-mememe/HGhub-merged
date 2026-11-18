@@ -7,6 +7,7 @@ mod env;
 mod ios_layout;
 #[cfg(any(target_os = "ios", test))]
 mod ios_media_http;
+mod line_rank;
 mod lines;
 #[cfg(target_os = "linux")]
 mod linux_http;

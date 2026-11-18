@@ -95,7 +95,8 @@ async fn speed_ab_inner() -> Result<Value, String> {
 }
 
 /// 拉播放清单并解析第一个媒体分片的绝对地址；主清单跟一层子清单。
-async fn resolve_first_segment(playlist_url: &str) -> Result<String, String> {
+/// line_rank 的吞吐探测共用同一解析（收官批 D）。
+pub(crate) async fn resolve_first_segment(playlist_url: &str) -> Result<String, String> {
     let (_, bytes) = crate::net::fetch_bytes(playlist_url)
         .await
         .map_err(|e| format!("拉播放清单失败：{e}"))?;
