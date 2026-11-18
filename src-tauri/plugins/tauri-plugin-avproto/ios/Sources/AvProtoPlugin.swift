@@ -288,9 +288,10 @@ class AvProtoPlugin: Plugin {
       guard let self = self else { return }
       do {
         let variants = try await asset.load(.variants)
-        let bitrates = variants.map { $0.bitrate }
         await MainActor.run {
-          self.checks["variants"] = ["count": variants.count, "bitrates": bitrates]
+          // 只记变体数：AVAssetVariant 在当前 SDK 无 bitrate 成员（CI 第三跑
+          // 实证），码率信号以 access log 的 indicatedBitrate 为准（ABR 检查）。
+          self.checks["variants"] = ["count": variants.count]
           self.logEvent("variants", "变体 \(variants.count) 个")
         }
       } catch {
