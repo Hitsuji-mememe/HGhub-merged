@@ -4,7 +4,8 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Hls from "hls.js";
 import { fmtTime, platform } from "../../shared/api/api";
-import { connectNativeMedia, playbackSource } from "./mediaTransport";
+import { connectNativeMedia, noteNativeFallback, playbackSource } from "./mediaTransport";
+import { AppendStallWatchdog } from "./appendStallWatchdog";
 import { mediaErrorMessage } from "./mediaErrors";
 import { mediaHost, mediaResource, observeHls, usePlayerDiagnostics } from "../../shared/diagnostics/playbackDiagnostics";
 import { usePlaybackActivity } from "./usePlaybackActivity";
@@ -41,6 +42,11 @@ export default function Player({
   const latestSource = useRef(src); latestSource.current = src;
   const hlsRef = useRef<Hls | null>(null);
   const recoveryRef = useRef<HlsRecovery | null>(null);
+  /* append 卡死自愈计数（F 项，与 VideoSurface 同规则：判死一次重建、
+   * 再判死置会话级原生降级；换源清零） */
+  const stallAttemptRef = useRef(0);
+  const stallSrcRef = useRef(src);
+  if (stallSrcRef.current !== src) { stallSrcRef.current = src; stallAttemptRef.current = 0; }
   const { trace, requestSeek } = usePlayerDiagnostics(videoRef, hlsRef, { view: "post_detail", ...diagnosticContext, active, resource: mediaResource(src) });
   const activity = usePlaybackActivity(videoRef, hlsRef, { active, autoPlay: !!autoPlay, src, trace });
   const { slotRef, wrapRef, host, full, fallback, toggleFull } = useInlinePlayerFullscreen({ active, src, videoRef, activity });
@@ -86,6 +92,8 @@ export default function Player({
     const resume = proxyRecovery.resume();
     const source = playbackSource(src, Hls.isSupported());
     let disconnectNative: (() => void) | undefined;
+    let stallWatchdog: AppendStallWatchdog | undefined;
+    let watchdogPlaying: (() => void) | undefined;
     trace("source.load", { engine: source.engine, auto_play: autoPlay, resource: mediaResource(src), host: mediaHost(src) });
 
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
@@ -132,6 +140,23 @@ export default function Player({
       });
       recoveryRef.current = recovery;
       observeHls(hls, trace);
+      /* append 卡死看门狗（F 项，与 VideoSurface 同签名同处置） */
+      stallWatchdog = new AppendStallWatchdog({
+        hasBuffered: () => { try { return video.buffered.length > 0 && video.buffered.end(video.buffered.length - 1) > 0; } catch { return false; } },
+        isPlaying: () => !video.paused && video.readyState >= 2,
+        onStall: () => {
+          if (hlsRef.current !== hls) return;
+          trace("hls.append_stall", { attempt: stallAttemptRef.current });
+          if (stallAttemptRef.current < 1) {
+            stallAttemptRef.current += 1;
+            proxyRecovery.retry("append_stall", true);
+          } else if (noteNativeFallback("append_stall")) {
+            proxyRecovery.retry("append_stall_fallback", true);
+          }
+        },
+      });
+      watchdogPlaying = () => stallWatchdog?.playing();
+      video.addEventListener("playing", watchdogPlaying);
       hls.loadSource(source.url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -141,6 +166,7 @@ export default function Player({
       /* 超分密度：首个完整分片实际码率（与 VideoSurface 同口径，收官批 C 项） */
       hls.on(Hls.Events.FRAG_LOADED, (_e, data) => {
         if (data.part || typeof data.frag.sn !== "number") return;
+        stallWatchdog?.fragLoaded();
         const st = data.frag.stats;
         if (st.loaded <= 0 || !(data.frag.duration > 0)) return;
         const fps = hls.levels[data.frag.level]?.frameRate;
@@ -148,6 +174,7 @@ export default function Player({
       });
       hls.on(Hls.Events.FRAG_BUFFERED, () => {
         recovery.buffered();
+        stallWatchdog?.buffered();
         setErrMsg("");
       });
       hls.on(Hls.Events.ERROR, (_e, data) => recovery.error(data));
@@ -161,6 +188,8 @@ export default function Player({
 
     return () => {
       disconnectNative?.();
+      stallWatchdog?.dispose();
+      if (watchdogPlaying) video.removeEventListener("playing", watchdogPlaying);
       recoveryRef.current?.dispose(); recoveryRef.current = null;
       trace("source.cleanup");
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }

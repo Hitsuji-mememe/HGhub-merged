@@ -1,7 +1,26 @@
 import { invoke } from "@tauri-apps/api/core";
 import { LOCAL, platform, playlist } from "../../shared/api/api";
+import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 
 type PlaybackSource = { engine: "hls.js" | "native"; url: string; route: string };
+
+/* ── 会话级原生降级（2026-11-18 收官批 F 项）──
+ * append 卡死按 App 会话发作（坏会话整场全坏）：看门狗在同一会话内
+ * 二次判死后置此标记，后续所有视频的 playbackSource 直接走 native
+ * 引擎，不再经 hls.js/MMS。只置一次，事实写进 trace（web.playback.fallback），
+ * 诊断报告结论行据此提示。进程重启即清零（新会话重新给 hls.js 机会）。 */
+let nativeFallback: { reason: string; at: number } | null = null;
+
+export function noteNativeFallback(reason: string): boolean {
+  if (nativeFallback) return false;
+  nativeFallback = { reason, at: Date.now() };
+  tracePlayback("web.playback.fallback", { reason });
+  return true;
+}
+
+export function nativeFallbackState(): { reason: string; at: number } | null {
+  return nativeFallback;
+}
 
 /** Only our own media routes carry a wrapped upstream URL. An upstream ?u= is opaque. */
 export function playbackSource(src: string, hlsSupported: boolean): PlaybackSource {
@@ -16,7 +35,7 @@ export function playbackSource(src: string, hlsSupported: boolean): PlaybackSour
   } catch { /* An unwrapped source is passed intact to the playlist route. */ }
   const url = route ? `${LOCAL}${route}` : playlist(src);
   if (!route) route = url.slice(LOCAL.length);
-  return { engine: hlsSupported && !direct ? "hls.js" : "native", url, route };
+  return { engine: hlsSupported && !direct && !nativeFallback ? "hls.js" : "native", url, route };
 }
 
 /** Native AVFoundation cannot fetch WKURLSchemeHandler's hg:// resources. */

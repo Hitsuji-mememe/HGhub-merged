@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useImperativeHandle, useRef, forwardRef, useState } from "react";
 import Hls from "hls.js";
 import { platform } from "../../shared/api/api";
-import { connectNativeMedia, playbackSource } from "./mediaTransport";
+import { connectNativeMedia, noteNativeFallback, playbackSource } from "./mediaTransport";
+import { AppendStallWatchdog } from "./appendStallWatchdog";
 import { mediaErrorMessage } from "./mediaErrors";
 import { mediaHost, mediaResource, observeHls, usePlayerDiagnostics } from "../../shared/diagnostics/playbackDiagnostics";
 import { usePlaybackActivity } from "./usePlaybackActivity";
@@ -64,6 +65,11 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const fragStatsCbRef = useRef(onFragStats);
   fragStatsCbRef.current = onFragStats;
   const recoveryRef = useRef<HlsRecovery | null>(null);
+  /* append 卡死自愈计数（F 项）：同一源第一次判死重建、第二次判死触发
+   * 会话级原生降级；换源清零（重建走 revision  bump、src 不变，不清）。 */
+  const stallAttemptRef = useRef(0);
+  const stallSrcRef = useRef(src);
+  if (stallSrcRef.current !== src) { stallSrcRef.current = src; stallAttemptRef.current = 0; }
   const nearEndFiredRef = useRef(false);
   const reportedSizeRef = useRef({ key: "", w: 0, h: 0 });
   const measurementRef = useRef({ key: measurementKey, onSize });
@@ -149,6 +155,8 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
 
     const source = playbackSource(src, Hls.isSupported());
     let disconnectNative: (() => void) | undefined;
+    let stallWatchdog: AppendStallWatchdog | undefined;
+    let watchdogPlaying: (() => void) | undefined;
     trace("source.load", { engine: source.engine, auto_play: autoPlay, resource: mediaResource(src), host: mediaHost(src) });
 
     /* 换源时先把音量/倍速套回去：hls 重新 attach 后浏览器会把它们重置成默认值 */
@@ -201,9 +209,30 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       });
       recoveryRef.current = recovery;
       observeHls(hls, trace);
+      /* append 卡死看门狗（F 项）：FragLoaded 有而 4s 内 buffered/playing
+       * 全无 = append 链无声停滞。第一次判死重建本源重试；重建后再判死
+       * 说明本会话 hls.js/MMS 整体坏死，置会话级原生降级并重建（此次
+       * playbackSource 直接给 native）。慢网无 FragLoaded 不布防、不误杀。 */
+      stallWatchdog = new AppendStallWatchdog({
+        hasBuffered: () => { try { return video.buffered.length > 0 && video.buffered.end(video.buffered.length - 1) > 0; } catch { return false; } },
+        isPlaying: () => !video.paused && video.readyState >= 2,
+        onStall: () => {
+          if (hlsRef.current !== hls) return;
+          trace("hls.append_stall", { attempt: stallAttemptRef.current });
+          if (stallAttemptRef.current < 1) {
+            stallAttemptRef.current += 1;
+            proxyRecovery.retry("append_stall", true);
+          } else if (noteNativeFallback("append_stall")) {
+            proxyRecovery.retry("append_stall_fallback", true);
+          }
+        },
+      });
+      watchdogPlaying = () => stallWatchdog?.playing();
+      video.addEventListener("playing", watchdogPlaying);
       /* 分片吞吐上报（2.0.5 卡顿自愈，Muse 2026-11-18 移植）：只报整片，耗时取 stats.loading 起止差 */
       hls.on(Hls.Events.FRAG_LOADED, (_e, data) => {
         if (data.part || typeof data.frag.sn !== "number") return;
+        stallWatchdog?.fragLoaded();
         const st = data.frag.stats;
         /* 超分密度：首个完整分片的实际码率（收官批 C 项） */
         if (st.loaded > 0 && data.frag.duration > 0) {
@@ -223,7 +252,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         if (activity.isActive()) hls.startLoad(resume?.time ?? -1);
         if (autoPlay && !resume) activity.play("manifest_autoplay", true);
       });
-      hls.on(Hls.Events.FRAG_BUFFERED, () => recovery.buffered());
+      hls.on(Hls.Events.FRAG_BUFFERED, () => { recovery.buffered(); stallWatchdog?.buffered(); });
       hls.on(Hls.Events.ERROR, (_e, data) => recovery.error(data));
     } else {
       disconnectNative = connectNativeMedia(video, source, {
@@ -236,6 +265,8 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     return () => {
       attachedSource.current = null;
       disconnectNative?.();
+      stallWatchdog?.dispose();
+      if (watchdogPlaying) video.removeEventListener("playing", watchdogPlaying);
       video.removeEventListener("resize", onVideoResize);
       recoveryRef.current?.dispose(); recoveryRef.current = null;
       trace("source.cleanup");
