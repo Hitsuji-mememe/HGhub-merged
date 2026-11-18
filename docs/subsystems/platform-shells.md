@@ -169,3 +169,13 @@ node scripts/test-ios-native-media.mjs
 单元测试覆盖 macOS 红绿灯居中、Apple 代理匹配、Linux 响应头/HEAD、iOS 请求校验和媒体
 Range。浏览器脚本只能验证前端传输契约与布局，不替代 iOS WKWebView、Android WebView、
 Linux GStreamer 或 Windows WebView2 的实机矩阵；真机结果应单独记录为“已验证/待核实”。
+
+## AVFoundation 验证原型（Muse 2026-11-19，proto-avfoundation 分支）
+
+混合路线三道门的纯增量测试面，正式播放路径不依赖：插件
+`src-tauri/plugins/tauri-plugin-avproto`（Swift 侧 AVPlayer 呈现/检查状态机与
+VideoOutput→Metal 帧采样）只被设置 → 诊断 →「AVFoundation 原型自检」调用；
+门3 记账在 `src-tauri/src/proto_lab.rs`，由 `ios_media_http` 的 serve() 入口
+独立计数 + 媒体响应出口记账双路对账，无自检会话时全部为无操作。结果经
+`src/shared/diagnostics/avProto.ts` 存档并进入诊断报告「AVFoundation 原型」
+一节。三门结论以真机自检结果为准，本节只登记接线，不预设结论。
