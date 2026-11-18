@@ -1,6 +1,6 @@
 import { Button, Form, Image, Input } from "../../shared/ui/ios/controls";
 import { Loader } from "../../shared/ui/ios/effects";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, fmt, cover as imageCover } from "../../shared/api/api";
 import { handleArticleClick, sanitizeHtml } from "../../shared/lib/html";
 import { commentText } from "./commentText";
@@ -37,7 +37,7 @@ export function EpisodesPanel({ episodes, current, onPick, onClose, bare = false
           <span className="text-[14px] font-bold text-on">选集</span>
           <span className="text-[12px] text-mut">共 {episodes.length} 集</span>
           <Button onClick={() => setAsc((v) => !v)} className="ml-auto text-[12px] text-primary pressable">{asc ? "倒序" : "正序"}</Button>
-          <Button onClick={onClose} aria-label="关闭" className="w-7 h-7 rounded-full bg-s3 flex items-center justify-center text-mut pressable">
+          <Button onClick={onClose} aria-label="关闭" className="w-8 h-8 min-h-0 rounded-full bg-s3 flex items-center justify-center text-mut pressable">
             <IClose size={13} />
           </Button>
         </div>
@@ -71,7 +71,7 @@ export function EpisodesPanel({ episodes, current, onPick, onClose, bare = false
 export function CommentsPanel({ videoId, ep, total, kind = "video" }: {
   videoId: number; ep: number; total: number; kind?: "video" | "post"; onClose: () => void;
 }) {
-  const { user, toast } = useStore();
+  const { user, toast, accountScope, lineEpoch } = useStore();
   const [items, setItems] = useState<Comment[]>([]);
   const [page, setPage] = useState(0);
   const [pages, setPages] = useState(1);
@@ -87,7 +87,7 @@ export function CommentsPanel({ videoId, ep, total, kind = "video" }: {
   const loadBusy = useRef(false);
   const sendBusy = useRef(false);
   const sendSequence = useRef(0);
-  const scope = `${kind}:${videoId}:${ep}`;
+  const scope = `${accountScope}:${lineEpoch}:${kind}:${videoId}:${ep}`;
   const currentScope = useRef(scope);
   currentScope.current = scope;
   const alive = useRef(true);
@@ -132,6 +132,7 @@ export function CommentsPanel({ videoId, ep, total, kind = "video" }: {
   }, [load]);
 
   const send = async () => {
+    if (kind === "post") return;
     const t = text.trim();
     if (!t || sendBusy.current) return;
     if (!user) return;
@@ -228,7 +229,7 @@ export function ArticlePanel({ title, html, cover, hot, onClose }: {
       <div className="shrink-0 flex items-center gap-2 px-4 h-12">
         <span className="text-[14px] font-bold text-on">图文详情</span>
         {hot ? <span className="text-[12px] text-mut">{fmt(hot)} 热度</span> : null}
-        <Button onClick={onClose} aria-label="关闭" className="ml-auto w-7 h-7 rounded-full bg-s3 flex items-center justify-center text-mut pressable">
+        <Button onClick={onClose} aria-label="关闭" className="ml-auto w-8 h-8 min-h-0 rounded-full bg-s3 flex items-center justify-center text-mut pressable">
           <IClose size={13} />
         </Button>
       </div>

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef,
 import { createPortal } from "react-dom";
 import { Button } from "./controls";
 import { registerOverlayBack } from "../../lib/back";
+import { getFullscreenElement } from "../../lib/fullscreen";
 
 type Layer = { token: symbol; ancestors: symbol[]; element: HTMLElement; panel: HTMLElement; previous: HTMLElement | null; lastFocus: HTMLElement | null };
 const LayerContext = createContext<symbol[]>([]);

@@ -1,8 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
-import Hls from "hls.js";
-import type { FragBufferedData, FragLoadedData, FragLoadingData } from "hls.js";
+import type Hls from "hls.js";
+import type { FragBufferedData, FragLoadedData, FragLoadingData, HlsListeners } from "hls.js";
 import { copyText } from "../lib/clipboard";
+
+let registeredHlsVersion: string | null = null;
+export function registerHlsVersion(version: string) {
+  registeredHlsVersion = version;
+}
 
 type Data = Record<string, unknown>;
 type Status = { enabled: boolean; path: string | null; error: string | null };
@@ -92,7 +97,7 @@ export async function setPlaybackLog(on: boolean) {
     await flushPlaybackLog();
     const saved = await playbackLogApi.set(on);
     publish({ ...saved, pending: false });
-    tracePlayback("app.snapshot", { version: __APP_VERSION__, platform: navigator.platform, user_agent: navigator.userAgent, hls_version: Hls.version, media_source: !!window.MediaSource, managed_media_source: "ManagedMediaSource" in window });
+    tracePlayback("app.snapshot", { version: __APP_VERSION__, platform: navigator.platform, user_agent: navigator.userAgent, hls_version: registeredHlsVersion, media_source: !!window.MediaSource, managed_media_source: "ManagedMediaSource" in window });
   } finally { if (state.pending) publish({ pending: false }); }
 }
 
@@ -103,10 +108,15 @@ export async function copyPlaybackLog() {
   await copyText(text);
 }
 
+function isLocalMediaWrapper(url: URL) {
+  return url.protocol === "hg:" || url.hostname === "hg.localhost"
+    || (url.hostname === "127.0.0.1" && (/^\/([0-9a-f]{64}\/)?(img|hls|seg)$/.test(url.pathname)));
+}
+
 export function mediaResource(raw: string) {
   try {
     const url = new URL(raw);
-    if (url.protocol === "hg:" || url.hostname === "hg.localhost") raw = url.searchParams.get("u") || raw;
+    if (isLocalMediaWrapper(url)) raw = url.searchParams.get("u") || raw;
   } catch { /* still fingerprint invalid targets without logging their contents */ }
   let hash = 2166136261;
   for (const b of new TextEncoder().encode(raw)) hash = Math.imul(hash ^ b, 16777619) >>> 0;
@@ -120,7 +130,7 @@ export function mediaResource(raw: string) {
 export function mediaHost(raw: string): string {
   try {
     const url = new URL(raw);
-    if (url.protocol === "hg:" || url.hostname === "hg.localhost") {
+    if (isLocalMediaWrapper(url)) {
       const inner = url.searchParams.get("u");
       if (inner) return new URL(inner).host;
     }
@@ -229,8 +239,10 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
   return { trace, requestSeek };
 }
 
-export function observeHls(hls: Hls, trace: (event: string, data?: Data) => void) {
-  hls.on(Hls.Events.MEDIA_ATTACHED, (_event, data) => {
+type HlsEventsMap = typeof Hls.Events;
+
+export function observeHls(hls: Hls, trace: (event: string, data?: Data) => void, eventsMap: HlsEventsMap) {
+  hls.on(eventsMap.MEDIA_ATTACHED, (_event, data) => {
     const source = data.mediaSource;
     engines.set(hls, source?.constructor.name || "MediaSource");
     trace("hls.attached", { engine: engines.get(hls), prefer_managed: hls.config.preferManagedMediaSource });
@@ -282,12 +294,12 @@ export function observeHls(hls: Hls, trace: (event: string, data?: Data) => void
       if (!playbackLogEnabled()) return;
       const { frag } = data;
       const loading = frag.stats.loading;
-      trace(event, { resource: mediaResource(frag.url), host: mediaHost(frag.url), fragment: frag.sn, start: round(frag.start), duration: round(frag.duration), bytes: frag.stats.loaded,
+      trace(String(event), { resource: mediaResource(frag.url), host: mediaHost(frag.url), fragment: frag.sn, start: round(frag.start), duration: round(frag.duration), bytes: frag.stats.loaded,
         load_ms: loading.end > 0 && loading.end >= loading.start ? round(loading.end - loading.start) : null,
         first_byte_ms: loading.first > 0 && loading.first >= loading.start ? round(loading.first - loading.start) : null });
-    });
+    }) as HlsListeners[typeof event]);
   }
-  hls.on(Hls.Events.ERROR, (_event, data) => trace("hls.error", { type: data.type, detail: data.details, fatal: data.fatal, status: data.response?.code,
+  hls.on(eventsMap.ERROR, (_event, data) => trace("hls.error", { type: data.type, detail: data.details, fatal: data.fatal, status: data.response?.code,
     fragment: data.frag?.sn, resource: data.frag ? mediaResource(data.frag.url) : undefined, host: data.frag ? mediaHost(data.frag.url) : undefined }));
 }
 

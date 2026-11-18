@@ -1,4 +1,4 @@
-import { Button, Image, SegmentedControl } from "../../shared/ui/ios/controls";
+import { Button, Image } from "../../shared/ui/ios/controls";
 import { Loader } from "../../shared/ui/ios/effects";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
@@ -60,6 +60,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [tagMenu, setTagMenu] = useState(false);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [tagErrors, setTagErrors] = useState<Record<string, string>>({});
+  const [originEpoch, setOriginEpoch] = useState(0);
   const playRequests = useRef(new Map<string, Promise<PlayInfo>>());
   const requestPlay = useCallback((id: number, episode: number) => {
     const key = `${accountScope}:${store.lineEpoch}:${id}:${episode}`;
@@ -73,38 +74,18 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
     return request;
   }, [accountScope, store.lineEpoch]);
+
   const { details, setDetails, detailsRef, posts, setPosts, requestDetail, effectiveVideoIds } = useFeedDetails({
-    videoIds, mode, kind, accountScope, lineEpoch: store.lineEpoch, filtering, revision,
+    videoIds, mode, kind, accountScope, lineEpoch: store.lineEpoch, originEpoch, filtering, revision,
     blockReason, checked, tagErrors,
   });
 
+  const playerRootRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<VideoHandle>(null);
   const holdTargetRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState(() => ({ id: videoIds[startIndex], index: startIndex }));
-  const index = useMemo(() => {
-    if (!effectiveVideoIds.length) return -1;
-    const anchored = effectiveVideoIds.indexOf(position.id);
-    if (anchored >= 0) return anchored;
-    // Only find a replacement after removal, not on every playback/UI update.
-    const source = videoIds.indexOf(position.id);
-    if (source >= 0) {
-      const visible = new Set(effectiveVideoIds);
-      for (let i = source + 1; i < videoIds.length; i++) {
-        if (visible.has(videoIds[i])) return effectiveVideoIds.indexOf(videoIds[i]);
-      }
-      for (let i = source - 1; i >= 0; i--) {
-        if (visible.has(videoIds[i])) return effectiveVideoIds.indexOf(videoIds[i]);
-      }
-    }
-    return Math.max(0, Math.min(position.index, effectiveVideoIds.length - 1));
-  }, [effectiveVideoIds, videoIds, position.id, position.index]);
-  const idsRef = useRef(effectiveVideoIds); idsRef.current = effectiveVideoIds;
-  const setIndex = useCallback((next: number) => {
-    const id = idsRef.current[next];
-    if (id !== undefined) setPosition({ id, index: next });
-  }, []);
-  const [renderIndex, setRenderIndex] = useState(startIndex);
+  const pinchRef = useRef<PinchState | null>(null);
+
   const [epMap, setEpMap] = useState<Record<number, number>>(() => (startEp ? { [videoIds[startIndex]]: startEp } : {}));
   const [playUrls, setPlayUrls] = useState<Record<string, string>>({});
   const [hevcUrls, setHevcUrls] = useState<Record<string, string>>({});
@@ -138,7 +119,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const lastSaveRef = useRef(0);
   const theater = store.theater;
   const setTheater = store.setTheater;
-  const fs = store.fs;
+  const fs = active && store.fs;
   const clean = store.clean;
   const setClean = store.setClean;
   const setFs = store.setFs;
@@ -207,18 +188,17 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const openPreferences = () => { closePanels(); store.push({ kind: "settings", section: "内容偏好" }); };
   const openTagMenu = openPreferences;
   const openTag = (tag: string) => { closePanels(); store.push({ kind: "tag", tag, name: tag }); };
+
   useEffect(() => { setTagMenu(false); }, [curId, store.lineEpoch, accountScope]);
+  useEffect(() => { if (!active) setSearching(false); }, [active]);
+  useEffect(() => {
+    store.setLocked(active && controlsLocked);
+    return () => { if (active) store.setLocked(false); };
+  }, [active, controlsLocked, store.setLocked]);
   useEffect(() => { if (blocked && mode === "home" && active) onBlocked?.(curId); }, [blocked, mode, active, curId, onBlocked]);
   useEffect(() => { if (!allowed) { setPanel(null); setTagMenu(false); } }, [allowed]);
+
   const curEp = epMap[curId] || 1;
-  const liked = isLiked(curId, curEp, kind);
-  const collected = isFav(curId, kind);
-  const likeActionKey = `like:${kind}:${curId}:${curEp}`;
-  const collectActionKey = `collect:${kind}:${curId}`;
-  const followActionKey = `follow:${kind === "video" ? detail?.author?.id || 0 : 0}`;
-  const likePending = actionPending(likeActionKey);
-  const collectPending = actionPending(collectActionKey);
-  const followPending = actionPending(followActionKey);
   const actionContext = useRef({ accountScope, lineEpoch: store.lineEpoch, id: curId, ep: curEp, kind });
   actionContext.current = { accountScope, lineEpoch: store.lineEpoch, id: curId, ep: curEp, kind };
   const progressScope = useRef(accountScope);
@@ -229,14 +209,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     lastSaveRef.current = 0;
     liveRef.current = { id: 0, ep: 1, dur: 0, t: 0, permissionKey: "", accountScope };
   }, [accountScope]);
+
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const pendingActions = useRef(new Set<string>());
-  const playKey = `${curId}:${curEp}`;
+  const playKey = `${accountScope}:${curId}:${curEp}`;
   const playGuard = useRef({ allowed, id: curId, permissionKey, playKey });
   playGuard.current = { allowed, id: curId, permissionKey, playKey };
   const isCurrentPlayback = () => playGuard.current.allowed && playGuard.current.id === curId
     && playGuard.current.permissionKey === permissionKey && playGuard.current.playKey === playKey;
+
   const mainUrl = playUrls[playKey] || "";
   const hevcUrl = hevcUrls[playKey] || "";
   /* Muse 2026-11-18 (2.2.0 合并, 移植 2.1.4): HEVC 回退按集锁定——解码/格式类失败只锁当前集，
@@ -257,17 +238,41 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* Muse 2026-11-18 (2.2.0 合并): 长按引导浮层按 2.1.1 定版移除，恒 false */
   const showHoldGuide = false;
   useEffect(() => {
-    const retry = () => {
+    const onProxyChanged = () => {
       setErr("");
-      setWaiting(true);
       // Resolved media is retried in VideoSurface. Only an unresolved API call
       // needs another lookup, so a working stream keeps its episode and position.
-      if (!playUrl) setProxyRetry(value => value + 1);
+      if (!playUrl) {
+        if (active) setWaiting(true);
+        setProxyRetry(value => value + 1);
+      } else if (active) {
+        setWaiting(true);
+      }
     };
-    window.addEventListener("hg:proxy-changed", retry);
-    return () => window.removeEventListener("hg:proxy-changed", retry);
-  }, [playUrl]);
-  useEffect(() => { setZoom({ s: 1, x: 0, y: 0, g: false }); pinchRef.current = null; pointersRef.current.clear(); }, [playUrl]);
+    const onLineChanged = () => {
+      setOriginEpoch(value => value + 1);
+      // Keep an actively playing, healthy stream uninterrupted while purging all
+      // prefetched/inactive/errored URLs from the previous line.
+      if (active && playingKey === playKey && !err && playUrl) {
+        setPlayUrls(prev => (prev[playKey] ? { [playKey]: prev[playKey] } : {}));
+        setHevcUrls(prev => (prev[playKey] ? { [playKey]: prev[playKey] } : {}));
+        return;
+      }
+      setPlayUrls({});
+      setHevcUrls({});
+      setPlayingKey("");
+      setErr("");
+      if (active) setWaiting(true);
+      setProxyRetry(value => value + 1);
+    };
+    window.addEventListener("hg:proxy-changed", onProxyChanged);
+    window.addEventListener("hg:line-changed", onLineChanged);
+    return () => {
+      window.removeEventListener("hg:proxy-changed", onProxyChanged);
+      window.removeEventListener("hg:line-changed", onLineChanged);
+    };
+  }, [active, playUrl, playingKey, playKey, err]);
+
   useEffect(() => { videoRef.current?.trace("page.active", { active, view: mode, video_id: curId, episode: curEp }); }, [active, mode, curId, curEp]);
   const episodes = detail?.episodes || [];
   const post = posts[curId];
@@ -299,7 +304,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       playbackClock.publish(hr.t);
     }
     const r = resumeRef.current;
-    if (r && r.key === playKey && r.t > 1 && (!d || r.t < d - 3)) {
+    if (r && r.key === `${curId}:${curEp}` && r.t > 1 && (!d || r.t < d - 3)) {
       resumeRef.current = null;
       videoRef.current?.seek(r.t, "history_resume");
       playbackClock.publish(r.t);
@@ -307,18 +312,18 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   };
 
   /** 统一视图模型：短剧与吃瓜帖子共用同一套播放界面 */
-  const meta = kind === "post"
+  const meta: FeedMeta = kind === "post"
     ? {
         title: post?.title || "",
         cover: post?.cover || "",
         desc: post?.content || post?.desc || "",
-        author: "吃瓜",
-        authorId: -1,
+        author: post?.author?.name || "吃瓜",
+        authorId: post?.author?.id || -1,
         tags: post?.tags || [],
         score: 0,
-        like: 0,
+        like: post?.counts?.like ?? 0,
         comment: post?.counts?.comment ?? 0,
-        collect: 0,
+        collect: post?.counts?.collect ?? 0,
         episodes: [] as Episode[],
       }
     : {
@@ -354,7 +359,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const fsUi = fs || (!isDesktop && kind === "video" && !landscapeVideo);
   /* 控件闲置隐藏：桌面 2.8s；移动全屏呈现（fs/fsUi）按设置秒数（#146-3）。
      调用点在 fsUi 定义之后：自动隐藏要覆盖竖屏即全屏呈现态。 */
-  const { idle, setIdle, wake, arm } = useFsIdle(isDesktop, fsUi, paused, store.fsIdleSecs, boxRef);
+  const { idle, setIdle, wake, arm } = useFsIdle(isDesktop, fsUi, paused, store.fsIdleSecs, boxRef, barPct !== null);
   /* 竖屏快捷胶囊的显隐：不卸载、只改 opacity，这样淡入淡出都能过渡（#19） */
   /* 胶囊显隐只由缩放驱动（定版：仅 zoom>1.05 显示），不挂 clean：
      clean 的驱动源几经变更（播放状态→单击解耦），若继续挂 !clean，
@@ -481,21 +486,17 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     requestPlay(curId, curEp)
       .then((info) => {
         if (!alive || !isCurrentPlayback()) return;
-        const streamUrl = info?.streams?.main || info?.video_url;
         const hevcStream = info?.streams?.hevc || info?.video_url_hevc || "";
-        // 接口本身成功但业务失败（status=0 / streams 为空）时不会进 call() 的 catch，
-        // 这里把原始 status/msg 落进 debug.log ——「暂无播放地址」的唯一现场证据。
-        // src 才是真正喂给播放器的值；video_url 是新接口不再返回的旧字段，别拿它判断成败。
+        const streamUrl = info?.streams?.main || info?.video_url || hevcStream;
         const raw = info as unknown as Record<string, unknown>;
         const streams = (raw.streams ?? {}) as Record<string, unknown>;
-        const streamKind = streams.main ? "main" : info?.video_url ? "video_url" : streams.hevc ? "hevc" : "-";
+        const streamKind = streams.main ? "main" : info?.video_url ? "video_url" : hevcStream ? "hevc" : "-";
         let host = "?";
         try { host = new URL(streamUrl || "").host || "?"; } catch { /* 空地址或非 URL */ }
         logLine(
           `[play] id=${curId} ep=${curEp} src=${streamUrl ? "y" : "n"} kind=${streamKind} host=${host}` +
           (streamUrl ? "" : ` status=${String(raw.status ?? "?")} msg=${String(raw.msg ?? "")}`),
         );
-        // 「暂无播放地址」的现场：接口成功但没给地址时，status/msg 是唯一证据。
         tracePlayback("play.resolve", {
           video_id: curId, episode: curEp, resolved: !!streamUrl, kind: streamKind, host,
           status: raw.status ?? null, msg: String(raw.msg ?? "") || null,
@@ -506,7 +507,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         if (kind === "video") addHistory(curId, curEp);
       })
       .catch((e) => { if (alive) setErr((e as Error).message || "取播放地址失败"); });
-    return () => { alive = false; };
+      return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, curId, curEp, proxyRetry, allowed, permissionKey, requestPlay]);
 
@@ -517,13 +518,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const ep = epMap[curId] || 1;
     const nextEpisode = ep + 1;
     if (nextEpisode > episodes.length) return;
-    const key = `${curId}:${nextEpisode}`;
+    const key = `${accountScope}:${curId}:${nextEpisode}`;
     if (playUrls[key]) return;
     requestPlay(curId, nextEpisode)
       .then((info) => {
         if (!alive || !playGuard.current.allowed || playGuard.current.permissionKey !== permissionKey) return;
-        const u = info?.streams?.main || info?.video_url;
         const h = info?.streams?.hevc || info?.video_url_hevc || "";
+        const u = info?.streams?.main || info?.video_url || h;
         if (u) setPlayUrls((m) => ({ ...m, [key]: u }));
         if (h) setHevcUrls((m) => ({ ...m, [key]: h }));
       })
@@ -539,7 +540,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     let alive = true;
     const currentId = curId;
     const currentPermission = permissionKey;
-    const nextKey = `${nextId}:1`;
+    const nextKey = `${accountScope}:${nextId}:1`;
     if (playUrls[nextKey]) return;
     const stillRelevant = () => alive && mounted.current && playGuard.current.id === currentId
       && playGuard.current.permissionKey === currentPermission && idsRef.current[index + 1] === nextId;
@@ -557,8 +558,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         }
         const info = await requestPlay(nextId, 1);
         if (!stillRelevant()) return;
-        const url = info?.streams?.main || info?.video_url;
         const hevc = info?.streams?.hevc || info?.video_url_hevc || "";
+        const url = info?.streams?.main || info?.video_url || hevc;
         if (url) setPlayUrls(previous => ({ ...previous, [nextKey]: url }));
         if (hevc) setHevcUrls(previous => ({ ...previous, [nextKey]: hevc }));
       } catch {
@@ -566,7 +567,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       }
     })();
     return () => { alive = false; };
-  }, [active, curId, index, nextVideoId, kind, mode, allowed, playingKey, playKey, playUrls[`${nextVideoId}:1`], permissionKey, accountScope, store.lineEpoch, filtering, blockReason, onBlocked, requestDetail, requestPlay]);
+  }, [active, curId, index, nextVideoId, kind, mode, allowed, playingKey, playKey, playUrls[`${accountScope}:${nextVideoId}:1`], permissionKey, accountScope, store.lineEpoch, filtering, blockReason, onBlocked, requestDetail, requestPlay, idsRef, detailsRef, setDetails]);
 
   /* 首分片预热（2.0.6，Muse 2026-11-18 移植）：下一条地址就绪后，用与播放器逐字相同的
      本地代理 URL 把清单 + 首分片先拉一遍，填 Rust PL_CACHE/SEG_CACHE；切过去时直接命中。
@@ -609,37 +610,43 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* 键盘 */
   useEffect(() => {
-    if (!active || !allowed || controlsLocked || showHoldGuide) return;
+    if (!active || !allowed || controlsLocked || showHoldGuide || tagMenu || searching) return;
     const seekRelative = (delta: number) => {
       const current = videoRef.current?.el()?.currentTime ?? 0;
       videoRef.current?.seek(Math.max(0, current + delta), "keyboard_shortcut");
     };
     const fn = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
-      if (panel) { if (e.key === "Escape") setPanel(null); return; }
+      if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented || e.isComposing) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (panel) { if (e.key === "Escape" && !e.repeat) setPanel(null); return; }
+      if (e.key === "ArrowLeft") { e.preventDefault(); seekRelative(-5); return; }
+      if (e.key === "ArrowRight") { e.preventDefault(); seekRelative(5); return; }
+      if (e.repeat) return;
       switch (e.key) {
         case "ArrowDown": e.preventDefault(); stepDir(1); break;
         case "ArrowUp": e.preventDefault(); stepDir(-1); break;
-        case " ": e.preventDefault(); videoRef.current?.toggle(); break;
-        case "ArrowLeft": e.preventDefault(); seekRelative(-5); break;
-        case "ArrowRight": e.preventDefault(); seekRelative(5); break;
+        case " ":
+          if (t?.closest?.('button, summary, [role="button"], a[href], select')) return;
+          e.preventDefault();
+          videoRef.current?.toggle();
+          break;
         case "f": case "F": toggleFull(); break;
         case "t": case "T": setTheater((v) => !v); break;
         case "m": case "M": setMuted((v) => !v); break;
-        case "l": case "L": onLike(); break;
-        case "s": case "S": onFav(); break;
+        case "l": case "L": void onLike(); break;
+        case "s": case "S": void onFav(); break;
         case "c": case "C": setPanel("comments"); break;
-        case "e": case "E": setPanel("episodes"); break;
+        case "e": case "E": if (kind === "video") setPanel("episodes"); break;
         default: break;
       }
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, allowed, controlsLocked, showHoldGuide, panel, index, stepDir, accountScope, curEp, kind, liked, collected, likePending, collectPending]);
+  }, [active, allowed, controlsLocked, showHoldGuide, tagMenu, searching, panel, index, stepDir, accountScope, curEp, kind, liked, collected, likePending, collectPending]);
 
-  /* 安卓返回键：面板打开时先关面板 */
+  /* 安卓返回键：面板打开时先关面板（按活跃实例栈式注册，不覆盖其他页面拦截器） */
   useEffect(() => {
     if (!panel) { setBackHandler(null); return undefined; }
     setBackHandler(() => { setPanel(null); return true; });
@@ -1196,6 +1203,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   return (
     <div
+      ref={playerRootRef}
       className={`hg-player-ui ${rotated ? "fs-landscape" : (!isDesktop && fs ? "fs-immersive" : "absolute inset-0")} overflow-hidden bg-black player-root ${controlsLocked ? "is-locked" : ""} ${isDesktop ? "player-surface" : ""} ${theater ? "is-theater" : ""} ${isDesktop && idle ? "is-idle" : ""}`}
       data-clean={clean}
       inert={!active || undefined}
@@ -1203,12 +1211,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       onFocusCapture={() => { if (active && isDesktop) wake(); }}
       onPointerMove={() => { if (isDesktop) wake(); }}>
       <div className="absolute inset-0" inert={controlsLocked}>
-      {/* 氛围背景 */}
-      {!isDesktop && posterUrl && (
-        <div className="absolute inset-0 scale-110 blur-3xl opacity-25 pointer-events-none">
-          <Image src={posterUrl} alt="" className="w-full h-full object-cover" />
-        </div>
-      )}
+        {/* 氛围背景 */}
+        {!isDesktop && posterUrl && (
+          <div className="absolute inset-0 scale-110 blur-3xl opacity-25 pointer-events-none">
+            <Image src={posterUrl} alt="" className="w-full h-full object-cover" />
+          </div>
+        )}
 
       <div ref={boxRef} onScroll={onScroll}
         className={`absolute inset-y-0 left-0 no-bar ${fs ? "overflow-hidden" : "overflow-y-scroll snap-y snap-mandatory overscroll-y-contain"}`}
@@ -1456,11 +1464,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                           boxShadow: "0 0 8px rgba(0,0,0,.55)",
                           transition: barPct !== null ? "none" : "left .25s linear",
                         }} />
-                      {barPct !== null && (
-                        <div className="absolute left-1/2 -translate-x-1/2 -top-8 px-2.5 py-1 rounded-md hg-chip-strong backdrop-blur-md text-[13px] font-bold tabular-nums whitespace-nowrap">
-                          {fmtTime(barPct * (duration || 0))}
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -1732,7 +1735,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 ) : panel === "comments" ? (
                   <CommentsPanel videoId={curId} ep={curEp} total={meta.comment} kind={kind} onClose={() => setPanel(null)} />
                 ) : (
-                  detailBody()
+                  <div className="absolute inset-0">
+                    {(!filtering || checked[`${accountScope}:${store.lineEpoch}:${kind}:${vid}`]) &&
+                      <Img src={details[vid]?.cover || posts[vid]?.cover || ""} eager={Math.abs(i - index) <= 1} />}
+                    <div className="absolute inset-0" style={{ background: "rgba(0,0,0,.25)" }} />
+                  </div>
                 )}
               </div>
             </div>
@@ -1755,6 +1762,34 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           {!fsUi && !clean && <Button onClick={() => store.setTab("search")} aria-label="搜索"
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><ISearch size={18} /></Button>}
         </div>
+
+        <FeedPlayerShellChrome
+          videoRef={videoRef} speedLockTargetRef={speedLockTargetRef} barRef={barRef} playbackClock={playbackClock}
+          isDesktop={isDesktop} active={active} fs={fs} idle={idle} rotated={rotated}
+          theater={theater} setTheater={setTheater} fullscreen={fullscreen} controlsLocked={controlsLocked}
+          paused={paused} duration={duration} rate={rate} setRate={setRate} effRate={effRate}
+          holdSpeed={holdSpeed} holdSlow={holdSlow} speedLock={speedLock} setSpeedLock={setSpeedLock} lockArmed={lockArmed}
+          muted={muted} setMuted={setMuted} volume={volume} setVolume={setVolume} swipeEp={swipeEp} setSwipeEp={setSwipeEp}
+          playKey={playKey} curId={curId} curEp={curEp} index={index} effectiveLength={effectiveVideoIds.length}
+          kind={kind} meta={meta} likeCount={likeCount} collectCount={collectCount}
+          episodes={episodes} related={related} follows={store.follows} followPending={followPending}
+          post={post} articleHtml={articleHtml} panel={panel} setPanel={setPanel}
+          barPct={barPct} onBarDown={onBarDown} onBarMove={onBarMove} onBarUp={onBarUp}
+          pickEp={pickEp} go={go} togglePip={togglePip} lockControls={lockControls} toggleFull={toggleFull} exitFs={exitFs}
+          onFollow={onFollow} openTag={openTag} openTagMenu={openTagMenu} closePanels={closePanels} pushPage={store.push} toast={toast}
+        />
+      </div>
+
+      <FeedMobileTopTools
+        isDesktop={isDesktop} controlsLocked={controlsLocked} active={active} fs={fs} idle={idle}
+        rotated={rotated} clean={clean} muted={muted} setMuted={setMuted}
+        lockControls={lockControls}
+        onSearchTab={() => { if (mode === "context") setSearching(true); else store.setTab("search"); }}
+      />
+      {searching && active && (
+        <InplaceSearch kind={kind} wide={isDesktop} onClose={() => setSearching(false)}
+          onOpenVideo={(v, list, kw) => store.push({ kind: "feed", videoIds: list.map(x => x.id), index: list.findIndex(x => x.id === v.id), title: kw ? `搜索 · ${kw}` : "搜索" })}
+          onOpenPost={(p) => store.push({ kind: "post", id: p.id })} />
       )}
     </div>
   );

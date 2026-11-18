@@ -6,8 +6,17 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
  * （与官方一致，此前写死 0 解硬）；仅播放中生效——暂停时只清计时、
  * 不动当前显隐（暂停锁显已按用户真机纠正删除：暂停不强制全显，
  * 单击在暂停态照样可隐藏/呼出），计时触发瞬间再查一次暂停态，
- * 暂停永不被自动隐藏。自动隐藏只是兜底：单击随时可即时收起/呼出。 */
-export function useFsIdle(isDesktop: boolean, fs: boolean, paused: boolean, mobileSecs: number, boxRef: RefObject<HTMLDivElement | null>) {
+ * 暂停永不被自动隐藏。自动隐藏只是兜底：单击随时可即时收起/呼出。
+ * 跟版合并（Muse 2026-11-18）：吸收上游 #146-3 的 suspended 参数——
+ * 拖动进度条期间挂起隐藏计时（挂起只清计时、不改显隐，同暂停口径）。 */
+export function useFsIdle(
+  isDesktop: boolean,
+  fs: boolean,
+  paused: boolean,
+  mobileSecs: number,
+  boxRef: RefObject<HTMLDivElement | null>,
+  suspended = false,
+) {
   const [idle, setIdle] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   const pausedRef = useRef(paused);
@@ -15,12 +24,14 @@ export function useFsIdle(isDesktop: boolean, fs: boolean, paused: boolean, mobi
   const delay = isDesktop ? 2800 : fs ? mobileSecs * 1000 : 0;
   const delayRef = useRef(delay);
   delayRef.current = delay;
+  const suspendedRef = useRef(suspended);
+  suspendedRef.current = suspended;
   const arm = useCallback(() => {
     window.clearTimeout(timer.current);
     timer.current = undefined;
-    if (!delayRef.current) return;
+    if (!delayRef.current || suspendedRef.current) return;
     timer.current = window.setTimeout(() => {
-      if (pausedRef.current) return;
+      if (pausedRef.current || suspendedRef.current) return;
       // Keyboard users must keep seeing the focused control/menu.
       if (isDesktop && boxRef.current?.parentElement?.contains(document.activeElement) && document.activeElement?.closest(".desktop-controls")) return;
       setIdle(true);
@@ -33,8 +44,8 @@ export function useFsIdle(isDesktop: boolean, fs: boolean, paused: boolean, mobi
     return () => window.clearTimeout(timer.current);
   }, [isDesktop, fs, wake]);
   useEffect(() => {
-    if (paused) { window.clearTimeout(timer.current); }
+    if (paused || suspended) { window.clearTimeout(timer.current); }
     else if (isDesktop || fs) arm();
-  }, [paused, isDesktop, fs, arm]);
+  }, [paused, suspended, isDesktop, fs, arm]);
   return { idle, setIdle, wake, arm };
 }
