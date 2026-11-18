@@ -95,7 +95,7 @@ export function FollowingPage({ onBack, wide }: { onBack: () => void; wide: bool
 }
 
 function FollowingContent({ onBack, wide }: { onBack: () => void; wide: boolean }) {
-  const { push, user, setLoginOpen, setTab, accountScope } = useStore();
+  const { push, user, setTab, accountScope } = useStore();
   const [searching, setSearching] = useState(false);
   // Identity belongs in the dependency list: switching accounts discards the previous feed.
   const request = useCallback((page: number) => api.following(page, 20), [accountScope]);
@@ -110,7 +110,8 @@ function FollowingContent({ onBack, wide }: { onBack: () => void; wide: boolean 
       </div>
     </div>
     <div ref={state.scroller} className="flex-1 scroll-y px-4 pt-3 pb-8">
-      {!user ? <Empty icon={<IUser size={26} />} title="登录后查看关注流" action="去登录" onAction={() => setLoginOpen(true)} />
+      {/* 收官批 B 补：游客定版不设登录入口，关注流空态去掉「去登录」死引导。 */}
+      {!user ? <Empty icon={<IUser size={26} />} title="游客模式不提供关注流" />
         : state.loading && !state.items.length ? <div className="flex justify-center py-12"><Loader /></div>
         : state.err && !state.items.length ? <Empty icon={<IGrid size={26} />} title="关注流加载失败" sub={state.err} action="重试" onAction={() => void state.loadMore()} />
         : state.items.length ? <Masonry videos={state.items} scopeKey={`following:${accountScope}`} wide={wide} onOpen={video => push({ kind: "feed", videoIds: state.items.map(item => item.id), index: state.items.findIndex(item => item.id === video.id), title: "关注" })} />

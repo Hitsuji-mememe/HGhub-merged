@@ -26,7 +26,8 @@
     "ios:icons": "node scripts/generate-ios-icons.mjs",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build",
-    "test:playback-engines": "node scripts/test-playback-engines.mjs"
+    "test:playback-engines": "node scripts/test-playback-engines.mjs",
+    "test:nav-chain": "node scripts/test-nav-chain.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

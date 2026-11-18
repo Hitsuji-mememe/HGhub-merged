@@ -408,18 +408,28 @@ try {
         assert(info && info.all && info.sameRow && info.heatSameRow && info.noOverlap,
           `${name}: A7 info must be one row (title+heat left, time right, no overlap), got ${JSON.stringify(info)}`);
         // A1: 单击进度条不 seek, 拖动才 seek (拖动中预览、松手落点)。
-        const slider = page.getByRole("slider", { name: "播放进度" });
-        const sbb = await slider.boundingBox();
-        assert(sbb, `${name}: A1 progress slider missing`);
-        const cy = sbb.y + sbb.height / 2;
+        // Feed 进度条是 barRef div (touchAction:none + pointer 手势), 无 role。
+        const barRect = () => page.evaluate(() => {
+          const el = [...document.querySelectorAll("div")].find(d => d.style.touchAction === "none");
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height };
+        });
+        const sbb = await barRect();
+        assert(sbb, `${name}: A1 progress bar missing`);
+        // 旋转呈现下进度条沿页面纵轴, 拖动方向随之换向 (stageXY 同口径)。
+        const rotatedBar = await page.evaluate(() => !!document.querySelector(".player-root.fs-landscape"));
+        const pt = f => rotatedBar
+          ? { x: sbb.x + sbb.width / 2, y: sbb.y + sbb.height * f }
+          : { x: sbb.x + sbb.width * f, y: sbb.y + sbb.height / 2 };
         const t0 = await page.evaluate(() => document.querySelector("video").currentTime);
-        await page.mouse.click(sbb.x + sbb.width * 0.1, cy);
+        await page.mouse.click(pt(0.1).x, pt(0.1).y);
         await page.waitForTimeout(400);
         const t1 = await page.evaluate(() => document.querySelector("video").currentTime);
         assert(Math.abs(t1 - t0) < 0.5, `${name}: A1 tap on progress bar must not seek (${t0} -> ${t1})`);
-        await page.mouse.move(sbb.x + sbb.width * 0.1, cy);
+        await page.mouse.move(pt(0.1).x, pt(0.1).y);
         await page.mouse.down();
-        await page.mouse.move(sbb.x + sbb.width * 0.55, cy, { steps: 12 });
+        await page.mouse.move(pt(0.55).x, pt(0.55).y, { steps: 12 });
         await page.mouse.up();
         await page.waitForTimeout(300);
         const dragState = await page.evaluate(() => { const v = document.querySelector("video"); return { t: v.currentTime, dur: v.duration }; });
@@ -434,7 +444,7 @@ try {
         const overlay = await page.evaluate(() => {
           const r = document.querySelector(".player-root");
           return {
-            slider: !!r.querySelector('[role="slider"]'),
+            slider: !![...r.querySelectorAll("div")].find(d => d.style.touchAction === "none"),
             topbar: !!r.querySelector('button[aria-label="返回"]'),
             time: [...r.querySelectorAll("span,div")].some(el => /^\d+:\d{2}\s*\/\s*\d+:\d{2}$/.test((el.textContent || "").trim())),
           };
@@ -443,7 +453,7 @@ try {
           `${name}: A5 fullscreen hidden state must have zero overlay, got ${JSON.stringify(overlay)}`);
         await tapCenter();
         await page.waitForTimeout(500);
-        await page.getByRole("slider", { name: "播放进度" }).waitFor({ state: "visible" });
+        assert(await barRect(), `${name}: A5 tap must restore the chrome (progress bar back)`);
       }
       // Exit path works end to end. (接棒同上: 退全屏过渡的 keepAlive 续播可能
       // 把已暂停的视频拉回播放、控件随之隐藏; 等其耗尽后若在播则点操作行
