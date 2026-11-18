@@ -1,8 +1,9 @@
 import { Button, Image, Surface } from "./ios/controls";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cover, platform } from "../api/api";
 import { getFullscreenElement, onFullscreenChange } from "../lib/fullscreen";
+import { imageDisplayed, imageFailed, imageRetry, imageStarted, traceFeed, urlFingerprint } from "../lib/feedTrace";
 export { Sheet, Modal } from "./ios/overlays";
 import { useToasts } from "../model/store";
 import { Loader } from "./ios/effects";
@@ -127,23 +128,85 @@ export function Img({ src, alt = "", className = "", eager = false, raw = false,
   return <ImageLoad key={url} url={url} alt={alt} className={className} eager={eager} raw={raw} loadingIndicator={loadingIndicator} />;
 }
 
+/* 封面加载状态机（Muse 2026-11-19 fix2 A3）：loading→decoded→
+ * displayed / failed(reason)。旧实现只有 ok/err 两态且无超时——慢线
+ * 下请求悬挂时 shimmer 永远转、失败原因不可见（真机：一整屏封面
+ * 黑占位，无从判读是没拉到、超时还是解码失败）。现行：每 attempt
+ * 带 20s 超时（超时记 timeout 并走既有重试），onLoad 记 decoded、
+ * 下一帧记 displayed；终局失败按原因计入 feedTrace 聚合，诊断
+ * 报告可读。视觉与重试策略不变：同地址重试两次再落占位。 */
+type ImgState = "loading" | "decoded" | "displayed" | "failed";
+const IMG_ATTEMPT_TIMEOUT_MS = 20_000;
 function ImageLoad({ url, alt, className, eager, raw, loadingIndicator }: {
   url: string; alt: string; className: string; eager: boolean; raw: boolean; loadingIndicator: boolean;
 }) {
-  const [ok, setOk] = useState(false);
-  const [err, setErr] = useState(false);
+  const [state, setState] = useState<ImgState>("loading");
   const [attempt, setAttempt] = useState(0);
+  const settledRef = useRef(false);
+  const ok = state === "decoded" || state === "displayed";
+  const err = state === "failed";
   /* 封面走本地解密代理，网络抖动会偶发失败：同地址重试两次再落到占位。
      代理入口只读 `u`，多余查询参数会被忽略，用它做重试的缓存戳。 */
   const retryUrl = !url || raw || attempt === 0 ? url : `${url}${url.includes("?") ? "&" : "?"}r=${attempt}`;
+  useEffect(() => {
+    if (!url) return;
+    settledRef.current = false;
+    imageStarted();
+    const fp = urlFingerprint(url);
+    const startedAt = Date.now();
+    traceFeed("image", { ev: "loading", attempt, url: fp });
+    const failOrRetry = (reason: "timeout" | "network" | "decode") => {
+      if (settledRef.current) return;
+      settledRef.current = true;
+      traceFeed("image", { ev: "failed", attempt, url: fp, reason, ms: Date.now() - startedAt });
+      if (!raw && attempt < 2) {
+        imageRetry();
+        setState("loading");
+        setAttempt(attempt + 1);
+      } else {
+        imageFailed(reason);
+        setState("failed");
+      }
+    };
+    const timer = window.setTimeout(() => failOrRetry("timeout"), IMG_ATTEMPT_TIMEOUT_MS);
+    return () => {
+      window.clearTimeout(timer);
+      if (!settledRef.current) { settledRef.current = true; imageRetry(); }
+    };
+    // failOrRetry 捕获当前 attempt 的闭包即可（attempt 变更即新 effect）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, attempt, raw]);
   return (
     <div className={`ios-image absolute inset-0 overflow-hidden ${className}`} data-ui="image-frame">
       {!ok && !err && <div className="absolute inset-0 shimmer" />}
       {loadingIndicator && !ok && <div className="absolute inset-0 grid place-items-center"><Loader label="封面加载中" /></div>}
       {err && !loadingIndicator && <div className="ios-image-error" role="img" aria-label={alt || "封面暂不可用"}>HG</div>}
       {url && <Image src={retryUrl} alt={alt} loading={eager ? "eager" : "lazy"}
-        onLoad={() => { setOk(true); setErr(false); }}
-        onError={() => { if (!raw && attempt < 2) setAttempt(attempt + 1); else setErr(true); }}
+        onLoad={() => {
+          if (settledRef.current) return;
+          settledRef.current = true;
+          traceFeed("image", { ev: "decoded", attempt, url: urlFingerprint(url) });
+          imageDisplayed();
+          setState("decoded");
+          requestAnimationFrame(() => setState((s) => (s === "decoded" ? "displayed" : s)));
+        }}
+        onError={(e) => {
+          if (settledRef.current) return;
+          /* img 错误事件不区分网络与解码：naturalWidth=0 多为网络/
+           * 空响应记 network，其余记 decode——近似口径，trace 如实记。 */
+          const el = e.currentTarget as HTMLImageElement;
+          const reason = el.naturalWidth === 0 ? "network" : "decode";
+          settledRef.current = true;
+          traceFeed("image", { ev: "error", attempt, url: urlFingerprint(url), reason });
+          if (!raw && attempt < 2) {
+            imageRetry();
+            setState("loading");
+            setAttempt(attempt + 1);
+          } else {
+            imageFailed(reason);
+            setState("failed");
+          }
+        }}
         className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${ok ? "opacity-100" : "opacity-0"}`} draggable={false} />}
     </div>
   );

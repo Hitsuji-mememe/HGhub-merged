@@ -23,6 +23,7 @@ import { readPlaybackFacts} from "./playbackFacts";
 import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot} from "./eventLedger";
 import { formatGpuProbeLines, getCachedGpuProbe} from "./gpuProbe";
+import { feedTraceSnapshot, feedTraceSummary} from "../lib/feedTrace";
 
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json => (v && typeof v === "object" &&!Array.isArray(v)? (v as Json): {});
@@ -385,6 +386,27 @@ if (p.fellBack) bits.push("已降级原生");
 if (p.startupMs!= null) bits.push(`总耗时 ${(p.startupMs / 1000).toFixed(1)}s`);
 lines.push(`此前播放 #${p.index}：${bits.join(" · ")}`);
 }
+}
+lines.push("");
+lines.push("── Feed 分页与封面 ────────────────");
+/* FeedRequestTrace（fix2 A2/A3）：分页状态机与封面状态机的证据环。
+ * 纯旁路：读取失败只降级本节。慢线下「只出首屏/封面全黑」复现后
+ * 生成报告即可定性，不再靠猜。 */
+try {
+const summary = feedTraceSummary();
+const snap = feedTraceSnapshot();
+if (!summary) {
+lines.push("无记录（本会话未打开任何分页列表）");
+} else {
+const failText = summary.lastFail? ` · 最近失败 ${summary.lastFail}`: "";
+lines.push(`分页：已加载至第 ${summary.loadedPages} 页 · 终态 ${summary.lastState?? "未知"}${failText}`);
+const reasons = Object.entries(snap.image.byReason).map(([k, v]) => `${k} ${v}`).join(" · ");
+lines.push(`封面：已显示 ${snap.image.displayed} · 终局失败 ${snap.image.failed}${reasons? `（${reasons}）`: ""} · 在途峰值 ${snap.image.inFlightPeak}`);
+const recent = snap.events.filter(e => e.kind.startsWith("page.")).slice(-4);
+for (const e of recent) lines.push(`· ${e.kind} ${JSON.stringify(e.data)}`);
+}
+} catch {
+lines.push("读取失败（纯旁路，不影响本报告其余内容）");
 }
 lines.push("");
 lines.push("── WebGPU 探针 ───────────────────");
