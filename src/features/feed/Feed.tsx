@@ -216,7 +216,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const openPreferences = () => { closePanels(); store.push({ kind: "settings", section: "内容偏好" }); };
   const openTagMenu = openPreferences;
   const openTag = (tag: string) => { closePanels(); store.push({ kind: "tag", tag, name: tag }); };
-  useEffect(() => { setTagMenu(false); }, [curId, store.lineEpoch, accountScope]);
+  useEffect(() => { setTagMenu(false); setPanel(null); }, [curId, store.lineEpoch, accountScope]);
   useEffect(() => { if (blocked && mode === "home" && active) onBlocked?.(curId); }, [blocked, mode, active, curId, onBlocked]);
   useEffect(() => { if (!allowed) { setPanel(null); setTagMenu(false); } }, [allowed]);
   const curEp = epMap[curId] || 1;
