@@ -73,6 +73,13 @@ fallbackThisSession: boolean;
 stallCount: number;
 rebuildCount: number;
 fallbackCount: number;
+/** 最近一次卡死的四状态分类（看门狗判死时记录），报告纠错的第一线索。 */
+lastStallState: string | null;
+/** 本会话超分帧成本降档次数（功耗/发热问题的代理指标）。 */
+demoteCount: number;
+/** 本会话实际切线次数与两轮确认待确认次数（线路乱跳的代理指标）。 */
+lineSwitchCount: number;
+confirmPendingCount: number;
 };
 
 export function analyzeFlow(entries: LogEntry[]): FlowResult | null {
@@ -89,6 +96,10 @@ const stallCount = stallEvents.length;
 /* attempt=0 的卡死触发了自愈重建、attempt=1 的触发了降级判定 */
 const rebuildCount = stallEvents.filter(e => num(e.data.attempt) === 0).length;
 const fallbackCount = sessionEntries.filter(e => e.event === "web.playback.fallback").length;
+const lastStallState = stallEvents.length? str(stallEvents[stallEvents.length - 1].data.state) || null: null;
+const demoteCount = sessionEntries.filter(e => e.event === "web.sr.perf_demote").length;
+const lineSwitchCount = sessionEntries.filter(e => e.event === "web.line.pick" && e.data.switched === true).length;
+const confirmPendingCount = sessionEntries.filter(e => e.event === "web.line.confirmPending").length;
 
 const reached = STAGES.map(stage => {
 const hit = tail.find(e => stage.events.includes(e.event));
@@ -120,8 +131,15 @@ verdict = "最近播放卡在 append（分片已下载、未入缓冲——appen
 } else {
 verdict = `最近播放卡在 ${furthest.label} 阶段`;
 }
-return { table: parts.join(" · "), verdict, startupMs, stalledThisSession, fallbackThisSession, stallCount, rebuildCount, fallbackCount};
+return { table: parts.join(" · "), verdict, startupMs, stalledThisSession, fallbackThisSession, stallCount, rebuildCount, fallbackCount, lastStallState, demoteCount, lineSwitchCount, confirmPendingCount};
 }
+
+/* 看门狗四状态的人话标签：报告读者要一眼知道 append 死在哪一段。 */
+const STALL_STATE_LABEL: Record<string, string> = {
+"not-started": "append 未开始（队列没动）",
+"append-hung": "append 处理中卡住",
+"appended-no-buffer": "append 已结束但缓冲为空",
+};
 
 export async function buildDiagnosticReport(): Promise<string> {
 const [diagR, lineStateR, logR] = await Promise.allSettled([
@@ -189,7 +207,7 @@ lines.push(`当前线路：${currentHost}（自动选线 ${autoLineEnabled()? "�
 lines.push(`各线延迟${probeCount!= null? `（候选 ${probeCount} 条）`: ""}：${probeText}`);
 lines.push(`分片吞吐：${speedText}`);
 lines.push(`最近播放：${flow? `${flow.verdict}${flow.startupMs!= null? ` · 起播约 ${(flow.startupMs / 1000).toFixed(1)}s`: ""}`: "无最近播放记录"}`);
-const healCounts = flow && flow.stallCount > 0? `（本会话卡死 ${flow.stallCount} 次 · 自愈重建 ${flow.rebuildCount} 次 · 降级 ${flow.fallbackCount} 次）`: "";
+const healCounts = flow && flow.stallCount > 0? `（本会话卡死 ${flow.stallCount} 次 · 自愈重建 ${flow.rebuildCount} 次 · 降级 ${flow.fallbackCount} 次 · 最近卡死形态：${flow.lastStallState? STALL_STATE_LABEL[flow.lastStallState] ?? flow.lastStallState: "未记录"}）`: "";
 if (fallback || flow?.fallbackThisSession) lines.push(`会话降级：本会话已降级原生播放（append 停滞）${healCounts}`);
 else if (flow?.stalledThisSession) lines.push(`会话降级：发生过 append 卡死、已自愈重建（未降级）${healCounts}`);
 else lines.push("会话降级：未发生");
@@ -229,7 +247,8 @@ lines.push(`当前集源：${facts.w}x${facts.h}${codecText}${kbps? ` · 码率 
 } else {
 lines.push("当前集源：无（尚未播放）");
 }
-lines.push(`选线现状：当前 ${currentHost}${round && Date.now() - round.at < 10 * 60_000? `；最近轮次探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}`);
+if (flow && flow.demoteCount > 0) lines.push(`超分降档：本会话 ${flow.demoteCount} 次（帧成本超标自动降档——发热/功耗问题先看这个数）`);
+lines.push(`选线现状：当前 ${currentHost}${round && Date.now() - round.at < 10 * 60_000? `；最近轮次探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}${flow? `；本会话切线 ${flow.lineSwitchCount} 次${flow.confirmPendingCount > 0? ` · 两轮确认待确认 ${flow.confirmPendingCount} 次`: ""}`: ""}`);
 lines.push("");
 lines.push("── 最近一次播放流水 ──────────────");
 lines.push(flow? flow.table: "（无记录）");
