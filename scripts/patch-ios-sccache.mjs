@@ -40,7 +40,10 @@ const prefix =
   `[ -f \\"${envFile}\\" ] && . \\"${envFile}\\"; ` +
   `export RUSTC_WRAPPER=sccache; export CARGO_INCREMENTAL=0; `;
 const out = original.replace(segmentRe, (whole, body) => {
-  if (!body.includes("cargo")) return whole;
+  /* Tauri v2 的 Build Rust Code 阶段脚本是
+   * `pnpm tauri ios xcode-script ...`（内部再起 cargo），脚本里
+   * 没有字面 "cargo"——两种形态都认，前缀 env 由子进程继承。 */
+  if (!body.includes("cargo") && !body.includes("xcode-script")) return whole;
   if (body.includes("RUSTC_WRAPPER")) return whole;
   patched += 1;
   return `shellScript = "${prefix}${body}";`;
