@@ -17,7 +17,14 @@ export function EpisodesPanel({ episodes, current, onPick, onClose, bare = false
   bare?: boolean;
 }) {
   const [asc, setAsc] = useState(true);
-  const list = asc ? episodes : [...episodes].reverse();
+  /* 长剧分组（蓝图 P2）：每 30 集一段，段签横排切换；初始段落在当前集。
+     网格每行 5、热区 44px（原每行 4 / 40px 不达触控红线）。 */
+  const RANGE = 30;
+  const rangeCount = Math.ceil(episodes.length / RANGE);
+  const curIdx = episodes.findIndex((e) => e.ep_num === current);
+  const [range, setRange] = useState(() => (curIdx >= 0 ? Math.floor(curIdx / RANGE) : 0));
+  const ranged = rangeCount > 1 ? episodes.slice(range * RANGE, range * RANGE + RANGE) : episodes;
+  const list = asc ? ranged : [...ranged].reverse();
   return (
     <div className="flex flex-col h-full">
       {bare ? (
@@ -35,11 +42,21 @@ export function EpisodesPanel({ episodes, current, onPick, onClose, bare = false
           </Button>
         </div>
       )}
+      {rangeCount > 1 && (
+        <div className="shrink-0 flex gap-1.5 px-4 pb-2 overflow-x-auto no-bar">
+          {Array.from({ length: rangeCount }, (_, i) => (
+            <Button key={i} onClick={() => setRange(i)} aria-pressed={range === i}
+              className={`shrink-0 h-8 px-3 rounded-full text-[12px] font-semibold pressable ${range === i ? "bg-primary text-on-primary" : "bg-s3 text-on/70"}`}>
+              {i * RANGE + 1}–{Math.min(episodes.length, (i + 1) * RANGE)}
+            </Button>
+          ))}
+        </div>
+      )}
       <div className="flex-1 scroll-y px-4 pb-4">
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-5 gap-2">
           {list.map((e) => (
             <Button key={e.ep_num} aria-current={e.ep_num === current ? "true" : undefined} onClick={() => onPick(e.ep_num)}
-              className={`h-10 rounded-(--r-sm) text-[13px] font-semibold pressable ${e.ep_num === current ? "bg-primary text-on-primary" : "bg-s3 text-on/80"}`}>
+              className={`h-11 rounded-(--r-sm) text-[13px] font-semibold pressable ${e.ep_num === current ? "bg-primary text-on-primary" : "bg-s3 text-on/80"}`}>
               {e.ep_num}
             </Button>
           ))}
