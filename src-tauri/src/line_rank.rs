@@ -120,10 +120,17 @@ static ROTATE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::
 /// 质疑后改）：旧制只取延迟前 4——池外候选永远测不到吞吐、永远赢不了，
 /// 当前线跌出前 4 还会被粘性当作不可达直接换掉。现池＝延迟前 2 +
 /// 当前线保底（可达且未入池时）+ 其余候选轮换 1 条。
-pub async fn pick_ranked(hits: Vec<(String, String, u64)>, current: Option<&str>) -> Value {
-    let round_started = Instant::now();
-    let mut ordered = hits;
-    ordered.sort_by_key(|(tier, _, ms)| (tier != "main", *ms));
+/// 吞吐探测池构成（纯函数，2026-11-18 晚故障注入批自 pick_ranked
+/// 等价提取，契约由本文件 tests 钉住）：入参 ordered 已由调用方按
+/// 延迟序（主站优先）排序。池＝前 2 + 当前线保底（在候选中且未入池
+/// 时）+ 池外轮换 1 条（rotate 游标取模，池 <4 且有池外候选才取）。
+/// 返回（池， 是否消耗了轮换位）；池保持未重排状态，主站优先重排
+/// 留在调用方。
+fn select_pool(
+    ordered: &[(String, String, u64)],
+    current: Option<&str>,
+    rotate: usize,
+) -> (Vec<(String, String, u64)>, bool) {
     let mut pool: Vec<(String, String, u64)> = ordered.iter().take(2).cloned().collect();
     if let Some(cur) = current {
         if let Some(hit) = ordered.iter().find(|(_, u, _)| u.as_str() == cur) {
@@ -132,13 +139,26 @@ pub async fn pick_ranked(hits: Vec<(String, String, u64)>, current: Option<&str>
             }
         }
     }
+    let mut rotated = false;
     if pool.len() < 4 {
         let rest: Vec<&(String, String, u64)> =
             ordered.iter().filter(|h| !pool.contains(h)).collect();
         if !rest.is_empty() {
-            let idx = ROTATE.fetch_add(1, std::sync::atomic::Ordering::SeqCst) % rest.len();
-            pool.push(rest[idx].clone());
+            pool.push(rest[rotate % rest.len()].clone());
+            rotated = true;
         }
+    }
+    (pool, rotated)
+}
+
+pub async fn pick_ranked(hits: Vec<(String, String, u64)>, current: Option<&str>) -> Value {
+    let round_started = Instant::now();
+    let mut ordered = hits;
+    ordered.sort_by_key(|(tier, _, ms)| (tier != "main", *ms));
+    let (mut pool, rotated) =
+        select_pool(&ordered, current, ROTATE.load(std::sync::atomic::Ordering::SeqCst));
+    if rotated {
+        ROTATE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
     pool.sort_by_key(|(tier, _, ms)| (tier != "main", *ms));
     let mut measures: Vec<LineMeasure> = Vec::new();
@@ -218,5 +238,58 @@ mod tests {
     #[test]
     fn empty_candidates_keep_current() {
         assert!(rank_lines(&[]).is_none());
+    }
+
+    /* ── 故障注入（2026-11-18 晚）：选线池构成契约。hits 元组为
+     * (tier, url, ms)，ordered 由调用方按延迟序排好后传入。 ── */
+    fn h(url: &str, ms: u64) -> (String, String, u64) {
+        ("mirror".into(), url.into(), ms)
+    }
+
+    fn pool_urls(pool: &[(String, String, u64)]) -> Vec<&str> {
+        pool.iter().map(|(_, u, _)| u.as_str()).collect()
+    }
+
+    #[test]
+    fn pool_is_top2_plus_current_plus_one_rotation() {
+        // 5 候选、当前线在前 2 之外：前 2 + 当前线保底 + 轮换 1 条
+        let ordered = vec![h("a", 10), h("b", 20), h("c", 30), h("cur", 40), h("d", 50)];
+        let (pool, rotated) = select_pool(&ordered, Some("cur"), 0);
+        assert!(rotated);
+        assert_eq!(pool_urls(&pool), vec!["a", "b", "cur", "c"]);
+    }
+
+    #[test]
+    fn pool_rotation_picks_next_outsider() {
+        let ordered = vec![h("a", 10), h("b", 20), h("c", 30), h("cur", 40), h("d", 50)];
+        let (pool, rotated) = select_pool(&ordered, Some("cur"), 1);
+        assert!(rotated);
+        assert_eq!(pool_urls(&pool), vec!["a", "b", "cur", "d"]);
+    }
+
+    #[test]
+    fn pool_current_in_top2_not_duplicated() {
+        let ordered = vec![h("a", 10), h("b", 20), h("c", 30), h("d", 40), h("e", 50)];
+        let (pool, rotated) = select_pool(&ordered, Some("a"), 0);
+        assert!(rotated);
+        assert_eq!(pool_urls(&pool), vec!["a", "b", "c"]);
+        assert_eq!(pool.iter().filter(|(_, u, _)| u == "a").count(), 1);
+    }
+
+    #[test]
+    fn pool_exhausted_candidates_no_rotation() {
+        let ordered = vec![h("a", 10), h("b", 20)];
+        let (pool, rotated) = select_pool(&ordered, Some("a"), 0);
+        assert!(!rotated);
+        assert_eq!(pool_urls(&pool), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn pool_current_absent_gets_no_reserved_slot() {
+        let ordered = vec![h("a", 10), h("b", 20), h("c", 30), h("d", 40), h("e", 50)];
+        let (pool, rotated) = select_pool(&ordered, Some("ghost"), 0);
+        assert!(rotated);
+        assert_eq!(pool_urls(&pool), vec!["a", "b", "c"]);
+        assert!(!pool.iter().any(|(_, u, _)| u == "ghost"));
     }
 }
