@@ -9,6 +9,7 @@ import "./index.css";
 import { initPlaybackLog, installPlaybackPageEvents, tracePlayback } from "./shared/diagnostics/playbackDiagnostics";
 import { APP_VERSION, LOCAL, logLine, platform, webviewVersion } from "./shared/api/api";
 import { installLayoutDiagnostics } from "./shared/diagnostics/layoutDiagnostics";
+import { scheduleGpuProbe } from "./shared/diagnostics/gpuProbe";
 import { hasAcceptedAgreement } from "./shared/storage/usageAgreement";
 
 const loadAcceptedApp = () => import("./app/AcceptedApp");
@@ -51,6 +52,10 @@ function scheduleBootDiagnostics() {
       dpr: devicePixelRatio, lang: navigator.language,
     });
     installLayoutDiagnostics();
+    /* WebGPU 探针（Muse 2026-11-18 U3）：每会话后台自动跑一次——此处
+     * 只登记调度，实际执行推迟到浏览器空闲，不阻塞启动与起播；结果
+     * 记账本并缓存，诊断报告只读缓存（见 gpuProbe.ts 旁路纪律）。 */
+    scheduleGpuProbe();
   });
 }
 

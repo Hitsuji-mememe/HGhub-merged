@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import StartupGate from "../app/startup/LaunchAnimation";
 import { installPlaybackPageEvents, initPlaybackLog } from "../shared/diagnostics/playbackDiagnostics";
+import { scheduleGpuProbe } from "../shared/diagnostics/gpuProbe";
 import { installRemoteController, registerStartupBack } from "./remote";
 import { installTvDisplay } from "./display";
 import { TvProvider } from "./TvProvider";
@@ -16,7 +17,7 @@ function TvStartup(){
   // Mounting the gate is startup success; agreement acceptance can take minutes.
   useEffect(()=>{
     markStartupReady();
-    const frame=window.requestAnimationFrame(()=>{void initPlaybackLog();});
+    const frame=window.requestAnimationFrame(()=>{void initPlaybackLog(); scheduleGpuProbe();});
     return()=>window.cancelAnimationFrame(frame);
   },[]);
   return <StartupGate registerBack={registerStartupBack}><TvProvider><TvApp/></TvProvider></StartupGate>;

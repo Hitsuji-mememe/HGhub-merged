@@ -22,6 +22,7 @@ import { playbackLogApi} from "./playbackDiagnostics";
 import { readPlaybackFacts} from "./playbackFacts";
 import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot} from "./eventLedger";
+import { formatGpuProbeLines, getCachedGpuProbe} from "./gpuProbe";
 
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json => (v && typeof v === "object" &&!Array.isArray(v)? (v as Json): {});
@@ -345,6 +346,16 @@ if (p.fellBack) bits.push("已降级原生");
 if (p.startupMs!= null) bits.push(`总耗时 ${(p.startupMs / 1000).toFixed(1)}s`);
 lines.push(`此前播放 #${p.index}：${bits.join(" · ")}`);
 }
+}
+lines.push("");
+lines.push("── WebGPU 探针 ───────────────────");
+/* WebGPU 探针（Muse 2026-11-18 U3）：只读会话内后台自动探针的缓存
+ * 结果，报告生成不在此现跑（探针时机见 gpuProbe.scheduleGpuProbe）。
+ * 纯旁路：读缓存失败只降级本节，不拖垮报告其余内容。 */
+try {
+for (const l of formatGpuProbeLines(getCachedGpuProbe())) lines.push(l);
+} catch {
+lines.push("读取失败（纯旁路，不影响本报告其余内容）");
 }
 return lines.join("\n");
 }
