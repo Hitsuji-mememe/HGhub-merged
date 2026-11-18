@@ -27,7 +27,7 @@ import { useStallHeal } from "./stallHeal";
 import { useFeedDetails } from "./useFeedDetails";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText,
-  ICheck, IHeart, IHeartF, ILink, IList, IPauseF, IPlayF, ISearch, IStar, IStarF, IVertSwap, IVol, IVolMute,
+  ICheck, IHeart, IHeartF, ILink, IList, INext, IPauseF, IPlayF, ISearch, IStar, IStarF, IVertSwap, IVol, IVolMute,
 } from "../../shared/ui/icons";
 
 type Props = {
@@ -120,6 +120,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [waiting, setWaiting] = useState(false);
   const [err, setErr] = useState("");
   const [panel, setPanel] = useState<"episodes" | "comments" | "article" | "detail" | null>(null);
+  /* 抽屉页签记忆（蓝图 P2）：「内容」入口落上次页、首次落详情 */
+  const lastPanelRef = useRef<"episodes" | "detail" | "comments">("detail");
+  useEffect(() => { if (panel === "episodes" || panel === "detail" || panel === "comments") lastPanelRef.current = panel; }, [panel]);
   /* 续播：拿到时长后再 seek 一次（只对进入时那一条生效） */
   const resumeRef = useRef<{ key: string; t: number } | null>(
     startTime && startTime > 1 ? { key: `${videoIds[startIndex]}:${startEp || 1}`, t: startTime } : null,
@@ -1120,6 +1123,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     setPanel(null);
   };
 
+  /* 控制层（蓝图 P1）：顶栏返回与操作行上下集。
+     返回与硬件返回同序：全屏先退全屏、context 回上一页、home 回浏览页（分类）。 */
+  const goBack = () => { if (fs) exitFs(); else if (mode === "context" && onBack) onBack(); else store.setTab("category"); };
+  const epIdx = episodes.findIndex((e) => e.ep_num === curEp);
+  const stepEp = (d: 1 | -1) => { const t = episodes[epIdx + d]; if (t) pickEp(t.ep_num); };
+
   /* 点赞/收藏计数随右栏恢复（上游原算法在 ActionRail.useSocialCounts） */
   const { likeCount, collectCount } = useSocialCounts(meta, detail, kind, curEp, liked, collected);
 
@@ -1247,8 +1256,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 </div>
               )}
 
-              {/* 顶部 */}
-              {!fs && !clean && mode === "context" ? (
+              {/* 顶部：移动端视频条目由单一控制层顶栏接管（蓝图 P1），此处只剩桌面与图文 */}
+              {!fs && !clean && mode === "context" && (isDesktop || kind !== "video") ? (
                 isDesktop ? (
                   <div className="desktop-context-header">
                     <Button onClick={onBack} aria-label="返回"><IBack size={17} /></Button>
@@ -1262,7 +1271,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   </div>
                 )
               ) : null}
-              {!fsUi && !clean && !isDesktop && mode === "context" && (
+              {!fsUi && !clean && !isDesktop && mode === "context" && kind !== "video" && (
                 <span className="feed-position-pill absolute z-20 px-2.5 py-1 rounded-full hg-chip text-[12px] font-semibold tabular-nums"
                   style={{ top: "calc(var(--sat, 0px) + 52px)", left: 12, color: "rgba(255,255,255,.94)" }}>
                   {index + 1} / {effectiveVideoIds.length}
@@ -1389,9 +1398,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {/* 移动端：标题 + 详情标签 + 进度线
                   不加任何压暗层——黑边彻底去掉，全靠文字阴影保读；
                   进度条轨道几乎不可见，只用白点标播放位置。 */}
-              {!fsUi && !isDesktop && (
+              {!fsUi && !isDesktop && kind === "post" && (
                 <div className="absolute inset-x-0 z-20" style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset}px)` }}>
-                  {/* 显隐由单击切换（解耦版）：隐藏时只留下方细进度条，标题与入口随之收起 */}
+                  {/* 图文帖保留原信息块；视频条目的信息已并入单一控制层（蓝图 P1） */}
                   {!clean && (
                   <div className="mobile-video-meta-copy relative pb-2 flex items-center gap-2">
                     <p className="flex-1 min-w-0 text-[15px] font-semibold leading-snug hg-ink-2 hg-ov-shadow-strong clamp-2">{meta.title}</p>
@@ -1453,18 +1462,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 </div>
               )}
 
-              {/* 中央播放/暂停大钮（解耦版，Muse 2026-11-18）：暂停/播放唯一的
-                  画面内显性入口，76px 热区；控件层显示时出现（普通态看 clean、
-                  全屏态看 idle），暂停态常驻——与「暂停锁显」配套，恢复入口
-                  永远在正中。落点：普通与全屏共用此一处（同一 section 内渲染，
-                  显隐分别由 clean / idle 门控）。桌面保留原只读暂停指示。 */}
-              {isActive && !err && !isDesktop && (paused || (fsUi ? !idle : !clean)) && (
-                <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-                  <Button type="button" aria-label={paused ? "播放" : "暂停"} onClick={() => videoRef.current?.toggle()} className="pointer-events-auto w-[76px] h-[76px] rounded-full flex items-center justify-center backdrop-blur-md pressable" style={{ background: "rgba(0,0,0,.5)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.14)" }}>
-                    {paused ? <IPlayF size={32} className="hg-ink ml-1" /> : <IPauseF size={30} className="hg-ink" />}
-                  </Button>
-                </div>
-              )}
+              {/* 画面中央不再放暂停钮（蓝图 P1，GPT 理由成立：中央是观看区
+                  且单手够不到）——暂停/播放统一走控制层底部中央钮与双击；
+                  8275a16 的中央大钮至此回退。桌面保留原只读暂停指示。 */}
               {isActive && paused && !err && isDesktop && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
                   <span className="w-[66px] h-[66px] rounded-full flex items-center justify-center backdrop-blur-md" style={{ background: "rgba(0,0,0,.55)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.12)" }}>
@@ -1535,8 +1535,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </Button>
       )}
 
-      {/* 全屏播放中控件隐藏时只留一条细进度线 */}
-      {!isDesktop && fsUi && idle && !paused && (
+      {/* 控件隐藏时只留一条细进度线贴底（蓝图：默认态只有视频 + 细进度条） */}
+      {!isDesktop && kind === "video" && (fsUi ? idle : clean) && !paused && (
         <div className="absolute inset-x-0 z-30 pointer-events-none" style={{ bottom: rotated ? 0 : "var(--sab, 0px)", paddingLeft: rotated ? "max(52px, env(safe-area-inset-left))" : 0, paddingRight: rotated ? "max(52px, env(safe-area-inset-right))" : 0 }}>
           <div className="h-[2.5px]" style={{ background: "rgba(255,255,255,.22)" }}>
             <PlaybackProgress clock={playbackClock} duration={duration} preview={null} className="h-full bg-white" />
@@ -1544,94 +1544,84 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </div>
       )}
 
-      {/* 移动端全屏进度条，普通模式的进度条位于标题下方。
-          fsUi（竖屏即全屏）下页签带可能在位（clean 镜像驱动），底距随
-          bottomInset 让位；真实 fs 时 bottomInset 恒 0、与旧值一致 */}
-      {!isDesktop && fsUi && !idle && (
-        <div
-          className="absolute inset-x-0 z-30 px-4"
-          style={{
-            bottom: rotated ? 52 : `calc(var(--sab, 0px) + ${bottomInset + 52}px)`,
-            paddingLeft: rotated ? "calc(var(--sat, 0px) + 16px)" : undefined,
-            paddingRight: rotated ? "calc(var(--sab, 0px) + 16px)" : undefined,
-            height: 22,
-          }}>
-          <div ref={barRef} className="relative h-full" style={{ touchAction: "none" }}
-            onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
-            <div className="absolute inset-x-0 bottom-[8px] h-[2.5px] rounded-full" style={{ background: "rgba(255,255,255,.3)" }}>
-              <PlaybackProgress clock={playbackClock} duration={duration} preview={barPct} className="h-full rounded-full bg-white" />
+      {/* ── 单一控制层（蓝图 P1，Muse 2026-11-18）──
+          移动端视频条目的信息与操作只属于这一层：顶栏（返回/集数定位/
+          静音/搜索）+ 底部（剧名·集数与时间行/可拖进度条/操作行），同显
+          同隐、不拆多个悬浮层；显隐走解耦模型（普通态 clean、全屏呈现态
+          idle、暂停锁显）。操作行固定构成：上一集 | 选集 | 暂停/播放
+          （底部中央 52px） | 下一集 | 内容 | 倍速指示。此前并存的全屏
+          底栏、独立全屏进度条、两处退出钮与中央大钮至此合并回退——真实
+          全屏的退出由顶栏返回承担（与硬件返回同序：先退全屏）。底栏
+          44px 地板与不出视口的几何教训（2.2.0 溢出修复）由 test-layout
+          按视口矩阵继续守门。 */}
+      {!isDesktop && kind === "video" && (paused || (fsUi ? !idle : !clean)) && (
+        <div className="absolute inset-x-0 top-0 z-40 flex items-center gap-2 px-3" style={{ paddingTop: "calc(var(--sat, 0px) + 6px)" }}>
+          <Button onClick={goBack} aria-label="返回"
+            className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+            <IBack size={20} />
+          </Button>
+          <span className="flex-1 text-center text-[13px] font-semibold hg-ink-2 hg-ov-shadow tabular-nums">
+            {episodes.length > 1 ? `第 ${curEp} 集 / 共 ${episodes.length} 集` : "正片"}
+          </span>
+          <Button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}
+            className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+            {muted ? <IVolMute size={18} /> : <IVol size={18} />}
+          </Button>
+          <Button onClick={() => store.setTab("search")} aria-label="搜索"
+            className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+            <ISearch size={18} />
+          </Button>
+        </div>
+      )}
+      {!isDesktop && kind === "video" && (paused || (fsUi ? !idle : !clean)) && (
+        <div className="absolute inset-x-0 bottom-0 z-40"
+          style={{ paddingBottom: `calc(var(--sab, 0px) + ${bottomInset}px + 6px)`, background: "linear-gradient(to top, rgba(0,0,0,.55), rgba(0,0,0,.26) 55%, transparent)" }}>
+          <div className="px-4 flex items-baseline gap-2">
+            <span className="flex-1 min-w-0 truncate text-[15px] font-semibold hg-ink hg-ov-shadow">{meta.title}</span>
+            {episodes.length > 1 && <span className="shrink-0 text-[12px] font-semibold hg-ink-2 hg-ov-shadow">第 {curEp} 集</span>}
+            <span className="shrink-0 text-[11px] font-semibold hg-ink-2 tabular-nums"><PlaybackTime clock={playbackClock} /> / {fmtTime(duration)}</span>
+          </div>
+          <div className="px-4" style={{ height: 22 }}>
+            <div ref={barRef} className="relative h-full" style={{ touchAction: "none" }}
+              onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
+              <div className="absolute inset-x-0 bottom-[8px] h-[2.5px] rounded-full" style={{ background: "rgba(255,255,255,.3)" }}>
+                <PlaybackProgress clock={playbackClock} duration={duration} preview={barPct} className="h-full rounded-full bg-white" />
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between px-2"
+            style={{ paddingLeft: rotated ? "calc(var(--sat, 0px) + 16px)" : undefined, paddingRight: rotated ? "calc(var(--sab, 0px) + 16px)" : undefined }}>
+            <Button onClick={() => stepEp(-1)} disabled={epIdx <= 0} aria-label="上一集"
+              className="hg-chip w-11 h-11 rounded-full flex items-center justify-center pressable disabled:opacity-35">
+              <INext size={18} style={{ transform: "scaleX(-1)" }} />
+            </Button>
+            <Button onClick={() => setPanel("episodes")} aria-label="选集"
+              className="hg-chip h-11 px-3 rounded-full flex items-center gap-1 text-[13px] font-semibold pressable">
+              <IList size={15} />选集
+            </Button>
+            <Button onClick={() => videoRef.current?.toggle()} aria-label={paused ? "播放" : "暂停"}
+              className="hg-chip-strong w-[52px] h-[52px] rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+              {paused ? <IPlayF size={24} className="ml-0.5" /> : <IPauseF size={22} />}
+            </Button>
+            <Button onClick={() => stepEp(1)} disabled={epIdx < 0 || epIdx >= episodes.length - 1} aria-label="下一集"
+              className="hg-chip w-11 h-11 rounded-full flex items-center justify-center pressable disabled:opacity-35">
+              <INext size={18} />
+            </Button>
+            <Button onClick={() => setPanel(lastPanelRef.current)} aria-label="内容"
+              className="hg-chip h-11 px-3 rounded-full flex items-center gap-1 text-[13px] font-semibold pressable">
+              <IFileText size={15} />内容
+            </Button>
+            <div className="relative">
+              <Button onClick={() => setRateMenuOpen((v) => !v)} aria-label="倍速选择" aria-expanded={rateMenuOpen}
+                className={`h-11 px-3 rounded-full flex items-center gap-1 text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip"}`}>
+                <IBoltF size={13} />{effRate}x
+              </Button>
+              {rateMenuOpen && (
+                <RateMenu current={rate} onSelect={(r) => { setRate(r); videoRef.current?.rate(r); setRateMenuOpen(false); }} />
+              )}
             </div>
           </div>
         </div>
-      )}
-
-      {/* 移动端：沉浸全屏（安卓 WebView 不支持 Fullscreen API，改用应用内沉浸层）；
-          fsUi 时竖屏源直接以此呈现（无退出钮，见下方两处 fs 门控） */}
-      {!isDesktop && fsUi && !idle && (
-        <>
-          {fs && (rotated || vpLandscape) && (
-          <Button onClick={exitFs} aria-label="退出全屏"
-            className="hg-chip-strong absolute z-40 w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1"
-            style={{
-              top: rotated ? 12 : "calc(var(--sat, 0px) + 6px)",
-              right: rotated ? "calc(var(--sab, 0px) + 12px)" : 12,
-            }}>
-            <ICompress size={18} />
-          </Button>
-          )}
-          {/* Muse 2026-11-18 (2.2.0 修复): 底栏溢出重排。根因：@media(pointer:coarse) 下
-              .ios-button 有 44px 最小尺寸地板（styles/ios.css），合并时按 32px 估宽必溢出，
-              末尾退出钮被挤出屏幕。按实尺寸排版：时间合并一段（2.1.5 定版）、超分纯图标
-              （高亮示状态）、静音在 ≤360px 撤出本栏（非全屏右上组仍有）；竖屏退出钮移出
-              横排固定右端，横排右内边距预留其宽（54px），不许再被挤掉。顺序仍为
-              选集 > 倍速 > 超分（2.1.4 定版），ml-auto 改挂常驻的倍速槽，单集时右段不塌。
-              超分钮已于同日晚撤下（全自动），顺序改为 选集 > 倍速，空间还给时间段。
-              几何由 scripts/test-layout.mjs 按视口矩阵守门。 */}
-          <div className="absolute inset-x-0 z-40"
-            style={{ bottom: rotated ? 10 : `calc(var(--sab, 0px) + ${bottomInset + 10}px)` }}>
-            <div className="flex items-center gap-[3px]"
-              style={{
-                paddingLeft: rotated ? "calc(var(--sat, 0px) + 16px)" : vpLandscape ? 16 : 6,
-                paddingRight: rotated ? "calc(var(--sab, 0px) + 16px)" : vpLandscape ? 16 : fs ? 54 : 6,
-              }}>
-              <Button onClick={() => videoRef.current?.toggle()}
-                className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable">
-                {paused ? <IPlayF size={16} /> : <IPauseF size={15} />}
-              </Button>
-              <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold hg-ink-2 tabular-nums">
-                <PlaybackTime clock={playbackClock} />/<span className="hg-ink-4">{fmtTime(duration)}</span>
-              </span>
-              <Button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}
-                className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable max-[360px]:hidden">
-                {muted ? <IVolMute size={15} /> : <IVol size={15} />}
-              </Button>
-              {episodes.length > 1 && (
-                <Button onClick={() => setPanel("episodes")}
-                  className="flex items-center gap-1 px-1 h-8 rounded-full text-[12px] font-semibold hg-chip hg-ink-2 pressable shrink-0 max-[340px]:text-[11px]" aria-label="选集">
-                  <IList size={13} />选集
-                </Button>
-              )}
-              <div className="relative shrink-0 ml-auto">
-                <Button onClick={() => setRateMenuOpen((v) => !v)}
-                  className={`flex items-center gap-1 px-1 h-8 rounded-full text-[12px] font-bold pressable max-[340px]:text-[11px] ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`} aria-label="倍速选择" aria-expanded={rateMenuOpen}>
-                  <IBoltF size={12} />{effRate}x
-                </Button>
-                {rateMenuOpen && (
-                  <RateMenu current={rate} onSelect={(r) => { setRate(r); videoRef.current?.rate(r); setRateMenuOpen(false); }} />
-                )}
-              </div>
-              {/* 超分钮已撤（2026-11-18 全自动）：空出的横向空间还给时间/选集，
-                  不新增按钮填空；底栏顺序仍为 选集 > 倍速（定版） */}
-            </div>
-            {fs && !rotated && !vpLandscape && (
-              <Button onClick={exitFs} aria-label="退出全屏"
-                className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable absolute"
-                style={{ right: 4, top: "50%", transform: "translateY(-50%)" }}>
-                <ICompress size={15} />
-              </Button>
-            )}
-          </div>
-        </>
       )}
 
       {/* 选集 / 详情 / 评论三页签面板：桌面停靠在右侧（画面让位），移动端底部弹层。
@@ -1704,7 +1694,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </>
       )}
       </div>
-      {!isDesktop && !controlsLocked && active && (!fsUi || !idle) && (
+      {/* 右上工具组：视频条目的静音/搜索已并入单一控制层顶栏（蓝图 P1），此处只剩图文帖 */}
+      {!isDesktop && kind !== "video" && !controlsLocked && active && (!fsUi || !idle) && (
         <div className={`absolute z-40 flex items-center gap-2 ${fs ? "" : "right-3"}`}
           style={{
             top: rotated ? 12 : "calc(var(--sat, 0px) + 6px)",

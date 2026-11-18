@@ -78,7 +78,7 @@ const PROBE = (worstTime) => {
   }
   const byLabel = name => document.querySelector(`button[aria-label="${name}"]`);
   const keys = {};
-  for (const name of ["退出全屏", "选集", "倍速选择", "静音", "取消静音"]) {
+  for (const name of ["返回", "选集", "倍速选择", "静音", "取消静音"]) {
     const el = byLabel(name);
     if (el && visible(el)) keys[name] = rectOf(el);
   }
@@ -89,10 +89,10 @@ const PROBE = (worstTime) => {
     const r = b.getBoundingClientRect();
     return r.height > 0 && r.bottom > vh * 0.82 && r.bottom <= vh + 1 && r.top >= vh * 0.6;
   }).map(rectOf);
-  const exit = keys["退出全屏"];
+  const exit = keys["返回"];
   let exitHit = null;
   if (exit) {
-    const el = byLabel("退出全屏");
+    const el = byLabel("返回");
     const cx = (exit.left + exit.right) / 2, cy = (exit.top + exit.bottom) / 2;
     const hit = document.elementFromPoint(cx, cy);
     exitHit = !!hit && (hit === el || el.contains(hit) || hit.closest("button") === el);
@@ -105,7 +105,7 @@ const PROBE = (worstTime) => {
     const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
     if (w > 2 && h > 2) overlaps.push(`${names[i]}×${names[j]}:${Math.round(w)}x${Math.round(h)}`);
   }
-  return { vw, vh, scrollWidth: document.documentElement.scrollWidth, keys, bottomButtons, exitHit, overlaps };
+  return { vw, vh, scrollWidth: document.documentElement.scrollWidth, keys, bottomButtons, exitHit, overlaps, exitFsPresent: !!byLabel("退出全屏") };
 };
 
 function assertGeometry(m, label, requireExit = true) {
@@ -119,11 +119,14 @@ function assertGeometry(m, label, requireExit = true) {
     assert(r.left >= -1 && r.right <= m.vw + 1, `${label}: bottom-region button out of viewport ${JSON.stringify(r)} vw=${m.vw}`);
   }
   if (requireExit) {
-    assert(m.keys["退出全屏"], `${label}: exit-fullscreen control missing`);
-    assert(m.exitHit, `${label}: exit-fullscreen center not hit-testable`);
+    // 出口接棒 (蓝图 P1): 独立退出钮已并入顶栏「返回」(全屏时先退全屏),
+    // 保护点仍是恢复入口在位且可命中
+    assert(m.keys["返回"], `${label}: exit (top-bar back) control missing`);
+    assert(m.exitHit, `${label}: exit (top-bar back) center not hit-testable`);
   } else {
-    // 竖屏即全屏呈现：无进入动作即无退出语义，退出钮必须不存在（负断言）
-    assert(!m.keys["退出全屏"], `${label}: exit-fullscreen must be absent in portrait presentation`);
+    // 竖屏即全屏呈现：无进入动作即无退出语义，不得出现独立退出钮（负断言；
+    // 顶栏返回是离开播放器、不是退出呈现，不在此限）
+    assert(!m.exitFsPresent, `${label}: exit-fullscreen button must be absent in portrait presentation`);
   }
   assert.deepEqual(m.overlaps, [], `${label}: key controls overlap: ${m.overlaps.join(", ")}`);
 }
@@ -242,9 +245,10 @@ try {
       await page.getByRole("button", { name: "全屏", exact: true }).waitFor({ state: "visible" });
       await page.getByRole("button", { name: "全屏", exact: true }).click();
       await page.waitForTimeout(1400);
-      await tapCenter();
+      // 暂停走操作行底部中央钮 (中央大钮已随蓝图 P1 回退, tapCenter 只翻显隐)
+      await page.getByRole("button", { name: "暂停", exact: true }).click();
       await page.waitForFunction(() => document.querySelector("video")?.paused === true);
-      await page.getByRole("button", { name: "退出全屏", exact: true }).waitFor({ state: "visible" });
+      await page.getByRole("button", { name: "返回", exact: true }).waitFor({ state: "visible" });
       await page.waitForTimeout(120);
       assertGeometry(await page.evaluate(PROBE, false), `${name} fs`);
       assertGeometry(await page.evaluate(PROBE, true), `${name} fs worst-time`);
@@ -269,12 +273,13 @@ try {
       await page.getByRole("button", { name: "关闭", exact: true }).click();
       await sheet.waitFor({ state: "hidden" });
       // Exit path works end to end. (接棒同上: 退全屏过渡的 keepAlive 续播可能
-      // 把已暂停的视频拉回播放、控件随之隐藏; 等其耗尽后若在播则点中央钮
-      // 暂停, 再验「全屏」钮可见——验的仍是出口可达性本身。)
-      await page.getByRole("button", { name: "退出全屏", exact: true }).click();
+      // 把已暂停的视频拉回播放、控件随之隐藏; 等其耗尽后若在播则点操作行
+      // 暂停钮, 再验「全屏」钮可见——验的仍是出口可达性本身。出口本体已
+      // 由独立退出钮接棒为顶栏「返回」, 见 assertGeometry 的出口断言。)
+      await page.getByRole("button", { name: "返回", exact: true }).click();
       await page.waitForTimeout(1400);
       if (await page.evaluate(() => !document.querySelector("video")?.paused)) {
-        await tapCenter();
+        await page.getByRole("button", { name: "暂停", exact: true }).click();
         await page.waitForFunction(() => document.querySelector("video")?.paused === true);
       }
       await page.getByRole("button", { name: "全屏", exact: true }).waitFor({ state: "visible" });
