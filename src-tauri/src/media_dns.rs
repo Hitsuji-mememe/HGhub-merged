@@ -63,7 +63,11 @@ fn answers_typed(value: &Value, port: u16, qtype: u64) -> Result<Resolution, Str
     let mut addresses = Vec::new();
     let mut ttl = 30;
     for record in records {
-        ttl = ttl.min(record["TTL"].as_u64().unwrap_or(0));
+        // 跟版合并（Muse 2026-11-18）：上游 TTL 下限修复（max(1)）与我方
+        // qtype 泛化（A/AAAA 双栈，补 IPv6 缺口）合流，不回退为写死 type=1。
+        if let Some(r_ttl) = record["TTL"].as_u64() {
+            ttl = ttl.min(r_ttl.max(1));
+        }
         if record["type"].as_u64() != Some(qtype) {
             continue;
         }

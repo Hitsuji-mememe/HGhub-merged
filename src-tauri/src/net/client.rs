@@ -1,13 +1,11 @@
-use super::proxy_env::{
-    env_proxy_set, proxy_override, system_explicit_proxy, windows_proxy_enabled,
-};
+use super::proxy_env::{proxy_override, system_explicit_proxy};
 use super::redact::{err_text, redact_proxy};
 use super::{
     base, ClientCache, CLIENTS, CLIENT_GENERATION, CLIENT_TTL, MEDIA_CONFIG_FINGERPRINT,
     MEDIA_CONFIG_GENERATION, MEDIA_DNS_ROUTES,
 };
 use crate::network_policy;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -46,15 +44,15 @@ pub(crate) fn build_client(host: &str, addrs: &[SocketAddr], route: &ProxyRoute)
 /// One immutable selection is used for DNS, cache identity and client creation.
 /// An in-flight request may finish on its old route; it cannot populate the new
 /// configuration's cache entry after the user saves a different proxy.
-pub(super) struct ProxyRoute {
+pub(crate) struct ProxyRoute {
     mode: crate::proxy::Mode,
-    pub(super) explicit: Option<String>,
-    pub(super) active: bool,
+    pub(crate) explicit: Option<String>,
+    pub(crate) active: bool,
     generation: u64,
 }
 
 impl ProxyRoute {
-    pub(super) fn for_config(config: &crate::proxy::Config, target: &url::Url) -> Self {
+    pub(crate) fn for_config(config: &crate::proxy::Config, target: &url::Url) -> Self {
         use crate::proxy::Mode;
         let explicit = match config.mode {
             Mode::Off => None,
@@ -77,7 +75,7 @@ impl ProxyRoute {
         hash.finish()
     }
 
-    pub(super) fn label(&self) -> String {
+    pub(crate) fn label(&self) -> String {
         if self.mode == crate::proxy::Mode::Off {
             "direct".into()
         } else if let Some(proxy) = &self.explicit {
@@ -193,8 +191,7 @@ pub(super) async fn client_for(raw: &str) -> Result<(url::Url, Arc<reqwest::Clie
     client_for_dns(raw, false).await
 }
 
-/// Keep Apple's existing per-target NO_PROXY/per-scheme/system matching.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+/// Keep per-target NO_PROXY/per-scheme/system matching consistent with reqwest.
 fn system_proxy_routes_target(target: &url::Url) -> bool {
     crate::apple_proxy::routes_target(
         &hyper_util::client::proxy::matcher::Matcher::from_system(),
@@ -202,12 +199,7 @@ fn system_proxy_routes_target(target: &url::Url) -> bool {
     )
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
-fn system_proxy_routes_target(_target: &url::Url) -> bool {
-    env_proxy_set() || windows_proxy_enabled()
-}
-
-pub(super) fn proxy_active(target: &url::Url) -> bool {
+pub(crate) fn proxy_active(target: &url::Url) -> bool {
     ProxyRoute::for_config(&crate::proxy::snapshot(), target).active
 }
 

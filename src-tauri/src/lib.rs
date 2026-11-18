@@ -1,5 +1,4 @@
 mod api;
-#[cfg(any(target_os = "macos", target_os = "ios", test))]
 mod apple_proxy;
 mod cache;
 mod env;
@@ -21,11 +20,14 @@ mod media_dns;
 mod range_fetch;
 mod speed_probe;
 mod net;
+mod net_diag;
 mod network_policy;
 mod playback_log;
 mod proxy;
+mod publish_parser;
 mod search_hot;
 mod session;
+mod updater;
 
 use api::Api;
 use tauri::Manager;
@@ -137,10 +139,8 @@ pub fn run() {
                     (url.scheme() == "tauri" && host == "localhost")
                         // Android 上自定义协议表现为 http://<scheme>.localhost，WebView 有时把它
                         // 当成一次导航进来。这是进程内的媒体代理地址，不出网，严格模式也不该拦。
-                        || (matches!(url.scheme(), "http" | "https") && host.ends_with(".localhost"))
+                        || (matches!(url.scheme(), "http" | "https") && network_policy::is_internal_webview_host(host))
                         || allowed_frontend_origin(&url.origin().ascii_serialization())
-                        || (!network_policy::strict_security()
-                            && matches!(url.scheme(), "http" | "https"))
                 })
                 .build(),
         )
@@ -169,7 +169,7 @@ pub fn run() {
                 None | Some("") | Some("null") => true,
                 Some(origin) => allowed_frontend_origin(origin),
             };
-            if network_policy::strict_security() && !origin_ok {
+            if !origin_ok {
                 playback_log::record("security.origin_denied", serde_json::json!({"origin_null": request_origin.as_deref() == Some("null")}));
                 responder.respond(
                     tauri::http::Response::builder()
