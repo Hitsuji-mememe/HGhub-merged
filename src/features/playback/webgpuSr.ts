@@ -54,6 +54,7 @@ type GpuDeviceLike = {
   };
   importExternalTexture?: (desc: { source: HTMLVideoElement }) => unknown;
   lost: Promise<{ reason?: string; message?: string }>;
+  addEventListener?: (type: string, cb: (e: { error?: { message?: string } }) => void) => void;
   destroy?: () => void;
 };
 type GpuEncoderLike = {
@@ -85,6 +86,8 @@ export type SrEngineStats = {
   path: SrIngestPath;
   /** 当前降级级：0=全链 2x、1=仅 Restore 1x、2=已停（回退锐化）。 */
   degrade: 0 | 1 | 2;
+  /** 最近一次致死错误（lost/未捕获错误）摘要，供诊断报告引用。 */
+  lastError: string | null;
 };
 
 const GPU_TEXTURE_USAGE = { TEXTURE_BINDING: 0x04, STORAGE_BINDING: 0x08, COPY_DST: 0x02, RENDER_ATTACHMENT: 0x10 } as const;
@@ -199,9 +202,11 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
   let dst = rects[0];
   let src = rects[1];
   let inside = in.uv.x >= dst.x && in.uv.x <= dst.x + dst.z && in.uv.y >= dst.y && in.uv.y <= dst.y + dst.w;
-  if (!inside) { return vec4<f32>(0.0, 0.0, 0.0, 1.0); }
-  let localUv = (in.uv - dst.xy) / dst.zw;
-  return textureSample(srcTex, srcSampler, src.xy + localUv * src.zw);
+  /* textureSample 必须在均匀控制流调用（隐式导数）：无条件采样，
+   * 矩形外用 select 填黑，不许 if 内提前 return 包住采样。 */
+  let localUv = clamp((in.uv - dst.xy) / dst.zw, vec2<f32>(0.0), vec2<f32>(1.0));
+  let sampled = textureSample(srcTex, srcSampler, src.xy + localUv * src.zw);
+  return select(vec4<f32>(0.0, 0.0, 0.0, 1.0), sampled, inside);
 }`;
 
 type ChainPass = {
@@ -209,6 +214,11 @@ type ChainPass = {
   pipeline: { getBindGroupLayout: (i: number) => unknown };
   inputTexNames: string[];
 };
+
+/* 夹具专用导出（tests/webgpu-sr 数值校验）：让校验页用与引擎完全
+ * 相同的 WGSL 模板驱动 GPU，与 CPU 参考实现逐像素对照。生产路径
+ * 不引用此导出。 */
+export const __test = { convShader, D2S_SHADER, INGEST_SHADER_TEXTURE, PRESENT_SHADER };
 
 export class WebGpuSrEngine {
   private device: GpuDeviceLike;
@@ -228,6 +238,7 @@ export class WebGpuSrEngine {
   private h = 0;
   private inFlight = false;
   private dead = false;
+  private lastError: string | null = null;
   private stats = { frames: 0, droppedStale: 0, costs: [] as number[], degrade: 0 as 0 | 1 | 2 };
   private overStreak = 0;
 
@@ -240,13 +251,26 @@ export class WebGpuSrEngine {
     this.sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
     /* 呈现矩形 uniform：2×vec4（dst/src），UNIFORM=0x40 | COPY_DST=0x08。 */
     this.presentUniform = device.createBuffer({ size: 32, usage: 0x40 | 0x08 });
-    void device.lost.then(() => {
+    void device.lost.then((info) => {
       if (!this.dead) {
         this.dead = true;
         this.stats.degrade = 2;
+        this.lastError = `device lost: ${info?.reason ?? "?"} ${info?.message ?? ""}`.slice(0, 200);
         try { this.onLost(); } catch { /* 上层回调异常不外溢 */ }
       }
     });
+    /* 本引擎独占该 device：任何未捕获的校验/带外错误都说明管线状态
+     * 不可信（如摄入拷贝被拒），按死亡处理回退锐化档，不带病呈现。 */
+    try {
+      device.addEventListener?.("uncapturederror", (e) => {
+        if (!this.dead) {
+          this.dead = true;
+          this.stats.degrade = 2;
+          this.lastError = `uncaptured: ${e?.error?.message ?? "?"}`.slice(0, 200);
+          try { this.onLost(); } catch { /* 忽略 */ }
+        }
+      });
+    } catch { /* 老实现无此事件：靠 lost 与成本门兜底 */ }
   }
 
   static async create(canvas: HTMLCanvasElement, opts: { path: SrIngestPath; onLost: () => void }): Promise<WebGpuSrEngine | null> {
@@ -315,7 +339,10 @@ export class WebGpuSrEngine {
     this.h = h;
     const F = GPU_TEXTURE_USAGE.TEXTURE_BINDING | GPU_TEXTURE_USAGE.STORAGE_BINDING;
     this.makeTex("ingest", w, h, "rgba16float", F);
-    this.makeTex("staging", w, h, "rgba8unorm", GPU_TEXTURE_USAGE.TEXTURE_BINDING | GPU_TEXTURE_USAGE.COPY_DST);
+    /* staging 必须带 RENDER_ATTACHMENT：Dawn 对 copyExternalImageToTexture
+     * 的目标纹理要求 CopyDst＋RenderAttachment，缺了拷贝被校验拒绝、
+     * ingest 读到空纹理（夹具实测，2026-11-19）。 */
+    this.makeTex("staging", w, h, "rgba8unorm", GPU_TEXTURE_USAGE.TEXTURE_BINDING | GPU_TEXTURE_USAGE.COPY_DST | GPU_TEXTURE_USAGE.RENDER_ATTACHMENT);
     for (const p of RESTORE_PASSES) if (p.kind === "conv") this.makeTex(`r:${p.save}`, w, h, "rgba16float", F);
     for (const p of UPSCALE_PASSES) if (p.kind === "conv") this.makeTex(`u:${p.save}`, w, h, "rgba16float", F);
     this.makeTex("out2x", w * 2, h * 2, "rgba8unorm", F);
@@ -357,7 +384,7 @@ export class WebGpuSrEngine {
       } else {
         if (typeof device.queue.copyExternalImageToTexture !== "function") return false;
         device.queue.copyExternalImageToTexture({ source: video }, { texture: this.textures.get("staging") }, [w, h]);
-        ingestSource = { view: this.textures.get("staging")!.createView() };
+        ingestSource = this.textures.get("staging")!.createView();
       }
       const encoder = device.createCommandEncoder();
       {
@@ -365,7 +392,7 @@ export class WebGpuSrEngine {
           layout: this.ingestPipeline!.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: ingestSource },
-            { binding: 1, resource: { view: ingest.createView() } },
+            { binding: 1, resource: ingest.createView() },
           ],
         });
         const cpass = encoder.beginComputePass();
@@ -384,14 +411,14 @@ export class WebGpuSrEngine {
           const pass = cp.pass as Extract<SrPass, { kind: "conv" }>;
           const entries: { binding: number; resource: unknown }[] = [];
           cp.inputTexNames.forEach((name, i) => {
-            entries.push({ binding: i, resource: { view: this.texFor(chain, name, chainInput).createView() } });
+            entries.push({ binding: i, resource: this.texFor(chain, name, chainInput).createView() });
           });
           let nextBinding = cp.inputTexNames.length;
           if (pass.residual) {
-            entries.push({ binding: nextBinding, resource: { view: chainInput.createView() } });
+            entries.push({ binding: nextBinding, resource: chainInput.createView() });
             nextBinding += 1;
           }
-          entries.push({ binding: nextBinding, resource: { view: this.textures.get(`${chain}:${pass.save}`)!.createView() } });
+          entries.push({ binding: nextBinding, resource: this.textures.get(`${chain}:${pass.save}`)!.createView() });
           const bg = device.createBindGroup({ layout: cp.pipeline.getBindGroupLayout(0), entries });
           const cpass = encoder.beginComputePass();
           cpass.setPipeline(cp.pipeline);
@@ -409,10 +436,10 @@ export class WebGpuSrEngine {
         const d2sBg = device.createBindGroup({
           layout: this.d2s!.pipeline.getBindGroupLayout(0),
           entries: [
-            { binding: 0, resource: { view: this.textures.get("u:conv2d_last_tf")!.createView() } },
-            { binding: 1, resource: { view: restored.createView() } },
+            { binding: 0, resource: this.textures.get("u:conv2d_last_tf")!.createView() },
+            { binding: 1, resource: restored.createView() },
             { binding: 2, resource: this.sampler },
-            { binding: 3, resource: { view: this.textures.get("out2x")!.createView() } },
+            { binding: 3, resource: this.textures.get("out2x")!.createView() },
           ],
         });
         const cpass = encoder.beginComputePass();
@@ -437,7 +464,7 @@ export class WebGpuSrEngine {
         const bg = device.createBindGroup({
           layout: this.presentPipeline.getBindGroupLayout(0),
           entries: [
-            { binding: 0, resource: { view: presentSource.createView() } },
+            { binding: 0, resource: presentSource.createView() },
             { binding: 1, resource: this.sampler },
             { binding: 2, resource: { buffer: this.presentUniform } },
           ],
@@ -496,6 +523,7 @@ export class WebGpuSrEngine {
       costP90Ms: Math.round(p90 * 100) / 100,
       path: this.path,
       degrade: this.stats.degrade,
+      lastError: this.lastError,
     };
   }
 

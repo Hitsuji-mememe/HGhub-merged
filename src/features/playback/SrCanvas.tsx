@@ -32,6 +32,15 @@ type Props = {
   onTrace?: (event: string, data?: Record<string, unknown>) => void;
 };
 
+/* 画质采纳门（用户 2026-11-19 01:35 亲定：三条全过才转默认）：
+ * 夹具同帧对比（160→320，证据在 fix2 存档 sr-quality/）——文字/边缘
+ * 提升肉眼可辨（标题带 SSIM +0.0105、锐度 +73%），但纹理细节未达
+ * 同级、lineart 带 PSNR 反降 0.31dB，属「部分过」；且帧预算与稳定
+ * 性只能在真机探针 v2 终判。故本批不转默认：模型超分作实验路径
+ * 保留（探针照常测量与报告），锐化档仍为默认。翻转此开关即启用
+ * 「探针门全过才呈现」的条件式默认，翻转依据应为真机同帧对比。 */
+export const SR_MODEL_DEFAULT_ENABLED = false;
+
 /* 会话级闩锁：WebGPU 引擎死过一次，本会话所有播放面都不再试。 */
 let webgpuSessionDead = false;
 
@@ -56,6 +65,7 @@ export default function SrCanvas(props: Props) {
 
   const probe = getSrProbeResult();
   const engaged =
+    SR_MODEL_DEFAULT_ENABLED &&
     !webgpuSessionDead &&
     probeReady &&
     probe?.gatesPass === true &&
