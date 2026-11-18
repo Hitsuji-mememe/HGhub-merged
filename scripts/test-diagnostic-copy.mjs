@@ -1,155 +1,162 @@
+// Diagnostic report gate (Muse 2026-11-18, 收官批 D 重写).
+// 接棒说明：旧版守「网络诊断」行与「播放诊断」区各自的复制链（原生 IPC
+// 复制、失败保留报告、空日志不复制）。D 项合并后两处入口全部删除，本版
+// 改守合并契约：设置页只剩一个「诊断报告」入口；点开即生成（网络探测 +
+// 线路延迟 + 最近播放流水 + 源规格）→ 页面内预览全文 → 一个「复制报告」
+// 按钮走原生 IPC；流水解析能识别 append 停滞签名与正常出画；日志记录
+// 在状态为关时被 init 自动开启（记录始终开启、无开关）。
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createServer } from "vite";
-import { chromium } from "playwright-core";
+import { mkdir, writeFile} from "node:fs/promises";
+import { dirname, join, resolve} from "node:path";
+import { fileURLToPath} from "node:url";
+import { createServer} from "vite";
+import { chromium} from "playwright-core";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const output = join(root, "test-results", "diagnostic-copy", new Date().toISOString().replace(/[:.]/g, "-"));
-await mkdir(output, { recursive: true });
-const report = { environment: "Real Settings and clipboard helper; mocked Tauri IPC; not native iOS verification", passed: [], external: [] };
+await mkdir(output, { recursive: true});
+const report = { environment: "Real Settings and merged diagnostic report; mocked Tauri IPC; not native iOS verification", passed: [], external: []};
+
+const HEALTHY_LOG = [
+{ event: "web.source.load", ts: "2026-11-18T05:00:00.000Z", pid: 4242, data: { engine: "hls.js"}},
+{ event: "web.play.resolve", ts: "2026-11-18T05:00:00.120Z", pid: 4242, data: {}},
+{ event: "web.hls.manifest", ts: "2026-11-18T05:00:00.340Z", pid: 4242, data: {}},
+{ event: "web.hlsFragLoaded", ts: "2026-11-18T05:00:00.510Z", pid: 4242, data: {}},
+{ event: "web.hls.buffer_appended", ts: "2026-11-18T05:00:00.690Z", pid: 4242, data: {}},
+{ event: "web.hlsFragBuffered", ts: "2026-11-18T05:00:00.700Z", pid: 4242, data: {}},
+{ event: "web.media.playing", ts: "2026-11-18T05:00:00.880Z", pid: 4242, data: {}},
+].map(e => JSON.stringify(e)).join("\n") + "\n";
+
+const STALL_LOG = [
+{ event: "web.source.load", ts: "2026-11-18T05:10:00.000Z", pid: 4242, data: { engine: "hls.js"}},
+{ event: "web.play.resolve", ts: "2026-11-18T05:10:00.090Z", pid: 4242, data: {}},
+{ event: "web.hls.manifest", ts: "2026-11-18T05:10:00.300Z", pid: 4242, data: {}},
+{ event: "web.hlsFragLoaded", ts: "2026-11-18T05:10:00.520Z", pid: 4242, data: {}},
+{ event: "web.hls.append_stall", ts: "2026-11-18T05:10:04.530Z", pid: 4242, data: { attempt: 0}},
+{ event: "web.playback.fallback", ts: "2026-11-18T05:10:09.010Z", pid: 4242, data: { reason: "append_stall"}},
+].map(e => JSON.stringify(e)).join("\n") + "\n";
+
 let vite, browser, page;
 try {
-  vite = await createServer({ root, server: { host: "127.0.0.1", port: 0, strictPort: false } });
-  await vite.listen();
-  const origin = vite.resolvedUrls.local[0];
-  browser = await chromium.launch({ headless: true, executablePath: process.env.BROWSER_EXECUTABLE || undefined });
-  page = await browser.newPage({ viewport: { width: 390, height: 844 }, userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 Version/17.1 Mobile/15E148 Safari/604.1" });
-  const errors = [];
-  page.on("pageerror", error => errors.push(error.message));
-  await page.route("**/*", route => {
-    if (new URL(route.request().url()).origin === new URL(origin).origin) return route.continue();
-    report.external.push(route.request().url());
-    return route.abort();
-  });
-  await page.addInitScript(() => {
-    const fixture = { delay: 0, failDiag: false, failCopy: false, emptyLog: false, failRead: false, diagCalls: 0, nativeCopies: [], webCopies: 0, calls: [] };
-    Object.assign(window, {
-      isTauri: true,
-      diagnosticCopyFixture: fixture,
-      __TAURI_INTERNALS__: { async invoke(command, args = {}) {
-        fixture.calls.push(command);
-        if (command === "app_boot") return { strict_security: true, base: "https://fixture.invalid" };
-        if (command === "line_state") return { base: "https://fixture.invalid", fixed: [] };
-        if (command === "proxy_state") return { mode: "custom", url: "http://127.0.0.1:7897", effective: "http://127.0.0.1:7897" };
-        if (command === "playback_log_status") return { enabled: false, path: "playback.log", error: null };
-        if (command === "playback_log_write" || command === "debug_log") return;
-        if (command === "net_diag") {
-          fixture.diagCalls++;
-          await new Promise(done => setTimeout(done, fixture.delay));
-          if (fixture.failDiag) throw "fixture: diagnostic unavailable";
-          return { verdict: "ok_proxy", summary: "应用 HTTP 请求已成功", host: "fixture.invalid", base: "https://fixture.invalid", dns: { count: 1 }, tcp: { ok: false, timeout: true, proxy_bypassed: true, family: "IPv6" }, http: { status: 200, proxy_configured: true }, env: { app_proxy_mode: "custom", app_proxy: "http://127.0.0.1:7897" }, runtime: { os: "linux", ver: "fixture" } };
-        }
-        if (command === "playback_log_read") {
-          await new Promise(done => setTimeout(done, 30));
-          if (fixture.failRead) throw new Error("fixture: log unavailable");
-          return fixture.emptyLog ? "" : '{"event":"fixture.playback","data":{"unicode":"诊断日志"}}\n';
-        }
-        if (command === "plugin:clipboard-manager|write_text") {
-          if (fixture.failCopy) throw "fixture: clipboard unavailable";
-          fixture.nativeCopies.push(args.text);
-          return;
-        }
-        throw new Error(`Unexpected IPC: ${command}`);
-      } },
-    });
-    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
-      writeText: async () => { fixture.webCopies++; throw new DOMException("The request is not allowed by the user agent", "NotAllowedError"); },
-    } });
-  });
-  const load = async (group = "网络") => {
-    await page.goto(`${origin}tests/diagnostic-copy.html`);
-    await page.waitForFunction(() => document.querySelector('[aria-label="播放诊断日志"]')?.disabled === false);
-    const trigger = page.getByRole("button", { name: `${group}设置`, exact: true });
-    assert.equal(await trigger.getAttribute("aria-expanded"), "false");
-    await trigger.click();
-    assert.equal(await trigger.getAttribute("aria-expanded"), "true");
-  };
-  const networkButton = () => page.getByRole("button").filter({ has: page.getByText("网络诊断", { exact: true }) });
+vite = await createServer({ root, server: { host: "127.0.0.1", port: 0, strictPort: false}});
+await vite.listen();
+const origin = vite.resolvedUrls.local[0];
+browser = await chromium.launch({ headless: true, executablePath: process.env.BROWSER_EXECUTABLE || undefined});
+page = await browser.newPage({ viewport: { width: 390, height: 844}, userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 Version/17.1 Mobile/15E148 Safari/604.1"});
+const errors = [];
+page.on("pageerror", error => errors.push(error.message));
+await page.route("**/*", route => {
+if (new URL(route.request().url()).origin === new URL(origin).origin) return route.continue();
+report.external.push(route.request().url());
+return route.abort();
+});
+await page.addInitScript((healthyLog) => {
+const fixture = { failDiag: false, failCopy: false, diagCalls: 0, nativeCopies: [], webCopies: 0, calls: [], logText: healthyLog, logSetArgs: []};
+Object.assign(window, {
+isTauri: true,
+diagnosticCopyFixture: fixture,
+__TAURI_INTERNALS__: { async invoke(command, args = {}) {
+fixture.calls.push(command);
+if (command === "app_boot") return { strict_security: true, base: "https://fixture.invalid"};
+if (command === "line_state") return { base: "https://fixture.invalid", fixed: [{ name: "固定线路1", url: "https://fixture.invalid"}, { name: "固定线路2", url: "https://mirror.fixture.invalid"}]};
+if (command === "line_probe") return [
+{ url: "https://fixture.invalid", ok: true, ms: 42, tier: "main"},
+{ url: "https://mirror.fixture.invalid", ok: false, ms: 0, tier: "mirror"},
+];
+if (command === "proxy_state") return { mode: "custom", url: "http://127.0.0.1:7897", effective: "http://127.0.0.1:7897"};
+if (command === "playback_log_status") return { enabled: false, path: "playback.log", error: null};
+if (command === "playback_log_set") { fixture.logSetArgs.push(args); return { enabled: true, path: "playback.log", error: null};}
+if (command === "playback_log_write" || command === "debug_log") return;
+if (command === "net_diag") {
+fixture.diagCalls++;
+if (fixture.failDiag) throw "fixture: diagnostic unavailable";
+return { verdict: "ok_proxy", summary: "应用 HTTP 请求已成功", host: "fixture.invalid", base: "https://fixture.invalid", dns: { count: 1}, tcp: { ok: false, timeout: true, proxy_bypassed: true, family: "IPv6"}, http: { status: 200, proxy_configured: true}, env: { app_proxy_mode: "custom", app_proxy: "http://127.0.0.1:7897"}, runtime: { os: "ios", arch: "aarch64", ver: "fixture"}, speed_ab: { bytes: 2097152, a_ms: 900, b_ms: 1500, host: "cdn.fixture.invalid"}};
+}
+if (command === "playback_log_read") return fixture.logText;
+if (command === "plugin:clipboard-manager|write_text") {
+if (fixture.failCopy) throw "fixture: clipboard unavailable";
+fixture.nativeCopies.push(args.text);
+return;
+}
+throw new Error(`Unexpected IPC: ${command}`);
+}},
+});
+Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+writeText: async () => { fixture.webCopies++; throw new DOMException("The request is not allowed by the user agent", "NotAllowedError");},
+}});
+}, HEALTHY_LOG);
 
-  await load();
-  await page.evaluate(() => { window.diagnosticCopyFixture.delay = 5500; });
-  await networkButton().click();
-  await page.waitForFunction(() => window.diagnosticCopyFixture.nativeCopies.length === 1);
-  const first = await page.evaluate(() => window.diagnosticCopyFixture);
-  assert.equal(first.webCopies, 0);
-  assert(first.nativeCopies[0].includes("【HGhubX 网络诊断】") && first.nativeCopies[0].includes('"status": 200'));
-  assert(first.nativeCopies[0].includes("直连探测（绕过应用 HTTP 代理） · IPv6 · 超时"));
-  assert(first.nativeCopies[0].includes("检测到匹配的应用 HTTP 代理配置"));
-  assert(first.nativeCopies[0].includes("── 应用代理") && first.nativeCopies[0].includes("自定义代理"));
-  await page.getByText(/诊断已复制/).waitFor();
-  report.passed.push("After 5.5 seconds of async diagnostics, copy the complete report through native IPC while web clipboard writes reject");
+const load = async () => {
+await page.goto(`${origin}tests/diagnostic-copy.html`);
+await page.getByRole("button", { name: "诊断设置", exact: true}).waitFor();
+};
+const openGroup = async (group) => {
+const trigger = page.getByRole("button", { name: `${group}设置`, exact: true});
+if ((await trigger.getAttribute("aria-expanded"))!== "true") await trigger.click();
+};
+const generate = async () => {
+await openGroup("诊断");
+await page.getByRole("button").filter({ has: page.getByText("诊断报告", { exact: true})}).click();
+const box = page.getByRole("textbox", { name: "诊断报告"});
+await box.waitFor();
+return box;
+};
 
-  await load();
-  await page.evaluate(() => { window.diagnosticCopyFixture.failCopy = true; });
-  await networkButton().click();
-  const saved = page.getByRole("textbox", { name: "网络诊断报告" });
-  await saved.waitFor();
-  assert((await saved.inputValue()).includes("应用 HTTP 请求已成功"));
-  assert.equal(await page.getByText(/网络诊断失败：/).count(), 0);
-  await page.screenshot({ path: join(output, "report-fallback.png"), fullPage: true, animations: "disabled" });
-  await page.evaluate(() => { window.diagnosticCopyFixture.failCopy = false; });
-  await page.getByRole("button", { name: "复制报告", exact: true }).click();
-  await page.waitForFunction(() => window.diagnosticCopyFixture.nativeCopies.length === 1);
-  assert.equal(await page.evaluate(() => window.diagnosticCopyFixture.diagCalls), 1);
-  await page.getByText("网络诊断报告已复制", { exact: true }).waitFor();
-  report.passed.push("Clipboard failure retains the report; retry copies it without running diagnostics again");
+/* ── 旧入口全灭 + 记录自动开启 ── */
+await load();
+await openGroup("网络");
+assert.equal(await page.getByText("网络诊断", { exact: true}).count(), 0, "网络诊断行应已删除");
+assert.equal(await page.getByRole("button", { name: "播放诊断设置", exact: true}).count(), 0, "播放诊断分组应已删除");
+assert.equal(await page.getByText("复制播放诊断日志", { exact: true}).count(), 0, "复制日志行应已删除");
+await page.waitForFunction(() => window.diagnosticCopyFixture.logSetArgs.length === 1);
+const setArgs = await page.evaluate(() => window.diagnosticCopyFixture.logSetArgs);
+assert.equal(setArgs[0].enabled, true, "状态为关时应自动开启记录");
+report.passed.push("Old diagnostic entries are gone (网络诊断 row, 播放诊断 group, log toggle/copy/path); playback log auto-enables on init");
 
-  await load();
-  await page.evaluate(() => { window.diagnosticCopyFixture.failDiag = true; });
-  await networkButton().click();
-  await page.getByText("网络诊断失败：fixture: diagnostic unavailable", { exact: true }).waitFor();
-  assert.equal(await page.evaluate(() => window.diagnosticCopyFixture.nativeCopies.length), 0);
-  assert.equal(await page.getByRole("textbox", { name: "网络诊断报告" }).count(), 0);
-  report.passed.push("Diagnostic failure is distinct from clipboard failure and never reports a successful copy");
+/* ── 健康流水：生成 → 预览三段 → 复制 ── */
+const box = await generate();
+const text = await box.inputValue();
+assert(text.startsWith(""), "标题缺失");
+assert(text.includes("── 结论") && text.includes("── 硬数据") && text.includes("── 最近一次播放流水"), "三段结构缺失");
+assert(text.includes("当前线路：fixture.invalid"), "当前线路缺失");
+assert(text.includes("fixture.invalid(当前) 42ms") && text.includes("mirror.fixture.invalid 不可达"), "各线延迟缺失");
+assert(text.includes("A 路 2.2 MB/s"), "分片吞吐缺失");
+assert(text.includes("最近播放已正常出画（playing）"), "健康卡点结论错误");
+assert(text.includes("resolve ✓ 120ms") && text.includes("playing ✓ 880ms"), "流水耗时错误");
+assert(text.includes("会话降级：未发生"), "降级行错误");
+await writeFile(join(output, "sample-report-healthy.txt"), text);
+await page.getByRole("button", { name: "复制报告", exact: true}).click();
+await page.waitForFunction(() => window.diagnosticCopyFixture.nativeCopies.length === 1);
+const copied = await page.evaluate(() => window.diagnosticCopyFixture.nativeCopies[0]);
+assert.equal(copied, text, "复制内容应与预览全文一致");
+assert.equal(await page.evaluate(() => window.diagnosticCopyFixture.webCopies), 0);
+await page.getByText("诊断报告已复制", { exact: true}).waitFor();
+report.passed.push("Healthy flow: report generates with three sections, line latencies, throughput, stage timings; copy matches preview via native IPC");
 
-  await load("播放诊断");
-  await page.getByRole("button").filter({ has: page.getByText("复制播放诊断日志", { exact: true }) }).click();
-  await page.waitForFunction(() => window.diagnosticCopyFixture.nativeCopies.length === 1);
-  assert.equal(await page.evaluate(() => window.diagnosticCopyFixture.nativeCopies[0]), '{"event":"fixture.playback","data":{"unicode":"诊断日志"}}\n');
-  assert.equal(await page.evaluate(() => window.diagnosticCopyFixture.webCopies), 0);
-  report.passed.push("Playback logs use the same native copy path after async reading, preserving Unicode and newlines");
+/* ── 卡死流水：append 停滞签名 + 会话降级入结论 ── */
+await load();
+await page.evaluate(log => { window.diagnosticCopyFixture.logText = log;}, STALL_LOG);
+const stallBox = await generate();
+const stallText = await stallBox.inputValue();
+assert(stallText.includes("最近播放卡在 append（分片已下载、未入缓冲——append 停滞签名）"), "卡死签名未识别");
+assert(stallText.includes("append ✗ 未达") && stallText.includes("playing ✗ 未达"), "流水未达标记缺失");
+assert(stallText.includes("会话降级：本会话已降级原生播放（append 停滞）"), "降级结论缺失");
+await writeFile(join(output, "sample-report-stall.txt"), stallText);
+report.passed.push("Stall flow: append-stall signature and session fallback land in the conclusion line");
 
-  for (const failure of ["emptyLog", "failRead"]) {
-    await load("播放诊断");
-    await page.evaluate(key => { window.diagnosticCopyFixture[key] = true; }, failure);
-    await page.getByRole("button").filter({ has: page.getByText("复制播放诊断日志", { exact: true }) }).click();
-    await page.getByText(failure === "emptyLog" ? "尚无诊断日志，请开启后复现问题" : "fixture: log unavailable", { exact: true }).waitFor();
-    assert.equal(await page.evaluate(() => window.diagnosticCopyFixture.nativeCopies.length), 0);
-  }
-  report.passed.push("Empty or unreadable logs are not copied");
+/* ── net_diag 失败：报告降级不崩，网络段标注失败 ── */
+await load();
+await page.evaluate(() => { window.diagnosticCopyFixture.failDiag = true;});
+const degradedBox = await generate();
+const degradedText = await degradedBox.inputValue();
+assert(degradedText.includes("网络：诊断失败（net_diag 不可用）"), "net_diag 失败未降级标注");
+assert(degradedText.includes("── 最近一次播放流水"), "其余段落不应被拖垮");
+report.passed.push("net_diag failure degrades only its own line; the rest of the report still generates");
 
-  await load("播放诊断");
-  await page.evaluate(() => { window.diagnosticCopyFixture.failCopy = true; });
-  await page.getByRole("button").filter({ has: page.getByText("复制播放诊断日志", { exact: true }) }).click();
-  await page.getByText("复制日志失败", { exact: true }).waitFor();
-  assert.equal(await page.getByText("播放诊断日志已复制", { exact: true }).count(), 0);
-  report.passed.push("Native playback log copy failure displays failure rather than a success message");
-
-  await load();
-  await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }); });
-  await networkButton().click();
-  await page.waitForFunction(() => window.diagnosticCopyFixture.nativeCopies.length === 1);
-  const unsupported = await page.evaluate(async () => {
-    window.isTauri = false;
-    try { await window.copyFixtureText("unavailable"); return "unexpected success"; }
-    catch (error) { return error.message; }
-  });
-  assert.equal(unsupported, "当前环境不支持复制，请在应用中重试");
-  report.passed.push("Native copy works without navigator.clipboard; browser-only absence rejects instead of claiming success");
-
-  assert.deepEqual(errors, []);
-  assert.deepEqual(report.external, []);
-  console.log(JSON.stringify(report, null, 2));
-} catch (error) {
-  report.error = String(error.stack || error);
-  await page?.screenshot({ path: join(output, "failure.png"), fullPage: true }).catch(() => {});
-  console.error(report.error);
-  process.exitCode = 1;
+assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
+await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2));
+console.log(`diagnostic-copy: ${report.passed.length} checks passed`);
 } finally {
-  await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2));
-  await browser?.close();
-  await vite?.close();
-  console.log(`Artifacts: ${output}`);
+await browser?.close().catch(() => {});
+await vite?.close().catch(() => {});
 }
