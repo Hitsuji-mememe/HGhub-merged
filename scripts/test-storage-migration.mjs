@@ -16,7 +16,9 @@ const state = {
   muteOnStartup: false, swipeEp: false, preferHevc: true,
 };
 // 迁移会为新字段补默认值（#146-3 全屏闲置隐藏秒数）：旧种子不带该字段，落盘应补齐。
-const migrated = { ...state, fsIdleSecs: 0, muteOnStartup: true, muted: true, swipeEp: true }; // 2.2.0 合并定版 (Muse 2026-11-18): fsIdleSecs/启动静音/滑动切集均为写死值, load 时强制
+// 接棒 (Muse 2026-11-18): fsIdleSecs 写死 0 被用户重新裁定解硬——默认 3 秒
+// (与官方一致)、尊重存量, 不再 load 时强制归零; 启动静音/滑动切集仍写死强制。
+const migrated = { ...state, fsIdleSecs: 3, muteOnStartup: true, muted: true, swipeEp: true };
 const oldData = {
   hghub_app_v1: JSON.stringify(state), hghub_swipe_ep_v2: "1", hghub_theme: "light",
 };
@@ -79,7 +81,7 @@ try {
     assert.equal(await page.evaluate(() => window.initialTheme), true);
     const saved = await storage(page);
     assert.deepEqual(Object.keys(saved).sort(), ["hghubx_app_v1", "hghubx_swipe_ep_v2", "hghubx_theme"]);
-    assert.deepEqual(JSON.parse(saved.hghubx_app_v1), { ...migrated, srMode: "natural" }); // 落盘含超分模式 (2.2.0 合并新增字段, 默认 natural)
+    assert.deepEqual(JSON.parse(saved.hghubx_app_v1), { ...migrated, srMode: "natural", srPref: "auto" }); // 落盘含超分模式与超分偏好 (2.2.0 合并新增字段; srPref 为超分全自动默认值)
     await page.evaluate(() => window.storageMigrationFixture.setTheme("system"));
     await page.waitForFunction(() => localStorage.getItem("hghubx_theme") === "system");
     await page.emulateMedia({ colorScheme: "dark" });

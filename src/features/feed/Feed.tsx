@@ -8,6 +8,7 @@ import type { Detail, Episode, PlayInfo, Post, VideoCard } from "../../shared/ap
 import { useStore } from "../../shared/model/store";
 import { Img, Sheet } from "../../shared/ui/ui";
 import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
+import { DesktopSocialButtons, MobileActionRail, useSocialCounts } from "./ActionRail";
 import { setBackHandler } from "../../shared/lib/back";
 import { copyText } from "../../shared/lib/clipboard";
 import {
@@ -25,8 +26,8 @@ import { prewarmFirstSegment } from "./prewarm";
 import { useStallHeal } from "./stallHeal";
 import { useFeedDetails } from "./useFeedDetails";
 import {
-  IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICompress, IExpand, IFileText,
-  ICheck, ILink, IList, IPauseF, IPlayF, ISearch, IVertSwap, IVol, IVolMute,
+  IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText,
+  ICheck, IHeart, IHeartF, ILink, IList, IPauseF, IPlayF, ISearch, IStar, IStarF, IVertSwap, IVol, IVolMute,
 } from "../../shared/ui/icons";
 
 type Props = {
@@ -134,8 +135,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const setClean = store.setClean;
   const setFs = store.setFs;
 
-  /* 控件闲置隐藏：桌面 2.8s；移动全屏按设置秒数（#146-3） */
-  const { idle, setIdle, wake, arm } = useFsIdle(isDesktop, fs, paused, store.fsIdleSecs, boxRef);
   const [fullscreen, setFullscreen] = useState(false);
   /* 点赞动画计数 heartBurst 已随社交栏撤下删除（2026-11-18） */
   /* —— 移动端手势 —— */
@@ -330,6 +329,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      （fsUi 显隐与 clean 镜像，见 onUp tap 分支），底栏高度随 bottomInset
      让位，不与页签带叠层。 */
   const fsUi = fs || (!isDesktop && kind === "video" && !landscapeVideo);
+  /* 控件闲置隐藏：桌面 2.8s；移动全屏呈现（fs/fsUi）按设置秒数（#146-3）。
+     调用点在 fsUi 定义之后：自动隐藏要覆盖竖屏即全屏呈现态。 */
+  const { idle, setIdle, wake, arm } = useFsIdle(isDesktop, fsUi, paused, store.fsIdleSecs, boxRef);
   /* 竖屏快捷胶囊的显隐：不卸载、只改 opacity，这样淡入淡出都能过渡（#19） */
   /* 胶囊显隐只由缩放驱动（定版：仅 zoom>1.05 显示），不挂 clean：
      clean 的驱动源几经变更（播放状态→单击解耦），若继续挂 !clean，
@@ -1116,8 +1118,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     setPanel(null);
   };
 
-  /* likeCount/collectCount 计数 memo 已随社交栏撤下删除（2026-11-18）：
-     计数不再在播放画面呈现；liked/collected 状态本身保留（详情与键盘 L/S 仍用）。 */
+  /* 点赞/收藏计数随右栏恢复（上游原算法在 ActionRail.useSocialCounts） */
+  const { likeCount, collectCount } = useSocialCounts(meta, detail, kind, curEp, liked, collected);
 
   const detailBody = (onClose?: () => void) => <VideoDetailsPanel meta={meta} videoId={curId} episodeCount={episodes.length}
     related={related} following={store.follows.includes(meta.authorId)} followPending={followPending}
@@ -1319,19 +1321,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   </div>
                 </div>
               )}
-              {/* 右侧操作栏（移动端）：只剩全屏一颗。
-                  Muse 2026-11-18 (用户裁定): 社交栏（点赞/收藏/评论+计数）整栏撤下——
-                  游客不可用、纯遮挡；评论收进底部面板页签，点赞/收藏只在详情内。
-                  超分入口同日撤下（全自动，见 SuperResCanvas.effectiveSrMode）。
-                  颜色写死不跟主题走：浅色主题下这些字必须仍是白色 */}
-              {!fsUi && !clean && !isDesktop && (
-                <div className="mobile-video-action-rail absolute right-3 z-20 flex flex-col items-center gap-[16px]"
-                  style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset + 92}px)` }}>
-                  <Button onClick={() => enterFs(landscapeVideo)} className="flex flex-col items-center gap-1 pressable" aria-label="全屏">
-                    <IExpand size={26} className="hg-ink hg-ov-shadow" />
-                    <span className="text-[12px] hg-ink-2 hg-ov-shadow">全屏</span>
-                  </Button>
-                </div>
+              {/* 右侧操作栏（移动端）：喜欢/收藏/评论 + 全屏（仅横屏源普通态）。
+                  恢复裁定与呈现口径见 ActionRail.tsx；此处只做门控（跟随控制层
+                  显隐、旋转舞台不挂）与落位（全屏呈现态让开底栏、普通态让开信息块）。 */}
+              {!isDesktop && !rotated && (fsUi ? !idle : !clean) && (
+                <MobileActionRail bottom={`calc(var(--sab, 0px) + ${bottomInset + (fsUi ? 84 : 92)}px)`} fsUi={fsUi} isVideo={kind === "video"}
+                  liked={liked} likeCount={likeCount} onLike={() => void onLike()} likePending={likePending} collected={collected} collectCount={collectCount}
+                  onFav={() => void onFav()} collectPending={collectPending} commentCount={meta.comment} onComments={() => setPanel("comments")} onFullscreen={() => enterFs(landscapeVideo)} />
               )}
 
               {/* 右侧操作栏（桌面） */}
@@ -1348,12 +1344,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 </div>
 
                 {kind === "video" && (
-                  /* 社交钮（点赞/评论/收藏）已随移动端同批撤下（2026-11-18 用户裁定）；
-                     本栏只留选集直达，评论走停靠面板页签 */
-                  <Button onClick={() => setPanel("episodes")} aria-label="选集" className="flex flex-col items-center gap-1 pressable">
-                    <IList size={26} className="text-white tsh" />
-                    <span className="text-[12px] text-white/90">选集</span>
-                  </Button>
+                  <>
+                    <DesktopSocialButtons liked={liked} likeCount={likeCount} onLike={() => void onLike()} likePending={likePending} collected={collected}
+                      collectLabel={meta.collect} onFav={() => void onFav()} collectPending={collectPending} commentCount={meta.comment} onComments={() => setPanel("comments")} />
+                    <Button onClick={() => setPanel("episodes")} aria-label="选集" className="flex flex-col items-center gap-1 pressable">
+                      <IList size={26} className="text-white tsh" />
+                      <span className="text-[12px] text-white/90">选集</span>
+                    </Button>
+                  </>
                 )}
 
               </div>

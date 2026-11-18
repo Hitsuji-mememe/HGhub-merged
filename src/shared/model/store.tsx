@@ -92,7 +92,7 @@ const LS = STORAGE_KEYS.app;
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
   muted: true, muteOnStartup: true, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: true,
-  fsIdleSecs: 0,
+  fsIdleSecs: 3,
   srMode: "natural",
   srPref: "auto",
 };
@@ -141,7 +141,9 @@ function loadPersist(): Persist {
         ? rawSr
         : "natural";
     const srPref: SrPref = (p as { srPref?: string }).srPref === "off" ? "off" : "auto";
-    return { ...p, swipeEp: true, srMode, srPref, muteOnStartup: true, muted: true, fsIdleSecs: 0, preferHevc: true, history: normalizeHistory(p.history) };
+    /* fsIdleSecs 于 2026-11-18 用户重新裁定解硬：默认 3 秒（与官方一致）、
+       尊重存量取值；其余三项写死（swipeEp/muteOnStartup+muted/preferHevc）不动 */
+    return { ...p, swipeEp: true, srMode, srPref, muteOnStartup: true, muted: true, fsIdleSecs, preferHevc: true, history: normalizeHistory(p.history) };
   } catch {
     return DEFAULTS;
   }
@@ -424,8 +426,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setPreferHevc = useCallback((_on: boolean) => {
     setP((s) => ({ ...s, preferHevc: true }));
   }, []);
-  const setFsIdleSecs = useCallback((_secs: number) => {
-    setP((s) => ({ ...s, fsIdleSecs: 0 }));
+  const setFsIdleSecs = useCallback((secs: number) => {
+    setP((s) => ({ ...s, fsIdleSecs: [0, 3, 5, 10].includes(secs) ? secs : 3 }));
   }, []);
   const setSrMode = useCallback((srMode: SuperResMode) => {
     setP((s) => ({ ...s, srMode }));

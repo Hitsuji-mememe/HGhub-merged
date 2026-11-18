@@ -155,6 +155,11 @@ try {
     const context = await browser.newContext({ userAgent: IPHONE_UA, hasTouch: true, viewport: { width: viewport[0], height: viewport[1] } });
     const page = await context.newPage();
     page.setDefaultTimeout(15000);
+    // 几何门禁不与自动隐藏计时赛跑: 夹具内把 fsIdleSecs 钉为 0 (自动隐藏
+    // 行为本身不在本门禁范围, 由 fsIdle 口径与真机验收覆盖)。
+    await page.addInitScript(() => {
+      try { localStorage.setItem("hghubx_app_v1", JSON.stringify({ fsIdleSecs: 0 })); } catch { /* ignore */ }
+    });
     await context.route("**/*", route => {
       const raw = route.request().url(), url = new URL(raw), mapped = fixtureMediaUrl(raw);
       if (mapped !== raw) return route.continue({ url: mapped });
@@ -187,6 +192,9 @@ try {
           await page.waitForTimeout(160);
         };
         const rateBtnP = page.getByRole("button", { name: "倍速选择", exact: true });
+        // 自动隐藏 (fsIdleSecs=3, 仅播放中) 可能已让底栏进入隐藏态: 先单击
+        // 唤出再验几何 (与真实用户路径一致)
+        if (!(await rateBtnP.isVisible().catch(() => false))) await tapUpper();
         await rateBtnP.waitFor({ state: "visible" });
         assert.equal(await page.getByRole("button", { name: "退出全屏", exact: true }).count(), 0,
           `${name}: portrait presentation must not render exit-fullscreen`);
