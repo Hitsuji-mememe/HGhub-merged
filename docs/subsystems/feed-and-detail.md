@@ -11,12 +11,11 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
 
 - [`src/features/feed/Feed.tsx`](../../src/features/feed/Feed.tsx)：`requestPlay`、
   `useFeedDetails` 的调用、`tagKey`/`permissionKey`、`effectiveVideoIds`、
-  `details`/`posts`、`relatedByVideo`、`actionContext`；视口/手势/动作与界面覆盖层分别位于同目录的
-  [`useFeedViewport.ts`](../../src/features/feed/useFeedViewport.ts)、
-  [`useFeedTouchGestures.ts`](../../src/features/feed/useFeedTouchGestures.ts)、
-  [`useFeedActions.ts`](../../src/features/feed/useFeedActions.ts)、
-  [`FeedItemChrome.tsx`](../../src/features/feed/FeedItemChrome.tsx)、
-  [`FeedPlayerShellChrome.tsx`](../../src/features/feed/FeedPlayerShellChrome.tsx)。
+  `details`/`posts`、`relatedByVideo`、`actionContext`；视口/手势/动作与界面覆盖层
+  均在 `Feed.tsx` 本体内（合并版定版单体实现）。注：上游 v2.2.0 重发版曾把这部分
+  抽为 `useFeedViewport.ts`、`useFeedTouchGestures.ts`、`useFeedActions.ts`、
+  `FeedItemChrome.tsx`、`FeedPlayerShellChrome.tsx`，跟版合并（Muse 2026-11-18）
+  未吸收该重构（与定版语义正面冲突），五文件已删除，勿再引用。
 - [`src/features/feed/useFeedDetails.ts`](../../src/features/feed/useFeedDetails.ts)：
   `detailRequests`、`requestDetail`、`effectiveVideoIds`、`detailsRef`。
 - [`src/features/feed/Panels.tsx`](../../src/features/feed/Panels.tsx) 的
