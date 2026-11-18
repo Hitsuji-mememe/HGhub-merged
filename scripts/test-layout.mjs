@@ -337,13 +337,14 @@ try {
         `${name}: 选集 entry must land on the episodes tab`);
       await tabBtn("评论").click();
       await page.waitForFunction(() => document.querySelector('.video-details-sheet button[aria-pressed="true"]')?.textContent?.includes("评论"));
-      await page.getByRole("button", { name: "关闭", exact: true }).click();
+      // 评论页内 CommentsPanel 自带同名「关闭」, 收窄到抽屉头部第一个。
+      await sheet.locator('button[aria-label="关闭"]').first().click();
       await sheet.waitFor({ state: "hidden" });
       await page.getByRole("button", { name: "选集", exact: true }).last().click();
       await sheet.waitFor({ state: "visible" });
       assert.equal(await tabBtn("选集").getAttribute("aria-pressed"), "true",
         `${name}: reopening must land on episodes again (no tab memory)`);
-      await page.getByRole("button", { name: "关闭", exact: true }).click();
+      await sheet.locator('button[aria-label="关闭"]').first().click();
       await sheet.waitFor({ state: "hidden" });
       // Exit path works end to end. (接棒同上: 退全屏过渡的 keepAlive 续播可能
       // 把已暂停的视频拉回播放、控件随之隐藏; 等其耗尽后若在播则点操作行
