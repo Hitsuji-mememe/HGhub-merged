@@ -154,6 +154,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 进度条拖动 */
   const barRef = useRef<HTMLDivElement>(null);
   const barScrub = useRef(false);
+  const barDrag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const [barPct, setBarPct] = useState<number | null>(null);
   const gesture = useRef<{
     x: number; y: number; startY: number; t: number; timer: number | null;
@@ -1049,20 +1050,25 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   };
   const barSeekTo = (clientX: number, clientY: number) => {
     const pct = barPctAt(clientX, clientY);
-    if (pct == null) return null;
-    setBarPct(pct);
+    if (pct != null) setBarPct(pct);
     return pct;
   };
+  /* 进度条只认拖动（2026-11-18 收官批 A1，用户真机纠正）：单击/误触进度条
+   * 不再 seek——按下只记录起点，位移过 8px 才算拖动（开始预览），
+   * 松手才落点 seek；无位移抬手什么都不发生。 */
   const onBarDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
     videoRef.current?.trace("seek.input.down", { input: "mobile_bar" });
     barScrub.current = true;
+    barDrag.current = { x: e.clientX, y: e.clientY, moved: false };
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
-    barSeekTo(e.clientX, e.clientY);
   };
   const onBarMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!barScrub.current) return;
     e.stopPropagation();
+    const drag = barDrag.current;
+    if (drag && !drag.moved && (rotated ? Math.abs(e.clientY - drag.y) : Math.abs(e.clientX - drag.x)) < 8) return;
+    if (drag) drag.moved = true;
     videoRef.current?.trace("seek.input.move", { input: "mobile_bar" });
     barSeekTo(e.clientX, e.clientY);
   };
@@ -1070,7 +1076,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (!barScrub.current) return;
     barScrub.current = false;
     e.stopPropagation();
-    const pct = barPctAt(e.clientX, e.clientY);
+    const pct = barDrag.current?.moved ? barPctAt(e.clientX, e.clientY) : null;
+    barDrag.current = null;
     if (pct != null && duration) {
       const target = pct * duration;
       videoRef.current?.trace("seek.input.up", { input: "mobile_bar", target });
@@ -1141,8 +1148,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   };
 
   /* 控制层（蓝图 P1）：顶栏返回与操作行上下集。
-     返回与硬件返回同序：全屏先退全屏、context 回上一页、home 回浏览页（分类）。 */
-  const goBack = () => { if (fs) exitFs(); else if (mode === "context" && onBack) onBack(); else store.setTab("category"); };
+     返回与硬件返回同序：全屏先退全屏、context 回上一页、home 回浏览页。
+     收官批 E 项：home 落点由分类改搜索——与顶栏放大镜、画面右划三者同门
+     同落点（全 App 进浏览区只落搜索一个点；分类经链上右划/页签到达）。 */
+  const goBack = () => { if (fs) exitFs(); else if (mode === "context" && onBack) onBack(); else store.setTab("search"); };
   const epIdx = episodes.findIndex((e) => e.ep_num === curEp);
   const stepEp = (d: 1 | -1) => { const t = episodes[epIdx + d]; if (t) pickEp(t.ep_num); };
 
@@ -1546,8 +1555,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       )}
 
       {/* 控件隐藏时只留一条细进度线贴底（蓝图：默认态只有视频 + 细进度条）；
-          暂停态同权（锁显删除后暂停隐藏控件也只剩这条线） */}
-      {!isDesktop && kind === "video" && (fsUi ? idle : clean) && (
+          暂停态同权（锁显删除后暂停隐藏控件也只剩这条线）。
+          收官批 A5：真实全屏（fs）隐藏态例外——用户裁定全屏藏就全藏，
+          细线与时间一并消失、画面零覆层；竖屏信息流态（fsUi 非 fs）保留。 */}
+      {!isDesktop && kind === "video" && !fs && (fsUi ? idle : clean) && (
         <div className="absolute inset-x-0 z-30 pointer-events-none" style={{ bottom: rotated ? 0 : "var(--sab, 0px)", paddingLeft: rotated ? "max(52px, env(safe-area-inset-left))" : 0, paddingRight: rotated ? "max(52px, env(safe-area-inset-right))" : 0 }}>
           <div className="h-[2.5px]" style={{ background: "rgba(255,255,255,.3)" }}>
             <PlaybackProgress clock={playbackClock} duration={duration} preview={null} className="h-full bg-white" />
@@ -1569,45 +1580,41 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           按视口矩阵继续守门。 */}
       {!isDesktop && kind === "video" && (fsUi ? !idle : !clean) && (
         <div className="hg-chrome-in absolute inset-x-0 top-0 z-40 flex items-center gap-2 px-3" style={{ paddingTop: "calc(var(--sat, 0px) + 6px)", paddingBottom: 20, background: "linear-gradient(to bottom, rgba(21,23,27,.9), transparent)" }}>
-          <Button onClick={goBack} aria-label="返回"
-            className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+          <Button onClick={goBack} aria-label="返回" className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
             <IBack size={20} />
           </Button>
           <span className="flex-1 text-center text-[13px] font-semibold text-[#A1A5AD] hg-ov-shadow tabular-nums">
             {episodes.length > 1 ? `第 ${curEp} 集 / 共 ${episodes.length} 集` : "正片"}
           </span>
-          <Button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}
-            className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+          <Button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"} className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
             {muted ? <IVolMute size={18} /> : <IVol size={18} />}
           </Button>
           {/* 收藏自右栏移入顶栏（2026-11-18 用户再裁定）：只随控制层出现、
-              平时零遮挡；收藏态以金色实心星明确区分（aria-pressed 同步）。 */}
-          <Button onClick={() => void onFav()} disabled={collectPending} aria-busy={collectPending} aria-pressed={collected} aria-label="收藏"
-            className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
-            {collected ? <IStarF size={18} className="hg-gold" /> : <IStar size={18} />}
-          </Button>
-          <Button onClick={() => store.setTab("search")} aria-label="搜索"
-            className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
-            <ISearch size={18} />
-          </Button>
+              平时零遮挡；收藏态以金色实心星明确区分（aria-pressed 同步）。
+              收官批 A4：真实全屏（fs）顶栏再精简——收藏/搜索属浏览类动作，
+              不进全屏，只留返回/集数定位/静音；竖屏呈现态（fsUi 非 fs）不变。 */}
+          {!fs && (<>
+            <Button onClick={() => void onFav()} disabled={collectPending} aria-busy={collectPending} aria-pressed={collected} aria-label="收藏" className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+              {collected ? <IStarF size={18} className="hg-gold" /> : <IStar size={18} />}
+            </Button>
+            <Button onClick={() => store.setTab("search")} aria-label="搜索" className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+              <ISearch size={18} />
+            </Button>
+          </>)}
         </div>
       )}
       {!isDesktop && kind === "video" && (fsUi ? !idle : !clean) && (
         <div className="hg-chrome-in absolute inset-x-0 bottom-0 z-40"
           style={{ paddingBottom: `calc(var(--sab, 0px) + ${bottomInset}px + 6px)`, background: "linear-gradient(to top, rgba(21,23,27,.92), rgba(21,23,27,.55) 55%, transparent)" }}>
-          <div className="px-4 flex items-baseline gap-2">
-            <span className="flex-1 min-w-0 truncate text-[15px] font-semibold text-[#F5F5F5] hg-ov-shadow">{meta.title}</span>
-            {episodes.length > 1 && <span className="shrink-0 text-[12px] font-semibold text-[#A1A5AD] hg-ov-shadow">第 {curEp} 集</span>}
-            <span className="shrink-0 text-[11px] font-semibold text-[#A1A5AD] tabular-nums"><PlaybackTime clock={playbackClock} /> / {fmtTime(duration)}</span>
-          </div>
-          {/* 热度只读指标（2026-11-18 用户定）：赞/藏/评三数字用来快速判断
-              热门程度，必须留——但只作只读文本随控制层出现，不做按钮
-              （收藏动作只在顶栏星钮、评论只从抽屉进）。独立一行右对齐，
-              不与剧名/时间行抢位、无重叠；格式沿上游万级口径 fmt()。 */}
-          <div className="px-4 pb-0.5 flex items-center justify-end gap-2.5 text-[11px] font-medium text-[#A1A5AD] tabular-nums">
-            <span>赞 {fmt(likeCount)}</span>
-            <span>藏 {fmt(collectCount)}</span>
-            <span>评 {fmt(meta.comment)}</span>
+          {/* 信息行（收官批 A6/A7 合并）：原三行（剧名+集数 / 热度 / 进度）
+              压成一行——左=剧名（可截断）+热度三数字灰色小字同行跟随，
+              右=时间；「第X集」删除（顶栏已有「第X集/共Y集」，A6 去重）。
+              热度仍只读（判热门程度用，不做按钮；收藏在顶栏星钮、评论在
+              抽屉）。热度与时间 shrink-0，长剧名先截断、不挤压右侧。 */}
+          <div className="px-4 pb-0.5 flex items-baseline gap-2">
+            <span className="min-w-0 truncate text-[15px] font-semibold text-[#F5F5F5] hg-ov-shadow">{meta.title}</span>
+            <span className="shrink-0 text-[11px] font-medium text-[#A1A5AD] tabular-nums">赞 {fmt(likeCount)} · 藏 {fmt(collectCount)} · 评 {fmt(meta.comment)}</span>
+            <span className="shrink-0 ml-auto text-[11px] font-semibold text-[#A1A5AD] tabular-nums"><PlaybackTime clock={playbackClock} /> / {fmtTime(duration)}</span>
           </div>
           <div className="px-4" style={{ height: 22 }}>
             <div ref={barRef} className="relative h-full" style={{ touchAction: "none" }}

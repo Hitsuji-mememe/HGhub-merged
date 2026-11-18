@@ -68,10 +68,10 @@ export function EpisodesPanel({ episodes, current, onPick, onClose, bare = false
 }
 
 /* ================= 评论 ================= */
-export function CommentsPanel({ videoId, ep, total, kind = "video", onClose }: {
+export function CommentsPanel({ videoId, ep, total, kind = "video" }: {
   videoId: number; ep: number; total: number; kind?: "video" | "post"; onClose: () => void;
 }) {
-  const { user, setLoginOpen, toast } = useStore();
+  const { user, toast } = useStore();
   const [items, setItems] = useState<Comment[]>([]);
   const [page, setPage] = useState(0);
   const [pages, setPages] = useState(1);
@@ -134,7 +134,7 @@ export function CommentsPanel({ videoId, ep, total, kind = "video", onClose }: {
   const send = async () => {
     const t = text.trim();
     if (!t || sendBusy.current) return;
-    if (!user) { setLoginOpen(true); return; }
+    if (!user) return;
     sendBusy.current = true;
     const token = ++sendSequence.current;
     setSending(true);
@@ -153,12 +153,11 @@ export function CommentsPanel({ videoId, ep, total, kind = "video", onClose }: {
 
   return (
     <div className="flex flex-col h-full">
+      {/* 收官批 A3：头部不再自带关闭 X——抽屉页签行右端已有唯一关闭钮，
+          此处曾与之并存成双 X。关闭走页签行 X / 遮罩 / 手势。 */}
       <div className="shrink-0 flex items-center gap-2 px-4 h-12">
         <span className="text-[14px] font-bold text-on">评论</span>
         <span className="text-[12px] text-mut">{fmt(loadedTotal ?? total)}{kind === "video" ? ` · 第 ${ep} 集` : " 条"}</span>
-        <Button onClick={onClose} aria-label="关闭" className="ml-auto w-7 h-7 rounded-full bg-s3 flex items-center justify-center text-mut pressable">
-          <IClose size={13} />
-        </Button>
       </div>
 
       <div ref={scrollRef} className="flex-1 min-h-0 scroll-y px-4" aria-busy={loading}>
@@ -195,18 +194,21 @@ export function CommentsPanel({ videoId, ep, total, kind = "video", onClose }: {
         )}
       </div>
 
-      <Form className="shrink-0 flex items-center gap-2 px-3 py-2.5 bg-s2" onSubmit={(e) => { e.preventDefault(); send(); }}>
-        <Avatar size={30} name={user?.nickname || "我"} hue={322} />
-        <Input ref={inputRef} disabled={sending} value={text} onChange={(e) => setText(e.target.value)}
-          readOnly={!user} onClick={() => { if (!user) setLoginOpen(true); }}
-          onKeyDown={(event) => { if (!user && event.key === "Enter") { event.preventDefault(); setLoginOpen(true); } }}
-          placeholder={user ? "说点什么…" : "登录后参与评论"}
-          className="flex-1 min-w-0 h-9 rounded-(--r-ctl) bg-s4 px-3.5 text-[14px] text-on placeholder-dim outline-none focus:bg-s3" />
-        <Button type="submit" aria-label="发送评论" disabled={!text.trim() || sending}
-          className={`w-9 h-9 rounded-full flex items-center justify-center pressable ${text.trim() ? "brand-grad glow-neon" : "bg-s3 text-dim"}`}>
-          {sending ? <Loader className="w-4 h-4 spinner" /> : <ISendF size={16} />}
-        </Button>
-      </Form>
+      {/* 收官批 B：游客不渲染评论输入栏——原「登录后参与评论」输入框是
+          给永不登录的游客留的死入口（点击只弹登录框）。游客只看评论；
+          登录用户照常显示输入栏。 */}
+      {user && (
+        <Form className="shrink-0 flex items-center gap-2 px-3 py-2.5 bg-s2" onSubmit={(e) => { e.preventDefault(); send(); }}>
+          <Avatar size={30} name={user.nickname || "我"} hue={322} />
+          <Input ref={inputRef} disabled={sending} value={text} onChange={(e) => setText(e.target.value)}
+            placeholder="说点什么…"
+            className="flex-1 min-w-0 h-9 rounded-(--r-ctl) bg-s4 px-3.5 text-[14px] text-on placeholder-dim outline-none focus:bg-s3" />
+          <Button type="submit" aria-label="发送评论" disabled={!text.trim() || sending}
+            className={`w-9 h-9 rounded-full flex items-center justify-center pressable ${text.trim() ? "brand-grad glow-neon" : "bg-s3 text-dim"}`}>
+            {sending ? <Loader className="w-4 h-4 spinner" /> : <ISendF size={16} />}
+          </Button>
+        </Form>
+      )}
     </div>
   );
 }
