@@ -157,8 +157,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     /* 左边缘（20px）起手：优先给返回手势；rawX/rawY 为屏幕坐标（旋转舞台下方向判定不走舞台坐标） */
     edge: boolean; edgeBack: boolean; rawX: number; rawY: number;
   } | null>(null);
-  /* 单击切换播放/暂停时的中央短暂图标反馈（动画结束即卸） */
-  const [tapFlash, setTapFlash] = useState<{ kind: "play" | "pause"; n: number } | null>(null);
   /* 系统是否真的转成了横屏（iOS 原生旋转后为 true） */
   const [vpLandscape, setVpLandscape] = useState(
     () => typeof window !== "undefined" && window.innerWidth > window.innerHeight,
@@ -646,14 +644,16 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     else el.requestFullscreen().catch(() => {});
   };
 
-  /* 控件显隐跟随播放状态（抖音式，Muse 2026-11-18）：移动端暂停→全显、
-     播放→隐藏（仅留细进度条）；不用计时器。桌面有自己的 hover/闲置模型，
-     不跟随。失活的 Feed 不碰 store.clean（归当前活跃实例管）。 */
+  /* 暂停即控件锁定可见（解耦版，Muse 2026-11-18）：显隐与播放状态解耦——
+     单击只翻显隐、暂停只走显性钮；但一旦暂停，控件必须全显且单击不隐藏，
+     保证「继续播放」的入口永远够得到。播放中显隐完全由单击决定，不用
+     计时器。桌面有自己的 hover/闲置模型，不跟随。失活的 Feed 不碰
+     store.clean（归当前活跃实例管）。 */
   useEffect(() => {
-    if (isDesktop || !active) return;
-    setClean(!paused);
-    if (fs) setIdle(!paused);
-  }, [paused, fs, isDesktop, active, setClean, setIdle]);
+    if (isDesktop || !active || !paused) return;
+    setClean(false);
+    setIdle(false);
+  }, [paused, isDesktop, active, setClean, setIdle]);
 
   /* 左边缘右滑返回（iOS back 手势，Muse 2026-11-18）：与硬件返回同序——
      先关面板，再退全屏，最后回上一级（context 模式 onBack；home 根层无上一级，不动作）。
@@ -827,15 +827,17 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       }
     }
     if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260) {
-      /* 单击视频区 = 切换播放/暂停（Muse 2026-11-18 抖音式，用户授权按主流
-         证据定，覆盖「单击只管显隐」）：显隐不由单击直接翻转，而跟随播放状态
-         同步（暂停→控件全显、播放→只留细进度条，见 doEdgeBack 上方的同步
-         effect）；单击的判定延迟正是旧模型「不舒服」的来源，现无任何等待。
-         双击无专属动作：两次单击即暂停又播放、净效果为零。按钮/进度条/面板
-         都不在手势面内，落在其上不会触发本分支。 */
-      const wasPaused = videoRef.current?.el()?.paused ?? paused;
-      videoRef.current?.toggle();
-      setTapFlash({ kind: wasPaused ? "play" : "pause", n: Date.now() });
+      /* 单击视频区只做一件事：切换控件显隐（解耦版，Muse 2026-11-18，
+         废止 781df98 抖音式单击暂停）：单击暂停把「调选集/倍速必须先暂停、
+         藏控件必须先播放」耦在一起，用户裁定操作逻辑出问题。现单击即时
+         翻显隐、不碰播放状态、无判定窗口；暂停/播放只走中央大钮与底栏钮。
+         暂停态例外：单击不隐藏（锁定可见，防藏没恢复入口），只确保全显。
+         双击无专属动作（两次单击显隐翻两次、净效果为零）。按钮/进度条/
+         面板都不在手势面内，落在其上不会触发本分支。 */
+      const isPausedNow = videoRef.current?.el()?.paused ?? paused;
+      if (isPausedNow) { setClean(false); if (fs) setIdle(false); }
+      else if (fs) { if (idle) wake(); else setIdle(true); }
+      else setClean((v) => !v);
     }
   };
 
@@ -884,8 +886,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       const i = Math.max(0, Math.min(effectiveVideoIds.length - 1, Math.round(el.scrollTop / h)));
       if (i !== idxRef.current) resolveSwipe(i);
     }
-    /* 移动端进全屏不强显控件：显隐跟随播放状态（同步 effect 在 fs 翻转时再核） */
-    setClean(isDesktop ? false : !paused);
+    /* 进全屏先全显控件（恢复入口优先，解耦版）；之后显隐由单击决定 */
+    setClean(false);
     setSrMenuOpen(false); /* SR 菜单开合状态不跨全屏/普通模式串场 */
     setFs(true);
     wake();
@@ -898,14 +900,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         } catch { /* ignore */ }
       }
     }
-  }, [isDesktop, keepAlive, resolveSwipe, effectiveVideoIds.length, setClean, setFs, wake, paused]);
+  }, [isDesktop, keepAlive, resolveSwipe, effectiveVideoIds.length, setClean, setFs, wake]);
 
   const exitFs = useCallback(() => {
-    /* 移动端退全屏同样跟随播放状态（播放中回沉浸、暂停全显） */
-    setClean(isDesktop ? false : !paused);
+    /* 退全屏回普通态先全显控件（恢复入口优先，解耦版）；之后显隐由单击决定 */
+    setClean(false);
     setSrMenuOpen(false);
     setFs(false);
-  }, [setClean, setFs, isDesktop, paused]);
+  }, [setClean, setFs]);
 
   useFsOrientation(fs, isDesktop, keepAlive);
 
@@ -1372,7 +1374,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   进度条轨道几乎不可见，只用白点标播放位置。 */}
               {!fs && !isDesktop && (
                 <div className="absolute inset-x-0 z-20" style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset}px)` }}>
-                  {/* 显隐跟随播放状态（抖音式）：播放中只留下方细进度条，标题与入口随暂停出现 */}
+                  {/* 显隐由单击切换（解耦版）：隐藏时只留下方细进度条，标题与入口随之收起 */}
                   {!clean && (
                   <div className="mobile-video-meta-copy relative pb-2 flex items-center gap-2">
                     <p className="flex-1 min-w-0 text-[15px] font-semibold leading-snug hg-ink-2 hg-ov-shadow-strong clamp-2">{meta.title}</p>
@@ -1434,21 +1436,22 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 </div>
               )}
 
-              {/* 暂停 / 缓冲 */}
-              {isActive && paused && !err && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-                  <span className="w-[66px] h-[66px] rounded-full flex items-center justify-center backdrop-blur-md"
-                    style={{ background: "rgba(0,0,0,.55)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.12)" }}>
-                    <IPlayF size={28} className="hg-ink ml-0.5" />
-                  </span>
+              {/* 中央播放/暂停大钮（解耦版，Muse 2026-11-18）：暂停/播放唯一的
+                  画面内显性入口，76px 热区；控件层显示时出现（普通态看 clean、
+                  全屏态看 idle），暂停态常驻——与「暂停锁显」配套，恢复入口
+                  永远在正中。落点：普通与全屏共用此一处（同一 section 内渲染，
+                  显隐分别由 clean / idle 门控）。桌面保留原只读暂停指示。 */}
+              {isActive && !err && !isDesktop && (paused || (fs ? !idle : !clean)) && (
+                <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+                  <Button type="button" aria-label={paused ? "播放" : "暂停"} onClick={() => videoRef.current?.toggle()} className="pointer-events-auto w-[76px] h-[76px] rounded-full flex items-center justify-center backdrop-blur-md pressable" style={{ background: "rgba(0,0,0,.5)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.14)" }}>
+                    {paused ? <IPlayF size={32} className="hg-ink ml-1" /> : <IPauseF size={30} className="hg-ink" />}
+                  </Button>
                 </div>
               )}
-              {/* 单击切换的中央短暂图标反馈（抖音式）：动画结束即卸，不留计时器 */}
-              {isActive && tapFlash && (
-                <div key={tapFlash.n} className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-                  <span className="a-tap-flash w-[76px] h-[76px] rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,.45)" }}
-                    onAnimationEnd={() => setTapFlash(null)}>
-                    {tapFlash.kind === "play" ? <IPlayF size={34} className="hg-ink ml-1" /> : <IPauseF size={32} className="hg-ink" />}
+              {isActive && paused && !err && isDesktop && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                  <span className="w-[66px] h-[66px] rounded-full flex items-center justify-center backdrop-blur-md" style={{ background: "rgba(0,0,0,.55)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.12)" }}>
+                    <IPlayF size={28} className="hg-ink ml-0.5" />
                   </span>
                 </div>
               )}
@@ -1515,7 +1518,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </Button>
       )}
 
-      {/* 全屏播放中（控件已隐）只留一条细进度线（抖音式沉浸） */}
+      {/* 全屏播放中控件隐藏时只留一条细进度线 */}
       {!isDesktop && fs && idle && !paused && (
         <div className="absolute inset-x-0 z-30 pointer-events-none" style={{ bottom: rotated ? 0 : "var(--sab, 0px)", paddingLeft: rotated ? "max(52px, env(safe-area-inset-left))" : 0, paddingRight: rotated ? "max(52px, env(safe-area-inset-right))" : 0 }}>
           <div className="h-[2.5px]" style={{ background: "rgba(255,255,255,.22)" }}>

@@ -96,9 +96,6 @@ html.theme-light input[type="range"].hg-range::-webkit-slider-thumb {
 /* ——— 动画 ——— */
 @keyframes kf-pop { 0%{transform:scale(1)} 35%{transform:scale(1.4)} 60%{transform:scale(.94)} 100%{transform:scale(1)} }
 .a-pop { animation: kf-pop .42s cubic-bezier(.34,1.56,.64,1); }
-/* 单击切播放/暂停的中央图标反馈：放大淡出后由组件卸载 */
-@keyframes kf-tap-flash { 0%{opacity:.95;transform:scale(.72)} 100%{opacity:0;transform:scale(1.12)} }
-.a-tap-flash { animation: kf-tap-flash .45s ease-out both; }
 @keyframes kf-fade { from{opacity:0} to{opacity:1} }
 .a-fade { animation: kf-fade .2s ease both; }
 @keyframes kf-rise { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }

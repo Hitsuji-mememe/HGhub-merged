@@ -169,28 +169,48 @@ async function gestureChecks(page) {
     }));
   });
   const clean = () => page.locator('.player-root').getAttribute('data-clean');
-  // 断言接棒 (Muse 2026-11-18, 三度改写, 链条完整保留):
+  // 断言接棒 (Muse 2026-11-18, 四度改写, 链条完整保留):
   // 初版保护「双击切播放、单击 230ms 内翻转显隐」→ 二版 (删双击裁定) 保护
-  // 「单击只翻转显隐、双击不改播放状态」→ 本版 (抖音式, 用户授权按主流证据定)
-  // 保护「单击切换播放/暂停、显隐跟随播放状态、双击无专属动作」。
-  // 原「单击 <230ms 翻转显隐」由「单击直接暂停 + clean 跟随为 false」接棒:
-  // 测的仍是单击无判定延迟 (新代码路径里根本没有计时器), 但毫秒硬 bound
-  // 在 headless SwiftShader 软件 GL 下测的是渲染管线而非判定逻辑
-  // (docs/lessons.md 已挂账), 故毫秒值只记录、不设 bound。
+  // 「单击只翻转显隐、双击不改播放状态」→ 三版 (抖音式) 保护「单击切换
+  // 播放/暂停、显隐跟随播放状态、双击无专属动作」→ 本版 (解耦版, 用户真机
+  // 裁定废止三版): 单击暂停与单击显隐耦在同一手势上——想调选集/倍速必须
+  // 先暂停、想藏控件必须先播放, 操作逻辑互斥, 三版断言整体作废。
+  // 本版保护: ①单击只翻显隐、绝不改变播放状态 (无判定延迟的原保护点由
+  // 「单击→clean 立即翻转」接棒, 毫秒值沿旧口径只记录不设 bound——headless
+  // 软件 GL 挂账见 docs/lessons.md); ②暂停只走中央显性钮, 暂停态控件
+  // 锁定可见、单击既不隐藏也不恢复播放; ③中央钮可恢复播放, 恢复后单击
+  // 重获显隐切换; ④双击仍无专属动作 (显隐翻两次回原态、播放状态不变)。
+  // 断言写成状态相对式 (先读现态再验翻转), 不假设进入场景时的显隐初值。
+  const tapFlip = async () => {
+    const before = await clean();
+    await tap();
+    await page.waitForFunction(b => document.querySelector('.player-root')?.dataset.clean !== b, before);
+  };
+  const ensureVisible = async () => { if ((await clean()) === 'true') await tapFlip(); };
   const start = Date.now();
-  await tap();
+  await tapFlip();
+  const singleTapMs = Date.now() - start;
+  assert.equal(await video.evaluate(v => v.paused), false, 'Single tap toggles chrome only, never playback');
+  await tapFlip();
+  assert.equal(await video.evaluate(v => v.paused), false, 'Second tap toggles chrome back, still playing');
+  await ensureVisible();
+  await page.getByRole('button', { name: '暂停', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('video')?.paused === true);
-  const singleTapMs = Date.now()-start;
-  await page.waitForFunction(() => document.querySelector('.player-root')?.dataset.clean === 'false');
-  assert.equal(await clean(), 'false', 'Tap pauses; chrome follows playback state (visible while paused)');
+  assert.equal(await clean(), 'false', 'Paused via center button; chrome locked visible');
   await tap();
+  await page.waitForTimeout(160);
+  assert.equal(await video.evaluate(v => v.paused), true, 'Tap while paused does not resume playback');
+  assert.equal(await clean(), 'false', 'Tap while paused does not hide chrome (locked visible)');
+  await page.getByRole('button', { name: '播放', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('video')?.paused === false);
-  await page.waitForFunction(() => document.querySelector('.player-root')?.dataset.clean === 'true');
-  const wasPaused = await video.evaluate(v=>v.paused);
+  await tapFlip();
+  assert.equal(await video.evaluate(v => v.paused), false, 'After resume, tap toggles chrome again');
+  const wasPaused = await video.evaluate(v => v.paused);
+  const cleanBefore = await clean();
   await tap(); await page.waitForTimeout(80); await tap();
   await page.waitForTimeout(160);
-  assert.equal(await video.evaluate(v=>v.paused), wasPaused, 'Double tap has no dedicated action (two single taps cancel out)');
-  assert.equal(await clean(), 'true', 'Chrome still follows playback state after a double tap');
+  assert.equal(await video.evaluate(v => v.paused), wasPaused, 'Double tap has no dedicated action');
+  assert.equal(await clean(), cleanBefore, 'Double tap toggles chrome twice, back to prior state');
   return {singleTapMs};
 }
 
