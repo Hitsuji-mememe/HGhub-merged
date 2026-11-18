@@ -122,9 +122,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [waiting, setWaiting] = useState(false);
   const [err, setErr] = useState("");
   const [panel, setPanel] = useState<"episodes" | "comments" | "article" | "detail" | null>(null);
-  /* 抽屉页签记忆（蓝图 P2）：「内容」入口落上次页、首次落详情 */
-  const lastPanelRef = useRef<"episodes" | "detail" | "comments">("detail");
-  useEffect(() => { if (panel === "episodes" || panel === "detail" || panel === "comments") lastPanelRef.current = panel; }, [panel]);
+  /* 「内容」入口恒落详情页（2026-11-18 用户真机纠正）：蓝图 P2 的
+     「落上次页」记忆使用户先看过选集后，「内容」与「选集」两钮完全
+     同效（实测投诉「选集和内容重复」）。详情页经核查本无选集网格/
+     集数列表（只有「共 X 集」元信息），重复源就是这条落点记忆，
+     故删除：选集只由选集钮到达、评论只由抽屉页签到达（播放面评论
+     入口已随右栏撤销）、内容恒落详情，三入口互不重复。 */
   /* 续播：拿到时长后再 seek 一次（只对进入时那一条生效） */
   const resumeRef = useRef<{ key: string; t: number } | null>(
     startTime && startTime > 1 ? { key: `${videoIds[startIndex]}:${startEp || 1}`, t: startTime } : null,
@@ -1614,7 +1617,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               className="hg-chip w-11 h-11 rounded-full flex items-center justify-center pressable disabled:opacity-35">
               <INext size={18} />
             </Button>
-            <Button onClick={() => setPanel(lastPanelRef.current)} aria-label="内容"
+            <Button onClick={() => setPanel("detail")} aria-label="内容"
               className="hg-chip h-11 px-3 rounded-full flex items-center gap-1 text-[13px] font-semibold pressable">
               <IFileText size={15} />内容
             </Button>
