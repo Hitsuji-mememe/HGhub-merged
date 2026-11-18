@@ -100,6 +100,17 @@ api.video = async () => ({
   counts: { like: 0, collect: 0, comment: 0, hot: 0 },
   author: { id: 1, name: "Fixture" }, is_finished: true, is_original: 0,
 });
+// 评论夹具（布局门禁的抽屉文字对比度断言需要真实评论条目渲染）：三条与
+// review-shots/02 同场景的示例评论，形状对齐 CommentPage 契约。
+api.comments = async () => ({
+  ep: 1,
+  items: [
+    { id: 1, user_id: 11, nickname: "夜航船", avatar: "", avatar_color: "", time: "2小时前", text: "第三集那个长镜头绝了，氛围感直接拉满。", like_count: 342, reply_count: 12 },
+    { id: 2, user_id: 23, nickname: "momo", avatar: "", avatar_color: "", time: "3小时前", text: "更新太慢了，一天一集不够看，先收藏了慢慢追。", like_count: 128, reply_count: 4 },
+    { id: 3, user_id: 37, nickname: "江城子", avatar: "", avatar_color: "", time: "5小时前", text: "男主这波操作属实没想到，反转来得太突然了。", like_count: 96, reply_count: 21 },
+  ],
+  pagination: { page: 1, pages: 1, size: 20, total: 20 },
+});
 function Fixture() {
   const [active, setActive] = useState(!initiallyInactive);
   const [mounted, setMounted] = useState(!delayedMount);
