@@ -151,7 +151,7 @@ async function speedMenuKeyboardChecks(page, paused) {
   await assertSelection(1);
 }
 async function gestureChecks(page) {
-  await page.goto(`${report.ui}/tests/player-seek.html?diagnostics=1&proxy=${encodeURIComponent(report.media)}`);
+  await page.goto(`${report.ui}/tests/player-seek.html?diagnostics=1&episodes=6&proxy=${encodeURIComponent(report.media)}`);
   const guide = page.getByRole("dialog", { name: "视频长按操作提示", exact: true });
   // 2.2.0 合并定版 (Muse 2026-11-18): 长按引导已按 2.1.1 定版移除, 引导在场才关, 不在场直接继续。
   if (await guide.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false)) {
@@ -184,6 +184,15 @@ async function gestureChecks(page) {
   // 到期后只翻显隐、绝不改变播放状态; ②双击切播放且不碰显隐 (终态与
   // 击前一致); ③暂停双路径并存: 中央钮可暂停可恢复; 暂停态单击 (延迟
   // 到期后) 仍锁显、不恢复播放。断言写成状态相对式, 不假设显隐初值。
+  // 六度改写 (Muse 2026-11-18, 用户真机纠正两项, 接棒):
+  // (a) 删暂停锁显: 五版③的「暂停态单击仍锁显」作废——原断言保护
+  //     「暂停时继续播放入口永远够得到」, 用户实测锁显导致暂停后点
+  //     不掉控件; 新断言保护「暂停态单击可隐藏、再单击可呼出、全程
+  //     不改播放状态」, 恢复入口由双击 + 呼出后播放钮接棒。
+  // (b) 竖滑不切集: 新增竖滑断言——原手势链无竖滑集内断言 (swipeEp
+  //     切集只在真机暴露); 新断言保护「多集形态下竖滑后集数不变」
+  //     (旧实现 swipeEp=true 时本断言必失败: 集数 1→2)。竖滑切作品的
+  //     正向断言需多作品夹具, 本夹具单作品, 由代码路径与真机接棒。
   const tapFlip = async () => {
     const before = await clean();
     await tap();
@@ -228,20 +237,35 @@ async function gestureChecks(page) {
   await dblTap();
   await page.waitForFunction(() => document.querySelector('video')?.paused === true);
   assert.equal(await clean(), cleanBeforeDbl, 'Double tap toggles playback without touching chrome');
-  assert.equal(await clean(), 'false', 'Paused via double tap; chrome locked visible');
-  await tap();
-  await page.waitForTimeout(450);
-  assert.equal(await video.evaluate(v => v.paused), true, 'Single tap while paused does not resume playback');
-  assert.equal(await clean(), 'false', 'Single tap while paused does not hide chrome (locked visible)');
+  // 暂停态单击同权 (六度接棒, 见上方说明): 可隐藏、可呼出、不恢复播放。
+  await tapFlip();
+  assert.equal(await video.evaluate(v => v.paused), true, 'Single tap while paused hides chrome without resuming');
+  await tapFlip();
+  assert.equal(await video.evaluate(v => v.paused), true, 'Single tap while paused shows chrome again, still paused');
   await dblTap();
   await page.waitForFunction(() => document.querySelector('video')?.paused === false);
-  assert.equal(await clean(), 'false', 'Double tap resumes; chrome stays visible');
+  assert.equal(await clean(), cleanBeforeDbl, 'Double tap resumes without touching chrome');
   await page.getByRole('button', { name: '暂停', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('video')?.paused === true);
   await page.getByRole('button', { name: '播放', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('video')?.paused === false);
   await tapFlip();
   assert.equal(await video.evaluate(v => v.paused), false, 'After button resume, single tap toggles chrome again');
+  // 竖滑不切集 (六度接棒): 多集形态下大幅竖滑后集数必须不变。
+  await ensureVisible();
+  const epLabel = () => page.evaluate(() => document.querySelector('.hg-chrome-in span')?.textContent || '');
+  assert.match(await epLabel(), /第 1 集/, 'Fixture starts at episode 1');
+  await page.evaluate(() => {
+    const surface = document.querySelector('video').parentElement.parentElement;
+    const bounds = surface.getBoundingClientRect();
+    const x = bounds.x + 100;
+    surface.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 92, pointerType: 'touch', button: 0, clientX: x, clientY: bounds.y + 320 }));
+    for (const y of [240, 160]) surface.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 92, pointerType: 'touch', button: 0, clientX: x, clientY: bounds.y + y }));
+    surface.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 92, pointerType: 'touch', button: 0, clientX: x, clientY: bounds.y + 110 }));
+  });
+  await page.waitForTimeout(700);
+  assert.match(await epLabel(), /第 1 集/, 'Vertical swipe must not change episode (feed-item navigation only)');
+  assert.equal(await video.evaluate(v => v.paused), false, 'Vertical swipe does not pause playback');
   return {singleTapMs};
 }
 

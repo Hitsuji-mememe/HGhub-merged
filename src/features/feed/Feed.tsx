@@ -645,16 +645,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     else el.requestFullscreen().catch(() => {});
   };
 
-  /* 暂停即控件锁定可见（解耦版，Muse 2026-11-18）：显隐与播放状态解耦——
-     单击只翻显隐、暂停只走显性钮；但一旦暂停，控件必须全显且单击不隐藏，
-     保证「继续播放」的入口永远够得到。播放中显隐完全由单击决定，不用
-     计时器。桌面有自己的 hover/闲置模型，不跟随。失活的 Feed 不碰
-     store.clean（归当前活跃实例管）。 */
-  useEffect(() => {
-    if (isDesktop || !active || !paused) return;
-    setClean(false);
-    setIdle(false);
-  }, [paused, isDesktop, active, setClean, setIdle]);
+  /* 暂停不锁显（2026-11-18 用户真机纠正，删除解耦版的「暂停锁显」）：
+     显隐与播放状态彻底解耦——单击在播放/暂停任一状态都只翻显隐，
+     暂停不强制全显、也不阻止隐藏；恢复播放的入口有二（再单击呼出
+     控制层点播放钮、或双击画面），不靠锁显保底。桌面有自己的
+     hover/闲置模型，不跟随。 */
 
   /* 左边缘右滑返回（iOS back 手势，Muse 2026-11-18）：与硬件返回同序——
      先关面板，再退全屏，最后回上一级（context 模式 onBack；home 根层无上一级，不动作）。
@@ -830,10 +825,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
          从未变过，天然无闪烁）、恢复快照兜底、改判切换暂停/播放且不碰
          显隐；窗口到期才执行单击显隐。绝不用「先翻显隐、第二击再翻
          回来」：中间态会真实渲染，正是用户骂的闪烁来源。单击显隐语义
-         沿解耦版（只翻显隐不碰播放；暂停态只确保全显、锁显由暂停
-         effect 兜底）；延迟是双击判定的必要代价。暂停/播放双路径并存：
-         双击画面 + 控制层底部中央钮，各自单义、不算耦合。按钮/进度条/
-         面板不落在手势面内，不触发本分支。 */
+         沿解耦版（只翻显隐不碰播放），且暂停态与播放态完全同权——
+         暂停锁显已按用户真机纠正删除，暂停时单击照样可隐藏/呼出；
+         延迟是双击判定的必要代价。暂停/播放双路径并存：双击画面 +
+         控制层底部中央钮，各自单义、不算耦合。按钮/进度条/面板不
+         落在手势面内，不触发本分支。 */
       if (tapJudgeRef.current) {
         window.clearTimeout(tapJudgeRef.current.timer);
         const snap = tapJudgeRef.current;
@@ -845,7 +841,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         const snap = { clean, idle, fsUi };
         const timer = window.setTimeout(() => {
           tapJudgeRef.current = null;
-          if (videoRef.current?.el()?.paused) { setClean(false); setIdle(false); return; }
           if (snap.fsUi) {
             if (snap.idle) { wake(); setClean(false); } else { setIdle(true); setClean(true); }
           } else setClean(!snap.clean);
@@ -1524,8 +1519,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </Button>
       )}
 
-      {/* 控件隐藏时只留一条细进度线贴底（蓝图：默认态只有视频 + 细进度条） */}
-      {!isDesktop && kind === "video" && (fsUi ? idle : clean) && !paused && (
+      {/* 控件隐藏时只留一条细进度线贴底（蓝图：默认态只有视频 + 细进度条）；
+          暂停态同权（锁显删除后暂停隐藏控件也只剩这条线） */}
+      {!isDesktop && kind === "video" && (fsUi ? idle : clean) && (
         <div className="absolute inset-x-0 z-30 pointer-events-none" style={{ bottom: rotated ? 0 : "var(--sab, 0px)", paddingLeft: rotated ? "max(52px, env(safe-area-inset-left))" : 0, paddingRight: rotated ? "max(52px, env(safe-area-inset-right))" : 0 }}>
           <div className="h-[2.5px]" style={{ background: "rgba(255,255,255,.3)" }}>
             <PlaybackProgress clock={playbackClock} duration={duration} preview={null} className="h-full bg-white" />
@@ -1537,13 +1533,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           移动端视频条目的信息与操作只属于这一层：顶栏（返回/集数定位/
           静音/搜索）+ 底部（剧名·集数与时间行/可拖进度条/操作行），同显
           同隐、不拆多个悬浮层；显隐走解耦模型（普通态 clean、全屏呈现态
-          idle、暂停锁显）。操作行固定构成：上一集 | 选集 | 暂停/播放
+          idle；暂停不锁显，播放/暂停同权）。操作行固定构成：上一集 | 选集 | 暂停/播放
           （底部中央 52px） | 下一集 | 内容 | 倍速指示。此前并存的全屏
           底栏、独立全屏进度条、两处退出钮与中央大钮至此合并回退——真实
           全屏的退出由顶栏返回承担（与硬件返回同序：先退全屏）。底栏
           44px 地板与不出视口的几何教训（2.2.0 溢出修复）由 test-layout
           按视口矩阵继续守门。 */}
-      {!isDesktop && kind === "video" && (paused || (fsUi ? !idle : !clean)) && (
+      {!isDesktop && kind === "video" && (fsUi ? !idle : !clean) && (
         <div className="hg-chrome-in absolute inset-x-0 top-0 z-40 flex items-center gap-2 px-3" style={{ paddingTop: "calc(var(--sat, 0px) + 6px)", paddingBottom: 20, background: "linear-gradient(to bottom, rgba(21,23,27,.9), transparent)" }}>
           <Button onClick={goBack} aria-label="返回"
             className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
@@ -1562,7 +1558,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           </Button>
         </div>
       )}
-      {!isDesktop && kind === "video" && (paused || (fsUi ? !idle : !clean)) && (
+      {!isDesktop && kind === "video" && (fsUi ? !idle : !clean) && (
         <div className="hg-chrome-in absolute inset-x-0 bottom-0 z-40"
           style={{ paddingBottom: `calc(var(--sab, 0px) + ${bottomInset}px + 6px)`, background: "linear-gradient(to top, rgba(21,23,27,.92), rgba(21,23,27,.55) 55%, transparent)" }}>
           <div className="px-4 flex items-baseline gap-2">
