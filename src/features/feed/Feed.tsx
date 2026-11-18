@@ -27,6 +27,8 @@ import { RateMenu } from "./RateMenu";
 import { prewarmFirstSegment } from "./prewarm";
 import { useStallHeal } from "./stallHeal";
 import { useFeedDetails } from "./useFeedDetails";
+import { holdState } from "./holdState";
+import { HoldBadge } from "./HoldBadge";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText,
   ICheck, IHeart, IHeartF, ILink, IList, INext, IPauseF, IPlayF, ISearch, IStar, IStarF, IVertSwap, IVol, IVolMute,
@@ -146,9 +148,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [fullscreen, setFullscreen] = useState(false);
   /* 点赞动画计数 heartBurst 已随社交栏撤下删除（2026-11-18） */
   /* —— 移动端手势 —— */
-  const [holdSpeed, setHoldSpeed] = useState(0);
-  const [holdSlow, setHoldSlow] = useState(false);
   const holdRef = useRef(false);
+  /* 长按倍速走外部 store（holdState）+ videoRef 直通道，不进 Feed 状态；
+     rateRef 供手势回调读最新基准倍速（复位 hold 时恢复用） */
+  const rateRef = useRef(rate);
+  rateRef.current = rate;
+  const resetHold = () => { holdRef.current = false; if (holdState.get() !== 0) { holdState.set(0); videoRef.current?.rate(rateRef.current); } };
   const [scrub, setScrub] = useState<{ pct: number; target: number } | null>(null);
   const scrubTarget = useRef<number | null>(null);
   /* 进度条拖动 */
@@ -338,8 +343,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const posterUrl = cover(meta.cover, 900);
   const articleHtml = kind === "post" && !post?.video_url ? (post?.content || "") : "";
 
-  /* 倍速：底栏 RateMenu 定档；长按任意位置固定 2x 临时加速，松手恢复 */
-  const effRate = holdSpeed || (holdSlow ? 0.5 : rate);
+  /* 倍速：底栏 RateMenu 定档（store.rate）；长按任意位置固定 2x 临时加速走 holdState，松手恢复 */
   /* 沉浸全屏 + 横屏视频 → 舞台旋转 90°，看起来就是横屏 */
   const rotated = !isDesktop && fs && videoSize.w > videoSize.h && videoSize.h > 0 && !vpLandscape;
   const landscapeVideo = videoSize.w > 0 && videoSize.h > 0 && videoSize.w > videoSize.h;
@@ -604,8 +608,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 音量/静音同步 */
   useEffect(() => { videoRef.current?.mute(muted); }, [muted]);
   useEffect(() => { videoRef.current?.volume(volume); }, [volume]);
-  /* 倍速同步（长按 2x / 锁定 2x / 基准倍速） */
-  useEffect(() => { videoRef.current?.rate(effRate); }, [effRate, playKey]);
+  /* 倍速同步只剩 VideoSurface 内部 rate effect 一处（prop 传 store.rate）；
+     长按倍速由手势回调经 videoRef.rate() 直通道下发，不再经 Feed effect */
 
   /* 键盘 */
   useEffect(() => {
@@ -691,7 +695,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       };
       if (gesture.current?.timer) window.clearTimeout(gesture.current.timer);
       gesture.current = null;
-      if (holdRef.current) { holdRef.current = false; setHoldSpeed(0); setHoldSlow(false); }
+      resetHold();
       setZoom((z) => ({ ...z, g: true }));
       return;
     }
@@ -717,7 +721,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
            长按即临时加速，松手立即恢复原速，绝不锁定、不换挡。合并时引入的左右滑
            换挡 2/3/4/6x 被用户裁定为多余复杂（松手恢复后下次仍从 2x 起、用不上），已删。 */
         holdRef.current = true;
-        setHoldSpeed(2);
+        holdState.set(2); videoRef.current?.rate(2);
         try { navigator.vibrate?.(25); } catch { /* ignore */ }
       }, HOLD_DELAY_MS) as unknown as number,
     };
@@ -792,17 +796,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     /* 长按状态必须无条件复位：切集 / 组件重建会把手势对象清掉，
        但 holdRef 若留在 true，下面的 touchmove 会一直 preventDefault，
        整个列表就再也滑不动（表现为「播放后不能上滑」）。 */
-    if (holdRef.current) { holdRef.current = false; setHoldSpeed(0); setHoldSlow(false); }
+    resetHold();
     if (!g) return;
     if (g.timer) window.clearTimeout(g.timer);
 
-    if (g.mode === "hold") {
-      /* 松手即恢复原速：无条件复位，不留任何锁定态（定版语义） */
-      holdRef.current = false;
-      setHoldSpeed(0);
-      setHoldSlow(false);
-      return;
-    }
+    /* 松手即恢复原速：hold 已在上方无条件复位，不留任何锁定态（定版语义） */
+    if (g.mode === "hold") return;
     if (g.mode === "scrub") {
       const target = scrubTarget.current;
       if (!cancelled && target != null) videoRef.current?.seek(target, "mobile_gesture");
@@ -887,12 +886,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (tapJudgeRef.current) window.clearTimeout(tapJudgeRef.current.timer);
     tapJudgeRef.current = null;
     gesture.current = null;
-    holdRef.current = false;
-    /* Muse 2026-11-18 (审计修复): 切集时只复位 holdRef 不够——holdSpeed 状态会残留，
-       新集被 effRate 持续按长按档播放且再无 pointerup 能清它（onUp 依赖 holdRef）。
-       状态与 ref 必须同清。 */
-    setHoldSpeed(0);
-    setHoldSlow(false);
+    /* Muse 2026-11-18 (审计修复延续): 切集必须同清 hold——只清 holdRef 时
+       hold 倍速会残留到新集且再无 pointerup 能清；resetHold 同清 ref 与
+       外部 store 并把 video 倍速恢复基准，先复位再换源。 */
+    resetHold();
   }, [playKey]);
 
   /* 进出全屏：iOS 会在这时把播放打断，过渡期多补几次 play() */
@@ -1233,7 +1230,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 <div style={{ position: "absolute", inset: 0, transform: isDesktop ? undefined : `translate3d(${zoom.x}px, ${zoom.y}px, 0) scale(${zoom.s})`, transformOrigin: "center center", transition: isDesktop || zoom.g ? "none" : "transform .18s ease-out" }}>
                 <VideoSurface ref={videoRef} src={playUrl} poster={posterUrl} autoPlay active={active && !tagMenu && !showHoldGuide} muted={muted}
                   diagnosticContext={{ active: active && !tagMenu && !showHoldGuide, view: mode, kind, video_id: curId, episode: curEp }}
-                  volume={volume} rate={effRate}
+                  volume={volume} rate={rate}
                   measurementKey={measurementKey}
                   fit="contain"
                   onClick={() => { if (isDesktop) videoRef.current?.toggle(); }}
@@ -1540,15 +1537,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
       {/* 移动端：倍速状态 / 锁定提示 */}
       {/* 锁定提示并入倍速胶囊：锁定只看上滑距离，不存在「拖到某个位置」的目标 */}
-      {!isDesktop && (holdSpeed || holdSlow || rate !== 1) && (holdSpeed || holdSlow || !fs || !idle) && (
-        <Button
-          onClick={() => { if (rate !== 1 && !holdSpeed) { setRate(1); videoRef.current?.rate(1); } }}
-          className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[13px] font-semibold whitespace-nowrap pressable"
-          style={{ top: "calc(var(--sat, 0px) + 54px)", background: "rgba(0,0,0,.18)", color: "rgba(255,255,255,.85)" }}>
-          <IBoltF size={13} />
-          {effRate}x {holdSpeed ? "加速中 · 松开恢复" : holdSlow ? "减速中 · 松开恢复" : "倍速 · 点按恢复 1x"}
-        </Button>
-      )}
+      {!isDesktop && <HoldBadge fs={fs} idle={idle} onResetRate={() => { setRate(1); videoRef.current?.rate(1); }} />}
 
       {/* 控件隐藏时只留一条细进度线贴底（蓝图：默认态只有视频 + 细进度条）；
           暂停态同权（锁显删除后暂停隐藏控件也只剩这条线）。
@@ -1644,8 +1633,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             </Button>
             <div className="relative">
               <Button onClick={() => setRateMenuOpen((v) => !v)} aria-label="倍速选择" aria-expanded={rateMenuOpen}
-                className={`h-11 px-3 rounded-full flex items-center gap-1 text-[13px] font-bold pressable ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip"}`}>
-                <IBoltF size={13} />{effRate}x
+                className={`h-11 px-3 rounded-full flex items-center gap-1 text-[13px] font-bold pressable ${rate !== 1 ? "bg-primary text-on-primary" : "hg-chip"}`}>
+                <IBoltF size={13} />{rate}x
               </Button>
               {rateMenuOpen && (
                 <RateMenu current={rate} onSelect={(r) => { setRate(r); videoRef.current?.rate(r); setRateMenuOpen(false); }} />
