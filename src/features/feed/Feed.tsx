@@ -1,7 +1,7 @@
 import { Button, Image, SegmentedControl } from "../../shared/ui/ios/controls";
 import { Loader } from "../../shared/ui/ios/effects";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useFsOrientation } from "../playback/useFsOrientation";
 import { api, cover, fmt, fmtTime, isMobile, logLine, playlist } from "../../shared/api/api";
 import type { Detail, Episode, PlayInfo, Post, VideoCard } from "../../shared/api/types";
@@ -923,7 +923,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     wake();
     keepAlive();
     if (!isDesktop) {
-      try { void invoke("set_orientation", { landscape }); } catch { /* ignore */ }
+      /* isTauri 守卫（顺手修复）：非 Tauri 环境（浏览器夹具/预览）下
+         invoke 会以未处理 rejection 形式报错，同步 try/catch 挡不住；
+         与 shared/lib/clipboard 的既有惯例一致。 */
+      try { if (isTauri()) void invoke("set_orientation", { landscape }); } catch { /* ignore */ }
       if (landscape) {
         try {
           (screen.orientation as unknown as { lock?: (o: string) => Promise<void> })?.lock?.("landscape")?.catch(() => {});
@@ -962,7 +965,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 若用户在视频首帧宽高解析出来前已点进全屏，解析出横屏后自动补发横屏方向请求 */
   useEffect(() => {
     if (isDesktop || !fs || !landscapeVideo) return;
-    try { void invoke("set_orientation", { landscape: true }); } catch { /* ignore */ }
+    try { if (isTauri()) void invoke("set_orientation", { landscape: true }); } catch { /* ignore */ }
     try {
       (screen.orientation as unknown as { lock?: (o: string) => Promise<void> })?.lock?.("landscape")?.catch(() => {});
     } catch { /* ignore */ }
