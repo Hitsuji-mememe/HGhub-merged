@@ -17,7 +17,8 @@ import { useInlinePlayerFullscreen } from "./useInlinePlayerFullscreen";
 import "../../styles/post-player.css";
 import { ICompress, IExpand, IPauseF, IPlayF, IVol, IVolMute } from "../../shared/ui/icons";
 import { useStore, type SuperResMode } from "../../shared/model/store";
-import SuperResCanvas, { effectiveSrMode, SuperResSvgDefs, getSvgFilterUrl, srVideoFilterMode } from "./SuperResCanvas";
+import { effectiveSrMode, SuperResSvgDefs, getSvgFilterUrl, srVideoFilterMode } from "./SuperResCanvas";
+import SrCanvas from "./SrCanvas";
 
 type Props = {
   src: string;              // 原始 m3u8 地址
@@ -286,7 +287,7 @@ export default function Player({
           setErrMsg(mediaErrorMessage(videoRef.current?.error ?? null));
         }}
       />
-      <SuperResCanvas
+      <SrCanvas
         videoRef={videoRef}
         mode={srMode}
         active={active}

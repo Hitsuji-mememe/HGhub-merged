@@ -254,7 +254,9 @@ export function runGpuProbe(): Promise<GpuProbeResult> {
 export function scheduleGpuProbe(): void {
   if (scheduled || cached || inflight) return;
   scheduled = true;
-  const start = () => { void runGpuProbe(); };
+  const start = () => {
+    void runGpuProbe().then(() => { void runSrProbe(); });
+  };
   try {
     const ric = (window as unknown as {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
@@ -278,5 +280,86 @@ export function formatGpuProbeLines(result: GpuProbeResult | null): string[] {
     line("设备层", result.device),
     line("计算层", result.compute),
     line("视频层", result.video),
+  ];
+}
+
+/* ── 探针 v2（fix2 超分换代检证，2026-11-19）────────────────────────
+ * v1 只答「API 在不在」；v2 用内置固定本地 MP4（720p/1080p、H.264、
+ * 各 60 帧）＋ requestVideoFrameCallback 真帧到达后，实测两条纹理
+ * 摄入路径与 Anime4K 全链单帧成本——这是超分换代的检证依据。
+ * 实现位于 features/playback/srProbe.ts（引擎在 features 层），经
+ * registerSrProbe 注册进来：shared 不反向依赖 features（仓库分层）。
+ * 未注册（如 TV 版）时 v2 节如实记「未注册」。 */
+export type SrProbeResult = {
+  at: string;
+  /** 720p 探针视频真实帧到达（rVFC presentedFrames）。 */
+  presented720: number;
+  frames720Ok: boolean;
+  external: { ok: boolean; msAvg: number | null; msP90: number | null; processed: number; dropped: number };
+  copy: { ok: boolean; msAvg: number | null; msP90: number | null; processed: number; dropped: number };
+  chain720: { ok: boolean; msAvg: number | null; msP90: number | null; withinBudget: boolean };
+  chain1080: { ok: boolean; msAvg: number | null; msP90: number | null };
+  deviceLost: number;
+  recommendedPath: "external" | "copy" | null;
+  /** 机器可判的采纳门：至少一条摄入路径可用 且 720p 全链平均成本
+   * < 33.3ms（720p@30 帧间隔）。画质门由同帧对比证据另行裁定。 */
+  gatesPass: boolean;
+};
+
+type SrProbeRunner = () => Promise<SrProbeResult>;
+let srProbeRunner: SrProbeRunner | null = null;
+let srProbeCached: SrProbeResult | null = null;
+let srProbeInflight: Promise<SrProbeResult | null> | null = null;
+
+export function registerSrProbe(runner: SrProbeRunner): void {
+  srProbeRunner = runner;
+}
+
+export function getSrProbeResult(): SrProbeResult | null {
+  return srProbeCached;
+}
+
+export function srProbeRegistered(): boolean {
+  return srProbeRunner !== null;
+}
+
+/** v1 完成后顺带跑 v2（幂等、永不 reject）。 */
+export function runSrProbe(): Promise<SrProbeResult | null> {
+  if (srProbeCached) return Promise.resolve(srProbeCached);
+  if (!srProbeRunner) return Promise.resolve(null);
+  if (srProbeInflight) return srProbeInflight;
+  const runner = srProbeRunner;
+  srProbeInflight = (async () => {
+    try {
+      const result = await runner();
+      srProbeCached = result;
+      try {
+        record("gpu.probe_v2", {
+          path: result.recommendedPath,
+          chain720_ms: result.chain720.msAvg,
+          chain1080_ms: result.chain1080.msAvg,
+          gates: result.gatesPass,
+          lost: result.deviceLost,
+        });
+      } catch { /* 记账旁路 */ }
+      return result;
+    } catch {
+      return null;
+    }
+  })();
+  return srProbeInflight;
+}
+
+export function formatSrProbeLines(result: SrProbeResult | null): string[] {
+  if (!srProbeRunner && !result) return ["探针 v2 未注册（本构建无超分检证实现）"];
+  if (!result) return ["探针 v2 尚未完成（v1 之后后台执行）"];
+  const ms = (v: number | null) => (v === null ? "—" : `${v}ms`);
+  return [
+    `720p 真帧到达 ${result.frames720Ok ? "✓" : "✗"}（presentedFrames=${result.presented720}）`,
+    `摄入·外部纹理 ${result.external.ok ? "✓" : "✗"} 平均 ${ms(result.external.msAvg)} / P90 ${ms(result.external.msP90)}（处理 ${result.external.processed} 帧、丢弃 ${result.external.dropped}）`,
+    `摄入·拷贝 ${result.copy.ok ? "✓" : "✗"} 平均 ${ms(result.copy.msAvg)} / P90 ${ms(result.copy.msP90)}（处理 ${result.copy.processed} 帧、丢弃 ${result.copy.dropped}）`,
+    `全链 720p ${result.chain720.ok ? "✓" : "✗"} 平均 ${ms(result.chain720.msAvg)} / P90 ${ms(result.chain720.msP90)}（帧预算 33.3ms：${result.chain720.withinBudget ? "过" : "不过"}）`,
+    `全链 1080p ${result.chain1080.ok ? "✓" : "✗"} 平均 ${ms(result.chain1080.msAvg)} / P90 ${ms(result.chain1080.msP90)}`,
+    `Device Lost（探针期）${result.deviceLost} 次；建议路径 ${result.recommendedPath ?? "无"}；机器采纳门 ${result.gatesPass ? "过" : "不过"}`,
   ];
 }

@@ -22,7 +22,7 @@ import { playbackLogApi} from "./playbackDiagnostics";
 import { readPlaybackFacts} from "./playbackFacts";
 import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot, validateLedgerIntegrity} from "./eventLedger";
-import { formatGpuProbeLines, getCachedGpuProbe} from "./gpuProbe";
+import { formatGpuProbeLines, formatSrProbeLines, getCachedGpuProbe, getSrProbeResult } from "./gpuProbe";
 import { feedTraceSnapshot, feedTraceSummary} from "../lib/feedTrace";
 
 type Json = Record<string, unknown>;
@@ -419,6 +419,13 @@ lines.push("── WebGPU 探针 ───────────────�
  * 纯旁路：读缓存失败只降级本节，不拖垮报告其余内容。 */
 try {
 for (const l of formatGpuProbeLines(getCachedGpuProbe())) lines.push(l);
+} catch {
+lines.push("读取失败（纯旁路，不影响本报告其余内容）");
+}
+lines.push("");
+lines.push("── WebGPU 探针 v2（超分检证）───────");
+try {
+for (const l of formatSrProbeLines(getSrProbeResult())) lines.push(l);
 } catch {
 lines.push("读取失败（纯旁路，不影响本报告其余内容）");
 }

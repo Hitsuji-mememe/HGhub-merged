@@ -11,7 +11,8 @@ import { usePlaybackActivity } from "./usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "./useProxyPlaybackRecovery";
 import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
 import { useStore, type SuperResMode } from "../../shared/model/store";
-import SuperResCanvas, { effectiveSrMode, getSvgFilterUrl, srVideoFilterMode, SuperResSvgDefs } from "./SuperResCanvas";
+import { effectiveSrMode, getSvgFilterUrl, srVideoFilterMode, SuperResSvgDefs } from "./SuperResCanvas";
+import SrCanvas from "./SrCanvas";
 
 export type FragStats = { bytes: number; loadMs: number; fragDuration: number; bitrate: number };
 
@@ -423,7 +424,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       onEnded={() => { notePlaybackPlaying(false); if (activity.isActive()) onEnded?.(); }}
         onError={handleVideoError}
       />
-      <SuperResCanvas
+      <SrCanvas
         videoRef={videoRef}
         mode={srMode}
         active={active}
