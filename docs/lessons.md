@@ -50,6 +50,7 @@
 | 2026-11-18 | 抽屉双入口冗余（选集/内容两钮 + 落点记忆） | 用户裁定：同一抽屉两钮无意义，内容钮落点还跟随上次页签、与选集钮同效 | 蓝图 P2 按「入口语义」设计双入口与 lastPanel 记忆，把简单问题做成状态机；详情页本身并无第二份选集，重复感来自落点记忆而非内容 | 只留「选集」单入口恒落选集页，删内容钮与一切落点记忆；详情/评论在抽屉内点页签到达；layout 单入口断言（无内容钮、恒落选集、切评论可达、重开无记忆） | `Feed.tsx` 操作行与 panel 状态；`scripts/test-layout.mjs` 横屏流程单入口段 |
 | 2026-11-18 | 只有左缘返回、右缘左滑无响应 | 用户原话「往左滑回到上一级」：右手拇指的自然方向是右缘左滑，真机无反应 | 初版边缘返回只按 iOS 左缘惯例实现，没覆盖右手单手持机的拇指轨迹 | 双缘并存同义：右 22px 左滑与左 20px 右滑同阈值、同出口（doEdgeBack / 弹层 close）；边缘带与 scrub/pan/进度拖动起手区域互斥写进 gesture 断言（中部横滑不触发、右缘竖滑被吞） | `Feed.tsx` edgeR/edgeBackR；`src/shared/ui/ios/overlays.tsx` side 标记；`scripts/test-playback.mjs` gesture 第10项四段 |
 | 2026-11-18 | 抽屉规格实心、实现玻璃 | 真机：评论抽屉半透明带模糊，视频透出、文字难读 | P5 只覆盖了 dialog 的 background，基样式 `--ios-glass` 的 backdrop-filter blur 没摘——规格与实现漂移且无计算样式断言守门 | 含 video-details-sheet 的 Sheet 强制 opacity 1 + backdrop-filter none（含 -webkit-），评论表单底色改实心；layout 加计算样式断言（背景恰 #191B20 且 backdrop-filter 为 none） | `src/styles/video-details.css`；`Panels.tsx` 评论表单；`scripts/test-layout.mjs` dlgStyle |
+| 2026-11-18 | 抽屉底已实心、文字仍暗字压深底 | 主代理看图（review-shots/02）：底已实心 #191B20，但评论正文几乎不可读 | 只钉了 dialog 背景，没同步文字色阶：正文/昵称/元信息仍走环境主题变量，浅色主题下 --p-on 为 #25241f，钉深底等于把暗字搬到深底上；计算样式断言也只验了背景一侧 | 抽屉子树作用域内收深底配套色阶（--p-on #F5F5F5、--p-mut/--p-dim 不低于 #A1A5AD、表面阶梯转深），评论正文/昵称去透明度改主字全色；layout 断言接棒到文字终态（正文恰 #F5F5F5、次级不低于 #A1A5AD），player-seek 夹具补 api.comments 三条 | `src/styles/video-details.css` 抽屉作用域色阶；`Panels.tsx` 评论正文/昵称；`scripts/test-layout.mjs` commentColors；`tests/player-seek.tsx` 评论夹具 |
 
 新回归的追加方式：
 
