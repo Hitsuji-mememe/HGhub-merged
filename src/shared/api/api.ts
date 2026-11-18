@@ -9,6 +9,13 @@ import type {
 /** 应用版本（构建时由 vite.config.ts 从 package.json 注入） */
 export const APP_VERSION = __APP_VERSION__;
 
+/** 构建戳（Muse 2026-11-18 U6a）：git 短哈希 + 构建 ISO 时间，构建时由
+ * vite.config.ts 的 define 注入（非 git 环境哈希为 "dev"）。与 APP_VERSION
+ * 并列的只读常量，不参与版本号字段与版本同步检查。 */
+export const BUILD_HASH = __BUILD_HASH__;
+export const BUILD_TIME = __BUILD_TIME__;
+export const BUILD_STAMP = `${BUILD_HASH} · ${BUILD_TIME}`;
+
 const ua = navigator.userAgent;
 export const isAndroid = /Android/i.test(ua);
 /** iPhone 的 UA 也带「like Mac OS X」，必须先于 macOS 判断；iPadOS 默认伪装成 Mac，用触点数区分。 */

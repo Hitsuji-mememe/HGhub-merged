@@ -1,6 +1,6 @@
 import { Button, SegmentedControl, Surface, TextArea } from "../../shared/ui/ios/controls";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { api, APP_VERSION, hostOf, isMobile, logLine, platform, type UpdateInfo } from "../../shared/api/api";
+import { api, APP_VERSION, BUILD_STAMP, hostOf, isMobile, logLine, platform, type UpdateInfo } from "../../shared/api/api";
 import { useStore } from "../../shared/model/store";
 import { Modal, Toggle } from "../../shared/ui/ui";
 import LinePicker from "./LinePicker";
@@ -212,6 +212,9 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
               </div>
               <IChevR size={15} className="text-mut" />
             </Button>
+            {/* 构建戳（Muse 2026-11-18 U6a）：与诊断报告头同一行，帮助对
+                报告时先对构建——版本同为 2.2.0 的不同构建靠它区分。 */}
+            <div className="px-3.5 py-2 text-[12px] text-mut">构建 {BUILD_STAMP}</div>
           </>)}
 
           {section("其他", <>

@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { legacyCss } from "./scripts/legacy-css";
@@ -9,6 +10,23 @@ const host = process.env.TAURI_DEV_HOST;
 const { version } = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { version: string };
+
+/* 构建戳（Muse 2026-11-18 U6a）：与 __APP_VERSION__ 同一条 define 注入路，
+ * 供诊断报告/设置页自证「这份报告出自哪次构建」。只新增两个常量，不碰
+ * package.json 的 version 字段，版本同步检查（check-version-sync）结果不变。
+ * 非 git 环境（源码包/CI 浅克隆异常）兜底 "dev"，构建不因此失败。 */
+function buildHash(): string {
+  try {
+    const hash = execSync("git rev-parse --short HEAD", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return hash || "dev";
+  } catch {
+    return "dev";
+  }
+}
+const buildTime = new Date().toISOString();
 
 export default defineConfig(({ mode }) => {
   // Android TV 构建期指定 VITE_APP_EDITION=tv（scripts/build-android-tv.mjs 注入）；
@@ -33,6 +51,8 @@ export default defineConfig(({ mode }) => {
     // 版本号只维护 package.json（CI 会按 tag 改写它），界面里的版本由这里注入，避免写死后漂移
     define: {
       __APP_VERSION__: JSON.stringify(version),
+      __BUILD_HASH__: JSON.stringify(buildHash()),
+      __BUILD_TIME__: JSON.stringify(buildTime),
     },
     server: {
       port: 1420,

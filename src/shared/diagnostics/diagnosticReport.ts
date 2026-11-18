@@ -15,12 +15,13 @@
 * 任一数据源失败只降级对应段落，不拖垮整份报告。
 */
 
-import { api, APP_VERSION, hostOf, platform} from "../api/api";
+import { api, APP_VERSION, BUILD_STAMP, hostOf, platform} from "../api/api";
 import { autoLineEnabled, lastPickRound} from "../network/autoLine";
 import { nativeFallbackState} from "../../features/playback/mediaTransport";
 import { playbackLogApi} from "./playbackDiagnostics";
 import { readPlaybackFacts} from "./playbackFacts";
 import { shortVerdict} from "./netDiagReport";
+import { snapshot as ledgerSnapshot} from "./eventLedger";
 
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json => (v && typeof v === "object" &&!Array.isArray(v)? (v as Json): {});
@@ -254,6 +255,16 @@ const facts = readPlaybackFacts();
 
 const lines: string[] = [];
 lines.push(`${new Date().toLocaleString("zh-CN", { hour12: false})}`);
+/* 构建戳 + 账本完整性（Muse 2026-11-18 U6a/U6b）：报告头自证构建与
+ * 会话。账本是纯旁路——读取失败只降级这一行为「未知」，不拖垮报告
+ * 其余内容（下方 try/catch 即回退路径）。 */
+lines.push(`构建：${BUILD_STAMP}`);
+try {
+const snap = ledgerSnapshot();
+lines.push(`会话：${snap.sessionId} · 账本 已记 ${snap.recorded} · 迟到丢弃 ${snap.droppedLate}`);
+} catch {
+lines.push("会话：未知（事件账本不可用）");
+}
 lines.push("");
 lines.push("── 结论 ──────────────────────────");
 lines.push(`网络：${diagR.status === "fulfilled"? shortVerdict(diag): "诊断失败（net_diag 不可用）"}`);
