@@ -47,6 +47,12 @@ const out = original.replace(segmentRe, (whole, body) => {
 });
 if (patched === 0) {
   console.error("未找到含 cargo 的 shellScript 阶段，补丁未生效");
+  /* 诊断：把所有阶段脚本的开头打出来，下一轮按真实内容改匹配。 */
+  const all = [...original.matchAll(/shellScript = "((?:[^"\\]|\\.)*)";/g)];
+  console.error(`共 ${all.length} 个 shellScript 段：`);
+  all.forEach((m, i) => {
+    console.error(`── seg ${i}: ${m[1].slice(0, 300).replace(/\\n/g, " ⏎ ")}`);
+  });
   process.exit(1);
 }
 writeFileSync(pbxPath, out);
