@@ -23,8 +23,13 @@
 .video-details-description { color:var(--p-mut); font-size:13px; line-height:1.8; white-space:pre-wrap; overflow-wrap:anywhere; }
 .video-details-sheet { display:flex; flex-direction:column; height:min(72dvh,680px); min-height:0; }
 /* 播放抽屉视觉基线（蓝图 P5）：面板 #191B20、圆角 24pt、入场 240ms。
-   只作用于含 video-details-sheet 的 Sheet，不动全局 Sheet 主题。 */
-.ios-overlay-sheet:has(.video-details-sheet) .ios-dialog { background:#191B20; border-radius:24px; animation-duration:.24s; }
+   只作用于含 video-details-sheet 的 Sheet，不动全局 Sheet 主题。
+   实心底补全（2026-11-18 缺陷6，用户真机反馈评论抽屉是玻璃面板、
+   评论难读）：P5 初版只改了 background，没摘 .ios-dialog 基样式的
+   backdrop-filter（blur 32px）——背景虽被覆盖，玻璃质感与透光仍在。
+   本次按规格补齐：opacity 1 + backdrop-filter 彻底关闭，抽屉内文字
+   按基线色阶（--p-on/--p-mut）落在纯实心 #191B20 上。 */
+.ios-overlay-sheet:has(.video-details-sheet) .ios-dialog { background:#191B20; opacity:1; backdrop-filter:none; -webkit-backdrop-filter:none; border-radius:24px; animation-duration:.24s; }
 .mobile-video-meta-copy { padding-right:84px; padding-left:16px; }
 .video-detail-preferences.ios-button { min-height:44px; padding:8px 0 8px 8px; font-size:12px; color:var(--p-mut); }
 @media(max-height:480px) {

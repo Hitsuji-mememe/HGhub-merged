@@ -263,6 +263,17 @@ try {
         await sheetP.waitFor({ state: "visible" });
         const sbP = await sheetP.boundingBox();
         assert(sbP && sbP.x >= -1 && sbP.x + sbP.width <= viewport[0] + 1, `${name}: episodes sheet out of viewport ${JSON.stringify(sbP)}`);
+        // 抽屉实心底断言 (缺陷6 接棒): 蓝图规格本就是实心 #191B20, P5
+        // 初版只覆盖 background、漏摘 backdrop-filter, 真机呈玻璃面板。
+        // 本断言保护计算样式终态: 背景恰为 #191B20 且无 backdrop 模糊。
+        const dlgStyle = await page.evaluate(() => {
+          const d = document.querySelector(".ios-overlay-sheet .ios-dialog");
+          if (!d) return null;
+          const s = getComputedStyle(d);
+          return { bg: s.backgroundColor, bf: s.backdropFilter };
+        });
+        assert(dlgStyle && dlgStyle.bg === "rgb(25, 27, 32)" && dlgStyle.bf === "none",
+          `${name}: player drawer must be solid #191B20 with no backdrop blur, got ${JSON.stringify(dlgStyle)}`);
         await page.getByRole("button", { name: "关闭", exact: true }).click();
         await sheetP.waitFor({ state: "hidden" });
         result.status = "passed";

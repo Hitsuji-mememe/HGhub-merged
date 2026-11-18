@@ -195,7 +195,7 @@ export function CommentsPanel({ videoId, ep, total, kind = "video", onClose }: {
         )}
       </div>
 
-      <Form className="shrink-0 flex items-center gap-2 px-3 py-2.5 bg-s2/70" onSubmit={(e) => { e.preventDefault(); send(); }}>
+      <Form className="shrink-0 flex items-center gap-2 px-3 py-2.5 bg-s2" onSubmit={(e) => { e.preventDefault(); send(); }}>
         <Avatar size={30} name={user?.nickname || "我"} hue={322} />
         <Input ref={inputRef} disabled={sending} value={text} onChange={(e) => setText(e.target.value)}
           readOnly={!user} onClick={() => { if (!user) setLoginOpen(true); }}
