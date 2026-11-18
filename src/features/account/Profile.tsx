@@ -8,7 +8,7 @@ import { Avatar, Empty, Modal } from "../../shared/ui/ui";
 import { MediaCard } from "../../shared/ui/cards";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { CollectionLink, CollectionLinks } from "../../shared/ui/CollectionLink";
-import { IChevR, IClock, IHeart, ILogout, ISettings, IStar, IUser, IUserF } from "../../shared/ui/icons";
+import { IBack, IChevR, IClock, IHeart, ILogout, ISettings, IStar, IUser, IUserF } from "../../shared/ui/icons";
 
 /* Account changes discard cached details synchronously, before another account can paint. */
 export default function Profile({ wide }: { wide: boolean }) {
@@ -18,7 +18,7 @@ export default function Profile({ wide }: { wide: boolean }) {
 
 function ProfileContent({ wide }: { wide: boolean }) {
   const { blockReason } = useContentPreferences();
-  const { user, setLoginOpen, logout, history, favs, clearHistory, push, accountSync, syncAccount } = useStore();
+  const { user, setLoginOpen, logout, history, favs, clearHistory, push, accountSync, syncAccount, setTab: setMainTab } = useStore();
   const [tab, setTab] = useState<"fav" | "history">("fav");
   const [cache, setCache] = useState<Record<number, Detail>>({});
   const cacheRef = useRef(cache);
@@ -105,6 +105,12 @@ function ProfileContent({ wide }: { wide: boolean }) {
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
       <div className="ios-page-heading shrink-0 px-4 flex items-center">
+        {/* 出入口同位（2026-11-18 第9项裁定）：左上返回回播放器 */}
+        {isMobile && (
+          <Button onClick={() => setMainTab("home")} aria-label="返回播放器" className="ios-icon-button shrink-0 mr-2.5">
+            <IBack size={17} />
+          </Button>
+        )}
         <h1 className="ios-page-title text-on">我的</h1>
         {isMobile && (
           <Button onClick={() => push({ kind: "settings" })} aria-label="设置"

@@ -12,7 +12,7 @@ import { SearchTags } from "./SearchTags";
 import { IBack, IChevR, IClose, IFireF, IPlayF, IRefresh, ISearch, ITrophy } from "../../shared/ui/icons";
 
 export default function Search({ active, wide }: { active: boolean; wide: boolean }) {
-  const { push, searchHist, addSearch, clearSearchHist, lineEpoch, accountScope } = useStore();
+  const { push, searchHist, addSearch, clearSearchHist, lineEpoch, accountScope, setTab: setMainTab } = useStore();
   const [q, setQ] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [tab, setTab] = useState<"video" | "post">("video");
@@ -74,7 +74,15 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
 
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
-      <div className="ios-page-heading shrink-0"><h1 className="ios-page-title">搜索</h1></div>
+      <div className="ios-page-heading shrink-0 flex items-center gap-2.5 px-4">
+        {/* 出入口同位（2026-11-18 第9项裁定）：左上返回回播放器 */}
+        {!wide && (
+          <Button onClick={() => setMainTab("home")} aria-label="返回播放器" className="ios-icon-button shrink-0">
+            <IBack size={17} />
+          </Button>
+        )}
+        <h1 className="ios-page-title">搜索</h1>
+      </div>
       {/* 搜索栏 */}
       <div className="shrink-0 px-4 pb-3 flex items-center gap-2.5" >
         <Form className="ios-search-form flex-1 min-w-0 flex items-center gap-2"

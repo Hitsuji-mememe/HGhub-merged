@@ -20,7 +20,7 @@ export const CHANNELS = [
 
 /* ================= 分类总览 ================= */
 export default function Category({ wide, active }: { wide: boolean; active: boolean }) {
-  const { push, lineEpoch } = useStore();
+  const { push, lineEpoch, setTab } = useStore();
   const [rows, setRows] = useState<Record<string, VideoCard[]>>({});
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -85,9 +85,16 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
       <div className="ios-page-heading shrink-0 px-4">
-        <div className="flex items-end gap-2.5">
+        <div className="flex items-center gap-2.5">
+          {/* 出入口同位（2026-11-18 第9项裁定）：浏览区各页左上角统一
+              返回钮回播放器，与播放器顶栏左上返回钮（进浏览区）同角 */}
+          {!wide && (
+            <Button onClick={() => setTab("home")} aria-label="返回播放器" className="ios-icon-button shrink-0">
+              <IBack size={17} />
+            </Button>
+          )}
           <h1 className="ios-page-title text-on">分类</h1>
-          <span className="text-[12px] text-mut pb-0.5">{CHANNELS.length + 1} 个频道</span>
+          <span className="text-[12px] text-mut">{CHANNELS.length + 1} 个频道</span>
         </div>
       </div>
 
