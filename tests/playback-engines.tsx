@@ -122,6 +122,80 @@ function run() {
     wd2.dispose();
   }
 
+  /* ── F7 append-hung：append 已开始、首窗只宽限一次，次窗判死 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    let state: string | null = null;
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => false, isPlaying: () => false, onStall: s => { stalls++; state = s; } });
+    wd.fragLoaded();
+    wd.appendStarted();
+    clock.advance(4000);
+    results.f_append_hung_grace = stalls;
+    wd.appendStarted(); // 宽限期内再次 appendStarted 不重置宽限
+    clock.advance(4000);
+    results.f_append_hung_fires = stalls;
+    results.f_append_hung_state = state;
+    clock.advance(10000);
+    results.f_append_hung_once = stalls;
+    wd.dispose();
+  }
+  /* ── F8 appended-no-buffer：append 已结束但缓冲仍空 → 到点判死 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    let state: string | null = null;
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => false, isPlaying: () => false, onStall: s => { stalls++; state = s; } });
+    wd.fragLoaded();
+    wd.appendStarted();
+    wd.appendEnded();
+    clock.advance(4000);
+    results.f_appended_no_buffer_fires = stalls;
+    results.f_appended_no_buffer_state = state;
+    wd.dispose();
+  }
+  /* ── F9 buffered-no-play：缓冲已达但 playing 不来 → 第二臂判死 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    let state: string | null = null;
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => true, isPlaying: () => false, onStall: s => { stalls++; state = s; } });
+    wd.fragLoaded();
+    wd.buffered();
+    clock.advance(3999);
+    results.f_buffered_no_play_before = stalls;
+    clock.advance(1);
+    results.f_buffered_no_play_fires = stalls;
+    results.f_buffered_no_play_state = state;
+    clock.advance(10000);
+    results.f_buffered_no_play_once = stalls;
+    wd.dispose();
+  }
+  /* ── F10 意愿门控：用户不想播（shouldEscalate=false）→ 第二臂永不判死 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => true, isPlaying: () => false, shouldEscalate: () => false, onStall: () => stalls++ });
+    wd.fragLoaded();
+    wd.buffered();
+    clock.advance(20000);
+    results.f_will_gate_blocks = stalls;
+    wd.dispose();
+  }
+  /* ── F11 出画解除第二臂：buffered 后 playing 到达 → 永不判死 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => true, isPlaying: () => false, onStall: () => stalls++ });
+    wd.fragLoaded();
+    wd.buffered();
+    clock.advance(2000);
+    wd.playing();
+    clock.advance(10000);
+    results.f_playing_clears_second_arm = stalls;
+    wd.dispose();
+  }
+
   /* ── C 超分判档（模拟源参数 + 真实采样锚点） ── */
   results.c_1080p_high_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 12_000_000, fps: 30 });
   results.c_1080p_low_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 2_500_000, fps: 30 });

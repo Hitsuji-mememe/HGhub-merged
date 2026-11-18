@@ -53,6 +53,19 @@ try {
   check("F6 second stall falls back", r.f_second_stall_fell_back, true);
   check("F6 fallback reason recorded", r.f_fallback_state, "append_stall");
   check("F6 later sources go native", r.f_engine_after, "native");
+  // F7–F11 — fault injection for the four-state verdicts and second arm
+  check("F7 append in flight gets one grace window", r.f_append_hung_grace, 0);
+  check("F7 append-hung fires after grace", r.f_append_hung_fires, 1);
+  check("F7 append-hung state label", r.f_append_hung_state, "append-hung");
+  check("F7 append-hung fires exactly once", r.f_append_hung_once, 1);
+  check("F8 appended-no-buffer fires at deadline", r.f_appended_no_buffer_fires, 1);
+  check("F8 appended-no-buffer state label", r.f_appended_no_buffer_state, "appended-no-buffer");
+  check("F9 no buffered-no-play before 4s", r.f_buffered_no_play_before, 0);
+  check("F9 buffered-no-play fires at 4s", r.f_buffered_no_play_fires, 1);
+  check("F9 buffered-no-play state label", r.f_buffered_no_play_state, "buffered-no-play");
+  check("F9 buffered-no-play fires exactly once", r.f_buffered_no_play_once, 1);
+  check("F10 will gate blocks second arm", r.f_will_gate_blocks, 0);
+  check("F11 playing clears second arm", r.f_playing_clears_second_arm, 0);
 
   // C — density-based SR tiering
   check("C high-density 1080p -> off", r.c_1080p_high_density, "off");

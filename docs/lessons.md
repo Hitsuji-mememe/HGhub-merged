@@ -51,6 +51,7 @@
 | 2026-11-18 | 只有左缘返回、右缘左滑无响应 | 用户原话「往左滑回到上一级」：右手拇指的自然方向是右缘左滑，真机无反应 | 初版边缘返回只按 iOS 左缘惯例实现，没覆盖右手单手持机的拇指轨迹 | 双缘并存同义：右 22px 左滑与左 20px 右滑同阈值、同出口（doEdgeBack / 弹层 close）；边缘带与 scrub/pan/进度拖动起手区域互斥写进 gesture 断言（中部横滑不触发、右缘竖滑被吞） | `Feed.tsx` edgeR/edgeBackR；`src/shared/ui/ios/overlays.tsx` side 标记；`scripts/test-playback.mjs` gesture 第10项四段 |
 | 2026-11-18 | 抽屉规格实心、实现玻璃 | 真机：评论抽屉半透明带模糊，视频透出、文字难读 | P5 只覆盖了 dialog 的 background，基样式 `--ios-glass` 的 backdrop-filter blur 没摘——规格与实现漂移且无计算样式断言守门 | 含 video-details-sheet 的 Sheet 强制 opacity 1 + backdrop-filter none（含 -webkit-），评论表单底色改实心；layout 加计算样式断言（背景恰 #191B20 且 backdrop-filter 为 none） | `src/styles/video-details.css`；`Panels.tsx` 评论表单；`scripts/test-layout.mjs` dlgStyle |
 | 2026-11-18 | 抽屉底已实心、文字仍暗字压深底 | 主代理看图（review-shots/02）：底已实心 #191B20，但评论正文几乎不可读 | 只钉了 dialog 背景，没同步文字色阶：正文/昵称/元信息仍走环境主题变量，浅色主题下 --p-on 为 #25241f，钉深底等于把暗字搬到深底上；计算样式断言也只验了背景一侧 | 抽屉子树作用域内收深底配套色阶（--p-on #F5F5F5、--p-mut/--p-dim 不低于 #A1A5AD、表面阶梯转深），评论正文/昵称去透明度改主字全色；layout 断言接棒到文字终态（正文恰 #F5F5F5、次级不低于 #A1A5AD），player-seek 夹具补 api.comments 三条 | `src/styles/video-details.css` 抽屉作用域色阶；`Panels.tsx` 评论正文/昵称；`scripts/test-layout.mjs` commentColors；`tests/player-seek.tsx` 评论夹具 |
+| 2026-11-18 | 自愈/确认机制未被真实故障检验 | 两轮确认、选线池轮换、看门狗四状态判死与出画第二臂均已落地，但真机从未出现对应故障，机制对错无证据 | 机制落地时只验了正常路径，故障分支没有可失败的回归，只能等真机撞上才知道对错 | 故障分支补注入用例钉住契约：决策段先等价提取为纯函数再逐条断言；看门狗以假时钟注入 append 在途/已结束无缓冲/缓冲已达不出画/意愿门控等故障序列（新增用例经维护者同意） | `src-tauri/src/lines/probe.rs` tests（confirm_gate 7 条）；`src-tauri/src/line_rank.rs` tests（select_pool 5 条）；`tests/playback-engines.tsx` F7–F11 |
 
 新回归的追加方式：
 
