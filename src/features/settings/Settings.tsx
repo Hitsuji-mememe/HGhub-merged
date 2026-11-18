@@ -4,6 +4,7 @@ import { api, APP_VERSION, BUILD_STAMP, hostOf, isMobile, logLine, platform, typ
 import { useStore } from "../../shared/model/store";
 import { Modal, Toggle } from "../../shared/ui/ui";
 import LinePicker from "./LinePicker";
+import AvProtoLab from "./AvProtoLab";
 import ProxySettings from "./ProxySettings";
 import ContentPreferencesSettings from "./ContentPreferencesSettings";
 import SettingsSection from "./SettingsSection";
@@ -35,6 +36,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
   const [clearing, setClearing] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagReport, setDiagReport] = useState<string | null>(null);
+  const [avProtoOpen, setAvProtoOpen] = useState(false);
   const [copyingReport, setCopyingReport] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<SettingGroup>>(() => new Set(initialSection ? [initialSection] : []));
   const contentRef = useRef<HTMLDivElement>(null);
@@ -215,6 +217,16 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
             {/* 构建戳（Muse 2026-11-18 U6a）：与诊断报告头同一行，帮助对
                 报告时先对构建——版本同为 2.2.0 的不同构建靠它区分。 */}
             <div className="px-3.5 py-2 text-[12px] text-mut">构建 {BUILD_STAMP}</div>
+            {/* AVFoundation 原型自检（Muse 2026-11-19）：混合路线三道门
+                的手动验证入口，默认不触发、不影响正常播放；结果进诊断报告。 */}
+            <Button onClick={() => setAvProtoOpen(true)} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable">
+              <span className="ios-setting-icon"><IBoltF size={16} /></span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] text-on">AVFoundation 原型自检</div>
+                <div className="text-[12px] text-mut">原生播放器喂流／帧管线／账本三道门验证，手动触发</div>
+              </div>
+              <IChevR size={15} className="text-mut" />
+            </Button>
           </>)}
 
           {section("其他", <>
@@ -254,6 +266,10 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
             <UsageAgreementText />
           </div>
         </div>
+      </Modal>
+
+      <Modal label="AVFoundation 原型自检" open={avProtoOpen} onClose={() => setAvProtoOpen(false)} width={520}>
+        <AvProtoLab />
       </Modal>
 
       <Modal label="诊断报告" open={diagReport !== null} onClose={() => setDiagReport(null)} width={520}>

@@ -23,6 +23,7 @@ import { readPlaybackFacts} from "./playbackFacts";
 import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot} from "./eventLedger";
 import { formatGpuProbeLines, getCachedGpuProbe} from "./gpuProbe";
+import { formatAvProtoLines } from "./avProto";
 
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json => (v && typeof v === "object" &&!Array.isArray(v)? (v as Json): {});
@@ -354,6 +355,15 @@ lines.push("── WebGPU 探针 ───────────────�
  * 纯旁路：读缓存失败只降级本节，不拖垮报告其余内容。 */
 try {
 for (const l of formatGpuProbeLines(getCachedGpuProbe())) lines.push(l);
+} catch {
+lines.push("读取失败（纯旁路，不影响本报告其余内容）");
+}
+lines.push("");
+lines.push("── AVFoundation 原型 ──────────────");
+/* 混合路线三道门验证（Muse 2026-11-19）：只读最近一轮自检存档，
+ * 报告生成不在此现跑（触发在设置 → 诊断 → AVFoundation 原型自检）。 */
+try {
+for (const l of formatAvProtoLines()) lines.push(l);
 } catch {
 lines.push("读取失败（纯旁路，不影响本报告其余内容）");
 }
