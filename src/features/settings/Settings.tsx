@@ -1,6 +1,6 @@
 import { Button, SegmentedControl, Surface, TextArea } from "../../shared/ui/ios/controls";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { api, APP_VERSION, hostOf, isMobile, logLine, platform } from "../../shared/api/api";
+import { api, APP_VERSION, hostOf, isMobile, logLine, platform, type UpdateInfo } from "../../shared/api/api";
 import { useStore } from "../../shared/model/store";
 import { Modal, Toggle } from "../../shared/ui/ui";
 import LinePicker from "./LinePicker";
@@ -22,7 +22,7 @@ type SettingGroup = typeof SETTING_GROUPS[number];
 /* 独立设置页：线路 / 外观 / 播放 / 本地数据 / 清理缓存 / 网络诊断 / 关于
    入口：Windows 侧栏「设置」、Android「我的」右上角齿轮 */
 export default function Settings({ onBack, initialSection }: { onBack: () => void; wide: boolean; initialSection?: "内容偏好" }) {
-  const { theme, themePreference, setTheme, favs, history, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast, srPref, setSrPref } = useStore();
+  const { theme, themePreference, setTheme, favs, history, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast, srPref, setSrPref, fsIdleSecs, setFsIdleSecs } = useStore();
   const [about, setAbout] = useState(false);
   const [agreementOpen, setAgreementOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -116,19 +116,31 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
                 ))}
               </SegmentedControl>
             </div>
+            {isMobile && <div className="ios-settings-row flex-wrap">
+              <span className="ios-setting-icon"><ICompress size={16} /></span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] text-on">全屏无操作自动隐藏控件</div>
+                <div className="text-[12px] text-mut">全屏播放时控件闲置后自动隐藏，单击画面可再显示</div>
+              </div>
+              <SegmentedControl className="w-full" aria-label="全屏无操作自动隐藏控件" activeIndex={[0, 3, 5, 10].indexOf(fsIdleSecs)}>
+                {([[0, "关"], [3, "3秒"], [5, "5秒"], [10, "10秒"]] as const).map(([secs, label]) => (
+                  <Button key={secs} type="button" aria-pressed={fsIdleSecs === secs} onClick={() => setFsIdleSecs(secs)}>{label}</Button>
+                ))}
+              </SegmentedControl>
+            </div>}
           </>)}
 
           {section("内容偏好", <ContentPreferencesSettings />)}
 
           {section("本地数据", <>
-            <div className="flex items-center gap-3 px-3.5 py-3">
+            <div className="ios-settings-row">
               <span className="ios-setting-icon"><IHeart size={16} /></span>
               <div className="flex-1">
                 <div className="text-[14px] text-on">本地片库</div>
                 <div className="text-[12px] text-mut">{favs.length} 部收藏 · {history.length} 条观看记录</div>
               </div>
             </div>
-            <Button onClick={() => { setClearError(""); setClearOpen(true); }} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable">
+            <Button onClick={() => { setClearError(""); setClearOpen(true); }} className="ios-settings-row text-left pressable">
               <span className="ios-setting-icon"><IBroom size={16} /></span>
               <div className="flex-1">
                 <div className="text-[14px] text-on">清理缓存</div>
@@ -139,7 +151,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
 
           {section("网络", <>
             <ProxySettings />
-            <Button onClick={() => setLineOpen(true)} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable">
+            <Button onClick={() => setLineOpen(true)} className="ios-settings-row text-left pressable">
               <span className="ios-setting-icon"><IBoltF size={16} /></span>
               <div className="flex-1 min-w-0">
                 <div className="text-[14px] text-on">播放源</div>
@@ -147,7 +159,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
               </div>
               <IChevR size={15} className="text-mut" />
             </Button>
-            <div className="flex items-center gap-3 px-3.5 py-3">
+            <div className="ios-settings-row">
               <span className="ios-setting-icon"><IRefresh size={15} /></span>
               <div className="flex-1 min-w-0">
                 <div className="text-[14px] text-on">自动选择线路</div>
@@ -159,7 +171,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
                 toast(on ? "已开启自动选择线路" : "已关闭自动选线，可手动选择播放源", "info");
               }} />
             </div>
-            <div className="flex items-center gap-3 px-3.5 py-3">
+            <div className="ios-settings-row">
               <span className="ios-setting-icon"><ILockF size={15} /></span>
               <div className="flex-1 min-w-0">
                 <div className="text-[14px] text-on">严格安全模式</div>
@@ -212,7 +224,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
               </div>
               <IChevR size={15} className="text-mut" />
             </Button>
-            <Button onClick={() => setAbout(true)} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable">
+            <Button onClick={() => setAbout(true)} className="ios-settings-row text-left pressable">
               <span className="ios-setting-icon"><IInfo size={16} /></span>
               <div className="flex-1">
                 <div className="text-[14px] text-on">关于 HGhubX</div>
