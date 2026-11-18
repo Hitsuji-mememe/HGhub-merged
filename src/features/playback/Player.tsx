@@ -32,6 +32,10 @@ type Props = {
   controls?: boolean;
   className?: string;
   diagnosticContext?: Record<string, unknown>;
+  /* 跟版合并（Muse 2026-11-18）：上游 Posts 已在传 scopeKey（帖子 id），
+   * 补进契约并透传全屏 hook 的作用域键（不变量 2：作用域进 key），
+   * 缺省时 hook 自行回退 src。 */
+  scopeKey?: string | number;
 };
 
 export default function Player({
