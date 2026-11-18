@@ -144,7 +144,10 @@ function AppBody() {
   }, [stack.length, pop, setTab, loginOpen, setLoginOpen, fs, setFs]);
 
   const pageActive = stack.length === 0 && !loginOpen;
-  const bottomInset = fs || clean ? 0 : 74;
+  /* 播放器即首页（蓝图 P0，Muse 2026-11-18）：home 页签就是播放面，
+     不显示页签栏、底部不留页签栏高度；搜索/分类/我的作为播放器之外的
+     浏览页存在，经控制层返回/搜索到达，那些页上页签栏照常显示。 */
+  const bottomInset = fs || clean || tab === "home" ? 0 : 74;
   /* 栈页（从搜索/分类/我的进入的播放页、图文页）没有底栏，
      底部只让出安全区。之前多留了 20px，视频底边会露出一条
      「底栏」似的窄缝（底部的压暗渐变到不了屏幕最底）。 */
@@ -161,7 +164,7 @@ function AppBody() {
           </div>
         ))}
 
-        {!fs && !clean && stack.length === 0 && <TabBar />}
+        {!fs && !clean && stack.length === 0 && tab !== "home" && <TabBar />}
       </div>
     </div>
   );

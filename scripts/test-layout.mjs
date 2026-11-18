@@ -226,9 +226,9 @@ try {
         console.log(`PASS ${name}`);
         return;
       }
-      // 入口路径接棒 (Muse 2026-11-18): 解耦模型下播放中控件初始可见、
-      // 中央大钮在位, tapCenter 实际点中中央钮暂停 (与旧版点手势面等效,
-      // 验的仍是全屏入口可达); 进全屏后的几何断言 (出口/菜单/选集面板
+      // 入口路径接棒 (Muse 2026-11-18): 开场默认沉浸 (蓝图 P0) 后播放中
+      // 控件初始收起, 首击 tapCenter 只翻显隐呼出控件、全屏钮随之出现——
+      // 验的仍是全屏入口可达; 进全屏后的几何断言 (出口/菜单/选集面板
       // 位置与可命中) 全部不变。进全屏的 keepAlive 续播会再次隐藏控件,
       // 等其耗尽 (≤1200ms) 后再点中央钮暂停, 让后续探针在控件全显态下进行。
       const tapCenter = async () => {
@@ -239,7 +239,7 @@ try {
         await page.touchscreen.tap(box.x, box.y);
       };
       await tapCenter();
-      await page.waitForFunction(() => document.querySelector("video")?.paused === true);
+      await page.getByRole("button", { name: "全屏", exact: true }).waitFor({ state: "visible" });
       await page.getByRole("button", { name: "全屏", exact: true }).click();
       await page.waitForTimeout(1400);
       await tapCenter();

@@ -164,8 +164,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [zoom, setZoom] = useState({ s: 1, x: 0, y: 0, g: false });
   /* 竖屏下看横屏视频：contain = 完整显示，cover = 放大铺满 */
   const [portraitFit, setPortraitFit] = useState<"contain" | "cover">("contain");
-  /* 单击/双击判定（上游 v2.2.0 lastTapRef 同位）：第一击的显隐快照 + 判定计时器 */
-  const tapJudgeRef = useRef<{ timer: number; clean: boolean; idle: boolean } | null>(null);
+  /* 单击/双击判定（上游 v2.2.0 lastTapRef 同位）：第一击的显隐快照 + 判定计时器；
+     immersedKeyRef：开场默认沉浸（蓝图 P0）守卫——每集首次真正起播时收起控件
+     一次（默认态只有视频），同一集内 seek/缓冲恢复不重复收起 */
+  const tapJudgeRef = useRef<{ timer: number; clean: boolean; idle: boolean } | null>(null); const immersedKeyRef = useRef<string>("");
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchRef = useRef<{ d0: number; mx0: number; my0: number; s0: number; x0: number; y0: number } | null>(null);
 
@@ -1207,7 +1209,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     setVsize((prev) => (prev.key === key && prev.w === w && prev.h === h ? prev : { key, w, h }));
                     return true;
                   }}
-                  onPlaying={() => { if (isCurrentPlayback()) { setPaused(false); setWaiting(false); setErr(""); setPlayingKey(playKey); } }}
+                  onPlaying={() => { if (isCurrentPlayback()) { setPaused(false); setWaiting(false); setErr(""); setPlayingKey(playKey); if (!isDesktop && immersedKeyRef.current !== playKey) { immersedKeyRef.current = playKey; setClean(true); setIdle(true); } } }}
                   onPause={() => { if (isCurrentPlayback()) setPaused(true); }}
                   onWaiting={() => { if (isCurrentPlayback()) { setWaiting(true); lastStallAtRef.current = Date.now(); } }}
                   onFragStats={onFragStats}
