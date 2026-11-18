@@ -108,7 +108,7 @@ const PROBE = (worstTime) => {
   return { vw, vh, scrollWidth: document.documentElement.scrollWidth, keys, bottomButtons, exitHit, overlaps };
 };
 
-function assertGeometry(m, label) {
+function assertGeometry(m, label, requireExit = true) {
   assert(m.scrollWidth <= m.vw + 1, `${label}: page horizontal overflow scrollWidth=${m.scrollWidth} vw=${m.vw}`);
   for (const [name, r] of Object.entries(m.keys)) {
     assert(r.left >= -1 && r.right <= m.vw + 1 && r.top >= -1 && r.bottom <= m.vh + 1,
@@ -118,8 +118,13 @@ function assertGeometry(m, label) {
   for (const r of m.bottomButtons) {
     assert(r.left >= -1 && r.right <= m.vw + 1, `${label}: bottom-region button out of viewport ${JSON.stringify(r)} vw=${m.vw}`);
   }
-  assert(m.keys["退出全屏"], `${label}: exit-fullscreen control missing`);
-  assert(m.exitHit, `${label}: exit-fullscreen center not hit-testable`);
+  if (requireExit) {
+    assert(m.keys["退出全屏"], `${label}: exit-fullscreen control missing`);
+    assert(m.exitHit, `${label}: exit-fullscreen center not hit-testable`);
+  } else {
+    // 竖屏即全屏呈现：无进入动作即无退出语义，退出钮必须不存在（负断言）
+    assert(!m.keys["退出全屏"], `${label}: exit-fullscreen must be absent in portrait presentation`);
+  }
   assert.deepEqual(m.overlaps, [], `${label}: key controls overlap: ${m.overlaps.join(", ")}`);
 }
 
@@ -143,7 +148,7 @@ try {
   const ui = `http://127.0.0.1:${vite.httpServer.address().port}`;
   browser = await chromium.launch({ headless: true, executablePath: process.env.BROWSER_EXECUTABLE || chromium.executablePath(), args: ["--autoplay-policy=no-user-gesture-required"] });
 
-  async function runCase(name, viewport, proxy, base, expectVideo) {
+  async function runCase(name, viewport, proxy, base, expectVideo, portraitSrc = false) {
     const result = { name, viewport, status: "running" };
     report.cases.push(result);
     mediaBase = base;
@@ -165,11 +170,55 @@ try {
       // Non-fullscreen surface: no horizontal overflow, fullscreen entry visible & inside.
       const home = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, vw: window.innerWidth }));
       assert(home.scrollWidth <= home.vw + 1, `${name}: home overflow ${home.scrollWidth} > ${home.vw}`);
-      // 入口路径接棒 (Muse 2026-11-18): 抖音式单击模型下控件显隐跟随播放状态,
-      // 播放中只留细进度条、「全屏」钮随暂停出现——原断言「播放中直接点全屏」
-      // 由「单击暂停 → 点全屏」接棒, 进全屏后的几何断言 (出口/菜单/选集面板
+      if (portraitSrc) {
+        // ── 竖屏即全屏呈现流程 (Muse 2026-11-18 断言接棒) ──
+        // 原竖屏与横屏共用「点全屏钮 → 验退出钮可达」, 保护的是手动进全屏
+        // 后的恢复入口。用户裁定竖屏源直接以全屏呈现态播放后, 竖屏不再有
+        // 进入动作与退出钮, 该保护点由本流程接棒: ①底栏控件几何 (44px
+        // 红线/不出视口/不重叠, PROBE 同一套); ②退出钮负断言 (无进入即
+        // 无退出语义); ③单击 (非按钮区) 只翻显隐、底栏可隐可现;
+        // ④倍速菜单与选集面板仍在视口内。横屏源维持下方旧流程。
+        const tapUpper = async () => {
+          const box = await page.evaluate(() => {
+            const r = document.querySelector("video").getBoundingClientRect();
+            return { x: r.x + r.width / 2, y: r.y + r.height * 0.3 };
+          });
+          await page.touchscreen.tap(box.x, box.y);
+          await page.waitForTimeout(160);
+        };
+        const rateBtnP = page.getByRole("button", { name: "倍速选择", exact: true });
+        await rateBtnP.waitFor({ state: "visible" });
+        assert.equal(await page.getByRole("button", { name: "退出全屏", exact: true }).count(), 0,
+          `${name}: portrait presentation must not render exit-fullscreen`);
+        assertGeometry(await page.evaluate(PROBE, false), `${name} portrait-fs`, false);
+        await tapUpper();
+        assert(!((await page.evaluate(PROBE, false)).keys["倍速选择"]), `${name}: tap must hide portrait-fs bar`);
+        await tapUpper();
+        await rateBtnP.waitFor({ state: "visible" });
+        await rateBtnP.click();
+        const rateMenuP = page.getByRole("menu", { name: "倍速选择", exact: true });
+        await rateMenuP.waitFor({ state: "visible" });
+        const rmP = await rateMenuP.boundingBox();
+        assert(rmP && rmP.x >= -1 && rmP.x + rmP.width <= viewport[0] + 1 && rmP.y >= -1, `${name}: rate menu out of viewport ${JSON.stringify(rmP)}`);
+        await rateMenuP.getByRole("menuitemradio", { name: "1x", exact: true }).click();
+        // 超分入口负断言 (全自动接棒, 与横屏流程同口径)
+        assert.equal(await page.locator('[aria-label^="超分"]').count(), 0, `${name}: SR entry must be gone from playback UI (auto mode)`);
+        await page.getByRole("button", { name: "选集", exact: true }).last().click();
+        const sheetP = page.locator(".video-details-sheet");
+        await sheetP.waitFor({ state: "visible" });
+        const sbP = await sheetP.boundingBox();
+        assert(sbP && sbP.x >= -1 && sbP.x + sbP.width <= viewport[0] + 1, `${name}: episodes sheet out of viewport ${JSON.stringify(sbP)}`);
+        await page.getByRole("button", { name: "关闭", exact: true }).click();
+        await sheetP.waitFor({ state: "hidden" });
+        result.status = "passed";
+        console.log(`PASS ${name}`);
+        return;
+      }
+      // 入口路径接棒 (Muse 2026-11-18): 解耦模型下播放中控件初始可见、
+      // 中央大钮在位, tapCenter 实际点中中央钮暂停 (与旧版点手势面等效,
+      // 验的仍是全屏入口可达); 进全屏后的几何断言 (出口/菜单/选集面板
       // 位置与可命中) 全部不变。进全屏的 keepAlive 续播会再次隐藏控件,
-      // 等其耗尽 (≤1200ms) 后再单击暂停, 让后续探针在控件全显态下进行。
+      // 等其耗尽 (≤1200ms) 后再点中央钮暂停, 让后续探针在控件全显态下进行。
       const tapCenter = async () => {
         const box = await page.evaluate(() => {
           const r = document.querySelector("video").getBoundingClientRect();
@@ -208,8 +257,8 @@ try {
       await page.getByRole("button", { name: "关闭", exact: true }).click();
       await sheet.waitFor({ state: "hidden" });
       // Exit path works end to end. (接棒同上: 退全屏过渡的 keepAlive 续播可能
-      // 把已暂停的视频拉回播放、控件随之隐藏; 等其耗尽后若在播则单击暂停,
-      // 再验「全屏」钮可见——验的仍是出口可达性本身。)
+      // 把已暂停的视频拉回播放、控件随之隐藏; 等其耗尽后若在播则点中央钮
+      // 暂停, 再验「全屏」钮可见——验的仍是出口可达性本身。)
       await page.getByRole("button", { name: "退出全屏", exact: true }).click();
       await page.waitForTimeout(1400);
       if (await page.evaluate(() => !document.querySelector("video")?.paused)) {
@@ -229,7 +278,7 @@ try {
     }
   }
 
-  for (const vp of PORTRAIT_VIEWPORTS) await runCase(`portrait-${vp[0]}x${vp[1]}`, vp, portBase, portBase, [360, 640]);
+  for (const vp of PORTRAIT_VIEWPORTS) await runCase(`portrait-${vp[0]}x${vp[1]}`, vp, portBase, portBase, [360, 640], true);
   await runCase("portrait-393-rotated-source", [393, 852], landBase, landBase, [320, 180]);
   for (const vp of LANDSCAPE_VIEWPORTS) await runCase(`landscape-${vp[0]}x${vp[1]}`, vp, landBase, landBase, [320, 180]);
 } catch (error) {

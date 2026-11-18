@@ -319,11 +319,20 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 沉浸全屏 + 横屏视频 → 舞台旋转 90°，看起来就是横屏 */
   const rotated = !isDesktop && fs && videoSize.w > videoSize.h && videoSize.h > 0 && !vpLandscape;
   const landscapeVideo = videoSize.w > 0 && videoSize.h > 0 && videoSize.w > videoSize.h;
+  /* 竖屏即全屏呈现（Muse 2026-11-18 用户裁定）：竖屏源把多余内容隐藏后
+     与全屏无实质区别（抖音竖屏无全屏概念），Feed 播放时直接以全屏那套
+     控件/底栏呈现，不再要用户手动点全屏、不产生进入/退出步骤。fsUi 只管
+     呈现门控；真实 fs 的滚动锁定、方向请求、分节隐藏仍只认 store.fs。
+     横屏源维持手动进/退全屏。fsUi 下退出钮不出现（无进入动作即无退出
+     语义，空间还给其余控件、不新增按钮填空）；页签带由 App 按 clean 驱动
+     （fsUi 显隐与 clean 镜像，见 onUp tap 分支），底栏高度随 bottomInset
+     让位，不与页签带叠层。 */
+  const fsUi = fs || (!isDesktop && kind === "video" && !landscapeVideo);
   /* 竖屏快捷胶囊的显隐：不卸载、只改 opacity，这样淡入淡出都能过渡（#19） */
   /* 胶囊显隐只由缩放驱动（定版：仅 zoom>1.05 显示），不挂 clean：
-     clean 在抖音式改版后由播放状态驱动，若继续挂 !clean，播放中双指
-     放大后胶囊会被误杀——「还原」点不到、只能捏回去（Muse 2026-11-18
-     portrait-fit 回归实锤：基线 PASS、改版后按钮被手势面拦截）。 */
+     clean 的驱动源几经变更（播放状态→单击解耦），若继续挂 !clean，
+     播放中双指放大后胶囊会被显隐模型连带误杀——「还原」点不到、只能
+     捏回去（Muse 2026-11-18 portrait-fit 回归实锤）。 */
   const capsuleOn = !fs && !isDesktop && zoom.s > 1.05;
 
   /* ── 上下划切集 ──────────────────────────────────────────
@@ -833,8 +842,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
          双击无专属动作（两次单击显隐翻两次、净效果为零）。按钮/进度条/
          面板都不在手势面内，落在其上不会触发本分支。 */
       const isPausedNow = videoRef.current?.el()?.paused ?? paused;
-      if (isPausedNow) { setClean(false); if (fs) setIdle(false); }
-      else if (fs) { if (idle) wake(); else setIdle(true); }
+      if (isPausedNow) { setClean(false); setIdle(false); }
+      else if (fsUi) { if (idle) { wake(); setClean(false); } else { setIdle(true); setClean(true); } }
       else setClean((v) => !v);
     }
   };
@@ -1226,7 +1235,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   </div>
                 )
               ) : null}
-              {!fs && !clean && !isDesktop && mode === "context" && (
+              {!fsUi && !clean && !isDesktop && mode === "context" && (
                 <span className="feed-position-pill absolute z-20 px-2.5 py-1 rounded-full hg-chip text-[12px] font-semibold tabular-nums"
                   style={{ top: "calc(var(--sat, 0px) + 52px)", left: 12, color: "rgba(255,255,255,.94)" }}>
                   {index + 1} / {effectiveVideoIds.length}
@@ -1292,7 +1301,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   游客不可用、纯遮挡；评论收进底部面板页签，点赞/收藏只在详情内。
                   超分入口同日撤下（全自动，见 SuperResCanvas.effectiveSrMode）。
                   颜色写死不跟主题走：浅色主题下这些字必须仍是白色 */}
-              {!fs && !clean && !isDesktop && (
+              {!fsUi && !clean && !isDesktop && (
                 <div className="mobile-video-action-rail absolute right-3 z-20 flex flex-col items-center gap-[16px]"
                   style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset + 92}px)` }}>
                   <Button onClick={() => enterFs(landscapeVideo)} className="flex flex-col items-center gap-1 pressable" aria-label="全屏">
@@ -1357,7 +1366,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {/* 移动端：标题 + 详情标签 + 进度线
                   不加任何压暗层——黑边彻底去掉，全靠文字阴影保读；
                   进度条轨道几乎不可见，只用白点标播放位置。 */}
-              {!fs && !isDesktop && (
+              {!fsUi && !isDesktop && (
                 <div className="absolute inset-x-0 z-20" style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset}px)` }}>
                   {/* 显隐由单击切换（解耦版）：隐藏时只留下方细进度条，标题与入口随之收起 */}
                   {!clean && (
@@ -1426,7 +1435,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   全屏态看 idle），暂停态常驻——与「暂停锁显」配套，恢复入口
                   永远在正中。落点：普通与全屏共用此一处（同一 section 内渲染，
                   显隐分别由 clean / idle 门控）。桌面保留原只读暂停指示。 */}
-              {isActive && !err && !isDesktop && (paused || (fs ? !idle : !clean)) && (
+              {isActive && !err && !isDesktop && (paused || (fsUi ? !idle : !clean)) && (
                 <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
                   <Button type="button" aria-label={paused ? "播放" : "暂停"} onClick={() => videoRef.current?.toggle()} className="pointer-events-auto w-[76px] h-[76px] rounded-full flex items-center justify-center backdrop-blur-md pressable" style={{ background: "rgba(0,0,0,.5)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.14)" }}>
                     {paused ? <IPlayF size={32} className="hg-ink ml-1" /> : <IPauseF size={30} className="hg-ink" />}
@@ -1504,7 +1513,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       )}
 
       {/* 全屏播放中控件隐藏时只留一条细进度线 */}
-      {!isDesktop && fs && idle && !paused && (
+      {!isDesktop && fsUi && idle && !paused && (
         <div className="absolute inset-x-0 z-30 pointer-events-none" style={{ bottom: rotated ? 0 : "var(--sab, 0px)", paddingLeft: rotated ? "max(52px, env(safe-area-inset-left))" : 0, paddingRight: rotated ? "max(52px, env(safe-area-inset-right))" : 0 }}>
           <div className="h-[2.5px]" style={{ background: "rgba(255,255,255,.22)" }}>
             <PlaybackProgress clock={playbackClock} duration={duration} preview={null} className="h-full bg-white" />
@@ -1512,12 +1521,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </div>
       )}
 
-      {/* 移动端全屏进度条，普通模式的进度条位于标题下方 */}
-      {!isDesktop && fs && !idle && (
+      {/* 移动端全屏进度条，普通模式的进度条位于标题下方。
+          fsUi（竖屏即全屏）下页签带可能在位（clean 镜像驱动），底距随
+          bottomInset 让位；真实 fs 时 bottomInset 恒 0、与旧值一致 */}
+      {!isDesktop && fsUi && !idle && (
         <div
           className="absolute inset-x-0 z-30 px-4"
           style={{
-            bottom: rotated ? 52 : "calc(var(--sab, 0px) + 52px)",
+            bottom: rotated ? 52 : `calc(var(--sab, 0px) + ${bottomInset + 52}px)`,
             paddingLeft: rotated ? "calc(var(--sat, 0px) + 16px)" : undefined,
             paddingRight: rotated ? "calc(var(--sab, 0px) + 16px)" : undefined,
             height: 22,
@@ -1531,10 +1542,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </div>
       )}
 
-      {/* 移动端：沉浸全屏（安卓 WebView 不支持 Fullscreen API，改用应用内沉浸层） */}
-      {!isDesktop && fs && !idle && (
+      {/* 移动端：沉浸全屏（安卓 WebView 不支持 Fullscreen API，改用应用内沉浸层）；
+          fsUi 时竖屏源直接以此呈现（无退出钮，见下方两处 fs 门控） */}
+      {!isDesktop && fsUi && !idle && (
         <>
-          {(rotated || vpLandscape) && (
+          {fs && (rotated || vpLandscape) && (
           <Button onClick={exitFs} aria-label="退出全屏"
             className="hg-chip-strong absolute z-40 w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1"
             style={{
@@ -1553,11 +1565,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               超分钮已于同日晚撤下（全自动），顺序改为 选集 > 倍速，空间还给时间段。
               几何由 scripts/test-layout.mjs 按视口矩阵守门。 */}
           <div className="absolute inset-x-0 z-40"
-            style={{ bottom: rotated ? 10 : "calc(var(--sab, 0px) + 10px)" }}>
+            style={{ bottom: rotated ? 10 : `calc(var(--sab, 0px) + ${bottomInset + 10}px)` }}>
             <div className="flex items-center gap-[3px]"
               style={{
                 paddingLeft: rotated ? "calc(var(--sat, 0px) + 16px)" : vpLandscape ? 16 : 6,
-                paddingRight: rotated ? "calc(var(--sab, 0px) + 16px)" : vpLandscape ? 16 : 54,
+                paddingRight: rotated ? "calc(var(--sab, 0px) + 16px)" : vpLandscape ? 16 : fs ? 54 : 6,
               }}>
               <Button onClick={() => videoRef.current?.toggle()}
                 className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable">
@@ -1588,7 +1600,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {/* 超分钮已撤（2026-11-18 全自动）：空出的横向空间还给时间/选集，
                   不新增按钮填空；底栏顺序仍为 选集 > 倍速（定版） */}
             </div>
-            {!rotated && !vpLandscape && (
+            {fs && !rotated && !vpLandscape && (
               <Button onClick={exitFs} aria-label="退出全屏"
                 className="hg-chip shrink-0 w-8 h-8 rounded-full flex items-center justify-center pressable absolute"
                 style={{ right: 4, top: "50%", transform: "translateY(-50%)" }}>
@@ -1669,18 +1681,18 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </>
       )}
       </div>
-      {!isDesktop && !controlsLocked && active && (!fs || !idle) && (
+      {!isDesktop && !controlsLocked && active && (!fsUi || !idle) && (
         <div className={`absolute z-40 flex items-center gap-2 ${fs ? "" : "right-3"}`}
           style={{
             top: rotated ? 12 : "calc(var(--sat, 0px) + 6px)",
             // 触屏下按钮实际 44px：退出键占 12–56，锁定组从 68 起，留 12px 间距
             right: fs ? (rotated ? "calc(var(--sab, 0px) + 68px)" : 68) : undefined,
           }}>
-          {!fs && !clean && <Button onClick={() => setMuted(m => !m)} aria-label={muted ? "取消静音" : "静音"}
+          {!fsUi && !clean && <Button onClick={() => setMuted(m => !m)} aria-label={muted ? "取消静音" : "静音"}
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1">
             {muted ? <IVolMute size={17} /> : <IVol size={17} />}
           </Button>}
-          {!fs && !clean && <Button onClick={() => store.setTab("search")} aria-label="搜索"
+          {!fsUi && !clean && <Button onClick={() => store.setTab("search")} aria-label="搜索"
             className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><ISearch size={18} /></Button>}
         </div>
       )}
