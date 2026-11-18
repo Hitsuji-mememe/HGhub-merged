@@ -156,6 +156,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const resetHold = () => { holdRef.current = false; if (holdState.get() !== 0) { holdState.set(0); videoRef.current?.rate(rateRef.current); } };
   const [scrub, setScrub] = useState<{ pct: number; target: number } | null>(null);
   const scrubTarget = useRef<number | null>(null);
+  /* scrub 退出不变量：任何退出路径都经此清 scrub+scrubTarget；restorePlay
+     由调用方按手势快照 g.playing 决定（原本暂停的绝不被播起来），且当前
+     active 才恢复播放 */
+  const clearScrub = (restorePlay: boolean) => { setScrub(null); scrubTarget.current = null; if (restorePlay && active) videoRef.current?.play(); };
   /* 进度条拖动 */
   const barRef = useRef<HTMLDivElement>(null);
   const barScrub = useRef(false);
@@ -693,7 +697,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         x0: zoom.x,
         y0: zoom.y,
       };
-      if (gesture.current?.timer) window.clearTimeout(gesture.current.timer);
+      const pg = gesture.current;
+      if (pg?.timer) window.clearTimeout(pg.timer);
+      /* pinch 打断 scrub：先按 scrub 退出不变量清状态并按 g.playing 恢复，
+         否则 scrub 浮层残留且视频停在 scrub 的暂停态无人恢复 */
+      if (pg?.mode === "scrub" || scrub !== null) clearScrub(pg?.playing ?? false);
       gesture.current = null;
       resetHold();
       setZoom((z) => ({ ...z, g: true }));
@@ -890,6 +898,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
        hold 倍速会残留到新集且再无 pointerup 能清；resetHold 同清 ref 与
        外部 store 并把 video 倍速恢复基准，先复位再换源。 */
     resetHold();
+    /* scrub 残留同清：切集时 scrub 浮层/目标不许带进新集；不恢复旧播放
+       （restorePlay=false），新集自有起播逻辑 */
+    clearScrub(false);
   }, [playKey]);
 
   /* 进出全屏：iOS 会在这时把播放打断，过渡期多补几次 play() */

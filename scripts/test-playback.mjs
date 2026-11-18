@@ -314,6 +314,45 @@ async function gestureChecks(page) {
   });
   await page.waitForTimeout(700);
   assert.match(await epLabel(), /第 1 集/, 'Right-edge vertical swipe is swallowed by the edge band (no episode change)');
+  // scrub 被第二指打断 (Muse 2026-11-18, fix1-feed B 项): 横拖进 scrub 后
+  // 第二指落下进 pinch——旧实现 pinch 分支不清 scrub: 浮层残留, 且 scrub
+  // 进入时暂停的视频无人恢复 (手势对象已被 pinch 置空)。本段保护 scrub
+  // 退出不变量: pinch 进入即清 scrub 并按 g.playing 恢复——(a) 播放中
+  // scrub 被打断 → 浮层消失且恢复播放; (b) 暂停中 scrub 被打断 → 浮层
+  // 消失且保持暂停 (不许把用户原本暂停的播起来)。两段在旧代码上必失败
+  // (浮层残留; (a) 还停在暂停态)。浮层以其唯一的时间 span 类名识别。
+  const scrubOverlayOn = () => page.evaluate(() => [...document.querySelectorAll('span')].some(s => s.className.includes('text-[26px]')));
+  const scrubDrag = (id) => page.evaluate((pid) => {
+    const surface = document.querySelector('video').parentElement.parentElement;
+    const bounds = surface.getBoundingClientRect();
+    const x = bounds.x + 100, y = bounds.y + 200;
+    surface.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: pid, pointerType: 'touch', button: 0, clientX: x, clientY: y }));
+    for (const dx of [60, 120]) surface.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: pid, pointerType: 'touch', button: 0, clientX: x + dx, clientY: y }));
+  }, id);
+  const pinchInterrupt = (id1, id2) => page.evaluate(([a, b]) => {
+    const surface = document.querySelector('video').parentElement.parentElement;
+    const bounds = surface.getBoundingClientRect();
+    surface.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: b, pointerType: 'touch', button: 0, clientX: bounds.x + 220, clientY: bounds.y + 260 }));
+    surface.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: a, pointerType: 'touch', button: 0, clientX: bounds.x + 220, clientY: bounds.y + 200 }));
+    surface.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: b, pointerType: 'touch', button: 0, clientX: bounds.x + 220, clientY: bounds.y + 260 }));
+  }, [id1, id2]);
+  assert.equal(await video.evaluate(v => v.paused), false, 'Scrub-pinch case (a) starts playing');
+  await scrubDrag(96);
+  await page.waitForFunction(() => [...document.querySelectorAll('span')].some(s => s.className.includes('text-[26px]')));
+  assert.equal(await video.evaluate(v => v.paused), true, 'Scrub entry pauses playback');
+  await pinchInterrupt(96, 97);
+  await page.waitForFunction(() => ![...document.querySelectorAll('span')].some(s => s.className.includes('text-[26px]')));
+  assert.equal(await scrubOverlayOn(), false, 'Pinch interrupt must clear the scrub overlay');
+  await page.waitForFunction(() => document.querySelector('video')?.paused === false);
+  await dblTap();
+  await page.waitForFunction(() => document.querySelector('video')?.paused === true);
+  await scrubDrag(98);
+  await page.waitForFunction(() => [...document.querySelectorAll('span')].some(s => s.className.includes('text-[26px]')));
+  await pinchInterrupt(98, 99);
+  await page.waitForFunction(() => ![...document.querySelectorAll('span')].some(s => s.className.includes('text-[26px]')));
+  assert.equal(await video.evaluate(v => v.paused), true, 'Pinch-interrupted scrub must not resume a video the user had paused');
+  await dblTap();
+  await page.waitForFunction(() => document.querySelector('video')?.paused === false);
   return {singleTapMs};
 }
 
