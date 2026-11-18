@@ -143,6 +143,65 @@ function AppBody() {
     return () => window.removeEventListener("keydown", fn);
   }, [stack.length, pop, setTab, loginOpen, setLoginOpen, fs, setFs]);
 
+  /* ── 横向链式手势导航（收官批 E 项，用户裁定）──
+     链序 = 底部页签序：首页（播放器）→ 搜索 → 分类 → 我的 →（齿轮）设置。
+     右划去下一级、左划回上一级：播放器中部右划进搜索（与顶栏〈、放大镜
+     三者同落搜索，〈落点已在 Feed.goBack 改齐）；搜索左划回播放器、
+     右划去分类；分类左划回搜索、右划去我的；我的左划回分类、右划无动作；
+     设置页（栈页）左划返回我的。链首（播放器）左划无动作。
+     与播放器既有手势的冲突处理（以本链为准的除外，提交说明记账）：
+     播放器左缘 24px 起手的右划仍归边缘返回手势（关面板/退全屏），
+     本链只接中部起手；全屏（fs）中不触发本链；纵向滚动靠方向锁定
+     （|dx|≥72 且 |dx|>|dy|×1.8）不误触；局部横滚区域（overflow-x 可滚
+     的 chips 行/卡片行）、输入框、打开的 dialog/sheet 内起手不触发。
+     底部页签保留作直接跳达，与本链并存。 */
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    let start: { x: number; y: number; blocked: boolean } | null = null;
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) { start = null; return; }
+      const t = e.touches[0];
+      let blocked = fs || loginOpen;
+      for (let n = e.target as Element | null; n && n !== el && !blocked; n = n.parentElement) {
+        if (n.tagName === "INPUT" || n.tagName === "TEXTAREA" || n.getAttribute("role") === "dialog") blocked = true;
+        else {
+          const s = getComputedStyle(n);
+          if ((s.overflowX === "auto" || s.overflowX === "scroll") && n.scrollWidth > n.clientWidth) blocked = true;
+        }
+      }
+      // 播放器左缘起手归边缘返回手势，本链只接中部
+      if (tab === "home" && stack.length === 0 && t.clientX <= 24) blocked = true;
+      start = { x: t.clientX, y: t.clientY, blocked };
+    };
+    const onEnd = (e: TouchEvent) => {
+      const s = start;
+      start = null;
+      if (!s || s.blocked) return;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - s.x;
+      const dy = t.clientY - s.y;
+      if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.8) return;
+      const right = dx > 0;
+      const top = stack[stack.length - 1];
+      if (top) {
+        if (top.kind === "settings" && !right) pop();
+        return;
+      }
+      if (tab === "home") { if (right) setTab("search"); }
+      else if (tab === "search") setTab(right ? "category" : "home");
+      else if (tab === "category") setTab(right ? "profile" : "search");
+      else if (tab === "profile") { if (!right) setTab("category"); }
+    };
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchend", onEnd);
+    };
+  }, [tab, stack, fs, loginOpen, setTab, pop]);
+
   const pageActive = stack.length === 0 && !loginOpen;
   /* 播放器即首页（蓝图 P0，Muse 2026-11-18）：home 页签就是播放面，
      不显示页签栏、底部不留页签栏高度；搜索/分类/我的作为播放器之外的
