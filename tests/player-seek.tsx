@@ -105,9 +105,9 @@ api.video = async () => ({
 api.comments = async () => ({
   ep: 1,
   items: [
-    { id: 1, user_id: 11, nickname: "夜航船", avatar: "", avatar_color: "", time: "2小时前", text: "第三集那个长镜头绝了，氛围感直接拉满。", like_count: 342, reply_count: 12 },
-    { id: 2, user_id: 23, nickname: "momo", avatar: "", avatar_color: "", time: "3小时前", text: "更新太慢了，一天一集不够看，先收藏了慢慢追。", like_count: 128, reply_count: 4 },
-    { id: 3, user_id: 37, nickname: "江城子", avatar: "", avatar_color: "", time: "5小时前", text: "男主这波操作属实没想到，反转来得太突然了。", like_count: 96, reply_count: 21 },
+    { id: 1, user_id: 11, nickname: "夜航船", avatar: "", avatar_color: "", time: "2小时前", text: "第三集那个长镜头绝了，氛围感直接拉满。", like_count: 342, reply_count: 12, liked: false, reply_id: 0 },
+    { id: 2, user_id: 23, nickname: "momo", avatar: "", avatar_color: "", time: "3小时前", text: "更新太慢了，一天一集不够看，先收藏了慢慢追。", like_count: 128, reply_count: 4, liked: false, reply_id: 0 },
+    { id: 3, user_id: 37, nickname: "江城子", avatar: "", avatar_color: "", time: "5小时前", text: "男主这波操作属实没想到，反转来得太突然了。", like_count: 96, reply_count: 21, liked: false, reply_id: 0 },
   ],
   pagination: { page: 1, pages: 1, size: 20, total: 20 },
 });
