@@ -11,6 +11,10 @@ export type ThemePreference = Theme | "system";
 export type Tab = "home" | "search" | "category" | "profile";
 /** GPU 超分档位（移植自 LNPANDY v1.2.2，Muse 2026-11-18） */
 export type SuperResMode = "off" | "natural" | "cinema" | "crisp" | "anime_3d" | "anime_2d";
+/** 超分用户偏好只剩两档（2026-11-18 用户裁定全自动）：auto=按源分辨率自动
+    选档（见 playback/SuperResCanvas.effectiveSrMode），off=强制关闭。
+    具体档位不再由用户选，播放界面上的超分入口已全部撤下。 */
+export type SrPref = "auto" | "off";
 
 /** 播放页上下文：ids 是来源列表，index 是当前条目。 */
 export type FeedContext = {
@@ -76,8 +80,12 @@ type Persist = GuestData & {
   preferHevc: boolean;
   /** 移动全屏控件无操作自动隐藏秒数：0=不自动隐藏（#146-3） */
   fsIdleSecs: number;
-  /** GPU 超分档位（移植自 LNPANDY v1.2.2），随 app 配置一块持久化 */
+  /** GPU 超分档位（移植自 LNPANDY v1.2.2），随 app 配置一块持久化。
+      2026-11-18 起仅作旧配置兼容保留：播放路径不再读它，实际档位由
+      srPref + 源分辨率自动推导（effectiveSrMode）。 */
   srMode: SuperResMode;
+  /** 超分覆盖项（设置页唯一入口）：auto=自动选档，off=强制关闭 */
+  srPref: SrPref;
 };
 
 const LS = STORAGE_KEYS.app;
@@ -86,6 +94,7 @@ const DEFAULTS: Persist = {
   muted: true, muteOnStartup: true, volume: 0.7, searchHist: [], swipeEp: true, preferHevc: true,
   fsIdleSecs: 0,
   srMode: "natural",
+  srPref: "auto",
 };
 
 /** 旧版本 history 是 number[]，读出来时升级成带进度的结构 */
@@ -131,7 +140,8 @@ function loadPersist(): Persist {
       : rawSr === "off" || rawSr === "natural" || rawSr === "cinema" || rawSr === "crisp" || rawSr === "anime_3d" || rawSr === "anime_2d"
         ? rawSr
         : "natural";
-    return { ...p, swipeEp: true, srMode, muteOnStartup: true, muted: true, fsIdleSecs: 0, preferHevc: true, history: normalizeHistory(p.history) };
+    const srPref: SrPref = (p as { srPref?: string }).srPref === "off" ? "off" : "auto";
+    return { ...p, swipeEp: true, srMode, srPref, muteOnStartup: true, muted: true, fsIdleSecs: 0, preferHevc: true, history: normalizeHistory(p.history) };
   } catch {
     return DEFAULTS;
   }
@@ -203,6 +213,7 @@ type Store = {
   preferHevc: boolean; setPreferHevc: (on: boolean) => void;
   fsIdleSecs: number; setFsIdleSecs: (s: number) => void;
   srMode: SuperResMode; setSrMode: (m: SuperResMode) => void; cycleSrMode: () => void;
+  srPref: SrPref; setSrPref: (p: SrPref) => void;
   volume: number; setVolume: (v: number) => void;
   searchHist: string[]; addSearch: (q: string) => void; clearSearchHist: () => void;
   strictSecurity: boolean; strictSecurityReady: boolean; securityPending: boolean; cliRelaxed: boolean; setStrictSecurity: (on: boolean) => Promise<void>;
@@ -419,6 +430,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setSrMode = useCallback((srMode: SuperResMode) => {
     setP((s) => ({ ...s, srMode }));
   }, []);
+  const setSrPref = useCallback((srPref: SrPref) => {
+    setP((s) => ({ ...s, srPref }));
+  }, []);
   const cycleSrMode = useCallback(() => {
     const order: SuperResMode[] = ["natural", "cinema", "crisp", "anime_3d", "anime_2d", "off"];
     const next = order[(order.indexOf(p.srMode) + 1) % order.length];
@@ -447,12 +461,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     preferHevc: p.preferHevc, setPreferHevc,
     fsIdleSecs: p.fsIdleSecs, setFsIdleSecs,
     srMode: p.srMode, setSrMode, cycleSrMode,
+    srPref: p.srPref, setSrPref,
     searchHist: p.searchHist, addSearch, clearSearchHist,
     strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast, lineEpoch,
   }), [theme, themePreference, setTheme, tab, setTab, stack, push, pop, user, loginOpen, logout,
     p, account,
-    setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setFsIdleSecs, setSrMode, cycleSrMode, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
+    setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setFsIdleSecs, setSrMode, cycleSrMode, setSrPref, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast, lineEpoch, theater, setTheater, fs, setFs, clean, setClean]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

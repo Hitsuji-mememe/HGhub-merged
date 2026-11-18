@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { SuperResMode } from "../../shared/model/store";
+import type { SrPref, SuperResMode } from "../../shared/model/store";
 import { ICheck, ISparkF } from "../../shared/ui/icons";
 
 export type SuperResPresetInfo = {
@@ -76,6 +76,23 @@ export const SR_FULL_LABEL = Object.fromEntries(
 
 export function getSvgFilterUrl(mode: SuperResMode): string | undefined {
   return mode === "off" ? undefined : `url(#hg-sr-filter-${mode})`;
+}
+
+/** 超分全自动选档（2026-11-18 用户裁定）：用户只在设置页留 自动/关闭 覆盖项，
+ * 具体档位按每集源分辨率自动定，不再手动选。判据用源短边（即通称的
+ * 480p/720p/1080p 口径，竖屏源取宽、横屏源取高）：
+ *   短边 ≤480  → crisp（强效超分，专为模糊低清源）
+ *   短边 481–720 → natural（轻锐化抗锯齿）
+ *   短边 >720  → off（真高清原画直通，超分只增 GPU 负担不增信息）
+ * 尺寸未知（元数据未到）先 natural，与旧默认一致，测得后自动纠正。
+ * 风格档（cinema/anime_*）无法从分辨率推断，自动模式不选它们。 */
+export function effectiveSrMode(pref: SrPref, w: number, h: number): SuperResMode {
+  if (pref === "off") return "off";
+  const short = Math.min(w || 0, h || 0);
+  if (short <= 0) return "natural";
+  if (short <= 480) return "crisp";
+  if (short <= 720) return "natural";
+  return "off";
 }
 
 /**

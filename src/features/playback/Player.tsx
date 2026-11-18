@@ -13,9 +13,9 @@ import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
 import { useSeekInput } from "./useSeekInput";
 import { useInlinePlayerFullscreen } from "./useInlinePlayerFullscreen";
 import "../../styles/post-player.css";
-import { ICompress, IExpand, IPauseF, IPlayF, ISparkF, IVol, IVolMute } from "../../shared/ui/icons";
+import { ICompress, IExpand, IPauseF, IPlayF, IVol, IVolMute } from "../../shared/ui/icons";
 import { useStore } from "../../shared/model/store";
-import SuperResCanvas, { SR_PRESET_MAP, SR_SHORT_LABEL, SuperResMenu, SuperResSvgDefs, getSvgFilterUrl } from "./SuperResCanvas";
+import SuperResCanvas, { effectiveSrMode, SuperResSvgDefs, getSvgFilterUrl } from "./SuperResCanvas";
 
 type Props = {
   src: string;              // 原始 m3u8 地址
@@ -54,17 +54,10 @@ export default function Player({
   const controlsLocked = false;
   const [videoReady, setVideoReady] = useState(false);
   const [svgFallback, setSvgFallback] = useState(false);
-  const [srOpen, setSrOpen] = useState(false);
-  const srSlotRef = useRef<HTMLDivElement>(null);
   const store = useStore();
-  const srMode = store?.srMode ?? "off";
-  useEffect(() => {
-    if (!srOpen) return;
-    const onDown = (e: PointerEvent) => { if (!srSlotRef.current?.contains(e.target as Node)) setSrOpen(false); };
-    document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
-  }, [srOpen]);
-  useEffect(() => { if (!active) setSrOpen(false); }, [active]);
+  /* 超分全自动（2026-11-18）：档位由 srPref + 本源分辨率推导，入口已撤 */
+  const [srSize, setSrSize] = useState({ w: 0, h: 0 });
+  const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h);
   const seek = useSeekInput({ time, duration, enabled: active && !controlsLocked, resetKey: src,
     onInteraction: (phase, input, target, pointerTarget) => trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget }),
     onSeek: (target, input) => {
@@ -225,7 +218,7 @@ export default function Player({
         onPlaying={() => { if (activity.isActive()) { setWaiting(false); setErrMsg(""); onPlaying?.(); } }}
         onSeeked={() => setWaiting(false)}
         onTimeUpdate={(e) => setTime((e.target as HTMLVideoElement).currentTime)}
-        onLoadedMetadata={(e) => setDuration((e.target as HTMLVideoElement).duration || 0)}
+        onLoadedMetadata={(e) => { const v = e.target as HTMLVideoElement; setDuration(v.duration || 0); setSrSize({ w: v.videoWidth || 0, h: v.videoHeight || 0 }); }}
         onEnded={() => { if (activity.isActive()) onEnded?.(); }}
         onError={() => {
           if (hlsRef.current) return;
@@ -281,14 +274,6 @@ export default function Player({
             <Button onClick={() => onToggleMute?.()} aria-label={muted ? "取消静音" : "静音"} className="pressable">
               {muted ? <IVolMute size={16} /> : <IVol size={16} />}
             </Button>
-            <div ref={srSlotRef} className="relative">
-              <Button onClick={() => setSrOpen((v) => !v)} aria-label={`超分模式：${SR_SHORT_LABEL[srMode]}`} aria-expanded={srOpen} aria-pressed={srMode !== "off"} className={`px-2 py-0.5 rounded-full text-[12px] font-bold flex items-center gap-1 pressable ${srMode !== "off" ? "bg-primary text-on-primary" : "text-white/85 bg-white/15"}`}>
-                <ISparkF size={12} /><span>{SR_SHORT_LABEL[srMode]}</span>
-              </Button>
-              {srOpen && (
-                <SuperResMenu current={srMode} placement="up" align="right" onSelect={(m) => { store?.setSrMode?.(m); store?.toast?.(`画质增强：${SR_PRESET_MAP[m].hudText}`, m === "off" ? "info" : "ok"); setSrOpen(false); }} />
-              )}
-            </div>
             <Button onClick={cycleRate} aria-label={`播放速度 ${rate} 倍`} className="text-[12px] font-bold text-white/85 pressable tabular-nums">{rate}x</Button>
             <Button onClick={toggleFull} aria-label={full ? "退出全屏" : "全屏"} aria-pressed={full} className="pressable">
               {full ? <ICompress size={16} /> : <IExpand size={16} />}

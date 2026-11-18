@@ -14,7 +14,7 @@ import { copyPlaybackLog, initPlaybackLog, setPlaybackLog, tracePlayback, usePla
 import { formatNetDiag, shortVerdict } from "../../shared/diagnostics/netDiagReport";
 import { copyText } from "../../shared/lib/clipboard";
 import { Loader } from "../../shared/ui/ios/effects";
-import { IBack, IBoltF, IBroom, IChevR, ICompress, IHeart, IInfo, ILink, ILockF, IMoon, IRefresh, ISun, IVolMute } from "../../shared/ui/icons";
+import { IBack, IBoltF, IBroom, IChevR, ICompress, IHeart, IInfo, ILink, ILockF, IMoon, IRefresh, ISparkF, ISun, IVolMute } from "../../shared/ui/icons";
 
 const SETTING_GROUPS = ["外观", "播放", "内容偏好", "本地数据", "网络", "播放诊断", "其他"] as const;
 type SettingGroup = typeof SETTING_GROUPS[number];
@@ -22,7 +22,7 @@ type SettingGroup = typeof SETTING_GROUPS[number];
 /* 独立设置页：线路 / 外观 / 播放 / 本地数据 / 清理缓存 / 网络诊断 / 关于
    入口：Windows 侧栏「设置」、Android「我的」右上角齿轮 */
 export default function Settings({ onBack, initialSection }: { onBack: () => void; wide: boolean; initialSection?: "内容偏好" }) {
-  const { theme, themePreference, setTheme, favs, history, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast } = useStore();
+  const { theme, themePreference, setTheme, favs, history, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity, toast, srPref, setSrPref } = useStore();
   const [about, setAbout] = useState(false);
   const [agreementOpen, setAgreementOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -93,6 +93,26 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
                 {([['system', '跟随'], ['light', '浅色'], ['dark', '深色']] as const).map(([value, label]) => (
                   <Button key={value} type="button" aria-pressed={themePreference === value}
                     onClick={() => setTheme(value)}>
+                    {label}
+                  </Button>
+                ))}
+              </SegmentedControl>
+            </div>
+          </>)}
+
+          {section("播放", <>
+            {/* 超分全自动的唯一覆盖项（2026-11-18 用户裁定）：播放界面入口已全撤，
+                这里只留 自动/关闭 两档；具体档位按源分辨率自动选，用户不再选档 */}
+            <div className="flex items-center gap-3 px-3.5 py-3">
+              <span className="ios-setting-icon"><ISparkF size={16} /></span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] text-on">画质超分</div>
+                <div className="text-[12px] text-mut">自动：按每集源分辨率选档（低清强效 / 高清直通）；关闭：原画直通</div>
+              </div>
+              <SegmentedControl aria-label="画质超分模式" activeIndex={srPref === "auto" ? 0 : 1}>
+                {([["auto", "自动"], ["off", "关闭"]] as const).map(([value, label]) => (
+                  <Button key={value} type="button" aria-pressed={srPref === value}
+                    onClick={() => setSrPref(value)}>
                     {label}
                   </Button>
                 ))}

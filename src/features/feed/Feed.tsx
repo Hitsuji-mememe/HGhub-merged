@@ -19,7 +19,6 @@ import { useContentPreferences } from "../../shared/model/contentPreferences";
 import VideoDetailsPanel from "./VideoDetailsPanel";
 import { PreferenceStorageNotice } from "../../shared/ui/PreferenceStorageNotice";
 import { stageXY, HOLD_DELAY_MS } from "./mobileHold";
-import { SR_PRESET_MAP, SR_SHORT_LABEL, SuperResMenu } from "../playback/SuperResCanvas";
 import { useFsIdle } from "./fsIdle";
 import { RateMenu } from "./RateMenu";
 import { prewarmFirstSegment } from "./prewarm";
@@ -27,7 +26,7 @@ import { useStallHeal } from "./stallHeal";
 import { useFeedDetails } from "./useFeedDetails";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICompress, IExpand, IFileText,
-  ICheck, ILink, IList, IPauseF, IPlayF, ISearch, ISparkF, IVertSwap, IVol, IVolMute,
+  ICheck, ILink, IList, IPauseF, IPlayF, ISearch, IVertSwap, IVol, IVolMute,
 } from "../../shared/ui/icons";
 
 type Props = {
@@ -117,7 +116,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const controlsLocked = false;
   const [rate, setRate] = useState(1);
   const [rateMenuOpen, setRateMenuOpen] = useState(false);
-  const [srMenuOpen, setSrMenuOpen] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [err, setErr] = useState("");
   const [panel, setPanel] = useState<"episodes" | "comments" | "article" | "detail" | null>(null);
@@ -888,7 +886,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
     /* 进全屏先全显控件（恢复入口优先，解耦版）；之后显隐由单击决定 */
     setClean(false);
-    setSrMenuOpen(false); /* SR 菜单开合状态不跨全屏/普通模式串场 */
     setFs(true);
     wake();
     keepAlive();
@@ -905,7 +902,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const exitFs = useCallback(() => {
     /* 退全屏回普通态先全显控件（恢复入口优先，解耦版）；之后显隐由单击决定 */
     setClean(false);
-    setSrMenuOpen(false);
     setFs(false);
   }, [setClean, setFs]);
 
@@ -1291,25 +1287,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   </div>
                 </div>
               )}
-              {/* 右侧操作栏（移动端）：只留播放控制（超分 / 全屏）。
+              {/* 右侧操作栏（移动端）：只剩全屏一颗。
                   Muse 2026-11-18 (用户裁定): 社交栏（点赞/收藏/评论+计数）整栏撤下——
                   游客不可用、纯遮挡；评论收进底部面板页签，点赞/收藏只在详情内。
+                  超分入口同日撤下（全自动，见 SuperResCanvas.effectiveSrMode）。
                   颜色写死不跟主题走：浅色主题下这些字必须仍是白色 */}
               {!fs && !clean && !isDesktop && (
                 <div className="mobile-video-action-rail absolute right-3 z-20 flex flex-col items-center gap-[16px]"
                   style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset + 92}px)` }}>
-                  {/* 超分入口与全屏底栏同一颗菜单（同一 store.srMode / SuperResMenu） */}
-                  {kind === "video" && (
-                    <div className="relative">
-                      <Button onClick={() => setSrMenuOpen((v) => !v)} aria-label={`超分选择：${SR_SHORT_LABEL[store.srMode]}`} aria-expanded={srMenuOpen} aria-pressed={store.srMode !== "off"} className="flex flex-col items-center gap-1 pressable">
-                        <ISparkF size={26} className={store.srMode !== "off" ? "text-primary" : "hg-ink hg-ov-shadow"} />
-                        <span className="text-[12px] hg-ink-2 hg-ov-shadow">超分</span>
-                      </Button>
-                      {srMenuOpen && (
-                        <SuperResMenu current={store.srMode} placement="up" align="right" onSelect={(m) => { store.setSrMode(m); store.toast(`画质增强：${SR_PRESET_MAP[m].hudText}`, m === "off" ? "info" : "ok"); setSrMenuOpen(false); }} />
-                      )}
-                    </div>
-                  )}
                   <Button onClick={() => enterFs(landscapeVideo)} className="flex flex-col items-center gap-1 pressable" aria-label="全屏">
                     <IExpand size={26} className="hg-ink hg-ov-shadow" />
                     <span className="text-[12px] hg-ink-2 hg-ov-shadow">全屏</span>
@@ -1565,6 +1550,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               （高亮示状态）、静音在 ≤360px 撤出本栏（非全屏右上组仍有）；竖屏退出钮移出
               横排固定右端，横排右内边距预留其宽（54px），不许再被挤掉。顺序仍为
               选集 > 倍速 > 超分（2.1.4 定版），ml-auto 改挂常驻的倍速槽，单集时右段不塌。
+              超分钮已于同日晚撤下（全自动），顺序改为 选集 > 倍速，空间还给时间段。
               几何由 scripts/test-layout.mjs 按视口矩阵守门。 */}
           <div className="absolute inset-x-0 z-40"
             style={{ bottom: rotated ? 10 : "calc(var(--sab, 0px) + 10px)" }}>
@@ -1585,13 +1571,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 {muted ? <IVolMute size={15} /> : <IVol size={15} />}
               </Button>
               {episodes.length > 1 && (
-                <Button onClick={() => { setSrMenuOpen(false); setPanel("episodes"); }}
+                <Button onClick={() => setPanel("episodes")}
                   className="flex items-center gap-1 px-1 h-8 rounded-full text-[12px] font-semibold hg-chip hg-ink-2 pressable shrink-0 max-[340px]:text-[11px]" aria-label="选集">
                   <IList size={13} />选集
                 </Button>
               )}
               <div className="relative shrink-0 ml-auto">
-                <Button onClick={() => { setSrMenuOpen(false); setRateMenuOpen((v) => !v); }}
+                <Button onClick={() => setRateMenuOpen((v) => !v)}
                   className={`flex items-center gap-1 px-1 h-8 rounded-full text-[12px] font-bold pressable max-[340px]:text-[11px] ${effRate !== 1 ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`} aria-label="倍速选择" aria-expanded={rateMenuOpen}>
                   <IBoltF size={12} />{effRate}x
                 </Button>
@@ -1599,15 +1585,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   <RateMenu current={rate} onSelect={(r) => { setRate(r); videoRef.current?.rate(r); setRateMenuOpen(false); }} />
                 )}
               </div>
-              <div className="relative shrink-0">
-                <Button onClick={() => { setRateMenuOpen(false); setSrMenuOpen((v) => !v); }}
-                  className={`w-8 h-8 rounded-full flex items-center justify-center pressable ${store.srMode !== "off" ? "bg-primary text-on-primary" : "hg-chip hg-ink-2"}`} aria-label={`超分选择：${SR_SHORT_LABEL[store.srMode]}`} aria-expanded={srMenuOpen} aria-pressed={store.srMode !== "off"}>
-                  <ISparkF size={15} />
-                </Button>
-                {srMenuOpen && (
-                  <SuperResMenu current={store.srMode} placement="up" align="right" onSelect={(m) => { store.setSrMode(m); store.toast(`画质增强：${SR_PRESET_MAP[m].hudText}`, m === "off" ? "info" : "ok"); setSrMenuOpen(false); }} />
-                )}
-              </div>
+              {/* 超分钮已撤（2026-11-18 全自动）：空出的横向空间还给时间/选集，
+                  不新增按钮填空；底栏顺序仍为 选集 > 倍速（定版） */}
             </div>
             {!rotated && !vpLandscape && (
               <Button onClick={exitFs} aria-label="退出全屏"

@@ -2,9 +2,7 @@ import { Button, Input } from "../../shared/ui/ios/controls";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { fmtTime } from "../../shared/api/api";
 import { useSeekInput } from "./useSeekInput";
-import { ICheck, ICompress, IExpand, INext, IPauseF, IPip, IPlayF, ISparkF, ITheater, IVertSwap, IVol, IVolMute } from "../../shared/ui/icons";
-import { useStore } from "../../shared/model/store";
-import { SR_PRESETS } from "./SuperResCanvas";
+import { ICheck, ICompress, IExpand, INext, IPauseF, IPip, IPlayF, ITheater, IVertSwap, IVol, IVolMute } from "../../shared/ui/icons";
 import type { PlaybackClock } from "./playbackClock";
 
 type Props = {
@@ -45,9 +43,6 @@ export default function PlayerControls({
   visible = true, seekEnabled = true, seekKey, nextDisabled = false, nextTitle = "下一个", swipeEp = false, onToggle, onSeek, onSeekInteraction, onRate, onMute, onVolume, onPip, onLock, onTheater, onFullscreen, onNext, onToggleSwipe,
 }: Props) {
   const [speedOpen, setSpeedOpen] = useState(false);
-  const [srOpen, setSrOpen] = useState(false);
-  const store = useStore();
-  const srMode = store?.srMode ?? "off";
   const boxRef = useRef<HTMLDivElement>(null);
   const clockTime = useSyncExternalStore(clock.subscribe, clock.getSnapshot, clock.getSnapshot);
   const seek = useSeekInput({ time: clockTime, duration, enabled: seekEnabled, resetKey: seekKey, onInteraction: onSeekInteraction,
@@ -55,12 +50,12 @@ export default function PlayerControls({
   const pct = duration ? Math.min(100, (seek.time / duration) * 100) : 0;
 
   useEffect(() => {
-    if (!speedOpen && !srOpen) return;
+    if (!speedOpen) return;
     const frame = requestAnimationFrame(() => boxRef.current?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')?.focus());
-    const outside = (e: PointerEvent) => { if (!boxRef.current?.contains(e.target as Node)) { setSpeedOpen(false); setSrOpen(false); } };
+    const outside = (e: PointerEvent) => { if (!boxRef.current?.contains(e.target as Node)) { setSpeedOpen(false); } };
     document.addEventListener("pointerdown", outside);
     return () => { cancelAnimationFrame(frame); document.removeEventListener("pointerdown", outside); };
-  }, [speedOpen, srOpen]);
+  }, [speedOpen]);
 
   return (
     <div ref={boxRef} className={`desktop-controls ${fullscreen ? "is-fullscreen" : ""} ${visible ? "" : "is-hidden"}`}
@@ -140,22 +135,6 @@ export default function PlayerControls({
           </div>
         </div>
         <Button className="player-control" aria-label="画中画" data-tooltip="画中画" onClick={onPip}><IPip size={20} strokeWidth={1.6} /></Button>
-        <div className="player-sr-slot">
-          <Button className={`player-control player-speed ${srMode !== "off" ? "is-on" : ""}`} aria-label="超分" aria-haspopup="menu" aria-expanded={srOpen}
-            data-tooltip="画质超分" onClick={() => setSrOpen((v) => !v)}>
-            <ISparkF size={17} />
-          </Button>
-          {srOpen && (
-            <div className="player-sr-menu" role="menu" aria-label="超分档位">
-              <span className="player-menu-title">画质超分</span>
-              {SR_PRESETS.map((p) => (
-                <Button key={p.id} role="menuitemradio" aria-checked={srMode === p.id} onClick={() => { store?.setSrMode?.(p.id); setSrOpen(false); }}>
-                  <span>{p.name}</span>{srMode === p.id && <ICheck size={14} />}
-                </Button>
-              ))}
-            </div>
-          )}
-        </div>
         {!fullscreen && onTheater && (
           <Button className={`player-control ${theater ? "is-on" : ""}`} aria-label="影院模式" aria-pressed={theater}
             data-tooltip="影院模式 T" onClick={onTheater}><ITheater size={20} strokeWidth={1.6} /></Button>

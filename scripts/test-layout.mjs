@@ -194,14 +194,11 @@ try {
       const rm = await rateMenu.boundingBox();
       assert(rm && rm.x >= -1 && rm.x + rm.width <= viewport[0] + 1 && rm.y >= -1, `${name}: rate menu out of viewport ${JSON.stringify(rm)}`);
       await rateMenu.getByRole("menuitemradio", { name: "1x", exact: true }).click();
-      // Super-res menu likewise.
-      const srBtn = page.locator('[aria-label^="超分"]');
-      await srBtn.first().click();
-      const srMenu = page.getByRole("menu", { name: "GPU 画质超分档位选择", exact: true });
-      await srMenu.waitFor({ state: "visible" });
-      const sm = await srMenu.boundingBox();
-      assert(sm && sm.x >= -1 && sm.x + sm.width <= viewport[0] + 1 && sm.y >= -1, `${name}: SR menu out of viewport ${JSON.stringify(sm)}`);
-      await srBtn.first().click();
+      // 超分菜单断言接棒 (Muse 2026-11-18): 原断言保护「超分菜单在全屏底栏
+      // 可达且不出视口」; 用户裁定超分全自动后, 播放界面的超分入口全部撤下,
+      // 「手动可达」改由设置页 自动/关闭 覆盖项接棒 (本门禁是播放面几何门禁,
+      // 不覆盖设置页), 本处接棒为负断言: 全屏底栏不得再出现超分入口。
+      assert.equal(await page.locator('[aria-label^="超分"]').count(), 0, `${name}: SR entry must be gone from playback UI (auto mode)`);
       // Episodes sheet stays inside the viewport.
       await page.getByRole("button", { name: "选集", exact: true }).last().click();
       const sheet = page.locator(".video-details-sheet");

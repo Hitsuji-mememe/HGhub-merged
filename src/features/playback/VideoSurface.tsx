@@ -8,7 +8,7 @@ import { usePlaybackActivity } from "./usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "./useProxyPlaybackRecovery";
 import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
 import { useStore } from "../../shared/model/store";
-import SuperResCanvas, { getSvgFilterUrl, SuperResSvgDefs } from "./SuperResCanvas";
+import SuperResCanvas, { effectiveSrMode, getSvgFilterUrl, SuperResSvgDefs } from "./SuperResCanvas";
 
 export type FragStats = { bytes: number; loadMs: number; fragDuration: number; bitrate: number };
 
@@ -71,7 +71,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const [ready, setReady] = useState(false);
   const [svgFallback, setSvgFallback] = useState(false);
   const store = useStore();
-  const srMode = store?.srMode ?? "off";
+  /* 超分全自动（2026-11-18）：档位由 srPref + 本源分辨率推导，不再读手动档 */
+  const [srSize, setSrSize] = useState({ w: 0, h: 0 });
+  const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h);
   const { trace, requestSeek } = usePlayerDiagnostics(videoRef, hlsRef, { ...diagnosticContext, active, resource: mediaResource(src) });
   const activity = usePlaybackActivity(videoRef, hlsRef, { active, autoPlay, src, trace });
   const proxyRecovery = useProxyPlaybackRecovery(videoRef, src, activity, trace);
@@ -80,6 +82,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     if (!v || v !== videoRef.current || attachedSource.current !== latestSource.current || v.readyState < 1) return;
     const w = v.videoWidth || 0;
     const h = v.videoHeight || 0;
+    if (w > 0 && h > 0) setSrSize(prev => (prev.w === w && prev.h === h ? prev : { w, h }));
     const current = measurementRef.current;
     if (w > 0 && h > 0 && (current.key !== reportedSizeRef.current.key || w !== reportedSizeRef.current.w || h !== reportedSizeRef.current.h)) {
       // A parent may reject an event during an item transition. Keep it eligible
@@ -94,6 +97,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     // Re-emit existing metadata when the same source becomes current again.
     // A newly selected source is ignored until its transport has been attached.
     reportedSizeRef.current = { key: "", w: 0, h: 0 };
+    setSrSize({ w: 0, h: 0 });
     reportSize(videoRef.current);
   }, [measurementKey, src, active]);
 
