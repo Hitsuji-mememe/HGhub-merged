@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../shared/api/api";
+import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import type { Post, VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
 
@@ -51,7 +52,9 @@ export function useSearchResults(scope?: "original") {
     busy.current = true;
     setLoading(true);
     try {
-      const response = await api.search(next.keyword, next.page, 20, next.kind);
+      /* 超时护栏（fix2 A2 推广）：悬挂请求会把 busy 永久堵死、同词
+       * 翻页与重试双亡；30s 竞速超时走 catch 置错误态。 */
+      const response = await withRequestTimeout(api.search(next.keyword, next.page, 20, next.kind));
       if (sequence.current !== seq) return;
       const old = current.current;
       const base = next.page > 1 && old?.keyword === next.keyword && old.kind === next.kind ? old.items : [];

@@ -8,6 +8,8 @@ import { MAX_BLOCKED_TAGS, MAX_TAG_LENGTH, useContentPreferences } from "../../s
 import { Masonry, MediaCard } from "../../shared/ui/cards";
 import { FilteredContent } from "../../shared/ui/FilteredContent";
 import { InplaceSearch } from "../search/InplaceSearch";
+import { withRequestTimeout } from "../../shared/lib/withTimeout";
+import { traceFeed } from "../../shared/lib/feedTrace";
 import { Empty, Img } from "../../shared/ui/ui";
 import { IBack, IFireF, ILayers, IRefresh, ISearch, ITag } from "../../shared/ui/icons";
 
@@ -132,6 +134,7 @@ export function TopicPage({ slug, name, onBack, wide }: { slug: string; name: st
   }>({ topic: null, related: [], videos: [], page: 0, pages: 1, total: 0, loading: true, loadingMore: false, error: "" });
   const sequence = useRef(0);
   const busy = useRef(false);
+  const lastFailAt = useRef(0);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -143,9 +146,14 @@ export function TopicPage({ slug, name, onBack, wide }: { slug: string; name: st
       ? { ...previous, topic: null, related: [], videos: [], page: 0, pages: 1, total: 0, loading: true, loadingMore: false, error: "" }
       : { ...previous, loading: false, loadingMore: true, error: "" });
     try {
-      const data = await api.topic(slug, page, 20);
+      /* 超时护栏＋终止口径（fix2 A2 推广，吃瓜同病三件）：30s 竞速
+       * 防 busy 永锁；终止只认接口 pages，缺失时空页才算到尾。 */
+      traceFeed("page.request", { list: `topic:${slug}`, page, reset });
+      const startedAt = Date.now();
+      const data = await withRequestTimeout(api.topic(slug, page, 20));
       if (token !== sequence.current) return;
       const incoming = data?.videos?.items ?? [];
+      traceFeed("page.success", { list: `topic:${slug}`, page, received: incoming.length, pages: data?.videos?.pagination?.pages ?? null, ms: Date.now() - startedAt });
       setState(previous => {
         const seen = new Set(reset ? [] : previous.videos.map(video => video.id));
         const videos = [...(reset ? [] : previous.videos), ...incoming.filter(video => !seen.has(video.id))];
@@ -154,7 +162,7 @@ export function TopicPage({ slug, name, onBack, wide }: { slug: string; name: st
           related: data?.related ?? previous.related,
           videos,
           page: data?.videos?.pagination?.page ?? page,
-          pages: Math.max(1, data?.videos?.pagination?.pages ?? page),
+          pages: Math.max(1, data?.videos?.pagination?.pages ?? (incoming.length > 0 ? page + 1 : page)),
           total: Math.max(videos.length, data?.videos?.pagination?.total ?? videos.length),
           loading: false,
           loadingMore: false,
@@ -162,7 +170,9 @@ export function TopicPage({ slug, name, onBack, wide }: { slug: string; name: st
         };
       });
     } catch (error) {
+      traceFeed("page.fail", { list: `topic:${slug}`, page, reason: "error", message: error instanceof Error ? error.message : "加载失败" });
       if (token === sequence.current) {
+        lastFailAt.current = Date.now();
         setState(previous => ({
           ...previous,
           loading: false,
@@ -192,11 +202,15 @@ export function TopicPage({ slug, name, onBack, wide }: { slug: string; name: st
   const { topic, related, videos, page, pages, total, loading, loadingMore, error } = state;
   const hasMore = page < pages;
 
+  /* 哨兵不再因 error 整体停摆（fix2 A2 推广）：错误态保持挂载，
+   * 冷却 3s 后重入可重试失败页（页码未前进）。 */
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || filtering || loading || loadingMore || error || !hasMore || !scrollRef.current) return;
+    if (!el || filtering || loading || loadingMore || !hasMore || !scrollRef.current) return;
     const io = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting) loadMore();
+      if (!entries[0].isIntersecting) return;
+      if (error && Date.now() - lastFailAt.current < 3000) return;
+      loadMore();
     }, { root: scrollRef.current, rootMargin: "260px" });
     io.observe(el);
     return () => io.disconnect();
@@ -349,6 +363,7 @@ export function TagPage({ tag, name, onBack, wide }: { tag: string; name: string
   const [loadedVideoTag, setLoadedVideoTag] = useState("");
   const [loadedPostTag, setLoadedPostTag] = useState("");
   const busy = useRef({ video: false, post: false });
+  const lastFailAt = useRef({ video: 0, post: 0 });
   const sequence = useRef({ video: 0, post: 0 });
   const videoSentinel = useRef<HTMLDivElement>(null);
   const postSentinel = useRef<HTMLDivElement>(null);
@@ -365,27 +380,40 @@ export function TagPage({ tag, name, onBack, wide }: { tag: string; name: string
     if (kind === "video") { setVideoLoading(true); setVideoErr(""); }
     else { setPostLoading(true); setPostErr(""); }
     try {
+      /* 超时护栏＋终止口径（fix2 A2 推广，吃瓜同病三件）：30s 竞速
+       * 防 busy 永锁、迟到响应被 race 丢弃；终止只认接口 pages，
+       * 缺失时非空页乐观续拉、空页才停（旧 `|| next` 提前终止）。 */
+      traceFeed("page.request", { list: `tag:${kind}`, page: next, reset });
+      const startedAt = Date.now();
       if (kind === "video") {
-        const result = await api.tagVideos(tag, next, 20);
+        const result = await withRequestTimeout(api.tagVideos(tag, next, 20));
         if (sequence.current.video !== token) return;
+        traceFeed("page.success", { list: "tag:video", page: next, received: result?.items?.length ?? 0, pages: result?.pagination?.pages ?? null, ms: Date.now() - startedAt });
         setVideos(previous => {
           const base = reset ? [] : previous;
           const seen = new Set(base.map(item => item.id));
           return [...base, ...(result?.items ?? []).filter(item => !seen.has(item.id))];
         });
-        setLoadedVideoTag(tag); setVideoPage(next); setVideoPages(result?.pagination?.pages || next); setVideoTotal(result?.pagination?.total || 0);
+        setLoadedVideoTag(tag); setVideoPage(next);
+        setVideoPages(result?.pagination?.pages ?? ((result?.items?.length ?? 0) > 0 ? next + 1 : next));
+        setVideoTotal(result?.pagination?.total || 0);
       } else {
-        const result = await api.postTag(name, next, 20);
+        const result = await withRequestTimeout(api.postTag(name, next, 20));
         if (sequence.current.post !== token) return;
+        traceFeed("page.success", { list: "tag:post", page: next, received: result?.items?.length ?? 0, pages: result?.pagination?.pages ?? null, ms: Date.now() - startedAt });
         setPosts(previous => {
           const base = reset ? [] : previous;
           const seen = new Set(base.map(item => item.id));
           return [...base, ...(result?.items ?? []).filter(item => !seen.has(item.id))];
         });
-        setLoadedPostTag(tag); setPostPage(next); setPostPages(result?.pagination?.pages || next); setPostTotal(result?.pagination?.total || 0);
+        setLoadedPostTag(tag); setPostPage(next);
+        setPostPages(result?.pagination?.pages ?? ((result?.items?.length ?? 0) > 0 ? next + 1 : next));
+        setPostTotal(result?.pagination?.total || 0);
       }
     } catch (error) {
+      traceFeed("page.fail", { list: `tag:${kind}`, page: next, reason: "error", message: error instanceof Error ? error.message : "加载失败" });
       if (sequence.current[kind] === token) {
+        lastFailAt.current[kind] = Date.now();
         const message = error instanceof Error ? error.message : "加载失败，请重试";
         if (kind === "video") setVideoErr(message); else setPostErr(message);
       }
@@ -407,20 +435,26 @@ export function TagPage({ tag, name, onBack, wide }: { tag: string; name: string
     void load("post", 1, true);
     return () => { sequence.current.video++; sequence.current.post++; busy.current.video = false; busy.current.post = false; };
   }, [load, tag, lineEpoch]);
+  /* 哨兵不再因 err 整体停摆（fix2 A2 推广）：错误态保持挂载，
+   * 冷却 3s 后重入可重试失败页（页码未前进）。 */
   useEffect(() => {
     const el = videoSentinel.current;
-    if (!el || filtering || videoErr || videoLoading || videoPage >= videoPages) return;
+    if (!el || filtering || videoLoading || videoPage >= videoPages) return;
     const io = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting) void load("video", videoPage + 1);
+      if (!entries[0].isIntersecting) return;
+      if (videoErr && Date.now() - lastFailAt.current.video < 3000) return;
+      void load("video", videoPage + 1);
     }, { root: scrollContainer.current, rootMargin: "300px" });
     io.observe(el);
     return () => io.disconnect();
   }, [load, videoPage, videoPages, videoErr, videoLoading, filtering]);
   useEffect(() => {
     const el = postSentinel.current;
-    if (!el || filtering || postErr || postLoading || postPage >= postPages) return;
+    if (!el || filtering || postLoading || postPage >= postPages) return;
     const io = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting) void load("post", postPage + 1);
+      if (!entries[0].isIntersecting) return;
+      if (postErr && Date.now() - lastFailAt.current.post < 3000) return;
+      void load("post", postPage + 1);
     }, { root: scrollContainer.current, rootMargin: "300px" });
     io.observe(el);
     return () => io.disconnect();

@@ -8,6 +8,7 @@ import { Empty } from "../../shared/ui/ui";
 import { Button } from "../../shared/ui/ios/controls";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { PreferenceStorageNotice } from "../../shared/ui/PreferenceStorageNotice";
+import { withRequestTimeout } from "../../shared/lib/withTimeout";
 
 const loadFeed = () => import("./Feed");
 const Feed = lazy(loadFeed);
@@ -59,7 +60,9 @@ export default function Home({ active, bottomInset }: { active: boolean; bottomI
     setError("");
     if (p === 1) setDone(false);
     try {
-      const res = await api.feed(p, 30);
+      /* 超时护栏（fix2 A2 推广）：悬挂请求会把 loadingRef 永久堵死、
+       * 首页流再也拉不动；30s 竞速超时走既有 catch（错误＋退避）。 */
+      const res = await withRequestTimeout(api.feed(p, 30));
       if (!mounted.current) return;
       if (requestEpoch !== lineEpochRef.current) { retryAfterLineChange = !itemsRef.current.length; return; }
       const list = res?.items || [];

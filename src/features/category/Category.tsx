@@ -9,6 +9,8 @@ import { FilteredContent } from "../../shared/ui/FilteredContent";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { CollectionLink, CollectionLinks } from "../../shared/ui/CollectionLink";
 import { InplaceSearch } from "../search/InplaceSearch";
+import { withRequestTimeout } from "../../shared/lib/withTimeout";
+import { traceFeed } from "../../shared/lib/feedTrace";
 import { Empty } from "../../shared/ui/ui";
 import { IAward, IBack, IChevR, IFilm, IFlame, ILayers, ISearch, ISpark, ITag, ITrophy } from "../../shared/ui/icons";
 
@@ -220,6 +222,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
   const [err, setErr] = useState<string | null>(null);
   const busy = useRef(false);
   const requestSeq = useRef(0);
+  const lastFailAt = useRef(0);
   const sentinel = useRef<HTMLDivElement>(null);
   const scrollContainer = useRef<HTMLDivElement>(null);
 
@@ -232,9 +235,14 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
     if (reset) setRefreshing(true);
     try {
       const next = reset ? 1 : page + 1;
-      const res = cate === "original"
-        ? await api.originalVideos(originalCateOverride, next, 20, originalSort(originalCateOverride))
-        : await api.category(cate, next, 20, sortOverride);
+      /* 超时护栏（fix2 A2 推广）：无超时悬挂会把 busy 永久堵死、
+       * 哨兵与按钮双亡（吃瓜同病）；30s 竞速超时走 catch 置 err，
+       * 迟到响应被 race 丢弃。 */
+      traceFeed("page.request", { list: `channel:${cate}`, page: next, reset });
+      const startedAt = Date.now();
+      const res = await withRequestTimeout(cate === "original"
+        ? api.originalVideos(originalCateOverride, next, 20, originalSort(originalCateOverride))
+        : api.category(cate, next, 20, sortOverride));
       if (seq !== requestSeq.current) return;
       setPageItems((prev) => {
         const base = reset ? [] : prev;
@@ -243,10 +251,14 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
       });
       setDisplayedFilter(filterKey(sortOverride, originalCateOverride));
       setPage(next);
-      setPages(res?.pagination?.pages || next);
+      /* 终止只认接口 pages；缺失时仅空页才推断到尾（旧 `|| next`
+       * 在接口偶发缺 pages 时把总页数钉死在当前页、提前终止）。 */
+      setPages(res?.pagination?.pages ?? ((res?.items?.length ?? 0) > 0 ? Math.max(pages, next) : next));
       setErr(null);
+      traceFeed("page.success", { list: `channel:${cate}`, page: next, received: res?.items?.length ?? 0, pages: res?.pagination?.pages ?? null, ms: Date.now() - startedAt });
     } catch (e) {
-      if (seq === requestSeq.current) setErr((e as Error).message || "加载失败");
+      traceFeed("page.fail", { list: `channel:${cate}`, page: reset ? 1 : page + 1, reason: "error", message: (e as Error).message || "加载失败" });
+      if (seq === requestSeq.current) { lastFailAt.current = Date.now(); setErr((e as Error).message || "加载失败"); }
     } finally {
       if (seq === requestSeq.current) {
         busy.current = false;
@@ -281,10 +293,17 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
   }, [cate, lineEpoch]);
   const filterPending = displayedFilter !== filterKey(serverSort, originalCate);
   const replacing = refreshing || filterPending;
+  /* 哨兵不再因 err 整体停摆（fix2 A2 推广，吃瓜同病）：错误态下哨兵
+   * 保持挂载，冷却 3s 后重入视区可再触发重试（loadMore 在 err 时
+   * 页码未前进、重打的正是失败页）；错误行重试按钮仍在。 */
   useEffect(() => {
     const el = sentinel.current;
-    if (!el || filtering || loading || err || replacing || page >= pages) return;
-    const io = new IntersectionObserver((es) => { if (es[0].isIntersecting) void loadMore(); }, { root: scrollContainer.current, rootMargin: "300px" });
+    if (!el || filtering || loading || replacing || page >= pages) return;
+    const io = new IntersectionObserver((es) => {
+      if (!es[0].isIntersecting) return;
+      if (err && Date.now() - lastFailAt.current < 3000) return;
+      void loadMore();
+    }, { root: scrollContainer.current, rootMargin: "300px" });
     io.observe(el);
     return () => io.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps

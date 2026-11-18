@@ -3,6 +3,7 @@ import { Loader } from "../../shared/ui/ios/effects";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, fmt, cover as imageCover } from "../../shared/api/api";
 import { handleArticleClick, sanitizeHtml } from "../../shared/lib/html";
+import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import { commentText } from "./commentText";
 import type { Comment, CommentPage, Episode } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
@@ -98,9 +99,11 @@ export function CommentsPanel({ videoId, ep, total, kind = "video" }: {
     loadBusy.current = true;
     setLoading(true); setError("");
     try {
+      /* 超时护栏（fix2 A2 推广）：悬挂请求会把 loadBusy 堵死到关
+       * 面板为止；30s 竞速超时走 catch 置错误态、可按 retryPage 重试。 */
       const res: CommentPage | null = kind === "post"
-        ? await api.postComments(videoId, p, 20)
-        : await api.comments(videoId, ep, p, 20);
+        ? await withRequestTimeout(api.postComments(videoId, p, 20))
+        : await withRequestTimeout(api.comments(videoId, ep, p, 20));
       if (!alive.current || token !== loadSequence.current || currentScope.current !== scope) return;
       const incoming = (res?.items || []).map((x) => ({ ...x, text: commentText(x.text) }));
       setItems((prev) => {
