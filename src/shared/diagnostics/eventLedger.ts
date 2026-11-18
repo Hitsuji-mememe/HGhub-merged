@@ -197,11 +197,15 @@ export function validateLedgerIntegrity(snap: LedgerSnapshot): LedgerIntegrity {
   let seqDuplicates = 0;
   const seen = new Set<number>();
   for (let i = 0; i < evs.length; i++) {
-    if (seen.has(evs[i].seq)) seqDuplicates++;
+    const isDuplicate = seen.has(evs[i].seq);
+    if (isDuplicate) seqDuplicates++;
     seen.add(evs[i].seq);
     if (i > 0) {
       const delta = evs[i].seq - evs[i - 1].seq;
       if (delta > 1) seqGaps += delta - 1;
+      /* 乱序（delta<1 且非重复序号）：窗口内事件应严格单调，出现
+       * 回退同样是污染信号，计入缺口侧（fix2 收尾猎查补强）。 */
+      else if (delta < 1 && !isDuplicate) seqGaps += 1;
     }
   }
   return {

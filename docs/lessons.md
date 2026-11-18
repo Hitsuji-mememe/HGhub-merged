@@ -55,6 +55,11 @@
 | 2026-11-18 | 抽屉底已实心、文字仍暗字压深底 | 主代理看图（review-shots/02）：底已实心 #191B20，但评论正文几乎不可读 | 只钉了 dialog 背景，没同步文字色阶：正文/昵称/元信息仍走环境主题变量，浅色主题下 --p-on 为 #25241f，钉深底等于把暗字搬到深底上；计算样式断言也只验了背景一侧 | 抽屉子树作用域内收深底配套色阶（--p-on #F5F5F5、--p-mut/--p-dim 不低于 #A1A5AD、表面阶梯转深），评论正文/昵称去透明度改主字全色；layout 断言接棒到文字终态（正文恰 #F5F5F5、次级不低于 #A1A5AD），player-seek 夹具补 api.comments 三条 | `src/styles/video-details.css` 抽屉作用域色阶；`Panels.tsx` 评论正文/昵称；`scripts/test-layout.mjs` commentColors；`tests/player-seek.tsx` 评论夹具 |
 | 2026-11-18 | 自愈/确认机制未被真实故障检验 | 两轮确认、选线池轮换、看门狗四状态判死与出画第二臂均已落地，但真机从未出现对应故障，机制对错无证据 | 机制落地时只验了正常路径，故障分支没有可失败的回归，只能等真机撞上才知道对错 | 故障分支补注入用例钉住契约：决策段先等价提取为纯函数再逐条断言；看门狗以假时钟注入 append 在途/已结束无缓冲/缓冲已达不出画/意愿门控等故障序列（新增用例经维护者同意） | `src-tauri/src/lines/probe.rs` tests（confirm_gate 7 条）；`src-tauri/src/line_rank.rs` tests（select_pool 5 条）；`tests/playback-engines.tsx` F7–F11 |
 
+| 2026-11-19 | WebGPU bind group 资源形状写错一位全链静默失效 | fix2 超分检证夹具：引擎构造无报错、首帧提交后纹理全空 | GPUBindingResource 要的是 GPUTextureView 本身，写成 `{view}` 包装对象不报错但绑定无效 | WebGPU 绑定一律传 view 本体；新管线先用数值对照夹具（GPU vs CPU 参考）验通再接呈现 | `src/features/playback/webgpuSr.ts`；`tests/webgpu-sr.tsx` numeric maxDiff 4.2e-7 |
+| 2026-11-19 | textureSample 写进非均匀控制流被 WGSL 拒编译 | 同上：呈现着色器在带提前 return 的 if 内采样，Dawn 报编译错误、画布不出图 | 隐式导数类采样函数只能在均匀控制流调用，是 WGSL 硬规则不是实现瑕疵 | 采样改无条件执行＋select 填黑；着色器改动先在夹具页验编译再进主仓 | `src/features/playback/webgpuSr.ts` PRESENT_SHADER |
+| 2026-11-19 | copyExternalImageToTexture 目标纹理缺 RENDER_ATTACHMENT 被校验拒绝 | 同上：staging 纹理只有 CopyDst，拷贝被拒、摄入趟读到空纹理且无显性报错 | Dawn 对该拷贝的目标 usage 有硬性要求（CopyDst＋RenderAttachment），文档不显眼 | 摄入 staging 纹理 usage 固定带 RENDER_ATTACHMENT；引擎对 uncapturederror 一律按死亡回退，不许静默黑屏 | `src/features/playback/webgpuSr.ts` makeStaging/uncapturederror |
+| 2026-11-19 | 热缓存下 CI 仍全量重编 270 个 crate | fix2 C1 基线：rust-cache 还原 2s 命中，cargo 仍输出 270 条 Compiling、Rust 段 5m31s | rust-cache 还原的是 src-tauri/target，Xcode「Build Rust Code」阶段（tauri ios xcode-script 子进程）的增量状态与之不衔接 | 提速要打在 rustc 调用级缓存（sccache）并把 RUSTC_WRAPPER 写进生成工程的阶段脚本本身——workflow 层 export 进不到 xcodebuild 阶段（fix1 已证） | `scripts/patch-ios-sccache.mjs`；fix2 存档 build-timing/baseline.md |
+
 新回归的追加方式：
 
 1. 在对应子系统页确认这是当前行为变化，不是提案。

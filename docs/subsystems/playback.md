@@ -172,6 +172,15 @@
   播放会失败而不是静默切到自定义协议。端口必须和 `src/shared/api/api.ts` 的 `LOCAL` 常量一致。
 - 原生错误不会无限重试：`mediaErrorMessage` 只给用户可理解的
   network/decode/unsupported 提示；手动重试通过 proxy retry 重建媒体连接。
+- 超分双管线（fix2 Batch C，2026-11-19）：呈现层由 `SrCanvas` 唯一选引擎——
+  WebGPU 模型超分（Anime4K CNN S 档：Restore Soft S + Upscale x2 S，
+  `webgpuSr.ts` 计算管线）或 WebGL 锐化档（`SuperResCanvas`），两者互斥
+  不叠加。模型超分默认关闭（`SR_MODEL_DEFAULT_ENABLED=false`）：采纳门
+  三条（帧预算/画质实测/10 分钟稳定）中画质门仅部分过（文字/边缘提升
+  可辨、纹理未达同级），按用户口径不转默认，作实验路径保留；探针 v2
+  （`srProbe.ts`，内置 720p/1080p 固定测试片、双纹理路径实测）照常在
+  诊断中测量与报告，翻转开关后即按探针门条件式启用。引擎死亡
+  （device lost/未捕获错误）走会话级闩锁永久回退锐化档，不重试不打扰。
 
 ## 验证命令
 
