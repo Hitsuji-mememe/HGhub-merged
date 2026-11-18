@@ -81,7 +81,7 @@ export function initPlaybackLog() {
         }
         publish({ ...saved, ready: true });
         void flushPlaybackLog();
-        tracePlayback("app.start", { version: __APP_VERSION__, platform: navigator.platform, user_agent: navigator.userAgent, hls_version: Hls.version, media_source: !!window.MediaSource, managed_media_source: "ManagedMediaSource" in window });
+        tracePlayback("app.start", { version: __APP_VERSION__, platform: navigator.platform, user_agent: navigator.userAgent, hls_version: registeredHlsVersion, media_source: !!window.MediaSource, managed_media_source: "ManagedMediaSource" in window });
         return;
       } catch { /* 状态未就绪：退避后重试 */ }
     }
@@ -260,7 +260,7 @@ export function observeHls(hls: Hls, trace: (event: string, data?: Data) => void
       source.addEventListener("sourceopen", onOpen);
       source.addEventListener("sourceended", onEnded);
       source.addEventListener("sourceclose", onClose);
-      hls.once(Hls.Events.DESTROYING, () => {
+      hls.once(eventsMap.DESTROYING, () => {
         source.removeEventListener("startstreaming", start); source.removeEventListener("endstreaming", end);
         source.removeEventListener("sourceopen", onOpen); source.removeEventListener("sourceended", onEnded); source.removeEventListener("sourceclose", onClose);
       });
@@ -269,13 +269,13 @@ export function observeHls(hls: Hls, trace: (event: string, data?: Data) => void
   /* append 链探针（同上，仅记录）：BUFFER_APPENDED 是 FRAG_BUFFERED 的前一环，
      SourceBuffer 的 updateend/error 区分「没调 append / 调了没完成 / 完成了但
      buffered 没涨」三种根因。 */
-  hls.on(Hls.Events.BUFFER_APPENDED, (_event, data) => {
+  hls.on(eventsMap.BUFFER_APPENDED, (_event, data) => {
     if (!playbackLogEnabled()) return;
     const spans: Data = {};
     for (const [kind, value] of Object.entries(data.timeRanges)) if (value) spans[kind] = ranges(value);
     trace("hls.buffer_appended", { sb_type: data.type, fragment: data.frag.sn, start: round(data.frag.start), duration: round(data.frag.duration), ranges: spans });
   });
-  hls.on(Hls.Events.BUFFER_CREATED, (_event, data) => {
+  hls.on(eventsMap.BUFFER_CREATED, (_event, data) => {
     const removers: Array<() => void> = [];
     for (const [kind, track] of Object.entries(data.tracks)) {
       const buffer = track?.buffer;
@@ -286,11 +286,11 @@ export function observeHls(hls: Hls, trace: (event: string, data?: Data) => void
       buffer.addEventListener("error", onError);
       removers.push(() => { buffer.removeEventListener("updateend", onUpdateEnd); buffer.removeEventListener("error", onError); });
     }
-    if (removers.length) hls.once(Hls.Events.DESTROYING, () => removers.forEach(fn => fn()));
+    if (removers.length) hls.once(eventsMap.DESTROYING, () => removers.forEach(fn => fn()));
   });
-  hls.on(Hls.Events.MANIFEST_PARSED, () => trace("hls.manifest", { levels: hls.levels.length }));
-  for (const event of [Hls.Events.FRAG_LOADING, Hls.Events.FRAG_LOADED, Hls.Events.FRAG_BUFFERED, Hls.Events.FRAG_LOAD_EMERGENCY_ABORTED] as const) {
-    hls.on(event, (_event: string, data: FragLoadingData | FragLoadedData | FragBufferedData) => {
+  hls.on(eventsMap.MANIFEST_PARSED, () => trace("hls.manifest", { levels: hls.levels.length }));
+  for (const event of [eventsMap.FRAG_LOADING, eventsMap.FRAG_LOADED, eventsMap.FRAG_BUFFERED, eventsMap.FRAG_LOAD_EMERGENCY_ABORTED] as (keyof HlsListeners)[]) {
+    hls.on(event, ((_event: string, data: FragLoadingData | FragLoadedData | FragBufferedData) => {
       if (!playbackLogEnabled()) return;
       const { frag } = data;
       const loading = frag.stats.loading;

@@ -1,4 +1,5 @@
 import { markStartupReady } from "./legacyRuntime";
+import { initAutoLine } from "./shared/network/autoLine";
 import React, { lazy, Suspense, useCallback, useLayoutEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./app/App";

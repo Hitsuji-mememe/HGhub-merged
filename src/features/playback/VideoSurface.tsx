@@ -56,6 +56,9 @@ type Props = {
   onSeeked?: () => void;
   onEnded?: () => void;
   onError?: (msg: string) => void;
+  /* 跟版合并（Muse 2026-11-18）：上游在切源 effect 里调用 onClearError
+   * 清旧错误态；我方调用方暂不传（无参即空操作），先补齐契约避免悬空引用。 */
+  onClearError?: () => void;
   onFragStats?: (s: FragStats) => void;
   onClick?: () => void;
   className?: string;
@@ -64,7 +67,7 @@ type Props = {
 /** 只负责「播」：hls.js + video 元素，控制条由外层渲染。 */
 const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   { src, poster, autoPlay = true, active = true, measurementKey = src, diagnosticContext = {}, muted = false, loop = false, fit = "contain", volume = 1, rate = 1,
-    onTime, onDuration, onSize, onPlaying, onPause, onWaiting, onEnded, onError, onFragStats, onClick, className = "" },
+    onTime, onDuration, onSize, onPlaying, onPause, onWaiting, onSeeked, onEnded, onError, onClearError, onFragStats, onClick, className = "" },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
