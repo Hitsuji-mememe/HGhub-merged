@@ -1546,7 +1546,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       {/* 控件隐藏时只留一条细进度线贴底（蓝图：默认态只有视频 + 细进度条） */}
       {!isDesktop && kind === "video" && (fsUi ? idle : clean) && !paused && (
         <div className="absolute inset-x-0 z-30 pointer-events-none" style={{ bottom: rotated ? 0 : "var(--sab, 0px)", paddingLeft: rotated ? "max(52px, env(safe-area-inset-left))" : 0, paddingRight: rotated ? "max(52px, env(safe-area-inset-right))" : 0 }}>
-          <div className="h-[2.5px]" style={{ background: "rgba(255,255,255,.22)" }}>
+          <div className="h-[2.5px]" style={{ background: "rgba(255,255,255,.3)" }}>
             <PlaybackProgress clock={playbackClock} duration={duration} preview={null} className="h-full bg-white" />
           </div>
         </div>
@@ -1563,12 +1563,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           44px 地板与不出视口的几何教训（2.2.0 溢出修复）由 test-layout
           按视口矩阵继续守门。 */}
       {!isDesktop && kind === "video" && (paused || (fsUi ? !idle : !clean)) && (
-        <div className="absolute inset-x-0 top-0 z-40 flex items-center gap-2 px-3" style={{ paddingTop: "calc(var(--sat, 0px) + 6px)" }}>
+        <div className="hg-chrome-in absolute inset-x-0 top-0 z-40 flex items-center gap-2 px-3" style={{ paddingTop: "calc(var(--sat, 0px) + 6px)", paddingBottom: 20, background: "linear-gradient(to bottom, rgba(21,23,27,.9), transparent)" }}>
           <Button onClick={goBack} aria-label="返回"
             className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
             <IBack size={20} />
           </Button>
-          <span className="flex-1 text-center text-[13px] font-semibold hg-ink-2 hg-ov-shadow tabular-nums">
+          <span className="flex-1 text-center text-[13px] font-semibold text-[#A1A5AD] hg-ov-shadow tabular-nums">
             {episodes.length > 1 ? `第 ${curEp} 集 / 共 ${episodes.length} 集` : "正片"}
           </span>
           <Button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"}
@@ -1582,12 +1582,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </div>
       )}
       {!isDesktop && kind === "video" && (paused || (fsUi ? !idle : !clean)) && (
-        <div className="absolute inset-x-0 bottom-0 z-40"
-          style={{ paddingBottom: `calc(var(--sab, 0px) + ${bottomInset}px + 6px)`, background: "linear-gradient(to top, rgba(0,0,0,.55), rgba(0,0,0,.26) 55%, transparent)" }}>
+        <div className="hg-chrome-in absolute inset-x-0 bottom-0 z-40"
+          style={{ paddingBottom: `calc(var(--sab, 0px) + ${bottomInset}px + 6px)`, background: "linear-gradient(to top, rgba(21,23,27,.92), rgba(21,23,27,.55) 55%, transparent)" }}>
           <div className="px-4 flex items-baseline gap-2">
-            <span className="flex-1 min-w-0 truncate text-[15px] font-semibold hg-ink hg-ov-shadow">{meta.title}</span>
-            {episodes.length > 1 && <span className="shrink-0 text-[12px] font-semibold hg-ink-2 hg-ov-shadow">第 {curEp} 集</span>}
-            <span className="shrink-0 text-[11px] font-semibold hg-ink-2 tabular-nums"><PlaybackTime clock={playbackClock} /> / {fmtTime(duration)}</span>
+            <span className="flex-1 min-w-0 truncate text-[15px] font-semibold text-[#F5F5F5] hg-ov-shadow">{meta.title}</span>
+            {episodes.length > 1 && <span className="shrink-0 text-[12px] font-semibold text-[#A1A5AD] hg-ov-shadow">第 {curEp} 集</span>}
+            <span className="shrink-0 text-[11px] font-semibold text-[#A1A5AD] tabular-nums"><PlaybackTime clock={playbackClock} /> / {fmtTime(duration)}</span>
           </div>
           <div className="px-4" style={{ height: 22 }}>
             <div ref={barRef} className="relative h-full" style={{ touchAction: "none" }}
