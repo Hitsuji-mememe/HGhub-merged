@@ -54,7 +54,13 @@ export async function flushPlaybackLog() {
 }
 
 export function initPlaybackLog() {
-  return init ??= playbackLogApi.status().then(saved => {
+  return init ??= playbackLogApi.status().then(async saved => {
+    /* 记录始终开启（2026-11-18 收官批 D 钉死）：原开关只管细节粒度，
+     * 诊断合并后设置页不再有开关——状态为关时自动打开并持久化，
+     * 保证诊断报告永远有最近播放流水可用。set 失败不挡启动。 */
+    if (!saved.enabled) {
+      try { saved = await playbackLogApi.set(true); } catch { /* 保持原状态，下次启动再试 */ }
+    }
     publish({ ...saved, ready: true });
     tracePlayback("app.start", { version: __APP_VERSION__, platform: navigator.platform, user_agent: navigator.userAgent, hls_version: Hls.version, media_source: !!window.MediaSource, managed_media_source: "ManagedMediaSource" in window });
   }).catch(() => { init = undefined; publish({ error: "无法读取诊断日志设置" }); });

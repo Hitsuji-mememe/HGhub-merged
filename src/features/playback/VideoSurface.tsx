@@ -5,6 +5,7 @@ import { connectNativeMedia, noteNativeFallback, playbackSource } from "./mediaT
 import { AppendStallWatchdog } from "./appendStallWatchdog";
 import { mediaErrorMessage } from "./mediaErrors";
 import { mediaHost, mediaResource, observeHls, usePlayerDiagnostics } from "../../shared/diagnostics/playbackDiagnostics";
+import { publishPlaybackFacts } from "../../shared/diagnostics/playbackFacts";
 import { usePlaybackActivity } from "./usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "./useProxyPlaybackRecovery";
 import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
@@ -68,6 +69,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   /* append 卡死自愈计数（F 项）：同一源第一次判死重建、第二次判死触发
    * 会话级原生降级；换源清零（重建走 revision  bump、src 不变，不清）。 */
   const stallAttemptRef = useRef(0);
+  const engineRef = useRef("");
   const stallSrcRef = useRef(src);
   if (stallSrcRef.current !== src) { stallSrcRef.current = src; stallAttemptRef.current = 0; }
   const nearEndFiredRef = useRef(false);
@@ -83,6 +85,11 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const [srSize, setSrSize] = useState({ w: 0, h: 0 });
   const [srDensity, setSrDensity] = useState<{ bitrateBps: number; fps?: number } | null>(null);
   const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h, srDensity ?? undefined);
+  /* 诊断报告的源规格读取点（收官批 D）：尺寸/密度/档位变化时发布快照 */
+  useEffect(() => {
+    if (srSize.w <= 0 || srSize.h <= 0) return;
+    publishPlaybackFacts({ w: srSize.w, h: srSize.h, bitrateBps: srDensity?.bitrateBps, fps: srDensity?.fps, srMode, engine: engineRef.current || undefined, at: Date.now() });
+  }, [srSize, srDensity, srMode]);
   const { trace, requestSeek } = usePlayerDiagnostics(videoRef, hlsRef, { ...diagnosticContext, active, resource: mediaResource(src) });
   const activity = usePlaybackActivity(videoRef, hlsRef, { active, autoPlay, src, trace });
   const proxyRecovery = useProxyPlaybackRecovery(videoRef, src, activity, trace);
@@ -154,6 +161,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     const source = playbackSource(src, Hls.isSupported());
+    engineRef.current = source.engine;
     let disconnectNative: (() => void) | undefined;
     let stallWatchdog: AppendStallWatchdog | undefined;
     let watchdogPlaying: (() => void) | undefined;

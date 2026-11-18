@@ -10,13 +10,13 @@ import SettingsSection from "./SettingsSection";
 import { UsageAgreementText } from "../../shared/ui/UsageAgreement";
 import { USAGE_AGREEMENT_VERSION } from "../../shared/storage/usageAgreement";
 import { autoLineEnabled, setAutoLine } from "../../shared/network/autoLine";
-import { copyPlaybackLog, initPlaybackLog, setPlaybackLog, tracePlayback, usePlaybackLog } from "../../shared/diagnostics/playbackDiagnostics";
-import { formatNetDiag, shortVerdict } from "../../shared/diagnostics/netDiagReport";
+import { initPlaybackLog } from "../../shared/diagnostics/playbackDiagnostics";
+import { buildDiagnosticReport } from "../../shared/diagnostics/diagnosticReport";
 import { copyText } from "../../shared/lib/clipboard";
 import { Loader } from "../../shared/ui/ios/effects";
 import { IBack, IBoltF, IBroom, IChevR, ICompress, IHeart, IInfo, ILink, ILockF, IMoon, IRefresh, ISparkF, ISun, IVolMute } from "../../shared/ui/icons";
 
-const SETTING_GROUPS = ["外观", "播放", "内容偏好", "本地数据", "网络", "播放诊断", "其他"] as const;
+const SETTING_GROUPS = ["外观", "播放", "内容偏好", "本地数据", "网络", "诊断", "其他"] as const;
 type SettingGroup = typeof SETTING_GROUPS[number];
 
 /* 独立设置页：线路 / 外观 / 播放 / 本地数据 / 清理缓存 / 网络诊断 / 关于
@@ -33,8 +33,6 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
   const [clearError, setClearError] = useState("");
   const [lineError, setLineError] = useState("");
   const [clearing, setClearing] = useState(false);
-  const playbackLog = usePlaybackLog();
-  const [copyingLog, setCopyingLog] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagReport, setDiagReport] = useState<string | null>(null);
   const [copyingReport, setCopyingReport] = useState(false);
@@ -182,92 +180,28 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
                 label="严格安全模式"
               />
             </div>
-            {/* 打不开时先点这里：把 DNS / 代理 / HTTP 结果复制给维护者 */}
+          </>)}
+
+          {section("诊断", <>
+            {/* 收官批 D 合并：原「网络诊断」行与整个「播放诊断」区（含日志
+                开关与日志路径）全部删除，只剩这一个入口——点开即生成
+                （网络探测 + 最近播放流水 + 当前线路/超分/源规格），页面内
+                预览全文 + 一个「复制报告」按钮。记录始终开启、无开关。 */}
             <Button disabled={diagnosing} onClick={async () => {
               setDiagnosing(true);
-              try {
-                const diag = await api.netDiag();
-                // 分片测速 C 路（移植 2.0.11, Muse 2026-11-18）：WebView 原生 fetch 直连同一分片，
-                // 与 Rust 的 A/B 两路凑三路对照；结果并回 diag，报告与日志都带得上。
-                const sab = (diag.speed_ab ?? {}) as { seg_url?: string; host?: string; bytes?: number; a_ms?: number; b_ms?: number };
-                if (sab.seg_url) {
-                  const sabRec = diag.speed_ab as Record<string, unknown>;
-                  const t0 = performance.now();
-                  try {
-                    const r = await fetch(sab.seg_url);
-                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                    const buf = await r.arrayBuffer();
-                    const cMs = Math.round(performance.now() - t0);
-                    sabRec.c_ms = cMs;
-                    sabRec.c_bytes = buf.byteLength;
-                    tracePlayback("media.speed_ab", { host: sab.host ?? "", bytes: sab.bytes ?? buf.byteLength, a_ms: sab.a_ms ?? null, b_ms: sab.b_ms ?? null, c_ms: cMs, c_bytes: buf.byteLength });
-                  } catch (e) {
-                    const msg = e instanceof Error ? e.message : String(e);
-                    sabRec.c_error = msg;
-                    tracePlayback("media.speed_ab", { host: sab.host ?? "", bytes: sab.bytes ?? null, a_ms: sab.a_ms ?? null, b_ms: sab.b_ms ?? null, c_error: msg });
-                  }
-                }
-                // 落盘走原始 JSON（便于脚本统计），复制给对方的是分段可读报告。
-                logLine(`[net_diag] ${JSON.stringify(diag)}`);
-                const http = (diag.http ?? {}) as { ms?: number; status?: number };
-                const dns = (diag.dns ?? {}) as { count?: number; has_fake_ip?: boolean };
-                const env = (diag.env ?? {}) as Record<string, unknown>;
-                tracePlayback("net.diag", {
-                  verdict: String(diag.verdict ?? ""),
-                  host: hostOf(String(diag.host ?? "")), http_status: http.status ?? null, http_ms: http.ms ?? null,
-                  dns_count: dns.count ?? null, fake_ip: dns.has_fake_ip ?? null,
-                  proxy: Object.values(env).some(Boolean), strict: strictSecurity,
-                });
-                const report = formatNetDiag(diag);
-                try {
-                  await copyText(report);
-                  toast(`诊断已复制 · ${shortVerdict(diag)}`, "ok");
-                } catch {
-                  setDiagReport(report);
-                  toast("诊断已完成，复制失败，可在报告中重试", "info");
-                }
-              } catch (e) {
-                const detail = e instanceof Error ? e.message : typeof e === "string" ? e : "请稍后重试";
-                toast(`网络诊断失败：${detail}`, "info");
-              } finally {
-                setDiagnosing(false);
-              }
+              try { setDiagReport(await buildDiagnosticReport()); }
+              catch (e) { toast(`诊断报告生成失败：${e instanceof Error ? e.message : "请稍后重试"}`, "info"); }
+              finally { setDiagnosing(false); }
             }} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable disabled:opacity-60">
-              <span className="ios-setting-icon"><ILink size={16} /></span>
-              <div className="flex-1">
-                <div className="text-[14px] text-on">{diagnosing ? "正在诊断…" : "网络诊断"}</div>
-                <div className="text-[12px] text-mut">DNS / TCP / 系统代理 / 官网连通性，一键复制带结论的报告</div>
+              <span className="ios-setting-icon"><IInfo size={16} /></span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] text-on">{diagnosing ? "正在生成…" : "诊断报告"}</div>
+                <div className="text-[12px] text-mut">网络探测＋最近播放流水＋当前线路/超分，一键生成可复制全文</div>
               </div>
               <IChevR size={15} className="text-mut" />
             </Button>
           </>)}
 
-          {section("播放诊断", <>
-            <div className="flex items-center gap-3 px-3.5 py-3">
-              <span className="ios-setting-icon"><IInfo size={16} /></span>
-              <div className="flex-1 min-w-0">
-                <div className="text-[14px] text-on">播放诊断日志</div>
-                <div className="text-[12px] text-mut">版本、平台、当前线路和播放失败原因始终记录；开关只额外记录拖动与缓冲细节</div>
-                {playbackLog.error && <div role="alert" className="text-[12px] text-danger">{playbackLog.error}</div>}
-              </div>
-              <Toggle desktop label="播放诊断日志" on={playbackLog.enabled} disabled={!playbackLog.ready || playbackLog.pending}
-                onChange={(on) => { void setPlaybackLog(on).then(() => toast(on ? "已开启播放诊断，请复现问题" : "已关闭播放诊断，已有日志保留", "ok")).catch(() => toast("日志设置保存失败，请重试", "info")); }} />
-            </div>
-            <Button disabled={!playbackLog.ready || playbackLog.pending || copyingLog} onClick={async () => {
-              setCopyingLog(true);
-              try { await copyPlaybackLog(); toast("播放诊断日志已复制", "ok"); }
-              catch (e) { toast((e as Error).message || "复制日志失败", "info"); }
-              finally { setCopyingLog(false); }
-            }} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable disabled:opacity-60">
-              <span className="ios-setting-icon"><ILink size={16} /></span>
-              <div className="flex-1 min-w-0">
-                <div className="text-[14px] text-on">{copyingLog ? "正在复制…" : "复制播放诊断日志"}</div>
-                <div className="text-[12px] text-mut">含版本、平台、当前线路和播放失败原因</div>
-              </div>
-              <IChevR size={15} className="text-mut" />
-            </Button>
-            {playbackLog.path && <details className="ios-settings-log-path text-[12px] text-mut"><summary className="cursor-pointer py-3">查看日志保存位置</summary><p className="break-all select-text pb-3">{playbackLog.path}</p></details>}
-          </>)}
           {section("其他", <>
             
             <Button onClick={() => setAgreementOpen(true)} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable">
@@ -307,18 +241,18 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
         </div>
       </Modal>
 
-      <Modal label="网络诊断报告" open={diagReport !== null} onClose={() => setDiagReport(null)} width={520}>
+      <Modal label="诊断报告" open={diagReport !== null} onClose={() => setDiagReport(null)} width={520}>
         <div className="p-5">
-          <h2 className="text-[15px] font-bold text-on">网络诊断报告</h2>
-          <p className="text-[13px] text-mut mt-2">诊断已完成，自动复制未成功。可以重试复制，或在下方选择报告文字。</p>
-          <TextArea readOnly aria-label="网络诊断报告" value={diagReport ?? ""}
+          <h2 className="text-[15px] font-bold text-on">诊断报告</h2>
+          <p className="text-[13px] text-mut mt-2">结论先行：网络、线路与最近播放卡点都在开头。整篇复制发给维护者即可一次定位。</p>
+          <TextArea readOnly aria-label="诊断报告" value={diagReport ?? ""}
             className="w-full h-64 mt-3 p-3 rounded-(--r-sm) bg-s3 text-[12px] text-on resize-none" />
           <div className="flex gap-2 mt-4">
             <Button onClick={() => setDiagReport(null)} className="flex-1 h-9 rounded-(--r-ctl) bg-s3 text-[14px] text-on pressable">关闭</Button>
             <Button disabled={copyingReport} onClick={async () => {
               if (diagReport === null) return;
               setCopyingReport(true);
-              try { await copyText(diagReport); toast("网络诊断报告已复制", "ok"); setDiagReport(null); }
+              try { await copyText(diagReport); toast("诊断报告已复制", "ok"); setDiagReport(null); }
               catch { toast("复制失败，请选择报告文字手动复制", "info"); }
               finally { setCopyingReport(false); }
             }} className="flex-1 h-9 rounded-(--r-ctl) brand-grad text-[14px] pressable disabled:opacity-60">{copyingReport ? "正在复制…" : "复制报告"}</Button>
