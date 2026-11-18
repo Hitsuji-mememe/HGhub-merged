@@ -410,7 +410,14 @@ try {
         // A1: 单击进度条不 seek, 拖动才 seek (拖动中预览、松手落点)。
         // Feed 进度条是 barRef div (touchAction:none + pointer 手势), 无 role。
         const barRect = () => page.evaluate(() => {
-          const el = [...document.querySelectorAll("div")].find(d => d.style.touchAction === "none");
+          // 全屏态 stage 本身也是 touchAction:none 的 inset-0 div 且在 DOM
+          // 序靠前, 裸 find 会误中 stage (点→翻 clean、拖→舞台手势); 按
+          // 细条几何 (高 ≤24、宽 >80) 锁定真正的进度条 div。
+          const el = [...document.querySelectorAll("div")].find(d => {
+            if (d.style.touchAction !== "none") return false;
+            const r = d.getBoundingClientRect();
+            return (r.height >= 4 && r.height <= 24 && r.width > 80) || (r.width >= 4 && r.width <= 24 && r.height > 80);
+          });
           if (!el) return null;
           const r = el.getBoundingClientRect();
           return { x: r.x, y: r.y, width: r.width, height: r.height };
@@ -444,7 +451,7 @@ try {
         const overlay = await page.evaluate(() => {
           const r = document.querySelector(".player-root");
           return {
-            slider: !![...r.querySelectorAll("div")].find(d => d.style.touchAction === "none"),
+            slider: !![...r.querySelectorAll("div")].find(d => { if (d.style.touchAction !== "none") return false; const b = d.getBoundingClientRect(); return (b.height >= 4 && b.height <= 24 && b.width > 80) || (b.width >= 4 && b.width <= 24 && b.height > 80); }),
             topbar: !!r.querySelector('button[aria-label="返回"]'),
             time: [...r.querySelectorAll("span,div")].some(el => /^\d+:\d{2}\s*\/\s*\d+:\d{2}$/.test((el.textContent || "").trim())),
           };
