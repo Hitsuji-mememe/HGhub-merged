@@ -109,10 +109,10 @@ pub async fn line_probe(urls: Vec<String>) -> Result<Value, String> {
 /// 切换两端都可信（固定线路或本进程发布页确认的镜像）时保留会话并 rebase origin；
 /// 旧 origin 不可信（如自定义线路）时清空会话，绝不把 token 带给新站点。
 #[tauri::command]
-pub async fn line_auto(state: State<'_, Api>) -> Result<Value, String> {
+pub async fn line_auto(state: State<'_, Api>, urgent: Option<bool>) -> Result<Value, String> {
     let selection = begin_line_selection()?;
     crate::net::refresh_client();
-    let pick = crate::lines::auto_pick().await;
+    let pick = crate::lines::auto_pick(urgent.unwrap_or(false)).await;
     let chosen = pick
         .get("base")
         .and_then(Value::as_str)

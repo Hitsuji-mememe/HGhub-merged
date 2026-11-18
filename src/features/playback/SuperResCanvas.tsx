@@ -93,6 +93,20 @@ export function srBpp(w: number, h: number, bitrateBps?: number, fps?: number): 
 export const SR_BPP_HIGH = 0.11;
 export const SR_BPP_LOW = 0.06;
 
+/* 编码效率修正（2026-11-18 晚 GPT 全量审计整改 4）：bpp 阈值是在以
+ * H.264 为主的样本上定的；HEVC/AV1 同主观画质码率更低、bpp 天然更低，
+ * 用同一把尺会把高效编码系统性判向强锐化。按编码族缩放阈值（HEVC
+ * 约省 30%、AV1 约省 45%、VP9 约省 35%——取编码效率区间的保守端，
+ * 不是精确画质等价，只纠正系统性方向偏差）。未知编码不缩放。 */
+export function srCodecScale(codec?: string): number {
+  if (!codec) return 1;
+  const c = codec.toLowerCase();
+  if (c.startsWith("hvc1") || c.startsWith("hev1") || c.includes("hevc")) return 0.7;
+  if (c.startsWith("av01") || c.includes("av1")) return 0.55;
+  if (c.startsWith("vp09") || c.includes("vp9")) return 0.65;
+  return 1;
+}
+
 /** 超分全自动选档（2026-11-18 收官批重做）：用户只在设置页留 自动/关闭
  * 覆盖项。旧规则只看分辨率短边，被用户质疑「1080p 一律关」不合理——
  * 改为短边 + 码率密度（bpp，见 srBpp）双判据：
@@ -102,17 +116,25 @@ export const SR_BPP_LOW = 0.06;
  *   bpp ≥0.11（高密度）   → 短边 >720 off（真高清直通）；≤720 natural
  *                            （720 显示时仍被放大 ~1.6×，轻锐化跟得上）
  * 密度未知（原生引擎/首分片未到）退回旧纯分辨率规则，测得后自动纠正。
- * 尺寸未知先 natural。风格档（cinema/anime_*）自动模式不选。 */
-export function effectiveSrMode(pref: SrPref, w: number, h: number, density?: { bitrateBps?: number; fps?: number }): SuperResMode {
+ * 尺寸未知先 natural。风格档（cinema/anime_*）自动模式不选。
+ * 整改 4（同日晚）：阈值先按编码族缩放（srCodecScale）；fps 未知时
+ * bpp 按 30 估会系统性偏高（60fps 源真值只有一半），密度路径走保守
+ * 档——不给 crisp、也不关档（off 同样需要 fps 背书），一律 natural。 */
+export function effectiveSrMode(pref: SrPref, w: number, h: number, density?: { bitrateBps?: number; fps?: number; codec?: string }): SuperResMode {
   if (pref === "off") return "off";
   const short = Math.min(w || 0, h || 0);
   if (short <= 0) return "natural";
   if (short <= 480) return "crisp";
   const bpp = srBpp(w, h, density?.bitrateBps, density?.fps);
   if (bpp == null) return short <= 720 ? "natural" : "off";
-  if (bpp < SR_BPP_LOW) return "crisp";
-  if (bpp < SR_BPP_HIGH) return "natural";
-  return short > 720 ? "off" : "natural";
+  const scale = srCodecScale(density?.codec);
+  const low = SR_BPP_LOW * scale;
+  const high = SR_BPP_HIGH * scale;
+  const fpsKnown = !!density?.fps && density.fps > 0;
+  if (bpp < low) return fpsKnown ? "crisp" : "natural";
+  if (bpp < high) return "natural";
+  if (short > 720) return fpsKnown ? "off" : "natural";
+  return "natural";
 }
 
 /** 性能降档阶梯（会话内）：crisp → natural → off。自动档只产这三档；
@@ -684,6 +706,8 @@ type Props = {
   ready?: boolean;
   fit?: "contain" | "cover";
   srcKey?: string;
+  /** 源帧率（未知时缺失）：帧成本降档预算按帧间隔缩放（整改 4）。 */
+  fps?: number;
   onFallbackChange?: (useSvgFallback: boolean) => void;
   onTrace?: (event: string, data?: Record<string, unknown>) => void;
 };
@@ -705,6 +729,7 @@ export default function SuperResCanvas({
   ready = true,
   fit = "contain",
   srcKey = "",
+  fps,
   onFallbackChange,
   onTrace,
 }: Props) {
@@ -729,10 +754,12 @@ export default function SuperResCanvas({
   const fitRef = useRef(fit);
   const activeRef = useRef(active);
   const readyRef = useRef(ready);
+  const fpsRef = useRef(fps);
   modeRef.current = activeMode;
   fitRef.current = fit;
   activeRef.current = active;
   readyRef.current = ready;
+  fpsRef.current = fps;
 
   const triggerFallback = (reason: string) => {
     if (fallbackReportedRef.current) return;
@@ -891,7 +918,10 @@ export default function SuperResCanvas({
             }
           }
         }
-        // 性能兜底采样：60 帧窗口平均成本 >16ms 且还能降 → 降一档并重开窗口
+        // 性能兜底采样：60 帧窗口平均成本超预算且还能降 → 降一档并重开窗口。
+        // 预算按源帧间隔缩放（整改 4）：处理是逐视频帧的（rVFC），30fps 源
+        // 帧间隔 33ms、16ms 是半帧预算；60fps 源帧间隔只有 16.7ms，固定
+        // 16ms 等于占满整帧——预算取 min(16ms, 55% 帧间隔)，fps 未知用 16ms。
         if (costStart) {
           const cost = frameCostRef.current;
           cost.sum += performance.now() - costStart;
@@ -899,8 +929,10 @@ export default function SuperResCanvas({
           if (cost.n >= 60) {
             const avg = cost.sum / cost.n;
             frameCostRef.current = { sum: 0, n: 0 };
-            if (avg > 16 && srDemote(mode, demote + 1) !== activeMode) {
-              onTrace?.("sr.perf_demote", { from: activeMode, to: srDemote(mode, demote + 1), avg_ms: Math.round(avg * 10) / 10 });
+            const srcFps = fpsRef.current;
+            const budget = srcFps && srcFps > 0 ? Math.min(16, (0.55 * 1000) / srcFps) : 16;
+            if (avg > budget && srDemote(mode, demote + 1) !== activeMode) {
+              onTrace?.("sr.perf_demote", { from: activeMode, to: srDemote(mode, demote + 1), avg_ms: Math.round(avg * 10) / 10, budget_ms: Math.round(budget * 10) / 10 });
               setDemote(demote + 1);
             }
           }

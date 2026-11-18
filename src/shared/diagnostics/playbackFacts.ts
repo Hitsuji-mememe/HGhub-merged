@@ -6,9 +6,11 @@
 export type PlaybackFacts = {
   w: number;
   h: number;
-  /** 首分片实际码率（bps），原生引擎或未取到时缺失。 */
+  /** 前 3 个完整分片实际码率的中位数（bps），原生引擎或未取到时缺失。 */
   bitrateBps?: number;
   fps?: number;
+  /** 视频编码（manifest level 的 videoCodec，如 avc1…/hvc1…），未知时缺失。 */
+  codec?: string;
   /** 当前生效超分档位（effectiveSrMode 结果）。 */
   srMode: string;
   /** 播放引擎（hls.js / native）。 */
@@ -20,6 +22,20 @@ let facts: PlaybackFacts | null = null;
 
 export function publishPlaybackFacts(next: PlaybackFacts): void {
   facts = next;
+}
+
+/* 是否有视频正在实际播放（2026-11-18 晚整改 3）：自动选线的健康复检
+ * 用它做护栏——播放中不做回切主站这类会打断播放的常规切换；故障类
+ * 切换（当前线已死/卡顿自愈）不走这个信号、不受影响。VideoSurface 在
+ * playing/pause 与源卸载时更新。 */
+let playingNow = false;
+
+export function notePlaybackPlaying(playing: boolean): void {
+  playingNow = playing;
+}
+
+export function isPlaybackPlaying(): boolean {
+  return playingNow;
 }
 
 export function readPlaybackFacts(): PlaybackFacts | null {

@@ -4,7 +4,7 @@
 //! 新规则：对每个可达候选拉一段真实分片（经该候选线路取播放地址与清单、
 //! 再走生产媒体路 fetch_bytes 拉首分片）测实际吞吐，排名以吞吐为主、
 //! 延迟为辅。探测串行（并行会互相污染带宽，与 speed_probe 同理），
-//! 单候选整体超时 15 秒；测不到吞吐的候选退回延迟比较。
+//! 单候选整体超时 6 秒、整轮预算 20 秒；测不到吞吐的候选退回延迟比较。
 //!
 //! 本模块独立于 lines/ 尺寸预算目录：lines::probe 只负责延迟探测与
 //! 候选清单，排名与吞吐在此处。
@@ -60,8 +60,11 @@ pub fn rank_lines(measures: &[LineMeasure]) -> Option<&LineMeasure> {
 /// 经候选线路拉首分片测吞吐（bps）。任何一步失败/超时返回 None，
 /// 不影响该候选以延迟参与排名。走生产媒体路（net::edge + fetch_bytes），
 /// 测的是用户真实播放路径，不是裸连。
+/// 单条超时 6 秒（2026-11-18 晚整改 3）：原 15 秒是整轮探测的预算黑洞
+/// ——4 条串行最坏 60 秒；6 秒内拉不完一个首分片的线路当下就不适合
+/// 优先播放，没必要让它占满探测窗口。
 pub async fn probe_throughput(origin: &str) -> Option<u64> {
-    tokio::time::timeout(Duration::from_secs(15), throughput_inner(origin))
+    tokio::time::timeout(Duration::from_secs(6), throughput_inner(origin))
         .await
         .ok()?
 }
@@ -102,15 +105,25 @@ async fn throughput_inner(origin: &str) -> Option<u64> {
     Some(bytes.len() as u64 * 8 * 1000 / elapsed_ms)
 }
 
+/// 整轮吞吐探测总预算（整改 3）：超过后剩余候选不再实测、以无吞吐
+/// 数据参与排名——单条 6 秒超时之外再加一道整轮闸，防一轮选线拖到
+/// 几十秒挤占播放带宽。
+const ROUND_BUDGET: Duration = Duration::from_secs(20);
+
 /// 给已延迟探测的候选补吞吐并排名，产出与旧 pick_from_hits 同形状的结果
 /// （base/tier/ms/reason/candidates），candidates 附每条的 kbps。
 /// 吞吐探测串行且最多测前 4 条可达候选（主站优先、其余按延迟升序）。
 pub async fn pick_ranked(hits: Vec<(String, String, u64)>, current: Option<&str>) -> Value {
+    let round_started = Instant::now();
     let mut ordered = hits;
     ordered.sort_by_key(|(tier, _, ms)| (tier != "main", *ms));
     let mut measures: Vec<LineMeasure> = Vec::new();
     for (tier, url, ms) in ordered.into_iter().take(4) {
-        let bps = probe_throughput(&url).await;
+        let bps = if round_started.elapsed() > ROUND_BUDGET {
+            None
+        } else {
+            probe_throughput(&url).await
+        };
         measures.push(LineMeasure { url, tier, ms, bps });
     }
     let candidates: Vec<Value> = measures.iter().map(LineMeasure::json).collect();

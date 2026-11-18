@@ -152,20 +152,32 @@ pub(crate) fn auto_candidates(items: &[Value], current: &str, trusted: impl Fn(&
     candidates
 }
 
+/* 两轮确认的待确认胜者（2026-11-18 晚整改 5）：普通（非故障）切换
+ * 离开一条可达的当前线路时，同一个胜者要连续两轮胜出才真切——单轮
+ * 采样噪声下名次翻转是真机实锤过的病（粘性挡得住「够用不换」，挡不住
+ * 「当前线明显更差但胜者是谁每轮都变」）。故障路径（urgent：当前线
+ * 健康检查连挂/播放卡顿自愈）绕过确认立即切。待确认 10 分钟过期。 */
+static PENDING_WINNER: std::sync::Mutex<Option<(String, Instant)>> = std::sync::Mutex::new(None);
+const PENDING_TTL: Duration = Duration::from_secs(600);
+
 /// 自动选线（2026-11-18 收官批 D 重做）：延迟探测主站 + 全部可信发布
 /// 镜像，对可达者逐个拉真实分片测吞吐，按「吞吐为主、延迟为辅」综合
 /// 排名（crate::line_rank）。旧规则（主站活着直接用主站、只按延迟选、
 /// pick_from_hits）作废——延迟低不等于拉流快。全部不可达 → all-down，
 /// 调用方保持当前线路。发布页错误不丢弃已探到的候选，只记 mirror_error。
-pub async fn auto_pick() -> Value {
+/// 结果附 published/probed/okCount 三个覆盖计数（整改 2）：诊断报告
+/// 直接复用本轮探测结果，不再为生成报告重测一遍。
+pub async fn auto_pick(urgent: bool) -> Value {
     let mut hits = vec![probe_hit("main", FIXED[0].1).await];
     let listing = mirrors().await;
+    let mut published = 0usize;
     if let Ok(listing) = &listing {
         let items = listing
             .get("items")
             .and_then(Value::as_array)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
+        published = items.len();
         let mut handles = Vec::new();
         for origin in auto_candidates(items, &crate::net::base(), is_trusted_mirror) {
             handles.push(tokio::spawn(
@@ -183,6 +195,8 @@ pub async fn auto_pick() -> Value {
         .filter(|hit| hit.ok)
         .map(|hit| (hit.tier.to_string(), hit.url.clone(), hit.ms))
         .collect();
+    let probed = hits.len();
+    let ok_count = ok.len();
     let mut result = if ok.is_empty() {
         json!({ "base": "", "tier": "none", "ms": 0, "reason": "all-down",
             "candidates": hits.iter().map(Hit::json).collect::<Vec<_>>() })
@@ -191,6 +205,36 @@ pub async fn auto_pick() -> Value {
     };
     if let Err(error) = listing {
         result["mirror_error"] = json!(error);
+    }
+    result["published"] = json!(published);
+    result["probed"] = json!(probed);
+    result["okCount"] = json!(ok_count);
+    /* 两轮确认（整改 5）：胜者 != 当前线路才涉及切换；胜者就是当前线
+     * 或故障路径 → 清待确认、直接放行。普通路径首轮只记待确认并把
+     * base 改回当前线（reason=confirm-pending），调用方据此约下一轮
+     * 确认探测；次轮同胜者才真切。 */
+    let current = crate::net::base();
+    let winner = result.get("base").and_then(Value::as_str).unwrap_or_default().to_string();
+    if !winner.is_empty() && winner != current {
+        if urgent {
+            if let Ok(mut pending) = PENDING_WINNER.lock() {
+                *pending = None;
+            }
+        } else if let Ok(mut pending) = PENDING_WINNER.lock() {
+            let confirmed = matches!(&*pending, Some((w, at)) if *w == winner && at.elapsed() < PENDING_TTL);
+            if confirmed {
+                *pending = None;
+            } else {
+                *pending = Some((winner.clone(), Instant::now()));
+                result["pendingWinner"] = json!(winner);
+                result["base"] = json!(current);
+                result["reason"] = json!("confirm-pending");
+            }
+        }
+    } else if winner == current {
+        if let Ok(mut pending) = PENDING_WINNER.lock() {
+            *pending = None;
+        }
     }
     result
 }

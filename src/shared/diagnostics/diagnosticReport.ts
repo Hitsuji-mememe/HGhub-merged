@@ -16,7 +16,7 @@
 */
 
 import { api, APP_VERSION, hostOf, platform} from "../api/api";
-import { autoLineEnabled} from "../network/autoLine";
+import { autoLineEnabled, lastPickRound} from "../network/autoLine";
 import { nativeFallbackState} from "../../features/playback/mediaTransport";
 import { playbackLogApi} from "./playbackDiagnostics";
 import { readPlaybackFacts} from "./playbackFacts";
@@ -68,6 +68,11 @@ startupMs: number | null;
 /** 本进程（pid 相同）是否发生过 append 卡死/会话降级。 */
 stalledThisSession: boolean;
 fallbackThisSession: boolean;
+/** 本会话自愈计数（整改 1）：只有布尔量会把「卡 1 次」和「卡 5 次全
+ * 自愈」塌缩成同一行，频率被掩盖——计数入报告（GPT 审计新提、成立）。 */
+stallCount: number;
+rebuildCount: number;
+fallbackCount: number;
 };
 
 export function analyzeFlow(entries: LogEntry[]): FlowResult | null {
@@ -77,8 +82,13 @@ const tail = entries.slice(startIdx);
 const t0 = tail[0].ts;
 const lastPid = entries.length? entries[entries.length - 1].pid: null;
 const sessionEntries = lastPid == null? entries: entries.filter(e => e.pid === lastPid);
-const stalledThisSession = sessionEntries.some(e => e.event === "web.hls.append_stall");
+const stallEvents = sessionEntries.filter(e => e.event === "web.hls.append_stall");
+const stalledThisSession = stallEvents.length > 0;
 const fallbackThisSession = sessionEntries.some(e => e.event === "web.playback.fallback");
+const stallCount = stallEvents.length;
+/* attempt=0 的卡死触发了自愈重建、attempt=1 的触发了降级判定 */
+const rebuildCount = stallEvents.filter(e => num(e.data.attempt) === 0).length;
+const fallbackCount = sessionEntries.filter(e => e.event === "web.playback.fallback").length;
 
 const reached = STAGES.map(stage => {
 const hit = tail.find(e => stage.events.includes(e.event));
@@ -110,7 +120,7 @@ verdict = "最近播放卡在 append（分片已下载、未入缓冲——appen
 } else {
 verdict = `最近播放卡在 ${furthest.label} 阶段`;
 }
-return { table: parts.join(" · "), verdict, startupMs, stalledThisSession, fallbackThisSession};
+return { table: parts.join(" · "), verdict, startupMs, stalledThisSession, fallbackThisSession, stallCount, rebuildCount, fallbackCount};
 }
 
 export async function buildDiagnosticReport(): Promise<string> {
@@ -179,9 +189,21 @@ lines.push(`当前线路：${currentHost}（自动选线 ${autoLineEnabled()? "�
 lines.push(`各线延迟${probeCount!= null? `（候选 ${probeCount} 条）`: ""}：${probeText}`);
 lines.push(`分片吞吐：${speedText}`);
 lines.push(`最近播放：${flow? `${flow.verdict}${flow.startupMs!= null? ` · 起播约 ${(flow.startupMs / 1000).toFixed(1)}s`: ""}`: "无最近播放记录"}`);
-if (fallback || flow?.fallbackThisSession) lines.push("会话降级：本会话已降级原生播放（append 停滞）");
-else if (flow?.stalledThisSession) lines.push("会话降级：发生过 append 卡死、已自愈重建（未降级）");
+const healCounts = flow && flow.stallCount > 0? `（本会话卡死 ${flow.stallCount} 次 · 自愈重建 ${flow.rebuildCount} 次 · 降级 ${flow.fallbackCount} 次）`: "";
+if (fallback || flow?.fallbackThisSession) lines.push(`会话降级：本会话已降级原生播放（append 停滞）${healCounts}`);
+else if (flow?.stalledThisSession) lines.push(`会话降级：发生过 append 卡死、已自愈重建（未降级）${healCounts}`);
 else lines.push("会话降级：未发生");
+/* 镜像覆盖（整改 2）：复用最近一轮自动选线的探测结果（10 分钟内），
+ * 不为生成报告重测；无近期轮次时只报固定+当前延迟（上方各线延迟行）。
+ * 原口径只有固定+当前 ≤6 条，与自动选线实际候选规模对不上，用户会
+ * 误判「只发现一条线路」。 */
+const round = lastPickRound();
+if (round && Date.now() - round.at < 10 * 60_000) {
+const measuredText = round.measured.length
+? round.measured.map(m => `${m.host} ${m.kbps != null? `${(m.kbps / 8000).toFixed(1)} MB/s`: "吞吐未测"}·${m.ms}ms`).join(" · ")
+: "无";
+lines.push(`镜像覆盖（${Math.max(0, Math.round((Date.now() - round.at) / 1000))} 秒前选线轮次）：发布 ${round.published?? "?"} 条 · 探测 ${round.probed?? "?"} 条（可达 ${round.okCount?? "?"}） · 吞吐实测 ${round.measured.length} 条：${measuredText}`);
+}
 lines.push("");
 lines.push("── 硬数据 ────────────────────────");
 const rt = obj(diag.runtime);
@@ -200,12 +222,14 @@ const bpp = facts.bitrateBps && facts.w > 0 && facts.h > 0
 ? (facts.bitrateBps / (facts.w * facts.h) / (facts.fps && facts.fps > 0? facts.fps: 30)).toFixed(3)
 : null;
 /* 码率未知必须显式写「未知」不静默省略（仓库不变量：未知不是空）——
-   码率缺失时超分密度判据无从复核，报告要让读者看见这个缺口。 */
-lines.push(`当前集源：${facts.w}x${facts.h}${kbps? ` · 码率 ${kbps} kbps`: " · 码率 未知"}${bpp? ` · 密度 bpp ${bpp}`: ""} · 超分档位 ${facts.srMode}${facts.engine? ` · 引擎 ${facts.engine}`: ""}`);
+   码率缺失时超分密度判据无从复核，报告要让读者看见这个缺口。编码
+   同理入报告：超分阈值按编码族缩放（整改 4），无编码无从复核判档。 */
+const codecText = facts.codec? ` · 编码 ${facts.codec.split(".")[0]}`: " · 编码 未知";
+lines.push(`当前集源：${facts.w}x${facts.h}${codecText}${kbps? ` · 码率 ${kbps} kbps`: " · 码率 未知"}${bpp? ` · 密度 bpp ${bpp}`: ""} · 超分档位 ${facts.srMode}${facts.engine? ` · 引擎 ${facts.engine}`: ""}`);
 } else {
 lines.push("当前集源：无（尚未播放）");
 }
-lines.push(`选线现状：当前 ${currentHost}${probeCount!= null? `；候选 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}`);
+lines.push(`选线现状：当前 ${currentHost}${round && Date.now() - round.at < 10 * 60_000? `；最近轮次探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}`);
 lines.push("");
 lines.push("── 最近一次播放流水 ──────────────");
 lines.push(flow? flow.table: "（无记录）");

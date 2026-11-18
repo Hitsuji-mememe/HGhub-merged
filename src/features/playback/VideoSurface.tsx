@@ -5,7 +5,7 @@ import { connectNativeMedia, noteNativeFallback, playbackSource } from "./mediaT
 import { AppendStallWatchdog } from "./appendStallWatchdog";
 import { mediaErrorMessage } from "./mediaErrors";
 import { mediaHost, mediaResource, observeHls, usePlayerDiagnostics } from "../../shared/diagnostics/playbackDiagnostics";
-import { publishPlaybackFacts } from "../../shared/diagnostics/playbackFacts";
+import { notePlaybackPlaying, publishPlaybackFacts } from "../../shared/diagnostics/playbackFacts";
 import { usePlaybackActivity } from "./usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "./useProxyPlaybackRecovery";
 import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
@@ -83,12 +83,15 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
    * 推导；密度取首个完整分片的实际码率（字节×8÷时长），起播即可估，
    * 取到后自动纠正档位。原生引擎无分片数据，密度留空走纯分辨率规则。 */
   const [srSize, setSrSize] = useState({ w: 0, h: 0 });
-  const [srDensity, setSrDensity] = useState<{ bitrateBps: number; fps?: number } | null>(null);
+  const [srDensity, setSrDensity] = useState<{ bitrateBps: number; fps?: number; codec?: string } | null>(null);
+  /* 码率样本（整改 4）：首分片对 VBR 源没代表性（片头黑场/Logo 会把
+   * 码率拉得极低），改取前 3 个完整分片的中位数；换源清零。 */
+  const srSamplesRef = useRef<number[]>([]);
   const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h, srDensity ?? undefined);
   /* 诊断报告的源规格读取点（收官批 D）：尺寸/密度/档位变化时发布快照 */
   useEffect(() => {
     if (srSize.w <= 0 || srSize.h <= 0) return;
-    publishPlaybackFacts({ w: srSize.w, h: srSize.h, bitrateBps: srDensity?.bitrateBps, fps: srDensity?.fps, srMode, engine: engineRef.current || undefined, at: Date.now() });
+    publishPlaybackFacts({ w: srSize.w, h: srSize.h, bitrateBps: srDensity?.bitrateBps, fps: srDensity?.fps, codec: srDensity?.codec, srMode, engine: engineRef.current || undefined, at: Date.now() });
   }, [srSize, srDensity, srMode]);
   const { trace, requestSeek } = usePlayerDiagnostics(videoRef, hlsRef, { ...diagnosticContext, active, resource: mediaResource(src) });
   const activity = usePlaybackActivity(videoRef, hlsRef, { active, autoPlay, src, trace });
@@ -115,6 +118,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     reportedSizeRef.current = { key: "", w: 0, h: 0 };
     setSrSize({ w: 0, h: 0 });
     setSrDensity(null);
+    srSamplesRef.current = [];
     reportSize(videoRef.current);
   }, [measurementKey, src, active]);
 
@@ -224,9 +228,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       stallWatchdog = new AppendStallWatchdog({
         hasBuffered: () => { try { return video.buffered.length > 0 && video.buffered.end(video.buffered.length - 1) > 0; } catch { return false; } },
         isPlaying: () => !video.paused && video.readyState >= 2,
-        onStall: () => {
+        onStall: (state) => {
           if (hlsRef.current !== hls) return;
-          trace("hls.append_stall", { attempt: stallAttemptRef.current });
+          trace("hls.append_stall", { attempt: stallAttemptRef.current, state });
           if (stallAttemptRef.current < 1) {
             stallAttemptRef.current += 1;
             proxyRecovery.retry("append_stall", true);
@@ -237,16 +241,25 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       });
       watchdogPlaying = () => stallWatchdog?.playing();
       video.addEventListener("playing", watchdogPlaying);
+      /* append 生命周期信号（整改 1 四状态判死）：开始/结束喂给看门狗，
+       * 到点时据此区分未开始/处理中/已结束无缓冲，处理中先宽限不误杀。 */
+      hls.on(Hls.Events.BUFFER_APPENDING, () => stallWatchdog?.appendStarted());
+      hls.on(Hls.Events.BUFFER_APPENDED, () => stallWatchdog?.appendEnded());
       /* 分片吞吐上报（2.0.5 卡顿自愈，Muse 2026-11-18 移植）：只报整片，耗时取 stats.loading 起止差 */
       hls.on(Hls.Events.FRAG_LOADED, (_e, data) => {
         if (data.part || typeof data.frag.sn !== "number") return;
         stallWatchdog?.fragLoaded();
         const st = data.frag.stats;
-        /* 超分密度：首个完整分片的实际码率（收官批 C 项） */
-        if (st.loaded > 0 && data.frag.duration > 0) {
-          const bps = (st.loaded * 8) / data.frag.duration;
-          const fps = hls.levels[data.frag.level]?.frameRate;
-          setSrDensity(prev => prev ?? { bitrateBps: bps, fps: fps && fps > 0 ? fps : undefined });
+        /* 超分密度（收官批 C 项 + 整改 4）：完整分片实际码率取前 3 片
+         * 中位数（单片对 VBR 无代表性）；fps/codec 取自 manifest level，
+         * 供判档按编码分阈值、fps 未知时走保守档。 */
+        if (st.loaded > 0 && data.frag.duration > 0 && srSamplesRef.current.length < 3) {
+          srSamplesRef.current = [...srSamplesRef.current, (st.loaded * 8) / data.frag.duration];
+          const sorted = [...srSamplesRef.current].sort((a, b) => a - b);
+          const median = sorted[Math.floor(sorted.length / 2)];
+          const level = hls.levels[data.frag.level];
+          const fps = level?.frameRate;
+          setSrDensity({ bitrateBps: median, fps: fps && fps > 0 ? fps : undefined, codec: level?.videoCodec || undefined });
         }
         const cb = fragStatsCbRef.current;
         if (!cb) return;
@@ -272,6 +285,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
 
     return () => {
       attachedSource.current = null;
+      notePlaybackPlaying(false);
       disconnectNative?.();
       stallWatchdog?.dispose();
       if (watchdogPlaying) video.removeEventListener("playing", watchdogPlaying);
@@ -344,10 +358,11 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         onDuration?.(v.duration || 0);
         reportSize(v);
       }}
-      onPlay={() => { if (activity.isActive()) onPlaying?.(); }}
-      onPause={() => onPause?.()}
+      onPlay={() => { notePlaybackPlaying(true); if (activity.isActive()) onPlaying?.(); }}
+      onPause={() => { notePlaybackPlaying(false); onPause?.(); }}
       onWaiting={() => onWaiting?.()}
       onPlaying={(e) => {
+        notePlaybackPlaying(true);
         reportSize(e.target as HTMLVideoElement);
         if (activity.isActive()) onPlaying?.();
       }}
@@ -361,6 +376,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         ready={ready}
         fit={fit}
         srcKey={src}
+        fps={srDensity?.fps}
         onFallbackChange={setSvgFallback}
         onTrace={trace}
       />

@@ -46,7 +46,8 @@ export function useStallHeal(deps: {
     fragWindowRef.current = [];
     lastStallAtRef.current = 0;
     tracePlayback("line.stallHeal", { stage: "trigger", video_id: curId, episode: curEp, frag_kbps: rates, heal_count: hs.counts[playKey] });
-    void pickLine("stall", true).then(() => {
+    /* 播放卡顿自愈 = 故障路径：urgent 绕过选线两轮确认（整改 5） */
+    void pickLine("stall", true, true).then(() => {
       if (healStateRef.current.pendingKey === playKey) healStateRef.current.pendingKey = null;
     });
   };

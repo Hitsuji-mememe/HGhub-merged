@@ -196,7 +196,8 @@ export const api = {
   lineCancel: () => call<void>("line_cancel"),
   lineMirrors: () => call<LineMirrors>("line_mirrors"),
   lineProbe: (urls: string[]) => call<LineProbe[]>("line_probe", { urls }),
-  lineAuto: () => call<LineAuto>("line_auto"),
+  /* urgent=true 为故障路径（当前线连挂/卡顿自愈）：绕过两轮确认立即切 */
+  lineAuto: (urgent = false) => call<LineAuto>("line_auto", { urgent }),
   /* 当前是镜像时敲一次主站，通了就切回（不清会话） */
   lineTryMain: () => call<LineTryMain>("line_try_main"),
   /* 线路体检：探一次 /api/videos，和自动选线同一判据 */
@@ -252,10 +253,12 @@ export type ProxyProbe = { ok: boolean; status?: number | null; ms: number; erro
 export type LineAutoCandidate = {
   tier: "main" | "cn" | "mirror";
   url: string;
-  ok: boolean;
-  reachable: boolean;
+  /* 延迟探测候选带 ok/reachable/status；吞吐实测候选（排名后）带 kbps */
+  ok?: boolean;
+  reachable?: boolean;
   ms: number;
-  status: number | null;
+  status?: number | null;
+  kbps?: number | null;
 };
 export type LineAuto = {
   cancelled?: boolean;
@@ -268,6 +271,12 @@ export type LineAuto = {
     ms: number;
     reason: string;
     candidates: LineAutoCandidate[];
+    /* 本轮覆盖计数（整改 2）：发布镜像数 / 实际探测数 / 可达数 */
+    published?: number;
+    probed?: number;
+    okCount?: number;
+    /* 两轮确认首轮的待确认胜者（整改 5），确认前 base 仍是当前线 */
+    pendingWinner?: string;
   };
 };
 
