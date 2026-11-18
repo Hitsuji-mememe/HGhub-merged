@@ -59,7 +59,8 @@ export default function Player({
   const setRate = store.setRate;
   /* 超分全自动（2026-11-18）：档位由 srPref + 本源分辨率推导，入口已撤 */
   const [srSize, setSrSize] = useState({ w: 0, h: 0 });
-  const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h);
+  const [srDensity, setSrDensity] = useState<{ bitrateBps: number; fps?: number } | null>(null);
+  const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h, srDensity ?? undefined);
   const seek = useSeekInput({ time, duration, enabled: active && !controlsLocked, resetKey: src,
     onInteraction: (phase, input, target, pointerTarget) => trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget }),
     onSeek: (target, input) => {
@@ -81,6 +82,7 @@ export default function Player({
     if (!video || !src) return;
     setErrMsg("");
     setWaiting(false);
+    setSrDensity(null);
     const resume = proxyRecovery.resume();
     const source = playbackSource(src, Hls.isSupported());
     let disconnectNative: (() => void) | undefined;
@@ -135,6 +137,14 @@ export default function Player({
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (activity.isActive()) hls.startLoad(resume?.time ?? -1);
         if (autoPlay && !resume) activity.play("manifest_autoplay", true);
+      });
+      /* 超分密度：首个完整分片实际码率（与 VideoSurface 同口径，收官批 C 项） */
+      hls.on(Hls.Events.FRAG_LOADED, (_e, data) => {
+        if (data.part || typeof data.frag.sn !== "number") return;
+        const st = data.frag.stats;
+        if (st.loaded <= 0 || !(data.frag.duration > 0)) return;
+        const fps = hls.levels[data.frag.level]?.frameRate;
+        setSrDensity(prev => prev ?? { bitrateBps: (st.loaded * 8) / data.frag.duration, fps: fps && fps > 0 ? fps : undefined });
       });
       hls.on(Hls.Events.FRAG_BUFFERED, () => {
         recovery.buffered();

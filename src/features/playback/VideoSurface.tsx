@@ -71,9 +71,12 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const [ready, setReady] = useState(false);
   const [svgFallback, setSvgFallback] = useState(false);
   const store = useStore();
-  /* 超分全自动（2026-11-18）：档位由 srPref + 本源分辨率推导，不再读手动档 */
+  /* 超分全自动（2026-11-18 收官批）：档位由 srPref + 源分辨率 + 码率密度
+   * 推导；密度取首个完整分片的实际码率（字节×8÷时长），起播即可估，
+   * 取到后自动纠正档位。原生引擎无分片数据，密度留空走纯分辨率规则。 */
   const [srSize, setSrSize] = useState({ w: 0, h: 0 });
-  const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h);
+  const [srDensity, setSrDensity] = useState<{ bitrateBps: number; fps?: number } | null>(null);
+  const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h, srDensity ?? undefined);
   const { trace, requestSeek } = usePlayerDiagnostics(videoRef, hlsRef, { ...diagnosticContext, active, resource: mediaResource(src) });
   const activity = usePlaybackActivity(videoRef, hlsRef, { active, autoPlay, src, trace });
   const proxyRecovery = useProxyPlaybackRecovery(videoRef, src, activity, trace);
@@ -98,6 +101,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     // A newly selected source is ignored until its transport has been attached.
     reportedSizeRef.current = { key: "", w: 0, h: 0 };
     setSrSize({ w: 0, h: 0 });
+    setSrDensity(null);
     reportSize(videoRef.current);
   }, [measurementKey, src, active]);
 
@@ -199,9 +203,16 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       observeHls(hls, trace);
       /* 分片吞吐上报（2.0.5 卡顿自愈，Muse 2026-11-18 移植）：只报整片，耗时取 stats.loading 起止差 */
       hls.on(Hls.Events.FRAG_LOADED, (_e, data) => {
-        const cb = fragStatsCbRef.current;
-        if (!cb || data.part || typeof data.frag.sn !== "number") return;
+        if (data.part || typeof data.frag.sn !== "number") return;
         const st = data.frag.stats;
+        /* 超分密度：首个完整分片的实际码率（收官批 C 项） */
+        if (st.loaded > 0 && data.frag.duration > 0) {
+          const bps = (st.loaded * 8) / data.frag.duration;
+          const fps = hls.levels[data.frag.level]?.frameRate;
+          setSrDensity(prev => prev ?? { bitrateBps: bps, fps: fps && fps > 0 ? fps : undefined });
+        }
+        const cb = fragStatsCbRef.current;
+        if (!cb) return;
         const loadMs = st.loading.end > 0 && st.loading.end >= st.loading.start ? st.loading.end - st.loading.start : 0;
         if (loadMs <= 0 || st.loaded <= 0) return;
         cb({ bytes: st.loaded, loadMs, fragDuration: data.frag.duration || 0, bitrate: hls.levels[data.frag.level]?.bitrate ?? 0 });

@@ -107,7 +107,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
               <span className="ios-setting-icon"><ISparkF size={16} /></span>
               <div className="flex-1 min-w-0">
                 <div className="text-[14px] text-on">画质超分</div>
-                <div className="text-[12px] text-mut">自动：按每集源分辨率选档（低清强效 / 高清直通）；关闭：原画直通</div>
+                <div className="text-[12px] text-mut">自动：按源分辨率＋码率密度选档（低清/糊源强效 · 真高清直通）；关闭：原画直通</div>
               </div>
               <SegmentedControl aria-label="画质超分模式" activeIndex={srPref === "auto" ? 0 : 1}>
                 {([["auto", "自动"], ["off", "关闭"]] as const).map(([value, label]) => (

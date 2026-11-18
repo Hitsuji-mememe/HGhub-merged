@@ -78,21 +78,51 @@ export function getSvgFilterUrl(mode: SuperResMode): string | undefined {
   return mode === "off" ? undefined : `url(#hg-sr-filter-${mode})`;
 }
 
-/** 超分全自动选档（2026-11-18 用户裁定）：用户只在设置页留 自动/关闭 覆盖项，
- * 具体档位按每集源分辨率自动定，不再手动选。判据用源短边（即通称的
- * 480p/720p/1080p 口径，竖屏源取宽、横屏源取高）：
- *   短边 ≤480  → crisp（强效超分，专为模糊低清源）
- *   短边 481–720 → natural（轻锐化抗锯齿）
- *   短边 >720  → off（真高清原画直通，超分只增 GPU 负担不增信息）
- * 尺寸未知（元数据未到）先 natural，与旧默认一致，测得后自动纠正。
- * 风格档（cinema/anime_*）无法从分辨率推断，自动模式不选它们。 */
-export function effectiveSrMode(pref: SrPref, w: number, h: number): SuperResMode {
+/** 源的码率密度：bits/pixel/frame（实际码率 ÷ 像素数 ÷ 帧率）。
+ * 帧率未知按 30 估。码率或尺寸缺失返回 null（判档退回纯分辨率规则）。 */
+export function srBpp(w: number, h: number, bitrateBps?: number, fps?: number): number | null {
+  if (!w || !h || !bitrateBps || bitrateBps <= 0) return null;
+  const rate = fps && fps > 0 ? fps : 30;
+  return bitrateBps / (w * h) / rate;
+}
+
+/* 密度分界（2026-11-18 收官批按平台真实采样定，16 集首分片实测）：
+ * 健康源 bpp 集中在 0.118–0.191；饿死源 0.028/0.042（720p 却只有
+ * 1.2–1.5Mbps）；中间带 0.061–0.099。分界取 0.11 / 0.06：
+ *   bpp ≥0.11 高密度（码率喂饱了像素）／0.06–0.11 中密度／<0.06 低密度。 */
+export const SR_BPP_HIGH = 0.11;
+export const SR_BPP_LOW = 0.06;
+
+/** 超分全自动选档（2026-11-18 收官批重做）：用户只在设置页留 自动/关闭
+ * 覆盖项。旧规则只看分辨率短边，被用户质疑「1080p 一律关」不合理——
+ * 改为短边 + 码率密度（bpp，见 srBpp）双判据：
+ *   短边 ≤480            → crisp（低清源强效）
+ *   bpp <0.06（低密度）   → crisp（假高清/糊源：像素多但信息少，强效补）
+ *   bpp 0.06–0.11（中）   → natural（轻锐化）
+ *   bpp ≥0.11（高密度）   → 短边 >720 off（真高清直通）；≤720 natural
+ *                            （720 显示时仍被放大 ~1.6×，轻锐化跟得上）
+ * 密度未知（原生引擎/首分片未到）退回旧纯分辨率规则，测得后自动纠正。
+ * 尺寸未知先 natural。风格档（cinema/anime_*）自动模式不选。 */
+export function effectiveSrMode(pref: SrPref, w: number, h: number, density?: { bitrateBps?: number; fps?: number }): SuperResMode {
   if (pref === "off") return "off";
   const short = Math.min(w || 0, h || 0);
   if (short <= 0) return "natural";
   if (short <= 480) return "crisp";
-  if (short <= 720) return "natural";
-  return "off";
+  const bpp = srBpp(w, h, density?.bitrateBps, density?.fps);
+  if (bpp == null) return short <= 720 ? "natural" : "off";
+  if (bpp < SR_BPP_LOW) return "crisp";
+  if (bpp < SR_BPP_HIGH) return "natural";
+  return short > 720 ? "off" : "natural";
+}
+
+/** 性能降档阶梯（会话内）：crisp → natural → off。自动档只产这三档；
+ * 手动风格档降一档直接落 off（风格滤镜没有中间态）。 */
+export function srDemote(mode: SuperResMode, steps: number): SuperResMode {
+  if (steps <= 0 || mode === "off") return mode;
+  const ladder: SuperResMode[] = ["crisp", "natural", "off"];
+  const idx = ladder.indexOf(mode);
+  if (idx < 0) return "off";
+  return ladder[Math.min(ladder.length - 1, idx + steps)];
 }
 
 /**
@@ -682,6 +712,11 @@ export default function SuperResCanvas({
   const glRef = useRef<GlPipeline | null>(null);
   const [svgFallback, setSvgFallback] = useState(false);
   const [canvasReady, setCanvasReady] = useState(false);
+  /* 性能兜底（2026-11-18 收官批）：SR 单帧成本持续超标自动降一档（会话内，
+   * 换源复位）。只统计播放中的帧；静态重绘不计。 */
+  const [demote, setDemote] = useState(0);
+  const frameCostRef = useRef({ sum: 0, n: 0 });
+  const activeMode = srDemote(mode, demote);
 
   const verifiedRef = useRef(false);
   const blackFramesRef = useRef(0);
@@ -690,11 +725,11 @@ export default function SuperResCanvas({
   const drawFrameRef = useRef<(() => void) | null>(null);
   const syncSizeRef = useRef<(() => void) | null>(null);
 
-  const modeRef = useRef(mode);
+  const modeRef = useRef(activeMode);
   const fitRef = useRef(fit);
   const activeRef = useRef(active);
   const readyRef = useRef(ready);
-  modeRef.current = mode;
+  modeRef.current = activeMode;
   fitRef.current = fit;
   activeRef.current = active;
   readyRef.current = ready;
@@ -708,11 +743,13 @@ export default function SuperResCanvas({
     onTrace?.("sr.svg_fallback", { reason, mode: modeRef.current });
   };
 
-  // 换源时重置像素健康自检
+  // 换源时重置像素健康自检与性能降档
   useEffect(() => {
     verifiedRef.current = false;
     blackFramesRef.current = 0;
     fallbackReportedRef.current = false;
+    frameCostRef.current = { sum: 0, n: 0 };
+    setDemote(0);
     setSvgFallback(false);
     setCanvasReady(false);
     onFallbackChange?.(false);
@@ -781,7 +818,7 @@ export default function SuperResCanvas({
     const video = videoRef.current as VideoWithVfc | null;
     const canvas = canvasRef.current;
     const pipe = glRef.current;
-    if (!video || !canvas || !pipe || svgFallback || mode === "off" || !active) {
+    if (!video || !canvas || !pipe || svgFallback || activeMode === "off" || !active) {
       return;
     }
 
@@ -800,6 +837,7 @@ export default function SuperResCanvas({
       if (cw <= 0 || ch <= 0) return;
 
       const { gl, prog, tex, vao, uTex, uCanvasSize, uVideoSize, uFit, uMode } = pipe;
+      const costStart = video.paused ? 0 : performance.now();
       try {
         gl.viewport(0, 0, cw, ch);
         gl.useProgram(prog);
@@ -850,6 +888,20 @@ export default function SuperResCanvas({
             blackFramesRef.current += 1;
             if (blackFramesRef.current >= 8 && video.currentTime >= 0.45) {
               triggerFallback("black_texture_samples");
+            }
+          }
+        }
+        // 性能兜底采样：60 帧窗口平均成本 >16ms 且还能降 → 降一档并重开窗口
+        if (costStart) {
+          const cost = frameCostRef.current;
+          cost.sum += performance.now() - costStart;
+          cost.n += 1;
+          if (cost.n >= 60) {
+            const avg = cost.sum / cost.n;
+            frameCostRef.current = { sum: 0, n: 0 };
+            if (avg > 16 && srDemote(mode, demote + 1) !== activeMode) {
+              onTrace?.("sr.perf_demote", { from: activeMode, to: srDemote(mode, demote + 1), avg_ms: Math.round(avg * 10) / 10 });
+              setDemote(demote + 1);
             }
           }
         }
@@ -917,9 +969,9 @@ export default function SuperResCanvas({
       video.removeEventListener("pause", onPauseOrSeek);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, active, ready, fit, svgFallback, srcKey]);
+  }, [mode, demote, active, ready, fit, svgFallback, srcKey]);
 
-  const showCanvas = mode !== "off" && active && ready && !svgFallback && canvasReady;
+  const showCanvas = activeMode !== "off" && active && ready && !svgFallback && canvasReady;
 
   return (
     <canvas
