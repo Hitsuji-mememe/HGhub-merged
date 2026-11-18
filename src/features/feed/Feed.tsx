@@ -1579,9 +1579,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           <Button onClick={goBack} aria-label="返回" className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
             <IBack size={20} />
           </Button>
-          <span className="flex-1 text-center text-[13px] font-semibold text-[#A1A5AD] hg-ov-shadow tabular-nums">
+          {/* 集数定位：竖屏居中；真实全屏（横屏）时居中会压在画面主体
+              （人脸）上（2026-11-18 晚用户真机截图裁定），改贴左跟在返回
+              钮之后，右侧用占位把静音钮顶回右缘。 */}
+          <span className={fs ? "text-[13px] font-semibold text-[#A1A5AD] hg-ov-shadow tabular-nums" : "flex-1 text-center text-[13px] font-semibold text-[#A1A5AD] hg-ov-shadow tabular-nums"}>
             {episodes.length > 1 ? `第 ${curEp} 集 / 共 ${episodes.length} 集` : "正片"}
           </span>
+          {fs && <span className="flex-1" />}
           <Button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"} className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
             {muted ? <IVolMute size={18} /> : <IVol size={18} />}
           </Button>
