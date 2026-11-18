@@ -1,6 +1,7 @@
 //! Upstream lines and mirrors published by the upstream address pages.
 //! Publisher scripts are parsed as data; remote JavaScript is never executed.
 
+pub(crate) mod ledger;
 mod mirror;
 mod probe;
 

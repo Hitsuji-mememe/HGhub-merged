@@ -259,6 +259,22 @@ pub async fn auto_pick(urgent: bool) -> Value {
     result["published"] = json!(published);
     result["probed"] = json!(probed);
     result["okCount"] = json!(ok_count);
+    /* 被动记账（U2 一期）：pick_ranked 的 candidates 带每条候选经真实
+     * 首分片测得的 kbps（未测到的为 null），回写账本 EWMA。只记
+     * origin 与聚合吞吐，不记分片 URL；all-down 结果的 candidates
+     * 是 hits 形状、无 kbps 字段，自然跳过。 */
+    if let Some(candidates) = result.get("candidates").and_then(Value::as_array) {
+        for candidate in candidates {
+            if let (Some(url), Some(kbps)) = (
+                candidate.get("url").and_then(Value::as_str),
+                candidate.get("kbps").and_then(Value::as_u64),
+            ) {
+                if kbps > 0 {
+                    super::ledger::record_throughput(url, kbps.saturating_mul(1000));
+                }
+            }
+        }
+    }
     /* 两轮确认（整改 5）：决策在 confirm_gate（纯函数，契约见其
      * tests）；锁失败按放行处理（不拦截、不改结果，与原内联实现
      * 一致）。拦截时把 base 改回当前线并标 reason=confirm-pending，

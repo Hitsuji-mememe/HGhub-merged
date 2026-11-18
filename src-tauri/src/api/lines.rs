@@ -118,27 +118,48 @@ pub async fn line_probe(urls: Vec<String>) -> Result<Value, String> {
 pub async fn line_auto(state: State<'_, Api>, urgent: Option<bool>) -> Result<Value, String> {
     let selection = begin_line_selection()?;
     crate::net::refresh_client();
-    let pick = crate::lines::auto_pick(urgent.unwrap_or(false)).await;
+    let urgent = urgent.unwrap_or(false);
+    if urgent {
+        // 被动记账（U2 一期）：urgent 入口即前端播放卡顿/健康连挂的
+        // 自愈路径，这次触发本身就是当前线路的一次卡顿事件。
+        crate::lines::ledger::record_event(&base(), crate::lines::ledger::LineEvent::Stall);
+    }
+    let pick = crate::lines::auto_pick(urgent).await;
     let chosen = pick
         .get("base")
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
     let mut switched = false;
+    let mut breaker_blocked = false;
     let generation = LINE_SELECTION.lock().map_err(|_| "线路选择锁失败")?;
     let previous = base();
     if *generation == selection
         && pick.get("reason").and_then(Value::as_str) != Some("all-down")
         && !chosen.is_empty() && chosen != previous {
-        let next = crate::net::set_base(&chosen)?;
-        crate::net::refresh_client();
-        switched = next != previous;
-        if switched { state.session.rebase_or_clear(&next, crate::session::rebase_trust); }
+        // 会话熔断（U2 一期）：只拦自动切换，手动命令不经此路。拦下
+        // 时保持当前线路正常返回、不报错——当前线还能播就继续播，
+        // 熔断的窗口/退避到期后下一次自动选线自动恢复尝试。
+        if crate::lines::ledger::auto_switch_allowed(&chosen) {
+            let next = crate::net::set_base(&chosen)?;
+            crate::net::refresh_client();
+            switched = next != previous;
+            if switched {
+                crate::lines::ledger::note_auto_switch(&previous, &next);
+                crate::lines::ledger::record_event(&previous, crate::lines::ledger::LineEvent::Fallback);
+                crate::lines::ledger::record_event(&next, crate::lines::ledger::LineEvent::Recovery);
+                state.session.rebase_or_clear(&next, crate::session::rebase_trust);
+            }
+        } else {
+            breaker_blocked = true;
+            crate::playback_log::record("line.auto_switch_blocked", json!({ "reason": "breaker" }));
+        }
     }
     Ok(json!({
         "previous": previous,
         "base": crate::net::base(),
         "switched": switched,
+        "breakerBlocked": breaker_blocked,
         "cancelled": *generation != selection,
         "pick": pick,
     }))
