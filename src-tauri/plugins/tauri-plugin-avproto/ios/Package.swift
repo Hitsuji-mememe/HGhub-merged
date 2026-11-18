@@ -1,5 +1,7 @@
-// swift-tools-version:5.3
+// swift-tools-version:5.9
 // The swift-tools-version declares the minimum version of Swift required to build this package.
+// 5.9 起 PackageDescription 才有 .iOS(.v15)（Muse 2026-11-19：5.3 清单 API
+// 无 v15，CI 首跑在此红过）；应用最低系统 15.0 与此对齐。
 
 import PackageDescription
 
