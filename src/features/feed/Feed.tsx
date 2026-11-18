@@ -9,6 +9,7 @@ import { useStore } from "../../shared/model/store";
 import { Img, Sheet } from "../../shared/ui/ui";
 import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
 import { DesktopSocialButtons, MobileActionRail, useSocialCounts } from "./ActionRail";
+import { LandHint } from "./LandHint";
 import { setBackHandler } from "../../shared/lib/back";
 import { copyText } from "../../shared/lib/clipboard";
 import {
@@ -165,8 +166,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const keepAliveTimers = useRef<number[]>([]);
   /* 双指缩放：scale 1~4，平移跟手指 */
   const [zoom, setZoom] = useState({ s: 1, x: 0, y: 0, g: false });
-  /* 竖屏下看横屏视频：contain = 完整显示，cover = 放大铺满 */
-  const [portraitFit, setPortraitFit] = useState<"contain" | "cover">("contain");
+  /* 横屏观看偏好（蓝图 P3）："" 未表态 / "landscape" 点过横屏观看 / "stay" 关过提示；
+     横屏源 fit 恒 contain 不裁切（原 portraitFit 铺满切换随蓝图回退，缩放仍可手动裁） */
+  const [landPref, setLandPref] = useState(() => { try { return localStorage.getItem("hghub_land_pref") || ""; } catch { return ""; } });
+  const landAutoKeyRef = useRef("");
   /* 单击/双击判定（上游 v2.2.0 lastTapRef 同位）：第一击的显隐快照 + 判定计时器；
      immersedKeyRef：开场默认沉浸（蓝图 P0）守卫——每集首次真正起播时收起控件
      一次（默认态只有视频），同一集内 seek/缓冲恢复不重复收起 */
@@ -590,7 +593,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     setPlayingKey("");
     resetHealWindow();
     playbackClock.publish(0);
-    setPortraitFit("contain");
   }, [playKey]);
 
   /* 音量/静音同步 */
@@ -938,6 +940,16 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
   }, [isDesktop, keepAlive, resolveSwipe, effectiveVideoIds.length, setClean, setFs, wake]);
 
+  /* 横屏偏好自动进横屏（蓝图 P3）：偏好为 landscape 时，横屏源每集首次
+     激活自动进横屏（landAutoKey 按集守卫——手动退出后不被拉回，下一集
+     再自动进）；进横屏复用同一播放元素，不重置进度。 */
+  useEffect(() => {
+    if (!isDesktop && active && kind === "video" && landscapeVideo && !fs && !vpLandscape && landPref === "landscape" && landAutoKeyRef.current !== playKey) {
+      landAutoKeyRef.current = playKey;
+      enterFs(true);
+    }
+  }, [isDesktop, active, kind, landscapeVideo, fs, vpLandscape, landPref, playKey, enterFs]);
+
   const exitFs = useCallback(() => {
     /* 退全屏回普通态先全显控件（恢复入口优先，解耦版）；之后显隐由单击决定 */
     setClean(false);
@@ -1209,7 +1221,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   diagnosticContext={{ active: active && !tagMenu && !showHoldGuide, view: mode, kind, video_id: curId, episode: curEp }}
                   volume={volume} rate={effRate}
                   measurementKey={measurementKey}
-                  fit={!isDesktop && landscapeVideo && !fs && !vpLandscape ? portraitFit : "contain"}
+                  fit="contain"
                   onClick={() => { if (isDesktop) videoRef.current?.toggle(); }}
                   onTime={onTimeTick}
                   onDuration={onDurationTick}
@@ -1304,14 +1316,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     ? "inline-flex items-center gap-0.5 min-h-8 px-1 rounded-full backdrop-blur-xl elev-2 whitespace-nowrap"
                     : "flex flex-col items-stretch gap-1 p-1 rounded-[18px] backdrop-blur-xl elev-2"}
                     style={{ background: "rgba(12,15,22,.58)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.09)" }}>
-                    {landscapeVideo && (
+                    {landscapeVideo && zoom.s > 1.05 && (
                       <>
-                        <Button type="button" onClick={() => {
-                          if (zoom.s > 1.05) { setZoom({ s: 1, x: 0, y: 0, g: false }); setPortraitFit("contain"); }
-                          else setPortraitFit((f) => (f === "contain" ? "cover" : "contain"));
-                        }} className="whitespace-nowrap flex items-center justify-center gap-1 h-[26px] px-3 rounded-full text-[12px] font-semibold pressable transition-colors duration-150"
+                        <Button type="button" onClick={() => setZoom({ s: 1, x: 0, y: 0, g: false })}
+                          className="whitespace-nowrap flex items-center justify-center gap-1 h-[26px] px-3 rounded-full text-[12px] font-semibold pressable transition-colors duration-150"
                           style={{ color: "rgba(255,255,255,.9)" }}>
-                          {zoom.s > 1.05 ? `还原 ${zoom.s.toFixed(1)}x` : portraitFit === "contain" ? "铺满" : "适应"}
+                          {`还原 ${zoom.s.toFixed(1)}x`}
                         </Button>
                         <Button type="button" onClick={() => enterFs(true)}
                           className="whitespace-nowrap flex items-center justify-center gap-1 h-[26px] px-3 rounded-full text-[12px] font-semibold pressable transition-colors duration-150"
@@ -1622,6 +1632,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             </div>
           </div>
         </div>
+      )}
+
+      {/* 横屏轻提示（蓝图 P3）：仅未表态时、横屏源、非全屏、竖屏视口出现一次 */}
+      {!isDesktop && kind === "video" && landscapeVideo && !fs && !vpLandscape && active && !landPref && (
+        <LandHint bottom={`calc(var(--sab, 0px) + ${bottomInset + 64}px)`}
+          onAccept={() => { setLandPref("landscape"); try { localStorage.setItem("hghub_land_pref", "landscape"); } catch { /* ignore */ } enterFs(true); }}
+          onDismiss={() => { setLandPref("stay"); try { localStorage.setItem("hghub_land_pref", "stay"); } catch { /* ignore */ } }} />
       )}
 
       {/* 选集 / 详情 / 评论三页签面板：桌面停靠在右侧（画面让位），移动端底部弹层。
