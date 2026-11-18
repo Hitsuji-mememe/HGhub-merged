@@ -14,10 +14,10 @@ type VideoMeta = {
 };
 
 /** One details body for the mobile sheet and desktop dock. */
-export default function VideoDetailsPanel({ meta, videoId, episodeCount, related, following, followPending,
+export default function VideoDetailsPanel({ meta, videoId, episodeCount, related, following, followPending, canFollow,
   onFollow, onTag, onAuthor, onRelated, onClose, onPreferences }: {
   meta: VideoMeta; videoId: number; episodeCount: number; related: VideoCard[];
-  following: boolean; followPending: boolean; onFollow: () => void; onTag: (tag: string) => void;
+  following: boolean; followPending: boolean; canFollow: boolean; onFollow: () => void; onTag: (tag: string) => void;
   onAuthor: () => void; onRelated: (video: VideoCard) => void; onClose?: () => void; onPreferences: () => void;
 }) {
   return <div className="video-details-panel" data-video-details>
@@ -50,7 +50,9 @@ export default function VideoDetailsPanel({ meta, videoId, episodeCount, related
           <Avatar size={36} name={meta.author} hue={220} />
           <span className="min-w-0"><span className="block text-[14px] font-semibold truncate">{meta.author}</span><span className="text-[12px] text-mut">作者主页</span></span>
         </Button>
-        {meta.authorId > 0 && <Button onClick={onFollow} disabled={followPending} aria-busy={followPending} aria-pressed={following}
+        {/* 收官批 B：关注是账号动作，游客不显示（原点击只弹登录框，死入口）；
+            作者主页入口保留（游客可浏览作者作品）。 */}
+        {meta.authorId > 0 && canFollow && <Button onClick={onFollow} disabled={followPending} aria-busy={followPending} aria-pressed={following}
           className={`video-details-follow ${following ? "bg-s3 text-mut" : "bg-primary text-on-primary"}`}>
           {followPending ? "处理中…" : following ? "已关注" : "+ 关注"}
         </Button>}

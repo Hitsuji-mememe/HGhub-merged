@@ -8,7 +8,7 @@ import type { Detail, Episode, PlayInfo, Post, VideoCard } from "../../shared/ap
 import { useStore } from "../../shared/model/store";
 import { Img, Sheet } from "../../shared/ui/ui";
 import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
-import { DesktopSocialButtons, useSocialCounts } from "./ActionRail";
+import { useSocialCounts } from "./ActionRail";
 import { LandHint } from "./LandHint";
 import { useProgressFlush } from "./useProgressFlush";
 import { setBackHandler } from "../../shared/lib/back";
@@ -1159,7 +1159,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const { likeCount, collectCount } = useSocialCounts(meta, detail, kind, curEp, liked, collected);
 
   const detailBody = (onClose?: () => void) => <VideoDetailsPanel meta={meta} videoId={curId} episodeCount={episodes.length}
-    related={related} following={store.follows.includes(meta.authorId)} followPending={followPending}
+    related={related} following={store.follows.includes(meta.authorId)} followPending={followPending} canFollow={!!user}
     onFollow={() => void onFollow()} onTag={openTag} onClose={onClose} onPreferences={openTagMenu}
     onAuthor={() => { if (meta.authorId > 0) { closePanels(); store.push({ kind: "user", id: meta.authorId, name: meta.author }); } }}
     onRelated={video => { closePanels(); store.push({ kind: "feed", videoIds: related.map(item => item.id), index: related.findIndex(item => item.id === video.id), title: "相关推荐" }); }} />;
@@ -1375,14 +1375,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 </div>
 
                 {kind === "video" && (
-                  <>
-                    <DesktopSocialButtons liked={liked} likeCount={likeCount} onLike={() => void onLike()} likePending={likePending} collected={collected}
-                      collectLabel={meta.collect} onFav={() => void onFav()} collectPending={collectPending} commentCount={meta.comment} onComments={() => setPanel("comments")} />
-                    <Button onClick={() => setPanel("episodes")} aria-label="选集" className="flex flex-col items-center gap-1 pressable">
-                      <IList size={26} className="text-white tsh" />
-                      <span className="text-[12px] text-white/90">选集</span>
-                    </Button>
-                  </>
+                  <Button onClick={() => setPanel("episodes")} aria-label="选集" className="flex flex-col items-center gap-1 pressable">
+                    <IList size={26} className="text-white tsh" />
+                    <span className="text-[12px] text-white/90">选集</span>
+                  </Button>
                 )}
 
               </div>
