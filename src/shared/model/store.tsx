@@ -122,6 +122,11 @@ function normalizeHistory(raw: unknown): WatchProgress[] {
 function loadPersist(): Persist {
   try {
     const raw = readStorage(LS);
+    /* swipeEp 的值不再使用（恒 false），但这一读必须保留：readStorage
+       在读时把旧键 hghub_swipe_ep_v2 复制到新键并清旧键（存储不变量
+       7），删掉它旧键会永远残留、新键永不落地（storage-migration
+       门禁实测）。 */
+    void readStorage(STORAGE_KEYS.swipeEp);
     if (!raw) return DEFAULTS;
     const p = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persist>) };
     // 只在启动时应用；本次使用中取消静音不会关闭此偏好。
