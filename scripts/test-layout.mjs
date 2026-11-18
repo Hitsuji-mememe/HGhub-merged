@@ -78,9 +78,23 @@ const PROBE = (worstTime) => {
   }
   const byLabel = name => document.querySelector(`button[aria-label="${name}"]`);
   const keys = {};
-  for (const name of ["返回", "选集", "倍速选择", "静音", "取消静音"]) {
+  for (const name of ["返回", "选集", "倍速选择", "静音", "取消静音", "收藏", "全屏", "退出全屏"]) {
     const el = byLabel(name);
     if (el && visible(el)) keys[name] = rectOf(el);
+  }
+  // 右栏负断言探针 (缺陷1 接棒, Muse 2026-11-18): 右栏覆层已整体撤销,
+  // 保护点由「右栏不压信息行」改为「右栏不存在 + 信息行右端 (时间文本)
+  // 命中测试落在信息行自身」——原断言保护的信息行可读性由这两条接棒。
+  const railEl = document.querySelector(".mobile-video-action-rail");
+  const railPresent = !!railEl && visible(railEl);
+  let infoHitRight = null;
+  const chromes = [...document.querySelectorAll(".hg-chrome-in")];
+  const bottomChrome = chromes[chromes.length - 1];
+  const infoRow = bottomChrome?.querySelector(":scope > div");
+  if (infoRow && visible(infoRow)) {
+    const r = infoRow.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.right - 10, (r.top + r.bottom) / 2);
+    infoHitRight = !!hit && bottomChrome.contains(hit);
   }
   const sr = [...document.querySelectorAll("button")].find(b => (b.getAttribute("aria-label") || "").startsWith("超分"));
   if (sr && visible(sr)) keys["超分选择"] = rectOf(sr);
@@ -105,7 +119,7 @@ const PROBE = (worstTime) => {
     const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
     if (w > 2 && h > 2) overlaps.push(`${names[i]}×${names[j]}:${Math.round(w)}x${Math.round(h)}`);
   }
-  return { vw, vh, scrollWidth: document.documentElement.scrollWidth, keys, bottomButtons, exitHit, overlaps, exitFsPresent: !!byLabel("退出全屏") };
+  return { vw, vh, scrollWidth: document.documentElement.scrollWidth, keys, bottomButtons, exitHit, overlaps, exitFsPresent: !!byLabel("退出全屏"), railPresent, infoHitRight };
 };
 
 function assertGeometry(m, label, requireExit = true) {
@@ -129,6 +143,12 @@ function assertGeometry(m, label, requireExit = true) {
     assert(!m.exitFsPresent, `${label}: exit-fullscreen button must be absent in portrait presentation`);
   }
   assert.deepEqual(m.overlaps, [], `${label}: key controls overlap: ${m.overlaps.join(", ")}`);
+  // 右栏负断言 (缺陷1 接棒): 视频区不得再有右栏覆层; 信息行在场时其
+  // 右端 (时间文本处) 必须可命中信息行自身, 即整行无遮挡。
+  assert(!m.railPresent, `${label}: right action rail must not exist (removed by ruling)`);
+  if (m.infoHitRight !== null && m.infoHitRight !== undefined) {
+    assert(m.infoHitRight, `${label}: info row right end (time text) is covered by another element`);
+  }
 }
 
 const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 Version/17.1 Mobile/15E148 Safari/604.1";
@@ -201,6 +221,10 @@ try {
         await rateBtnP.waitFor({ state: "visible" });
         assert.equal(await page.getByRole("button", { name: "退出全屏", exact: true }).count(), 0,
           `${name}: portrait presentation must not render exit-fullscreen`);
+        // 全屏钮负断言 (缺陷7 接棒): 竖屏源无横屏全屏语义, 顶栏不得出现
+        // 全屏钮 (横屏源正断言在下方横屏流程: 在位且热区 ≥44px)。
+        assert.equal(await page.getByRole("button", { name: "全屏", exact: true }).count(), 0,
+          `${name}: portrait source must not render a fullscreen button`);
         assertGeometry(await page.evaluate(PROBE, false), `${name} portrait-fs`, false);
         await tapUpper();
         // 单击延迟判定 (250ms 窗口) 后才执行显隐: 等底栏真隐藏再探针
@@ -242,8 +266,13 @@ try {
         await page.touchscreen.tap(box.x, box.y);
       };
       await tapCenter();
-      await page.getByRole("button", { name: "全屏", exact: true }).waitFor({ state: "visible" });
-      await page.getByRole("button", { name: "全屏", exact: true }).click();
+      const fsBtn = page.getByRole("button", { name: "全屏", exact: true });
+      await fsBtn.waitFor({ state: "visible" });
+      // 全屏钮热区断言 (缺陷7): 横屏源控制层顶栏全屏钮必须 ≥44px。
+      const fsBox = await fsBtn.boundingBox();
+      assert(fsBox && fsBox.width >= 44 && fsBox.height >= 44,
+        `${name}: fullscreen button hit area must be >= 44px, got ${JSON.stringify(fsBox)}`);
+      await fsBtn.click();
       await page.waitForTimeout(1400);
       // 暂停走操作行底部中央钮 (中央大钮已随蓝图 P1 回退, tapCenter 只翻显隐)
       await page.getByRole("button", { name: "暂停", exact: true }).click();

@@ -8,7 +8,7 @@ import type { Detail, Episode, PlayInfo, Post, VideoCard } from "../../shared/ap
 import { useStore } from "../../shared/model/store";
 import { Img, Sheet } from "../../shared/ui/ui";
 import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
-import { DesktopSocialButtons, MobileActionRail, useSocialCounts } from "./ActionRail";
+import { DesktopSocialButtons, useSocialCounts } from "./ActionRail";
 import { LandHint } from "./LandHint";
 import { useProgressFlush } from "./useProgressFlush";
 import { setBackHandler } from "../../shared/lib/back";
@@ -925,10 +925,23 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   }, [isDesktop, active, kind, landscapeVideo, fs, vpLandscape, landPref, playKey, enterFs]);
 
   const exitFs = useCallback(() => {
-    /* 退全屏回普通态先全显控件（恢复入口优先，解耦版）；之后显隐由单击决定 */
+    /* 退全屏回普通态先全显控件（恢复入口优先，解耦版）；之后显隐由单击决定。
+       同时把本集记入横屏自动进入守卫：手动退出后不被偏好自动进拉回
+       （蓝图 P3 口径，手动入口恒在、自动只认首次表态）。 */
+    landAutoKeyRef.current = playKey;
     setClean(false);
     setFs(false);
-  }, [setClean, setFs]);
+  }, [setClean, setFs, playKey]);
+
+  /* 顶栏全屏钮（缺陷7，2026-11-18 用户再裁定）：横屏源在控制层顶栏恒有
+     明确入口——点击进横屏全屏并记住偏好（同类后续自动进）；全屏时同位
+     变退出钮。竖屏源不渲染（竖屏已满屏呈现，无此语义）。 */
+  const toggleLandscapeFs = useCallback(() => {
+    if (fs) { exitFs(); return; }
+    setLandPref("landscape");
+    try { localStorage.setItem("hghub_land_pref", "landscape"); } catch { /* ignore */ }
+    enterFs(true);
+  }, [fs, exitFs, enterFs]);
 
   useFsOrientation(fs, isDesktop, keepAlive);
 
@@ -1317,14 +1330,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   </div>
                 </div>
               )}
-              {/* 右侧操作栏（移动端）：喜欢/收藏/评论 + 全屏（仅横屏源普通态）。
-                  恢复裁定与呈现口径见 ActionRail.tsx；此处只做门控（跟随控制层
-                  显隐、旋转舞台不挂）与落位（全屏呈现态让开底栏、普通态让开信息块）。 */}
-              {!isDesktop && !rotated && (fsUi ? !idle : !clean) && (
-                <MobileActionRail bottom={`calc(var(--sab, 0px) + ${bottomInset + (fsUi ? 84 : 92)}px)`} fsUi={fsUi} isVideo={kind === "video"}
-                  liked={liked} likeCount={likeCount} onLike={() => void onLike()} likePending={likePending} collected={collected} collectCount={collectCount}
-                  onFav={() => void onFav()} collectPending={collectPending} commentCount={meta.comment} onComments={() => setPanel("comments")} onFullscreen={() => enterFs(landscapeVideo)} />
-              )}
+              {/* 右栏已整体撤销（2026-11-18 用户再裁定）：喜欢删除、评论只在
+                  抽屉评论页、收藏移入控制层顶栏——视频区不再有任何右栏覆层，
+                  底部信息行整行无遮挡（原缺陷1 的重叠随右栏消失不复存在，
+                  test-layout 改为负断言守门）。 */}
 
               {/* 右侧操作栏（桌面） */}
               {!fs && !clean && isDesktop && (
@@ -1552,10 +1561,23 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
             {muted ? <IVolMute size={18} /> : <IVol size={18} />}
           </Button>
+          {/* 收藏自右栏移入顶栏（2026-11-18 用户再裁定）：只随控制层出现、
+              平时零遮挡；收藏态以金色实心星明确区分（aria-pressed 同步）。 */}
+          <Button onClick={() => void onFav()} disabled={collectPending} aria-busy={collectPending} aria-pressed={collected} aria-label="收藏"
+            className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+            {collected ? <IStarF size={18} className="hg-gold" /> : <IStar size={18} />}
+          </Button>
           <Button onClick={() => store.setTab("search")} aria-label="搜索"
             className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
             <ISearch size={18} />
           </Button>
+          {/* 全屏钮（缺陷7）：仅横屏源渲染，进/退同位，随控制层显隐 */}
+          {landscapeVideo && (
+            <Button onClick={toggleLandscapeFs} aria-label={fs ? "退出全屏" : "全屏"}
+              className="hg-chip-strong w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+              {fs ? <ICompress size={18} /> : <IExpand size={18} />}
+            </Button>
+          )}
         </div>
       )}
       {!isDesktop && kind === "video" && (fsUi ? !idle : !clean) && (
@@ -1609,9 +1631,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </div>
       )}
 
-      {/* 横屏轻提示（蓝图 P3）：仅未表态时、横屏源、非全屏、竖屏视口出现一次 */}
+      {/* 横屏轻提示（蓝图 P3 + 缺陷7 改位）：仅未表态时、横屏源、非全屏、
+          竖屏视口出现一次；位置与顶栏全屏钮同位（顶栏下方右侧），指向该钮 */}
       {!isDesktop && kind === "video" && landscapeVideo && !fs && !vpLandscape && active && !landPref && (
-        <LandHint bottom={`calc(var(--sab, 0px) + ${bottomInset + 64}px)`}
+        <LandHint top="calc(var(--sat, 0px) + 64px)"
           onAccept={() => { setLandPref("landscape"); try { localStorage.setItem("hghub_land_pref", "landscape"); } catch { /* ignore */ } enterFs(true); }}
           onDismiss={() => { setLandPref("stay"); try { localStorage.setItem("hghub_land_pref", "stay"); } catch { /* ignore */ } }} />
       )}
