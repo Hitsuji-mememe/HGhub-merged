@@ -56,8 +56,11 @@
    保留旧键并返回旧值。任何异常返回 `null`，让调用方使用默认值。
 2. `loadPersist()` 从 `STORAGE_KEYS.app` 读取应用状态（收藏、观看记录、搜索历史、音量、静音、
    `swipeEp`、`preferHevc`），用 `DEFAULTS` 合并并 `normalizeHistory()` 升级旧的 `number[]`
-   观看记录。`swipeEp` 有一个一次性迁移：旧配置的 `false` 是旧默认，不视为用户显式关闭；
-   迁移标记写入 `STORAGE_KEYS.swipeEp` 后才不再改用户后来选择的 `false`。
+   观看记录。`swipeEp` 已按 2026-11-18 用户真机裁定恒为 false（竖滑恒切
+   作品、绝不切集）：`DEFAULTS` 与 `loadPersist()` 恒 false、setter 恒写
+   false，原一次性迁移（旧 false 视为未显式关闭）废止；`loadPersist()`
+   仍保留对 `STORAGE_KEYS.swipeEp` 的一读，只为履行存储不变量 7 的
+   旧键清理（读时复制到新键并删旧键）。
 3. 主题偏好单独存 `STORAGE_KEYS.theme`（`light`/`dark`/`system`）。启动时先应用已保存主题，
    再根据 `prefers-color-scheme` 解析 `system`；解析结果不覆盖偏好本身。写主题失败只忽略，
    不阻塞界面。
