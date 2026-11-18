@@ -28,6 +28,7 @@ import { prewarmFirstSegment } from "./prewarm";
 import { useStallHeal } from "./stallHeal";
 import { useFeedDetails } from "./useFeedDetails";
 import { holdState } from "./holdState";
+import { createHoldJankSampler } from "./holdJank";
 import { HoldBadge } from "./HoldBadge";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText,
@@ -153,7 +154,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      rateRef 供手势回调读最新基准倍速（复位 hold 时恢复用） */
   const rateRef = useRef(rate);
   rateRef.current = rate;
-  const resetHold = () => { holdRef.current = false; if (holdState.get() !== 0) { holdState.set(0); videoRef.current?.rate(rateRef.current); } };
+  const resetHold = () => { jankSamplerRef.current?.stop(); holdRef.current = false; if (holdState.get() !== 0) { holdState.set(0); videoRef.current?.rate(rateRef.current); } };
+  /* 长按顿感量化采样（fix2 A5，实现在 holdJank.ts）：hold 起止钩子 */
+  const jankSamplerRef = useRef<ReturnType<typeof createHoldJankSampler> | null>(null);
+  if (!jankSamplerRef.current) {
+    jankSamplerRef.current = createHoldJankSampler((event, data) => videoRef.current?.trace(event, data));
+  }
+  const startHoldJank = () => jankSamplerRef.current?.start();
   const [scrub, setScrub] = useState<{ pct: number; target: number } | null>(null);
   const scrubTarget = useRef<number | null>(null);
   /* scrub 退出不变量：任何退出路径都经此清 scrub+scrubTarget；restorePlay
@@ -730,6 +737,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
            换挡 2/3/4/6x 被用户裁定为多余复杂（松手恢复后下次仍从 2x 起、用不上），已删。 */
         holdRef.current = true;
         holdState.set(2); videoRef.current?.rate(2);
+        startHoldJank();
         try { navigator.vibrate?.(25); } catch { /* ignore */ }
       }, HOLD_DELAY_MS) as unknown as number,
     };

@@ -908,6 +908,8 @@ export default function SuperResCanvas({
   const validFrameSeenRef = useRef(false);
   /* 暂定降级期间的复查帧计数（每 SR_PROVISIONAL_RECHECK_EVERY 帧采样一次）。 */
   const provisionalFrameRef = useRef(0);
+  /* 倍速 ≥2x 时 SR 隔帧处理计数（fix2 A5），见 drawFrame 内说明 */
+  const holdSkipRef = useRef(0);
   const probeBufRef = useRef(new Uint8Array(4));
   const drawFrameRef = useRef<(() => void) | null>(null);
   const syncSizeRef = useRef<(() => void) | null>(null);
@@ -1079,6 +1081,16 @@ export default function SuperResCanvas({
       if (probing) {
         probeFrameRef.current += 1;
         if (probeFrameRef.current % SR_PROBE_EVERY !== 0) return;
+      }
+      /* 倍速 ≥2x（长按 hold 或用户定档）时隔帧处理（Muse 2026-11-19
+       * fix2 A5）：呈现帧率随倍速翻倍，全量处理等于把 texImage2D＋
+       * 着色器的每秒成本按墙钟翻倍，是长按残余顿感的代码级主因
+       * （hold 状态本身已在 fix1 移出 Feed 渲染）。隔帧后 SR 更新率
+       * 回到 1x 水平；跳过的帧画布保留上一帧处理结果、不闪；跳帧
+       * 不计入下方帧成本统计，避免假低成本触发升档振荡。 */
+      if (!video.paused && video.playbackRate >= 2) {
+        holdSkipRef.current += 1;
+        if (holdSkipRef.current % 2 === 1) return;
       }
       const vw = video.videoWidth || 0;
       const vh = video.videoHeight || 0;
