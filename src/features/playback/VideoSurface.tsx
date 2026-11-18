@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useImperativeHandle, useRef, forwardRef, useState, type MutableRefObject } from "react";
 import Hls from "hls.js";
 import { platform } from "../../shared/api/api";
-import { connectNativeMedia, noteNativeFallback, playbackSource } from "./mediaTransport";
+import { connectNativeMedia, playbackSource } from "./mediaTransport";
 import { AppendStallWatchdog } from "./appendStallWatchdog";
+import { createStallWatchdog, wireStallWatchdogSignals } from "./stallWatchdogWiring";
 import { mediaErrorMessage } from "./mediaErrors";
 import { mediaHost, mediaResource, observeHls, registerHlsVersion, usePlayerDiagnostics } from "../../shared/diagnostics/playbackDiagnostics";
 import { notePlaybackPlaying, publishPlaybackFacts } from "../../shared/diagnostics/playbackFacts";
@@ -190,7 +191,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     engineRef.current = source.engine;
     let disconnectNative: (() => void) | undefined;
     let stallWatchdog: AppendStallWatchdog | undefined;
-    let watchdogPlaying: (() => void) | undefined;
+    let detachWatchdog: (() => void) | undefined;
     trace("source.load", { engine: source.engine, auto_play: autoPlay, resource: mediaResource(src), host: mediaHost(src) });
 
     /* 换源时先把音量/倍速套回去：hls 重新 attach 后浏览器会把它们重置成默认值 */
@@ -253,42 +254,28 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
        * （诊断模块不值导入 hls.js，保首屏剥离）；顺手登记版本供快照 trace。 */
       registerHlsVersion(Hls.version);
       observeHls(hls, trace, Hls.Events);
-      /* append 卡死看门狗（F 项）：FragLoaded 有而 4s 内 buffered/playing
-       * 全无 = append 链无声停滞。第一次判死重建本源重试；重建后再判死
-       * 说明本会话 hls.js/MMS 整体坏死，置会话级原生降级并重建（此次
-       * playbackSource 直接给 native）。慢网无 FragLoaded 不布防、不误杀。 */
-      stallWatchdog = new AppendStallWatchdog({
-        hasBuffered: () => { try { return video.buffered.length > 0 && video.buffered.end(video.buffered.length - 1) > 0; } catch { return false; } },
-        isPlaying: () => !video.paused && video.readyState >= 2,
-        shouldEscalate: () => activity.isPlayWanted(),
-        onStall: (state) => {
-          if (hlsRef.current !== hls) return;
-          /* 意愿门控（复审批 §4.4）：起播期已被用户暂停的源不判死——
-           * 他不想播，卡不卡死与他无关；恢复意愿时活动层会重新 play。 */
-          if (!activity.isPlayWanted()) return;
-          /* 取证字段（复审批 §C）：根因未实锤前先把现场留全——判死时刻
-           * 的 readyState 与缓冲末端，下次故障靠它分辨死在哪一段。 */
+      /* append 卡死看门狗（F 项）：构造、意愿门控、判死/重建/降级/用尽
+       * 报错与全部信号接线已收敛到 stallWatchdogWiring 一份（与 Player
+       * 共用）；这里只注入本组件的差异——trace 取证字段（复审批 §C：
+       * 判死时刻的 readyState 与缓冲末端）、proxyRecovery 重建通道、
+       * onError 报错通道，以及分片到达后的自有逻辑（超分密度/吞吐上报）。 */
+      stallWatchdog = createStallWatchdog({
+        video,
+        isCurrent: () => hlsRef.current === hls,
+        isPlayWanted: () => activity.isPlayWanted(),
+        attemptRef: stallAttemptRef,
+        traceStall: (state, attempt) => {
           let bufEnd = -1;
           try { bufEnd = video.buffered.length > 0 ? Math.round(video.buffered.end(video.buffered.length - 1) * 10) / 10 : 0; } catch { /* 保持 -1 */ }
-          trace("hls.append_stall", { attempt: stallAttemptRef.current, state, rs: video.readyState, buf: bufEnd });
-          if (stallAttemptRef.current < 1) {
-            stallAttemptRef.current += 1;
-            proxyRecovery.retry("append_stall", true);
-          } else if (noteNativeFallback("append_stall")) {
-            proxyRecovery.retry("append_stall_fallback", true);
-          }
+          trace("hls.append_stall", { attempt, state, rs: video.readyState, buf: bufEnd });
         },
+        retry: (reason) => proxyRecovery.retry(reason, true),
+        onExhausted: (message) => onError?.(message),
       });
-      watchdogPlaying = () => stallWatchdog?.playing();
-      video.addEventListener("playing", watchdogPlaying);
-      /* append 生命周期信号（整改 1 四状态判死）：开始/结束喂给看门狗，
-       * 到点时据此区分未开始/处理中/已结束无缓冲，处理中先宽限不误杀。 */
-      hls.on(Hls.Events.BUFFER_APPENDING, () => stallWatchdog?.appendStarted());
-      hls.on(Hls.Events.BUFFER_APPENDED, () => stallWatchdog?.appendEnded());
-      /* 分片吞吐上报（2.0.5 卡顿自愈，Muse 2026-11-18 移植）：只报整片，耗时取 stats.loading 起止差 */
-      hls.on(Hls.Events.FRAG_LOADED, (_e, data) => {
-        if (data.part || typeof data.frag.sn !== "number") return;
-        stallWatchdog?.fragLoaded();
+      detachWatchdog = wireStallWatchdogSignals({
+        hls, video, watchdog: stallWatchdog,
+        /* 分片吞吐上报（2.0.5 卡顿自愈，Muse 2026-11-18 移植）：只报整片，耗时取 stats.loading 起止差 */
+        onFragLoaded: (data) => {
         const st = data.frag.stats;
         /* 超分密度（收官批 C 项 + 整改 4）：完整分片实际码率取前 3 片
          * 中位数（单片对 VBR 无代表性）；fps/codec 取自 manifest level，
@@ -315,6 +302,8 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         const loadMs = st.loading.end > 0 && st.loading.end >= st.loading.start ? st.loading.end - st.loading.start : 0;
         if (loadMs <= 0 || st.loaded <= 0) return;
         cb({ bytes: st.loaded, loadMs, fragDuration: data.frag.duration || 0, bitrate: hls.levels[data.frag.level]?.bitrate ?? 0 });
+        },
+        onFragBuffered: () => recovery.buffered(),
       });
       hls.loadSource(source.url);
       hls.attachMedia(video);
@@ -322,7 +311,6 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         if (activity.isActive()) hls.startLoad(resume?.time ?? -1);
         if (autoPlay && !resume) activity.play("manifest_autoplay", true);
       });
-      hls.on(Hls.Events.FRAG_BUFFERED, () => { recovery.buffered(); stallWatchdog?.buffered(); });
       hls.on(Hls.Events.ERROR, (_e, data) => recovery.error(data));
     } else {
       disconnectNative = connectNativeMedia(video, source, {
@@ -345,7 +333,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       notePlaybackPlaying(false);
       disconnectNative?.();
       stallWatchdog?.dispose();
-      if (watchdogPlaying) video.removeEventListener("playing", watchdogPlaying);
+      detachWatchdog?.();
       video.removeEventListener("resize", onVideoResize);
       recoveryRef.current?.dispose(); recoveryRef.current = null;
       trace("source.cleanup");
