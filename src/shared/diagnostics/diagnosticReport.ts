@@ -50,7 +50,15 @@ data: obj(raw.data),
 return out;
 }
 
-/* 流水阶段定义：事件名以真机日志为准（前端事件在文件中带 web. 前缀）。 */
+/* 流水阶段定义（fix2 A4 起播口径统一，T0–T7 分段表）：事件名以真机
+ * 日志为准（前端事件在文件中带 web. 前缀）。分段语义——
+ * T0 请求起播＝source.load（分段起点，不入表）；T1 会话建立＝resolve；
+ * T3 清单完成＝manifest；T4 首个有效分片＝range；T5 append 完成＝append；
+ * 其后 buffered＝缓冲达标；T7 首帧呈现＝first_frame（无此信号时以
+ * playing 为代理并在结论行标注）。T2 选线完成与 T6 解码首帧在现行
+ * 事件体系里没有独立事件，不设假阶段——缺失阶段如实标「未记录」，
+ * 不许拿相邻阶段冒充。全部阶段只在同一次播放分段内取首个命中，
+ * 偏移同源同 t0，结论行起播＝T7−T0 可由分段偏移逐项加总核对。 */
 const STAGES: { key: string; label: string; events: string[]}[] = [
 { key: "resolve", label: "resolve", events: ["web.play.resolve"]},
 { key: "manifest", label: "manifest", events: ["web.hls.manifest", "web.media.loadstart"]},
@@ -58,6 +66,7 @@ const STAGES: { key: string; label: string; events: string[]}[] = [
 { key: "append", label: "append", events: ["web.hls.buffer_appended"]},
 { key: "buffered", label: "buffered", events: ["web.hlsFragBuffered"]},
 { key: "playing", label: "playing", events: ["web.media.playing"]},
+{ key: "first_frame", label: "首帧", events: ["web.media.first_frame"]},
 ];
 
 type FlowResult = {
@@ -65,8 +74,14 @@ type FlowResult = {
 table: string;
 /** 卡点结论（已出画则为正常结论）。 */
 verdict: string;
-/** 起播耗时（t0→buffered，缺失时 null），供结论行引用。 */
+/** 起播耗时（T0→T7 首帧呈现；无首帧信号回落 playing 并以
+ * startupBasis 标明，仍缺失时 null），供结论行引用。与逐次播放
+ * 的 startupMs 同一定义、同一分段函数计算（fix2 A4 口径统一：
+ * 此前结论行用 t0→buffered、逐次用 t0→首帧，两数同报告打架）。 */
 startupMs: number | null;
+/** 起播耗时的信号来源：first_frame＝实测首帧；playing＝代理回落；
+ * null＝两者皆缺，结论行须标「统计不完整」，不许编数。 */
+startupBasis: "first_frame" | "playing" | null;
 /** 本进程（pid 相同）是否发生过 append 卡死/会话降级。 */
 stalledThisSession: boolean;
 fallbackThisSession: boolean;
@@ -91,23 +106,32 @@ slowest: { index: number; startupMs: number } | null;
 };
 
 /** 一次播放（一个 source.load 起）的最终结局。
- * aborted＝被下一次 load 打断且无卡死/降级/传输错误证据（用户主动切
- * 走），不入失败率；current＝最后一次尚无结论（进行中或刚失败待定）。 */
+ * unknown＝被下一次 load 打断且无卡死/降级/传输错误证据——无证据时
+ * 不许推断「用户主动中止」（自查 C3：旧版一律洗成 aborted、系统性
+ * 低估失败率），记 unknown、不入失败率；current＝最后一次尚无结论
+ * 且无失败证据（真进行中）。有失败证据的最后一次定 failed，不许
+ * 被「最后一段」身份盖成 current（自查 C5，fix2 A4 一并修）。 */
 export type PlayOutcome = {
 index: number;
-outcome: "success" | "recovered" | "failed" | "aborted" | "current";
+outcome: "success" | "recovered" | "failed" | "unknown" | "current";
 startupMs: number | null;
 stalls: number;
 fellBack: boolean;
 };
 
 export function analyzeFlow(entries: LogEntry[]): FlowResult | null {
-const startIdx = entries.map(e => e.event).lastIndexOf("web.source.load");
-if (startIdx < 0) return null;
-const tail = entries.slice(startIdx);
-const t0 = tail[0].ts;
 const lastPid = entries.length? entries[entries.length - 1].pid: null;
 const sessionEntries = lastPid == null? entries: entries.filter(e => e.pid === lastPid);
+/* 流水与逐次共用同一套分段（fix2 A4）：旧版流水取全日志最后一次
+ * load 起的 tail（不分进程/实例），逐次却按 pid 分段——同一份报告
+ * 里 append 偏移可来自另一个实例，与 playing 互相打架（真机实锤：
+ * 结论 90.1s vs 流水 playing 11688ms）。现统一：先按本进程
+ * source.load 分段，流水只取最后一段，t0 同源。 */
+const loadIdxsAll: number[] = [];
+sessionEntries.forEach((e, i) => { if (e.event === "web.source.load") loadIdxsAll.push(i); });
+if (!loadIdxsAll.length) return null;
+const tail = sessionEntries.slice(loadIdxsAll[loadIdxsAll.length - 1]);
+const t0 = tail[0].ts;
 const stallEvents = sessionEntries.filter(e => e.event === "web.hls.append_stall");
 const stalledThisSession = stallEvents.length > 0;
 const fallbackThisSession = sessionEntries.some(e => e.event === "web.playback.fallback");
@@ -126,8 +150,7 @@ const confirmPendingCount = sessionEntries.filter(e => e.event === "web.line.con
  * 「能播」的代理判定，不冒充首帧（§6.2）。 */
 const plays: PlayOutcome[] = [];
 {
-const loadIdxs: number[] = [];
-sessionEntries.forEach((e, i) => { if (e.event === "web.source.load") loadIdxs.push(i); });
+const loadIdxs = loadIdxsAll;
 loadIdxs.forEach((li, k) => {
 const seg = sessionEntries.slice(li, k + 1 < loadIdxs.length? loadIdxs[k + 1]: undefined);
 const playingEv = seg.find(e => e.event === "web.media.playing");
@@ -137,10 +160,13 @@ const fellBack = seg.some(e => e.event === "web.playback.fallback");
 const hasError = seg.some(e => e.event === "web.source.transport_error");
 const isLast = k === loadIdxs.length - 1;
 let outcome: PlayOutcome["outcome"];
-if (playingEv) outcome = stalls > 0? "recovered": "success";
-else if (isLast) outcome = "current";
+/* 结局判定序（fix2 A4 修自查 C5/C3）：失败证据优先于「最后一段」
+ * 身份——旧序 isLast 先于 failed，真机刚失败完生成报告时那次失败
+ * 恒被报成「进行中」；无证据中断记 unknown，不再推断主动中止。 */
+if (playingEv || frameEv) outcome = stalls > 0? "recovered": "success";
 else if (stalls > 0 || fellBack || hasError) outcome = "failed";
-else outcome = "aborted";
+else if (isLast) outcome = "current";
+else outcome = "unknown";
 const startEv = frameEv?? playingEv;
 plays.push({ index: k + 1, outcome, startupMs: startEv? Math.max(0, startEv.ts - seg[0].ts): null, stalls, fellBack });
 });
@@ -161,7 +187,7 @@ const furthestIdx = reached.reduce((acc, s, i) => (s.at!= null? i: acc), -1);
    不打 ✗ 假警报（实测：出画成功仍报 resolve ✗）；真正卡点之后
    的阶段才标「✗ 未达」。playing 的偏移若远超起播尺度（>30s，多为
    加载后隔很久才起播/续播），只记成败不记 ms，避免 218081ms 这类
-   数字被误读成起播耗时；起播耗时以 t0→buffered 为准入结论行。 */
+   数字被误读成起播耗时。起播耗时口径见下方 startupMs（fix2 A4）。 */
 const parts = reached.map((s, i) => {
 if (s.at == null) return `${s.label} ${i <= furthestIdx? "— 未记录": "✗ 未达"}`;
 const off = Math.max(0, s.at - t0);
@@ -169,10 +195,18 @@ if (s.key === "playing" && off > 30000) return `${s.label} ✓`;
 return `${s.label} ✓ ${off}ms`;
 });
 const furthest = [...reached].reverse().find(s => s.at!= null);
-const bufferedAt = reached.find(s => s.key === "buffered")?.at?? null;
-const startupMs = bufferedAt!= null? Math.max(0, bufferedAt - t0): null;
+/* 起播耗时（fix2 A4 统一口径）：T0（本段 source.load）→T7（首帧
+ * 呈现 first_frame），无首帧信号回落 playing 并标 basis；与逐次
+ * 播放的 startupMs 同一定义。旧版结论行用 t0→buffered：buffered
+ * 达标可远晚于首帧（如慢线下边播边缓冲），把 90s 级数字冒充起播
+ * 与逐次的 11.7s 同报告打架，即此故。 */
+const frameAt = reached.find(s => s.key === "first_frame")?.at?? null;
+const playingAt = reached.find(s => s.key === "playing")?.at?? null;
+const startupBasis: FlowResult["startupBasis"] = frameAt!= null? "first_frame": playingAt!= null? "playing": null;
+const startupMs = startupBasis === "first_frame"? Math.max(0, (frameAt as number) - t0)
+: startupBasis === "playing"? Math.max(0, (playingAt as number) - t0): null;
 let verdict: string;
-if (reached[reached.length - 1].at!= null) {
+if (playingAt!= null || frameAt!= null) {
 verdict = "最近播放已正常出画（playing）";
 } else if (!furthest) {
 verdict = "最近播放卡在起点（清单未达）";
@@ -181,7 +215,7 @@ verdict = "最近播放卡在 append（分片已下载、未入缓冲——appen
 } else {
 verdict = `最近播放卡在 ${furthest.label} 阶段`;
 }
-return { table: parts.join(" · "), verdict, startupMs, stalledThisSession, fallbackThisSession, stallCount, rebuildCount, fallbackCount, lastStallState, demoteCount, lineSwitchCount, confirmPendingCount, plays, medianStartupMs, slowest };
+return { table: parts.join(" · "), verdict, startupMs, startupBasis, stalledThisSession, fallbackThisSession, stallCount, rebuildCount, fallbackCount, lastStallState, demoteCount, lineSwitchCount, confirmPendingCount, plays, medianStartupMs, slowest };
 }
 
 /* 看门狗四状态的人话标签：报告读者要一眼知道 append 死在哪一段。 */
@@ -272,16 +306,21 @@ lines.push(`网络：${diagR.status === "fulfilled"? shortVerdict(diag): "诊断
 lines.push(`当前线路：${currentHost}（自动选线 ${autoLineEnabled()? "开": "关"}）`);
 lines.push(`各线延迟${probeCount!= null? `（候选 ${probeCount} 条）`: ""}：${probeText}`);
 lines.push(`分片吞吐：${speedText}`);
-lines.push(`最近播放：${logReadFailed? "未知（诊断日志读取失败）": logEmpty? "未知（诊断日志为空——记录未启动或未写入）": flow? `${flow.verdict}${flow.startupMs!= null? ` · 起播约 ${(flow.startupMs / 1000).toFixed(1)}s`: ""}`: "无最近播放记录"}`);
+/* 起播数字后标注信号来源（fix2 A4）：playing 代理回落要让读者知道
+ * 这不是首帧实测；首帧与 playing 皆缺时明说统计不完整，不编数。 */
+const startupNote = flow == null || flow.startupMs == null
+? (flow && flow.plays.length? " · 起播统计不完整（缺首帧/playing 信号）": "")
+: ` · 起播约 ${(flow.startupMs / 1000).toFixed(1)}s${flow.startupBasis === "playing"? "（以 playing 代首帧）": ""}`;
+lines.push(`最近播放：${logReadFailed? "未知（诊断日志读取失败）": logEmpty? "未知（诊断日志为空——记录未启动或未写入）": flow? `${flow.verdict}${startupNote}`: "无最近播放记录"}`);
 /* 本会话逐次汇总（复审批 §6）：只看最近一次会把前面的失败藏掉——
- * 频繁切换的用户要先看全会话的成败分布。aborted（主动切走）单列、
+ * 频繁切换的用户要先看全会话的成败分布。unknown（未定性中断）单列、
  * 不算失败；起播中位/最慢只取干净出画，恢复耗时不混入。 */
 if (flow && flow.plays.length > 1) {
 const n = (o: PlayOutcome["outcome"]) => flow.plays.filter(p => p.outcome === o).length;
 const bits = [`共 ${flow.plays.length} 次`, `出画 ${n("success")}`];
 if (n("recovered") > 0) bits.push(`卡死后出画 ${n("recovered")}`);
 if (n("failed") > 0) bits.push(`未能出画 ${n("failed")}`);
-if (n("aborted") > 0) bits.push(`主动中止 ${n("aborted")}`);
+if (n("unknown") > 0) bits.push(`未定性中断 ${n("unknown")}`);
 if (n("current") > 0) bits.push("进行中 1");
 if (flow.medianStartupMs!= null) bits.push(`起播中位 ${(flow.medianStartupMs / 1000).toFixed(1)}s`);
 if (flow.slowest) bits.push(`最慢 ${(flow.slowest.startupMs / 1000).toFixed(1)}s（#${flow.slowest.index}）`);
