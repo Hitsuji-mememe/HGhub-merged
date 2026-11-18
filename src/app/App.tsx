@@ -111,7 +111,7 @@ function MainTabs({ wide, pageActive, bottomInset }: { wide: boolean; pageActive
 }
 
 function AppBody() {
-  const { platform, tab, setTab, stack, pop, loginOpen, setLoginOpen, fs, setFs, clean } = useStore();
+  const { platform, tab, setTab, stack, pop, push, loginOpen, setLoginOpen, fs, setFs, clean } = useStore();
   const mainRef = useRef<HTMLDivElement>(null);
   const [wide, setWide] = useState(false);
 
@@ -145,10 +145,13 @@ function AppBody() {
 
   /* ── 横向链式手势导航（收官批 E 项，用户裁定）──
      链序 = 底部页签序：首页（播放器）→ 搜索 → 分类 → 我的 →（齿轮）设置。
-     右划去下一级、左划回上一级：播放器中部右划进搜索（与顶栏〈、放大镜
-     三者同落搜索，〈落点已在 Feed.goBack 改齐）；搜索左划回播放器、
-     右划去分类；分类左划回搜索、右划去我的；我的左划回分类、右划无动作；
-     设置页（栈页）左划返回我的。链首（播放器）左划无动作。
+     方向（2026-11-18 晚用户真机再裁定，推翻 E 项原口头规格）：跟主流
+     翻页直觉——左划去下一级、右划回上一级。原规格「右划去下一级」真机
+     体感是反的（用户原话：往左滑是向右、往右划是向左），以真机为准。
+     播放器中部左划进搜索（与顶栏〈、放大镜同落搜索，〈落点已在
+     Feed.goBack 改齐）；搜索右划回播放器、左划去分类；分类右划回搜索、
+     左划去我的；我的右划回分类、左划进设置（推栈）；设置页右划返回
+     我的、左划无动作（链尾）。链首（播放器）右划无动作。
      与播放器既有手势的冲突处理（以本链为准的除外，提交说明记账）：
      播放器左缘 24px 起手的右划仍归边缘返回手势（关面板/退全屏），
      本链只接中部起手；全屏（fs）中不触发本链；纵向滚动靠方向锁定
@@ -186,13 +189,13 @@ function AppBody() {
       const right = dx > 0;
       const top = stack[stack.length - 1];
       if (top) {
-        if (top.kind === "settings" && !right) pop();
+        if (top.kind === "settings" && right) pop();
         return;
       }
-      if (tab === "home") { if (right) setTab("search"); }
-      else if (tab === "search") setTab(right ? "category" : "home");
-      else if (tab === "category") setTab(right ? "profile" : "search");
-      else if (tab === "profile") { if (!right) setTab("category"); }
+      if (tab === "home") { if (!right) setTab("search"); }
+      else if (tab === "search") setTab(right ? "home" : "category");
+      else if (tab === "category") setTab(right ? "search" : "profile");
+      else if (tab === "profile") { if (right) setTab("category"); else push({ kind: "settings" }); }
     };
     el.addEventListener("touchstart", onStart, { passive: true });
     el.addEventListener("touchend", onEnd, { passive: true });
@@ -200,7 +203,7 @@ function AppBody() {
       el.removeEventListener("touchstart", onStart);
       el.removeEventListener("touchend", onEnd);
     };
-  }, [tab, stack, fs, loginOpen, setTab, pop]);
+  }, [tab, stack, fs, loginOpen, setTab, pop, push]);
 
   const pageActive = stack.length === 0 && !loginOpen;
   /* 播放器即首页（蓝图 P0，Muse 2026-11-18）：home 页签就是播放面，
