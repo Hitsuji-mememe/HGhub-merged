@@ -167,10 +167,10 @@ export function CommentsPanel({ videoId, ep, total, kind = "video", onClose }: {
             <Avatar size={32} name={c.nickname} hue={(c.user_id * 37) % 360} />
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                <span className="min-w-0 text-[12px] font-semibold text-on/90 [overflow-wrap:anywhere]">{c.nickname}</span>
+                <span className="min-w-0 text-[12px] font-semibold text-on [overflow-wrap:anywhere]">{c.nickname}</span>
                 <span className="shrink-0 text-[12px] text-dim">{c.time}</span>
               </div>
-              <p className="text-[14px] text-on/80 mt-1 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">{c.text || "该评论包含不支持的内容"}</p>
+              <p className="text-[14px] text-on mt-1 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">{c.text || "该评论包含不支持的内容"}</p>
               <div className="flex items-center gap-3 mt-1.5 text-[12px] text-dim">
                 <span className="flex items-center gap-1"><IHeart size={11} />{c.like_count || 0}</span>
                 {c.reply_count > 0 && <span>{c.reply_count} 条回复</span>}

@@ -30,6 +30,17 @@
    本次按规格补齐：opacity 1 + backdrop-filter 彻底关闭，抽屉内文字
    按基线色阶（--p-on/--p-mut）落在纯实心 #191B20 上。 */
 .ios-overlay-sheet:has(.video-details-sheet) .ios-dialog { background:#191B20; opacity:1; backdrop-filter:none; -webkit-backdrop-filter:none; border-radius:24px; animation-duration:.24s; }
+/* 抽屉文字对比度补全（2026-11-18 主代理看图拦截，缺陷6 二次接棒）：上行只把
+   底钉死为深色，文字仍走环境主题变量——浅色主题下 --p-on 为 #25241f，
+   暗字压 #191B20 深底，评论正文几乎不可读（用户原始投诉即「难观察」）。
+   本规则把深底配套的文字/表面色阶作用域收进本抽屉子树：正文主字
+   #F5F5F5、次级（--p-mut/--p-dim）不低于基线 #A1A5AD、表面阶梯转深；
+   只作用于含 video-details-sheet 的 Sheet，浏览页（浅底）不受影响。 */
+.ios-overlay-sheet:has(.video-details-sheet) .ios-dialog {
+  --p-on:#F5F5F5; --p-mut:#B2B7C1; --p-dim:#A3A8B3;
+  --p-s1:#202228; --p-s2:#26282F; --p-s3:#30323A; --p-s4:#3E4048;
+  color:#F5F5F5;
+}
 .mobile-video-meta-copy { padding-right:84px; padding-left:16px; }
 .video-detail-preferences.ios-button { min-height:44px; padding:8px 0 8px 8px; font-size:12px; color:var(--p-mut); }
 @media(max-height:480px) {
