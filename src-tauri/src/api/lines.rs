@@ -18,7 +18,9 @@ fn begin_line_selection() -> Result<u64, String> {
 
 #[tauri::command]
 pub async fn line_cancel() -> Result<(), String> {
-    begin_line_selection().map(|_| ())
+    begin_line_selection()?;
+    crate::lines::invalidate_pending_confirm();
+    Ok(())
 }
 
 /// 当前线路 + 固定线路清单（镜像线路另外按需拉取）。
@@ -38,6 +40,7 @@ pub async fn line_state() -> Result<Value, String> {
 pub async fn line_set(state: State<'_, Api>, url: String) -> Result<String, String> {
     let mut generation = LINE_SELECTION.lock().map_err(|_| "线路选择锁失败")?;
     *generation = generation.wrapping_add(1);
+    crate::lines::invalidate_pending_confirm();
     let previous = base();
     let applied = crate::net::set_base(&url)?;
     crate::net::refresh_client();
@@ -49,6 +52,7 @@ pub async fn line_set(state: State<'_, Api>, url: String) -> Result<String, Stri
 pub async fn line_custom_set(state: State<'_, Api>, url: String) -> Result<Value, String> {
     let mut generation = LINE_SELECTION.lock().map_err(|_| "线路选择锁失败")?;
     *generation = generation.wrapping_add(1);
+    crate::lines::invalidate_pending_confirm();
     let previous = base();
     let applied = crate::net::set_custom_base(&url)?;
     crate::net::refresh_client();
@@ -77,6 +81,7 @@ pub async fn proxy_set(mode: String, url: String) -> Result<Value, String> {
     let mut generation = LINE_SELECTION.lock().map_err(|_| "线路选择锁失败")?;
     crate::proxy::set(&mode, &url)?;
     *generation = generation.wrapping_add(1);
+    crate::lines::invalidate_pending_confirm();
     crate::net::refresh_client();
     let state = crate::net::proxy_state();
     crate::playback_log::record("proxy.changed", json!({

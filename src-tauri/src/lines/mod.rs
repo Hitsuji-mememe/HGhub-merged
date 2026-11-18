@@ -10,7 +10,7 @@ pub use mirror::{fixed, is_fixed, is_trusted_mirror, mirrors, verify_published_o
 pub(crate) use mirror::PUBLISH_PAGES;
 pub(crate) use probe::healthy_video_data;
 #[allow(unused_imports)]
-pub use probe::{auto_pick, health, probe, try_main, Hit};
+pub use probe::{auto_pick, health, invalidate_pending_confirm, probe, try_main, Hit};
 
 #[cfg(test)]
 mod tests {

@@ -2,6 +2,7 @@
 
 use serde_json::{json, Value};
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use super::mirror::{is_fixed, is_trusted_mirror, mirrors, FIXED, MIRROR_MAX};
@@ -157,8 +158,23 @@ pub(crate) fn auto_candidates(items: &[Value], current: &str, trusted: impl Fn(&
  * 采样噪声下名次翻转是真机实锤过的病（粘性挡得住「够用不换」，挡不住
  * 「当前线明显更差但胜者是谁每轮都变」）。故障路径（urgent：当前线
  * 健康检查连挂/播放卡顿自愈）绕过确认立即切。待确认 10 分钟过期。 */
-static PENDING_WINNER: std::sync::Mutex<Option<(String, Instant)>> = std::sync::Mutex::new(None);
+static PENDING_WINNER: std::sync::Mutex<Option<(String, Instant, u64)>> =
+    std::sync::Mutex::new(None);
+static CONFIRM_GEN: AtomicU64 = AtomicU64::new(0);
 const PENDING_TTL: Duration = Duration::from_secs(600);
+
+/// 手动选线/代理变更时使待确认失效（Muse 2026-11-18）：代次 +1 并
+/// 清掉现有待确认。只递增 LINE_SELECTION 不够——那只作废在途探测，
+/// 管不到本模块的待确认状态；手动操作后旧胜者再胜一轮会被误判为
+/// 「连续两轮」而直接切换。代次同时记进 pending 本身，双保险：即便
+/// 清除与记录并发交错，代次不符的旧记录也不会被当作确认（见
+/// confirm_gate）。line_auto 不经此函数，否则自动确认轮会自断。
+pub fn invalidate_pending_confirm() {
+    CONFIRM_GEN.fetch_add(1, Ordering::SeqCst);
+    if let Ok(mut pending) = PENDING_WINNER.lock() {
+        *pending = None;
+    }
+}
 
 /// 两轮确认的决策（纯函数，2026-11-18 晚故障注入批自 auto_pick 内联
 /// 逻辑等价提取，契约由文件末尾 tests 钉住）：返回 true = 本轮胜者可
@@ -166,13 +182,16 @@ const PENDING_TTL: Duration = Duration::from_secs(600);
 /// 语义逐条：空胜者不涉及切换 → 放行且不碰待确认；胜者即当前线或
 /// 故障路径（urgent）→ 清待确认放行；普通路径同胜者在 TTL 内二度
 /// 胜出 → 清待确认放行，否则（首胜/已过期/异胜者）记或替换待确认
-/// 并拦截。
+/// 并拦截。待确认带代次（current_gen）：记录时的代次与当前代次不符
+/// 视为无待确认，按首胜重新记，不确认——手动操作经
+/// invalidate_pending_confirm 递增代次后，旧胜者不能冒充第二轮。
 fn confirm_gate(
-    pending: &mut Option<(String, Instant)>,
+    pending: &mut Option<(String, Instant, u64)>,
     winner: &str,
     current: &str,
     urgent: bool,
     now: Instant,
+    current_gen: u64,
 ) -> bool {
     if winner.is_empty() {
         return true;
@@ -181,12 +200,12 @@ fn confirm_gate(
         *pending = None;
         return true;
     }
-    let confirmed = matches!(&*pending, Some((w, at)) if w == winner && now.duration_since(*at) < PENDING_TTL);
+    let confirmed = matches!(&*pending, Some((w, at, gen)) if w == winner && *gen == current_gen && now.duration_since(*at) < PENDING_TTL);
     if confirmed {
         *pending = None;
         true
     } else {
-        *pending = Some((winner.to_string(), now));
+        *pending = Some((winner.to_string(), now, current_gen));
         false
     }
 }
@@ -247,7 +266,14 @@ pub async fn auto_pick(urgent: bool) -> Value {
     let current = crate::net::base();
     let winner = result.get("base").and_then(Value::as_str).unwrap_or_default().to_string();
     let pass = match PENDING_WINNER.lock() {
-        Ok(mut pending) => confirm_gate(&mut pending, &winner, &current, urgent, Instant::now()),
+        Ok(mut pending) => confirm_gate(
+            &mut pending,
+            &winner,
+            &current,
+            urgent,
+            Instant::now(),
+            CONFIRM_GEN.load(Ordering::SeqCst),
+        ),
         Err(_) => true,
     };
     if !pass {
@@ -279,6 +305,7 @@ mod tests {
     const WINNER: &str = "https://mirror-a.example";
     const OTHER: &str = "https://mirror-b.example";
     const CURRENT: &str = "https://huangguoai.com";
+    const GEN: u64 = 3;
 
     /* 故障注入（2026-11-18 晚）：两轮确认已落地但从未被真实故障
      * 检验，以下用例把 confirm_gate 的决策契约逐条钉死。 */
@@ -287,47 +314,47 @@ mod tests {
     fn first_win_holds_and_records_pending() {
         let now = Instant::now();
         let mut pending = None;
-        assert!(!confirm_gate(&mut pending, WINNER, CURRENT, false, now));
-        assert_eq!(pending, Some((WINNER.to_string(), now)));
+        assert!(!confirm_gate(&mut pending, WINNER, CURRENT, false, now, GEN));
+        assert_eq!(pending, Some((WINNER.to_string(), now, GEN)));
     }
 
     #[test]
     fn second_win_within_ttl_passes_and_clears() {
         let now = Instant::now();
-        let mut pending = Some((WINNER.to_string(), now - Duration::from_secs(60)));
-        assert!(confirm_gate(&mut pending, WINNER, CURRENT, false, now));
+        let mut pending = Some((WINNER.to_string(), now - Duration::from_secs(60), GEN));
+        assert!(confirm_gate(&mut pending, WINNER, CURRENT, false, now, GEN));
         assert_eq!(pending, None);
     }
 
     #[test]
     fn expired_pending_rerecords_and_holds() {
         let now = Instant::now();
-        let mut pending = Some((WINNER.to_string(), now - PENDING_TTL - Duration::from_secs(1)));
-        assert!(!confirm_gate(&mut pending, WINNER, CURRENT, false, now));
-        assert_eq!(pending, Some((WINNER.to_string(), now)));
+        let mut pending = Some((WINNER.to_string(), now - PENDING_TTL - Duration::from_secs(1), GEN));
+        assert!(!confirm_gate(&mut pending, WINNER, CURRENT, false, now, GEN));
+        assert_eq!(pending, Some((WINNER.to_string(), now, GEN)));
     }
 
     #[test]
     fn different_winner_replaces_pending_and_holds() {
         let now = Instant::now();
-        let mut pending = Some((OTHER.to_string(), now));
-        assert!(!confirm_gate(&mut pending, WINNER, CURRENT, false, now));
-        assert_eq!(pending, Some((WINNER.to_string(), now)));
+        let mut pending = Some((OTHER.to_string(), now, GEN));
+        assert!(!confirm_gate(&mut pending, WINNER, CURRENT, false, now, GEN));
+        assert_eq!(pending, Some((WINNER.to_string(), now, GEN)));
     }
 
     #[test]
     fn urgent_passes_and_clears_pending() {
         let now = Instant::now();
-        let mut pending = Some((OTHER.to_string(), now));
-        assert!(confirm_gate(&mut pending, WINNER, CURRENT, true, now));
+        let mut pending = Some((OTHER.to_string(), now, GEN));
+        assert!(confirm_gate(&mut pending, WINNER, CURRENT, true, now, GEN));
         assert_eq!(pending, None);
     }
 
     #[test]
     fn winner_is_current_clears_and_passes() {
         let now = Instant::now();
-        let mut pending = Some((OTHER.to_string(), now));
-        assert!(confirm_gate(&mut pending, CURRENT, CURRENT, false, now));
+        let mut pending = Some((OTHER.to_string(), now, GEN));
+        assert!(confirm_gate(&mut pending, CURRENT, CURRENT, false, now, GEN));
         assert_eq!(pending, None);
     }
 
@@ -335,8 +362,21 @@ mod tests {
     fn empty_winner_leaves_pending_and_passes() {
         let now = Instant::now();
         let recorded = now - Duration::from_secs(30);
-        let mut pending = Some((OTHER.to_string(), recorded));
-        assert!(confirm_gate(&mut pending, "", CURRENT, false, now));
-        assert_eq!(pending, Some((OTHER.to_string(), recorded)));
+        let mut pending = Some((OTHER.to_string(), recorded, GEN));
+        assert!(confirm_gate(&mut pending, "", CURRENT, false, now, GEN));
+        assert_eq!(pending, Some((OTHER.to_string(), recorded, GEN)));
+    }
+
+    #[test]
+    fn stale_generation_second_win_holds_and_rerecords() {
+        // 记下胜者 -> 代次失效（手动操作调 invalidate_pending_confirm
+        // 递增代次）-> 同胜者再来：代次不符视为无待确认，按首胜处理，
+        // 不确认，并以新代次重新记下。
+        let now = Instant::now();
+        let mut pending = None;
+        assert!(!confirm_gate(&mut pending, WINNER, CURRENT, false, now, GEN));
+        assert_eq!(pending, Some((WINNER.to_string(), now, GEN)));
+        assert!(!confirm_gate(&mut pending, WINNER, CURRENT, false, now, GEN + 1));
+        assert_eq!(pending, Some((WINNER.to_string(), now, GEN + 1)));
     }
 }
