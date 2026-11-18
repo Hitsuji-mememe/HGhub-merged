@@ -120,7 +120,7 @@ assert(text.startsWith(""), "标题缺失");
 assert(text.includes("── 结论") && text.includes("── 硬数据") && text.includes("── 最近一次播放流水"), "三段结构缺失");
 assert(text.includes("当前线路：fixture.invalid"), "当前线路缺失");
 assert(text.includes("fixture.invalid(当前) 42ms") && text.includes("mirror.fixture.invalid 不可达"), "各线延迟缺失");
-assert(text.includes("A 路 2.2 MB/s"), "分片吞吐缺失");
+assert(text.includes("App 通道 2.2 MB/s"), "分片吞吐缺失");
 assert(text.includes("最近播放已正常出画（playing）"), "健康卡点结论错误");
 assert(text.includes("resolve ✓ 120ms") && text.includes("playing ✓ 880ms"), "流水耗时错误");
 assert(text.includes("会话降级：未发生"), "降级行错误");

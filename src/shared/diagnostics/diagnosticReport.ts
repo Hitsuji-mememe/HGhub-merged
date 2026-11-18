@@ -63,6 +63,8 @@ type FlowResult = {
 table: string;
 /** 卡点结论（已出画则为正常结论）。 */
 verdict: string;
+/** 起播耗时（t0→buffered，缺失时 null），供结论行引用。 */
+startupMs: number | null;
 /** 本进程（pid 相同）是否发生过 append 卡死/会话降级。 */
 stalledThisSession: boolean;
 fallbackThisSession: boolean;
@@ -82,8 +84,22 @@ const reached = STAGES.map(stage => {
 const hit = tail.find(e => stage.events.includes(e.event));
 return {...stage, at: hit? hit.ts: null};
 });
-const parts = reached.map(s => `${s.label} ${s.at == null? "✗ 未达": `✓ ${Math.max(0, s.at - t0)}ms`}`);
+const furthestIdx = reached.reduce((acc, s, i) => (s.at!= null? i: acc), -1);
+/* 阶段标记口径（2026-11-18 晚真机报告审计修正）：缺失阶段分两种——
+   已越过它（更晚阶段已达）说明只是没记到该事件，标「— 未记录」，
+   不打 ✗ 假警报（实测：出画成功仍报 resolve ✗）；真正卡点之后
+   的阶段才标「✗ 未达」。playing 的偏移若远超起播尺度（>30s，多为
+   加载后隔很久才起播/续播），只记成败不记 ms，避免 218081ms 这类
+   数字被误读成起播耗时；起播耗时以 t0→buffered 为准入结论行。 */
+const parts = reached.map((s, i) => {
+if (s.at == null) return `${s.label} ${i <= furthestIdx? "— 未记录": "✗ 未达"}`;
+const off = Math.max(0, s.at - t0);
+if (s.key === "playing" && off > 30000) return `${s.label} ✓`;
+return `${s.label} ✓ ${off}ms`;
+});
 const furthest = [...reached].reverse().find(s => s.at!= null);
+const bufferedAt = reached.find(s => s.key === "buffered")?.at?? null;
+const startupMs = bufferedAt!= null? Math.max(0, bufferedAt - t0): null;
 let verdict: string;
 if (reached[reached.length - 1].at!= null) {
 verdict = "最近播放已正常出画（playing）";
@@ -94,7 +110,7 @@ verdict = "最近播放卡在 append（分片已下载、未入缓冲——appen
 } else {
 verdict = `最近播放卡在 ${furthest.label} 阶段`;
 }
-return { table: parts.join(" · "), verdict, stalledThisSession, fallbackThisSession};
+return { table: parts.join(" · "), verdict, startupMs, stalledThisSession, fallbackThisSession};
 }
 
 export async function buildDiagnosticReport(): Promise<string> {
@@ -109,8 +125,12 @@ const lineState = lineStateR.status === "fulfilled"? obj(lineStateR.value): {};
 const currentBase = str(lineState.base) || str(diag.base);
 const currentHost = currentBase? hostOf(currentBase): "-";
 
-/* 各固定线路延迟：用 line_probe（只测不切），候选 = 固定线路 + 当前线路。 */
+/* 各固定线路延迟：用 line_probe（只测不切），候选 = 固定线路 + 当前线路。
+   候选条数与不可达数单独计数入报告（2026-11-18 晚审计修正：原版只列
+   当前一条时看不出是「共一条」还是「漏列」，选线现状行还写空话「见上」）。 */
 let probeText = "未测（线路清单读取失败）";
+let probeCount: number | null = null;
+let probeDown: number | null = null;
 if (lineStateR.status === "fulfilled") {
 const fixed = Array.isArray(lineState.fixed)? lineState.fixed: [];
 const urls = [...new Set(fixed.map(f => str(obj(f).url)).filter(Boolean).concat(currentBase? [currentBase]: []))].slice(0, 6);
@@ -118,6 +138,8 @@ if (urls.length) {
 try {
 const hits = await api.lineProbe(urls);
 const list = Array.isArray(hits)? hits: [];
+probeCount = list.length;
+probeDown = list.filter(h => obj(h).ok!== true).length;
 probeText = list.map(h => {
 const hit = obj(h);
 const name = hit.url === currentBase? `${hostOf(str(hit.url))}(当前)`: hostOf(str(hit.url));
@@ -137,7 +159,10 @@ if (str(sab.error)) speedText = `失败（${str(sab.error)}）`;
 else if (Object.keys(sab).length) {
 const bytes = num(sab.bytes);
 const mbps = (b: number | null, m: number | null) => (b!= null && m!= null && m > 0? `${(b / (m / 1000) / (1024 * 1024)).toFixed(1)} MB/s`: "—");
-speedText = `A 路 ${mbps(bytes, num(sab.a_ms))}（生产客户端） · B 路 ${mbps(num(sab.b_bytes)?? bytes, num(sab.b_ms))}（裸客户端）`;
+/* A=经 App 客户端栈（含代理环境）/ B=裸直连：双路分歧本身是诊断信号
+   （A 慢 B 快=客户端/代理问题，双慢=线路/网络问题），保留双值但用
+   人话标签（2026-11-18 晚审计修正：原「A 路/B 路」为内部术语）。 */
+speedText = `App 通道 ${mbps(bytes, num(sab.a_ms))} · 直连 ${mbps(num(sab.b_bytes)?? bytes, num(sab.b_ms))}`;
 }
 
 const entries = logR.status === "fulfilled"? parseLog(String(logR.value?? "")): [];
@@ -151,9 +176,9 @@ lines.push("");
 lines.push("── 结论 ──────────────────────────");
 lines.push(`网络：${diagR.status === "fulfilled"? shortVerdict(diag): "诊断失败（net_diag 不可用）"}`);
 lines.push(`当前线路：${currentHost}（自动选线 ${autoLineEnabled()? "开": "关"}）`);
-lines.push(`各线延迟：${probeText}`);
+lines.push(`各线延迟${probeCount!= null? `（候选 ${probeCount} 条）`: ""}：${probeText}`);
 lines.push(`分片吞吐：${speedText}`);
-lines.push(`最近播放：${flow? flow.verdict: "无最近播放记录"}`);
+lines.push(`最近播放：${flow? `${flow.verdict}${flow.startupMs!= null? ` · 起播约 ${(flow.startupMs / 1000).toFixed(1)}s`: ""}`: "无最近播放记录"}`);
 if (fallback || flow?.fallbackThisSession) lines.push("会话降级：本会话已降级原生播放（append 停滞）");
 else if (flow?.stalledThisSession) lines.push("会话降级：发生过 append 卡死、已自愈重建（未降级）");
 else lines.push("会话降级：未发生");
@@ -161,17 +186,25 @@ lines.push("");
 lines.push("── 硬数据 ────────────────────────");
 const rt = obj(diag.runtime);
 const osText = [str(rt.os), str(rt.arch)].filter(Boolean).join(" ") || platform;
-lines.push(`App 版本：${APP_VERSION} · 平台：${osText}`);
+/* iOS 版本对本 App 的播放故障定性是关键变量（27.3 beta 的 MMS 停滞
+   签名），net_diag 只给 os/arch，从 WebView UA 补解析（2026-11-18 晚
+   审计补项；解析不到就省略，不编造）。 */
+const ua = typeof navigator!== "undefined"? navigator.userAgent: "";
+const iosMatch = ua.match(/OS (\d+)_(\d+)(?:_(\d+))?/);
+const iosText = iosMatch? ` · iOS ${iosMatch[1]}.${iosMatch[2]}${iosMatch[3]? `.${iosMatch[3]}`: ""}`: "";
+lines.push(`App 版本：${APP_VERSION} · 平台：${osText}${iosText}`);
 if (facts) {
 const kbps = facts.bitrateBps? Math.round(facts.bitrateBps / 1000): null;
 const bpp = facts.bitrateBps && facts.w > 0 && facts.h > 0
 ? (facts.bitrateBps / (facts.w * facts.h) / (facts.fps && facts.fps > 0? facts.fps: 30)).toFixed(3)
 : null;
-lines.push(`当前集源：${facts.w}x${facts.h}${kbps? ` · 码率 ${kbps} kbps`: ""}${bpp? ` · 密度 bpp ${bpp}`: ""} · 超分档位 ${facts.srMode}${facts.engine? ` · 引擎 ${facts.engine}`: ""}`);
+/* 码率未知必须显式写「未知」不静默省略（仓库不变量：未知不是空）——
+   码率缺失时超分密度判据无从复核，报告要让读者看见这个缺口。 */
+lines.push(`当前集源：${facts.w}x${facts.h}${kbps? ` · 码率 ${kbps} kbps`: " · 码率 未知"}${bpp? ` · 密度 bpp ${bpp}`: ""} · 超分档位 ${facts.srMode}${facts.engine? ` · 引擎 ${facts.engine}`: ""}`);
 } else {
 lines.push("当前集源：无（尚未播放）");
 }
-lines.push(`选线现状：当前 ${currentHost}；${probeText.includes("不可达")? "存在不可达线路": "候选线路可达性见上"}`);
+lines.push(`选线现状：当前 ${currentHost}${probeCount!= null? `；候选 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}`);
 lines.push("");
 lines.push("── 最近一次播放流水 ──────────────");
 lines.push(flow? flow.table: "（无记录）");
