@@ -159,8 +159,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     x: number; y: number; startY: number; t: number; timer: number | null;
     mode: "idle" | "hold" | "scrub" | "pan"; base: number; width: number; playing: boolean;
     rotated: boolean;
-    /* 左边缘（20px）起手：优先给返回手势；rawX/rawY 为屏幕坐标（旋转舞台下方向判定不走舞台坐标） */
-    edge: boolean; edgeBack: boolean; rawX: number; rawY: number;
+    /* 边缘（左 20px / 右 22px）起手：优先给返回手势；rawX/rawY 为屏幕坐标（旋转舞台下方向判定不走舞台坐标）。
+       右缘左滑返回与左缘右滑并存同义（2026-11-18 第10项裁定：用户直觉方向就是右缘左滑）。 */
+    edge: boolean; edgeBack: boolean; edgeR: boolean; edgeBackR: boolean; rawX: number; rawY: number;
   } | null>(null);
   /* 系统是否真的转成了横屏（iOS 原生旋转后为 true） */
   const [vpLandscape, setVpLandscape] = useState(
@@ -704,11 +705,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       x: sx, y: sy, startY: sy, t: Date.now(), base: videoRef.current?.el()?.currentTime ?? playbackClock.getSnapshot(), width,
       mode: "idle" as "idle" | "hold" | "scrub" | "pan",
       rotated: rot,
-      edge: (e.clientX - rect.left) <= 20, edgeBack: false, rawX: e.clientX, rawY: e.clientY,
+      edge: (e.clientX - rect.left) <= 20, edgeBack: false,
+      edgeR: (rect.right - e.clientX) <= 22, edgeBackR: false, rawX: e.clientX, rawY: e.clientY,
       playing: videoRef.current?.el()?.paused === false,
       timer: window.setTimeout(() => {
         const cur = gesture.current;
-        if (!cur || cur.mode !== "idle" || cur.edge) return;
+        if (!cur || cur.mode !== "idle" || cur.edge || cur.edgeR) return;
         cur.mode = "hold";
         /* Muse 2026-11-18 (真机反馈修回 2.1.5 定版): 长按去分区、固定 2x——任意位置
            长按即临时加速，松手立即恢复原速，绝不锁定、不换挡。合并时引入的左右滑
@@ -747,10 +749,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
        抢占（hold 已在 timer 处被 edge 挡下）；屏幕坐标右滑占优即锁定 edgeBack。
        判定用 clientX/Y 而非舞台坐标——CSS 旋转舞台下屏幕方向与舞台方向不同，
        iOS 返回手势认的是屏幕左边缘。 */
-    if (g.edge) {
-      if (!g.edgeBack) {
+    if (g.edge || g.edgeR) {
+      if (!g.edgeBack && !g.edgeBackR) {
         const dxS = e.clientX - g.rawX, dyS = e.clientY - g.rawY;
-        if (dxS > 28 && dxS > Math.abs(dyS) * 1.5) g.edgeBack = true;
+        if (g.edge && dxS > 28 && dxS > Math.abs(dyS) * 1.5) g.edgeBack = true;
+        if (g.edgeR && -dxS > 28 && -dxS > Math.abs(dyS) * 1.5) g.edgeBackR = true;
       }
       return;
     }
@@ -809,11 +812,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
     /* 边缘返回：已锁定 edgeBack 且右滑过 64px 才执行；边缘起手但未成手势的，
        拖动一律吞掉（不落 pan/切集），只有轻点（<10px）放行到下方单击分支。 */
-    if (g.edgeBack) {
-      if (!cancelled && e && e.clientX - g.rawX > 64) doEdgeBack();
+    /* 边缘返回（左右同出口 doEdgeBack，右缘为第10项并存项）：已锁定且
+       向屏内滑动过 64px 才执行；两缘未成手势的边缘拖动同样吞掉，
+       只有轻点（<10px）放行单击分支。 */
+    if (g.edgeBack || g.edgeBackR) {
+      if (!cancelled && e && (g.edgeBack ? e.clientX - g.rawX : g.rawX - e.clientX) > 64) doEdgeBack();
       return;
     }
-    if (g.edge && (cancelled || !e || Math.hypot(e.clientX - g.rawX, e.clientY - g.rawY) >= 10)) return;
+    if ((g.edge || g.edgeR) && (cancelled || !e || Math.hypot(e.clientX - g.rawX, e.clientY - g.rawY) >= 10)) return;
     /* 竖滑手势（竖滑语义定版：恒切作品）：普通态 overlay 是
        touch-action:pan-y，原生滚动接管、本分支不到达；全屏态滚动
        锁定（touch-action:none + overflow-hidden），这里抬手一次性

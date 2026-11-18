@@ -71,9 +71,10 @@ function DialogFrame({ open, onClose, children, kind, width, label, z }: {
   const descendants = useMemo(() => [...ancestors, token], [ancestors, token]);
   const close = useRef(onClose);
   close.current = onClose;
-  /* 左边缘右滑关闭（iOS back 手势，Muse 2026-11-18）：弹层覆盖全屏时，
-     下层界面的手势收不到触摸，返回手势必须由弹层自己认。仅 sheet/modal。 */
-  const edgeBackRef = useRef<{ x: number; y: number } | null>(null);
+  /* 边缘滑关闭（iOS back 手势，Muse 2026-11-18）：弹层覆盖全屏时，
+     下层界面的手势收不到触摸，返回手势必须由弹层自己认。仅 sheet/modal。
+     左缘右滑之外并存右缘（22px）左滑（第10项裁定，与播放面同义）。 */
+  const edgeBackRef = useRef<{ x: number; y: number; side: "l" | "r" } | null>(null);
   const host = document.fullscreenElement ?? document.getElementById("root") ?? document.body;
   useEffect(() => {
     if (open) { setMounted(true); return; }
@@ -145,14 +146,16 @@ function DialogFrame({ open, onClose, children, kind, width, label, z }: {
     <LayerContext.Provider value={descendants}>
       <div ref={ref} className={`ios-overlay ios-overlay-${kind} ${open ? "is-open" : "is-closing"} ${z ?? ""}`}
         onPointerDown={kind !== "guide" ? (event) => {
-          edgeBackRef.current = event.clientX <= 20 ? { x: event.clientX, y: event.clientY } : null;
+          edgeBackRef.current = event.clientX <= 20 ? { x: event.clientX, y: event.clientY, side: "l" as const }
+            : window.innerWidth - event.clientX <= 22 ? { x: event.clientX, y: event.clientY, side: "r" as const } : null;
         } : undefined}
         onPointerUp={kind !== "guide" ? (event) => {
           const start = edgeBackRef.current;
           edgeBackRef.current = null;
           if (!start || !open) return;
           const dx = event.clientX - start.x, dy = event.clientY - start.y;
-          if (dx > 64 && dx > Math.abs(dy) * 1.5) close.current();
+          const toward = start.side === "l" ? dx : -dx;
+          if (toward > 64 && toward > Math.abs(dy) * 1.5) close.current();
         } : undefined}
         onFocusCapture={event => {
           // React autoFocus can run before this frame's layout effect.

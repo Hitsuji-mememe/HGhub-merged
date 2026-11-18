@@ -266,6 +266,53 @@ async function gestureChecks(page) {
   await page.waitForTimeout(700);
   assert.match(await epLabel(), /第 1 集/, 'Vertical swipe must not change episode (feed-item navigation only)');
   assert.equal(await video.evaluate(v => v.paused), false, 'Vertical swipe does not pause playback');
+  // 右缘左滑返回 (Muse 2026-11-18 第10项, 与左缘右滑并存、语义一致):
+  // (a) 画面中部横滑不触发返回: 抽屉开着时中部横滑抽屉不关 (边缘带外
+  //     起手不算返回手势; 进度拖动/切条目同样只认带外起手, 区域互斥)。
+  // (b) 抽屉开着时右缘左滑先关抽屉一层 (弹层自身认边缘, overlays)。
+  //     旧实现弹层只认左缘: 本段在旧代码上必失败 (抽屉不关)。
+  // (c) 全屏态播放面右缘左滑 = 退全屏 (与左缘同一 doEdgeBack 出口)。
+  //     旧实现右缘起手落 scrub 定位: 全屏不退、本段必失败。
+  // (d) 右缘竖滑被边缘带吞掉: 不切集 (起手区域互斥的另一面)。
+  await ensureVisible();
+  await page.getByRole('button', { name: '选集', exact: true }).click();
+  const sheet = page.locator('.ios-overlay-sheet');
+  await sheet.waitFor({ state: 'visible' });
+  const overlaySwipe = (rightEdge) => page.evaluate((right) => {
+    const el = document.querySelector('.ios-overlay-sheet');
+    const vw = window.innerWidth;
+    const x0 = right ? vw - 8 : Math.floor(vw / 2);
+    const x1 = right ? vw - 110 : Math.floor(vw / 2) - 160;
+    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 93, pointerType: 'touch', button: 0, clientX: x0, clientY: 300 }));
+    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 93, pointerType: 'touch', button: 0, clientX: x1, clientY: 306 }));
+  }, rightEdge);
+  await overlaySwipe(false);
+  await page.waitForTimeout(300);
+  assert.equal(await sheet.isVisible(), true, 'Mid-screen horizontal swipe must not trigger back (sheet stays open)');
+  await overlaySwipe(true);
+  await sheet.waitFor({ state: 'hidden', timeout: 5000 });
+  await ensureVisible();
+  await page.getByRole('button', { name: '全屏', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.player-root')?.classList.contains('fs-immersive'), null, { timeout: 8000 });
+  await page.evaluate(() => {
+    const surface = document.querySelector('video').parentElement.parentElement;
+    const vw = window.innerWidth;
+    surface.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 94, pointerType: 'touch', button: 0, clientX: vw - 8, clientY: 300 }));
+    for (const x of [vw - 50, vw - 90]) surface.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 94, pointerType: 'touch', button: 0, clientX: x, clientY: 302 }));
+    surface.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 94, pointerType: 'touch', button: 0, clientX: vw - 120, clientY: 304 }));
+  });
+  await page.waitForFunction(() => !document.querySelector('.player-root')?.classList.contains('fs-immersive'), null, { timeout: 8000 });
+  await ensureVisible();
+  await page.evaluate(() => {
+    const surface = document.querySelector('video').parentElement.parentElement;
+    const bounds = surface.getBoundingClientRect();
+    const x = window.innerWidth - 8;
+    surface.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 95, pointerType: 'touch', button: 0, clientX: x, clientY: bounds.y + 320 }));
+    for (const y of [240, 160]) surface.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 95, pointerType: 'touch', button: 0, clientX: x, clientY: bounds.y + y }));
+    surface.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 95, pointerType: 'touch', button: 0, clientX: x, clientY: bounds.y + 110 }));
+  });
+  await page.waitForTimeout(700);
+  assert.match(await epLabel(), /第 1 集/, 'Right-edge vertical swipe is swallowed by the edge band (no episode change)');
   return {singleTapMs};
 }
 
