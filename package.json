@@ -25,7 +25,8 @@
     "android:icons": "node scripts/sync-android-icons.mjs",
     "ios:icons": "node scripts/generate-ios-icons.mjs",
     "android:dev": "tauri android dev",
-    "android:build": "tauri android build"
+    "android:build": "tauri android build",
+    "test:playback-engines": "node scripts/test-playback-engines.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
