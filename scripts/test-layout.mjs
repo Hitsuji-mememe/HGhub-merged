@@ -206,6 +206,12 @@ try {
       const home = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, vw: window.innerWidth }));
       assert(home.scrollWidth <= home.vw + 1, `${name}: home overflow ${home.scrollWidth} > ${home.vw}`);
       if (seedLandPref) {
+        // A2 断言 (收官批): 横屏提示 LandHint 出现后 3 秒自动消失 (保留
+        // ✕ 即时关、只出现一次) ——常驻遮挡是用户真机点名的问题。
+        const hint = page.getByRole("button", { name: "关闭横屏提示", exact: true });
+        await hint.waitFor({ state: "visible", timeout: 4000 });
+        await hint.waitFor({ state: "detached", timeout: 5000 });
+        result.landHintAutoDismiss = true;
         // 自动旋转删除断言 (缺陷8 接棒): 旧偏好键在场 + 横屏源已起播
         // 900ms 后, 方向必须仍保持竖屏呈现 (未被自动进横屏全屏),
         // 且控制层全屏钮在位 (唯一入口) ——原 P3 断言保护「记住偏好后
@@ -356,7 +362,11 @@ try {
         `${name}: comment body must render primary #F5F5F5 on the solid drawer, got ${JSON.stringify(commentColors)}`);
       assert(commentColors.meta && commentColors.meta[0] >= 161 && commentColors.meta[1] >= 165 && commentColors.meta[2] >= 173,
         `${name}: comment meta text must not fall below #A1A5AD, got ${JSON.stringify(commentColors)}`);
-      // 评论页内 CommentsPanel 自带同名「关闭」, 收窄到抽屉头部第一个。
+      // A3 断言 (收官批): 抽屉内只留一个关闭钮 (页签行右端) ——原实现
+      // 评论页头部还有一个浮动 X, 用户真机点名双 X; 原 `.first()` 取法
+      // 保护的是「至少有一个可关」, 由本计数断言接棒为「恰好一个」。
+      assert.equal(await sheet.locator('button[aria-label="关闭"]').count(), 1,
+        `${name}: drawer must contain exactly one close button (A3)`);
       await sheet.locator('button[aria-label="关闭"]').first().click();
       await sheet.waitFor({ state: "hidden" });
       await page.getByRole("button", { name: "选集", exact: true }).last().click();
@@ -365,6 +375,76 @@ try {
         `${name}: reopening must land on episodes again (no tab memory)`);
       await sheet.locator('button[aria-label="关闭"]').first().click();
       await sheet.waitFor({ state: "hidden" });
+      /* ── 收官批 A1/A4/A5/A6/A7 (全屏态) ── */
+      {
+        // A4/A6/A7: 顶栏无收藏/搜索; 底部信息单行 (剧名+热度同行、时间
+        // 右置不被挤压) 且无「第X集」。
+        const topLabels = await page.evaluate(() => {
+          const tb = document.querySelector('button[aria-label="返回"]')?.closest("div");
+          return tb ? [...tb.querySelectorAll("button")].map(b => b.getAttribute("aria-label") || "") : null;
+        });
+        assert(topLabels && !topLabels.some(l => /收藏|搜索/.test(l)),
+          `${name}: A4 fullscreen topbar must not contain fav/search, got ${JSON.stringify(topLabels)}`);
+        const info = await page.evaluate(() => {
+          const bar = [...document.querySelectorAll("div")].find(d => d.classList.contains("hg-chrome-in") && d.classList.contains("bottom-0"));
+          if (!bar) return null;
+          const spans = [...bar.querySelectorAll("span")];
+          const title = bar.querySelector(".truncate");
+          const time = spans.find(s => /^\d+:\d{2}\s*\/\s*\d+:\d{2}$/.test((s.textContent || "").trim()));
+          const heat = spans.find(s => (s.textContent || "").includes("赞"));
+          const tr = title?.getBoundingClientRect(), hr = heat?.getBoundingClientRect(), mr = time?.getBoundingClientRect();
+          const rotated = !!document.querySelector(".player-root.fs-landscape");
+          const cx = r => (r.left + r.right) / 2, cy = r => (r.top + r.bottom) / 2;
+          return {
+            hasEpText: /第\s*\d+\s*集/.test(bar.textContent || ""),
+            all: !!(title && heat && time),
+            // 旋转呈现 (fs-landscape) 下该行沿页面纵轴排布, 比对轴随之换向
+            sameRow: !!(tr && mr && Math.abs((rotated ? cx(tr) - cx(mr) : cy(tr) - cy(mr))) < 5),
+            heatSameRow: !!(tr && hr && Math.abs((rotated ? cx(hr) - cx(tr) : cy(hr) - cy(tr))) < 5),
+            noOverlap: !!(tr && mr && (rotated ? tr.bottom <= mr.top + 1 : tr.right <= mr.left + 1)),
+          };
+        });
+        assert(info && !info.hasEpText, `${name}: A6 fullscreen bottom must not repeat 第X集`);
+        assert(info && info.all && info.sameRow && info.heatSameRow && info.noOverlap,
+          `${name}: A7 info must be one row (title+heat left, time right, no overlap), got ${JSON.stringify(info)}`);
+        // A1: 单击进度条不 seek, 拖动才 seek (拖动中预览、松手落点)。
+        const slider = page.getByRole("slider", { name: "播放进度" });
+        const sbb = await slider.boundingBox();
+        assert(sbb, `${name}: A1 progress slider missing`);
+        const cy = sbb.y + sbb.height / 2;
+        const t0 = await page.evaluate(() => document.querySelector("video").currentTime);
+        await page.mouse.click(sbb.x + sbb.width * 0.1, cy);
+        await page.waitForTimeout(400);
+        const t1 = await page.evaluate(() => document.querySelector("video").currentTime);
+        assert(Math.abs(t1 - t0) < 0.5, `${name}: A1 tap on progress bar must not seek (${t0} -> ${t1})`);
+        await page.mouse.move(sbb.x + sbb.width * 0.1, cy);
+        await page.mouse.down();
+        await page.mouse.move(sbb.x + sbb.width * 0.55, cy, { steps: 12 });
+        await page.mouse.up();
+        await page.waitForTimeout(300);
+        const dragState = await page.evaluate(() => { const v = document.querySelector("video"); return { t: v.currentTime, dur: v.duration }; });
+        assert(Math.abs(dragState.t - dragState.dur * 0.55) < 2.5 && dragState.t - t1 > 2,
+          `${name}: A1 drag must seek to drop point, got t=${dragState.t} dur=${dragState.dur}`);
+        // A5: 播放中单击隐藏 → 画面零覆层 (无进度条/无时间/无顶栏);
+        // 竖屏细线保留不在本断言范围 (信息流态另测)。
+        await page.getByRole("button", { name: "播放", exact: true }).click();
+        await page.waitForFunction(() => document.querySelector("video")?.paused === false);
+        await tapCenter();
+        await page.waitForTimeout(500);
+        const overlay = await page.evaluate(() => {
+          const r = document.querySelector(".player-root");
+          return {
+            slider: !!r.querySelector('[role="slider"]'),
+            topbar: !!r.querySelector('button[aria-label="返回"]'),
+            time: [...r.querySelectorAll("span,div")].some(el => /^\d+:\d{2}\s*\/\s*\d+:\d{2}$/.test((el.textContent || "").trim())),
+          };
+        });
+        assert(!overlay.slider && !overlay.topbar && !overlay.time,
+          `${name}: A5 fullscreen hidden state must have zero overlay, got ${JSON.stringify(overlay)}`);
+        await tapCenter();
+        await page.waitForTimeout(500);
+        await page.getByRole("slider", { name: "播放进度" }).waitFor({ state: "visible" });
+      }
       // Exit path works end to end. (接棒同上: 退全屏过渡的 keepAlive 续播可能
       // 把已暂停的视频拉回播放、控件随之隐藏; 等其耗尽后若在播则点操作行
       // 暂停钮, 再验「全屏」钮可见——验的仍是出口可达性本身。出口本体已
