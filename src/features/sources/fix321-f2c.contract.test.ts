@@ -160,11 +160,15 @@ assert.deepEqual(templateFetchOrigins("none"), [], "none 模板无取页 origin"
 /* ── D. 收紧口径：未启用／blocked 源的 origin 不放行 ── */
 {
   const allow = new Set(sourceFetchAllowlistOrigins(builtin));
-  assert.ok(!allow.has("https://sexy.pixibb.com"), "未启用目录源（pixibb）origin 不在白名单内");
+  /* 断言适配（fix330 图片线，2026-11-19）：pixibb 已实证启用、xiuren
+   * 解 blocked（生效 origin 改 xiuren.biz）、danbooru 翻案 probe——三源
+   * origin 按「已启用∧非 blocked」口径转正入名单；blocked/未启用的
+   * 不放行口径由 meiridasai/hanime1 接棒，覆盖不降。 */
+  assert.ok(allow.has("https://sexy.pixibb.com"), "fix330 已启用目录源（pixibb）origin 在白名单内");
   assert.ok(!allow.has("https://hanime1.me"), "未启用探路源（hanime1）origin 不在白名单内");
   assert.ok(!allow.has("https://meiridasai.com"), "blocked 源（meiridasai）origin 不在白名单内");
-  assert.ok(!allow.has("https://xiuren.com"), "blocked 源（xiuren）origin 不在白名单内");
-  assert.ok(!allow.has("https://danbooru.donmai.us"), "blocked 源（danbooru）origin 不在白名单内");
+  assert.ok(allow.has("https://xiuren.biz"), "fix330 解 blocked 源（xiuren）生效 origin xiuren.biz 在白名单内");
+  assert.ok(allow.has("https://danbooru.donmai.us"), "fix330 翻案源（danbooru）origin 在白名单内");
   /* 清单远程下线 swag（enabled=false）→ 其根域与 API origin 一并退出白名单 */
   const off = validateManifest({
     manifestVersion: 9, minAppVersion: "3.0.0",

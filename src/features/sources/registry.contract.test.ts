@@ -33,13 +33,27 @@ const CORE_IDS = [
     assert.ok(!ids.has(goneId), `瘦身删除源 ${goneId} 不在册`);
   }
   assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
+  /* 断言适配（fix330 图片线，2026-11-19）：目录图片 5 源已逐源实抓
+   * 定级，原「一律未启用＋未实测注记」口径由逐源实名断言接棒（覆盖
+   * 不降：每个目录源恰落一组）；HentaiHaven 属里番线未动、维持原口径。 */
   for (const s of CATALOG_SOURCES) {
-    assert.equal(s.enabled, false, `目录源 ${s.id} 默认未启用（远程清单可按 id 启用）`);
     assert.equal(s.maturity, "probe", `目录源 ${s.id} 一律 probe`);
-    assert.ok(s.note?.includes("目录导入·未实测"), `目录源 ${s.id} 注记诚实标注未实测`);
+    if (s.id === "hentaihaven") {
+      assert.equal(s.enabled, false, "目录源 hentaihaven 默认未启用（远程清单可按 id 启用）");
+      assert.ok(s.note?.includes("目录导入·未实测"), "目录源 hentaihaven 注记诚实标注未实测");
+    } else if (s.id === "pixibb" || s.id === "nudecosplay") {
+      assert.equal(s.enabled, true, `目录源 ${s.id} fix330 实证启用（本机四级全通）`);
+      assert.ok(s.note?.includes("fix330 图片线定级"), `目录源 ${s.id} 注记已按实证更新`);
+    } else {
+      assert.equal(s.enabled, false, `目录源 ${s.id} fix330 定级维持未启用`);
+      assert.ok(s.note?.includes("fix330 图片线定级"), `目录源 ${s.id} 注记已记定级结论`);
+    }
   }
-  /* fix321-F2b：51chigua 换域名 51cg1.com 后解 blocked（契约变化适配） */
-  for (const blockedId of ["meiridasai", "xiuren", "danbooru"]) {
+  /* fix321-F2b：51chigua 换域名 51cg1.com 后解 blocked（契约变化适配）；
+   * fix330 图片线：xiuren（xiuren.biz 本机四级全通）与 danbooru（住宅
+   * 四级全通、旧判系机房 CF 假象）同理解 blocked 改判 probe，blocked
+   * 保留口径由 meiridasai 接棒（契约变化适配，见 fix330-images 契约）。 */
+  for (const blockedId of ["meiridasai"]) {
     const s = BUILTIN_SOURCES.find((x) => x.id === blockedId)!;
     assert.equal(s.maturity, "blocked");
     assert.equal(s.enabled, true, `${blockedId} blocked 保留口径：列表可见、点开诚实提示`);

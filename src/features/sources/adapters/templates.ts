@@ -12,7 +12,7 @@ import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
 import { REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
-import { allImgSrcs, extractIframeSrc, extractM3u8, extractMp4, findAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
+import { allImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
 
 export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "preview-only", "none"] as const;
 
@@ -43,7 +43,8 @@ export class SourceParseEmptyError extends Error {
 function titleFromHref(href: string): string {
   try {
     const seg = new URL(href).pathname.split("/").filter(Boolean).pop() ?? "";
-    return decodeURIComponent(seg).replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").replace(/\s+\d+$/, "").trim();
+    /* slug 还原的标题同样是文本入界面路径，经共用解码单点（fix330）。 */
+    return decodeEntities(decodeURIComponent(seg).replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").replace(/\s+\d+$/, "").trim());
   } catch { return ""; }
 }
 

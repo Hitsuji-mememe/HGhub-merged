@@ -63,8 +63,11 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
   for (const id of ["xiuren", "pornpics", "cosplaytele", "danbooru"]) {
     assert.ok(ids.includes(id), `active 图片源含 ${id}`);
   }
-  assert.equal(imageSources.find((s) => s.id === "xiuren")!.maturity, "blocked", "秀人网如实 blocked");
-  assert.equal(imageSources.find((s) => s.id === "danbooru")!.maturity, "blocked", "Danbooru 如实 blocked");
+  /* 断言适配（fix330 图片线，2026-11-19）：xiuren 改走 xiuren.biz 本机
+   * 四级全通解 blocked、danbooru 住宅四级全通翻案（旧 blocked 系机房
+   * CF 假象），两源均改判 probe（App 未真机验），证据 fix330/evidence/images.md。 */
+  assert.equal(imageSources.find((s) => s.id === "xiuren")!.maturity, "probe", "秀人网 fix330 解 blocked 为 probe");
+  assert.equal(imageSources.find((s) => s.id === "danbooru")!.maturity, "probe", "Danbooru fix330 翻案为 probe");
   assert.equal(imageSources.find((s) => s.id === "cosplaytele")!.maturity, "stable", "CosplayTele 如实 stable");
   assert.equal(imageSources.find((s) => s.id === "pornpics")!.maturity, "probe", "PornPics 如实 probe");
 }

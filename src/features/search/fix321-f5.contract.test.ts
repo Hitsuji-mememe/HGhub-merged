@@ -116,13 +116,17 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
   assert.equal(searchPolicyFor(formerOffNowIn).include, true, "旧 OFF 成员（秀人）具备搜索段：按通则进扇出、无名单特判");
 }
 
-/* ── 注册表全量遍历：扇出名单恰为保留集内具备搜索段的 7 源 ── */
+/* ── 注册表全量遍历：扇出名单恰为保留集内具备搜索段的源 ──
+ * 断言适配（fix330 图片线，2026-11-19）：pixibb/nudecosplay 实证启用
+ * 且 wp-rest 搜索端点实证可用（search 属实 true）→ 新进扇出；
+ * pornpics 模板搜索实证不可用、search 属实改 false → 出局。
+ * 名单由 7 源变 8 源，判定口径（结构门）不变。 */
 {
   const included = getBuiltinRegistry().filter((d) => searchPolicyFor(d).include).map((d) => d.id);
   assert.deepEqual(
     included,
-    ["huangguo", "hanime-tv", "rule34video", "xiuren", "pornpics", "cosplaytele", "danbooru"],
-    "扇出名单=保留集内 enabled∧具备搜索段（注册表序）",
+    ["huangguo", "hanime-tv", "rule34video", "xiuren", "cosplaytele", "danbooru", "pixibb", "nudecosplay"],
+    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix330 适配）",
   );
 
   /* 出局的保留源逐源断言：无搜索段（吃瓜模板/无适配器）或未启用 */
@@ -130,6 +134,7 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
     "51chigua": ["search"],       // chigua 模板无 search 方法
     feedheiliao: ["search"],      // 同上
     meiridasai: ["search"],       // 同上＋未声明
+    pornpics: ["search"],         // fix330：模板搜索实证不可用、search 属实 false
     hanime1: ["search", "detail", "play"], // template=none 无适配器
     iwara: ["search", "detail", "play"],   // 同上
   };
@@ -140,7 +145,9 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
     const missing = missingSearchSegments(def(id));
     for (const s of segs) assert.ok(missing.includes(s), `${id} 缺段含 ${s}（实际 ${missing.join("/")}）`);
   }
-  for (const id of ["pixibb", "nudecosplay", "yandere", "gelbooru", "hentaihaven", "pixiv"]) {
+  /* 断言适配（fix330）：pixibb/nudecosplay 已启用且具备搜索段、进
+   * 扇出（见上方名单断言），本组只剩未启用目录源。 */
+  for (const id of ["yandere", "gelbooru", "hentaihaven", "pixiv"]) {
     assert.equal(searchPolicyFor(def(id)).include, false, `目录源 ${id} 未启用出局`);
   }
   /* 出局源注册保留（不删源）：仍在注册表里、频道浏览不受扇出门影响 */
