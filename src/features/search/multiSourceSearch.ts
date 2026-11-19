@@ -329,7 +329,8 @@ export interface MergedHit {
   /** 簇内热度 max（混排序用）。 */
   hot: number;
   seq: number;
-  /** 全部副本（按权重 desc → hot desc → 源内序排列），一条不删。 */
+  /** 全部副本（按权重 desc → hot desc → 源内序排列）；同源重复
+   * （id/content）不入副本——副本层与卡片层共用去重判定（fix322）。 */
   copies: CopyRef[];
   /** 其余副本的来源名（供「多源都有」呈现）。 */
   alsoOn: string[];
@@ -359,11 +360,17 @@ export function sameSourceDuplicateKind(existing: CopyRef, incoming: FanoutHit):
   return null;
 }
 
-/** 合并规则（3.2.1 F1 修订）：同 kind 内——
+/** 合并规则（3.2.1 F1 修订＋2026-11-19 fix322/play 修订）：同 kind 内——
  * ① 同源同 ID 必合并（去重、不留假副本、身份自明不降置信）；
- * ② 同源同标题＋同封面必合并；
+ * ② 同源同标题＋同封面必合并，且副本层与卡片层共用同一判定：
+ * 并卡但不留第二副本（fix322 修订——F1 时代「两 ID 副本各留一份」
+ * 使详情「来源副本」出现同名双副本，用户真机裁定为缺陷）；
  * ③ 跨源仍走既有多信号置信门（≥3 合并、≥4 身份确认、宁漏勿误，
  * 口径不削弱）；同源但非重复者不合并。
+ * 判定次序（fix322 修订）：同源判定（确定性）优先于跨源置信
+ * （概率性）——先全簇扫 id、再全簇扫 content、最后才逐簇走置信；
+ * 逐簇混扫会让后到的一份被先建簇的置信匹配截走（双路到达的
+ * publishedAt 完整度差异即可造成），同一条目被劈进两张卡。
  * 代表条目取簇内首个（最高优先级）副本逐条比对。 */
 export function mergeHits(hits: FanoutHit[]): MergedHit[] {
   const sorted = [...hits].sort((a, b) => byPriority(
@@ -376,27 +383,38 @@ export function mergeHits(hits: FanoutHit[]): MergedHit[] {
     const copy: CopyRef = { sourceId: h.sourceId, sourceName: h.sourceName, weight: h.weight, hot: h.hot, seq: h.seq, item: h.item, publishedAt: h.publishedAt };
     let mergedInto: MergedHit | null = null;
     let conf = 0;
-    let dedupSameId = false;
-    for (let i = 0; i < clusters.length; i++) {
-      const c = clusters[i];
-      if (c.kind !== h.kind) continue;
-      let sameKind: "id" | "content" | null = null;
-      for (const cp of c.copies) {
-        const k = sameSourceDuplicateKind(cp, h);
-        if (k === "id") { sameKind = "id"; break; }
-        if (k === "content") sameKind = "content";
+    let sameSourceDup: "id" | "content" | null = null;
+    for (const want of ["id", "content"] as const) {
+      for (const c of clusters) {
+        if (c.kind !== h.kind) continue;
+        if (c.copies.some((cp) => sameSourceDuplicateKind(cp, h) === want)) {
+          mergedInto = c;
+          sameSourceDup = want;
+          /* content：同题（+3）＋同封面（+2）=5；同源重发发布时间可远，不扣时间分。 */
+          if (want === "content") conf = 5;
+          break;
+        }
       }
-      if (sameKind === "id") { mergedInto = c; dedupSameId = true; break; }
-      if (sameKind === "content") {
-        /* 同题（+3）＋同封面（+2）=5；同源重发发布时间可远，不扣时间分。 */
-        mergedInto = c; conf = 5; break;
+      if (mergedInto) break;
+    }
+    if (!mergedInto) {
+      for (let i = 0; i < clusters.length; i++) {
+        const c = clusters[i];
+        if (c.kind !== h.kind) continue;
+        if (c.copies.some((cp) => cp.sourceId === h.sourceId)) continue;
+        const score = mergeConfidence(reps[i], h);
+        if (score >= MERGE_THRESHOLD) { mergedInto = c; conf = score; break; }
       }
-      if (c.copies.some((cp) => cp.sourceId === h.sourceId)) continue;
-      const score = mergeConfidence(reps[i], h);
-      if (score >= MERGE_THRESHOLD) { mergedInto = c; conf = score; break; }
     }
     if (mergedInto) {
-      if (!dedupSameId) {
+      if (sameSourceDup === "id") {
+        /* 同一条目双路到达：自明重复——不留副本、不动置信（F1 口径）。 */
+      } else if (sameSourceDup === "content") {
+        /* 同源同内容重复挂载：并卡不留第二副本（详情副本层与卡片层
+         * 共用判定）；来源已在簇内，alsoOn 不重名；置信照常记账。 */
+        mergedInto.mergeConfidence = Math.min(mergedInto.mergeConfidence, conf);
+        mergedInto.identityConfirmed = mergedInto.mergeConfidence >= CONFIRMED_THRESHOLD;
+      } else {
         if (!mergedInto.copies.some((cp) => copyDedupKey(cp) === copyDedupKey(copy))) mergedInto.copies.push(copy);
         if (h.sourceName !== mergedInto.sourceName && !mergedInto.alsoOn.includes(h.sourceName)) mergedInto.alsoOn.push(h.sourceName);
         mergedInto.mergeConfidence = Math.min(mergedInto.mergeConfidence, conf);
