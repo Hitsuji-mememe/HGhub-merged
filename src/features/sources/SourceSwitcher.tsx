@@ -7,12 +7,15 @@
  */
 import { Button } from "../../shared/ui/ios/controls";
 import { sourcesForCategory } from "./registry.ts";
+import { getActiveRegistry } from "./manifest.ts";
 import type { SourceCategory, SourceMaturity } from "./types.ts";
 
 export interface SourceOption { id: string; label: string; badge?: string }
 
+/* UI 消费口径（Muse 2026-11-19 整改 D2）：一律读 active 注册表
+ * （远程清单覆盖后即时生效），不再读内置表。 */
 export function sourceOptionsForCategory(category: SourceCategory): SourceOption[] {
-  return sourcesForCategory(category).map((s) => ({
+  return sourcesForCategory(category, getActiveRegistry().sources).map((s) => ({
     id: s.id,
     label: s.displayName,
     badge: s.maturity === "preview" ? "仅预览" : s.maturity === "blocked" ? "暂不可用" : s.maturity === "probe" ? "未实测" : undefined,

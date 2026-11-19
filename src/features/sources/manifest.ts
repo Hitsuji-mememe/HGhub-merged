@@ -102,6 +102,21 @@ function defaultStorage(): StorageLike | null {
 let active: ResolvedRegistry = { sources: getBuiltinRegistry(), manifestVersion: BUILTIN_MANIFEST_VERSION, source: "builtin" };
 let activeAppVersion = FALLBACK_APP_VERSION;
 
+/** 解析落定埋点（Muse 2026-11-19 整改 D2）：动态 import 避免
+ * manifest→shared/diagnostics 的静态环（diagnostics 侧经 provider
+ * 钩子反向消费本模块数据）；埋点失败不影响解析结果。 */
+function traceRegistryApplied(r: ResolvedRegistry): void {
+  void import("../../shared/diagnostics/playbackDiagnostics")
+    .then((m) => m.tracePlayback("registry.applied", { version: r.manifestVersion, source: r.source, count: r.sources.length }))
+    .catch(() => { /* 诊断不可用时静默 */ });
+}
+
+function setActive(r: ResolvedRegistry): ResolvedRegistry {
+  active = r;
+  traceRegistryApplied(r);
+  return active;
+}
+
 /**
  * 启动后台拉取并解析注册表（三段回退）。fetcher/storage/appVersion
  * 可注入（契约测试用）；生产默认 fetch + localStorage。
@@ -127,8 +142,7 @@ export async function resolveRegistry(deps?: {
     const manifest = validateManifest(await fetcher(deps?.url ?? REMOTE_MANIFEST_URL));
     if (usable(manifest)) {
       try { storage?.setItem(MANIFEST_CACHE_KEY, JSON.stringify(manifest)); } catch { /* 缓存失败不影响本轮生效 */ }
-      active = { sources: applyManifest(getBuiltinRegistry(), manifest), manifestVersion: manifest.manifestVersion, source: "remote" };
-      return active;
+      return setActive({ sources: applyManifest(getBuiltinRegistry(), manifest), manifestVersion: manifest.manifestVersion, source: "remote" });
     }
   } catch { /* 远程失败 → last-good */ }
 
@@ -136,13 +150,11 @@ export async function resolveRegistry(deps?: {
     const cached = storage?.getItem(MANIFEST_CACHE_KEY);
     const manifest = cached ? validateManifest(JSON.parse(cached)) : null;
     if (usable(manifest)) {
-      active = { sources: applyManifest(getBuiltinRegistry(), manifest), manifestVersion: manifest.manifestVersion, source: "last-good" };
-      return active;
+      return setActive({ sources: applyManifest(getBuiltinRegistry(), manifest), manifestVersion: manifest.manifestVersion, source: "last-good" });
     }
   } catch { /* 缓存损坏 → 内置 */ }
 
-  active = { sources: getBuiltinRegistry(), manifestVersion: BUILTIN_MANIFEST_VERSION, source: "builtin" };
-  return active;
+  return setActive({ sources: getBuiltinRegistry(), manifestVersion: BUILTIN_MANIFEST_VERSION, source: "builtin" });
 }
 
 export function getActiveRegistry(): ResolvedRegistry {

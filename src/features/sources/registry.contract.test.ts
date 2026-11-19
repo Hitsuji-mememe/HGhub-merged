@@ -108,4 +108,31 @@ const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ i
   assert.equal(merged.length, getBuiltinRegistry().length);
 }
 
+/* ── D2 远程清单真接通（Muse 2026-11-19 整改）：覆盖结果必须反映到
+ * UI 实际消费的来源——UI 三处（SourceSwitcher/Category/Posts）统一经
+ * getActiveRegistry().sources 喂给 sourcesForCategory/firstEnabledSource，
+ * 不再读 getBuiltinRegistry()；main.tsx 启动调用 resolveRegistry。 ── */
+import { readFileSync } from "node:fs";
+import { getActiveRegistry } from "./manifest.ts";
+import { sourcesForCategory } from "./registry.ts";
+{ // fake fetcher 把 pornhub 熔断 → active 表与 UI getter 同步反映
+  const st = memStorage();
+  const r = await resolveRegistry({
+    fetcher: async () => ({ manifestVersion: 11, minAppVersion: "2.0.0", sources: [{ id: "pornhub", enabled: false }] }),
+    storage: st, appVersion: "2.2.0",
+  });
+  assert.equal(r.source, "remote");
+  assert.equal(getActiveRegistry().sources.find((s) => s.id === "pornhub")!.enabled, false, "active 表反映远程熔断");
+  const uiVideo = sourcesForCategory("video", getActiveRegistry().sources);
+  assert.ok(!uiVideo.some((s) => s.id === "pornhub"), "UI 消费 getter（active 表）不再列出被熔断源");
+  assert.ok(sourcesForCategory("video").some((s) => s.id === "pornhub"), "对照：内置表口径仍含 pornhub（证明覆盖来自 active 而非内置变更）");
+}
+{ // 接线文本断言：三处 UI 读 active 表 + 订阅事件；main 启动调用 resolveRegistry
+  const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  assert.ok(read("./SourceSwitcher.tsx").includes("getActiveRegistry"), "SourceSwitcher 读 active 表");
+  assert.ok(read("../category/Category.tsx").includes("getActiveRegistry"), "Category 读 active 表");
+  assert.ok(read("../posts/Posts.tsx").includes("getActiveRegistry"), "Posts 读 active 表");
+  assert.ok(read("../../main.tsx").includes("resolveRegistry"), "main.tsx 启动调用 resolveRegistry");
+}
+
 console.log("registry.contract: all assertions passed");

@@ -14,7 +14,8 @@ import { registerSrProbeV2 } from "./features/playback/srProbe";
 import { hasAcceptedAgreement } from "./shared/storage/usageAgreement";
 import { setFetchPage } from "./features/sources/adapters/fetchPage";
 import { recordFetchResult } from "./features/sources/adapters/fetchHealth";
-import { getRegistryInfo } from "./features/sources/manifest";
+import { FALLBACK_APP_VERSION, getRegistryInfo, resolveRegistry } from "./features/sources/manifest";
+import { getVersion } from "@tauri-apps/api/app";
 import { sourceHealthLines } from "./features/sources/registryDiag";
 import { registerSourceRegistryProvider, registerSourceHealthProvider } from "./shared/diagnostics/sourceRegistry";
 
@@ -40,6 +41,19 @@ setFetchPage(async (url) => {
     throw e;
   }
 });
+
+/* 远程清单启动接通（Muse 2026-11-19 整改 D2，P0-3）：fetchPage 注入后
+ * 后台解析注册表——真实 App 版本经 Tauri getVersion() 注入（minAppVersion
+ * 门口径），失败回落 FALLBACK_APP_VERSION；异步不阻塞挂载，落定后 dispatch
+ * hg:registry-changed，UI（SourceSwitcher/Category/Posts）订阅后改读
+ * getActiveRegistry()。解析落定埋点 registry.applied 在 manifest.ts 内。 */
+async function bootstrapRegistry(): Promise<void> {
+  let appVersion = FALLBACK_APP_VERSION;
+  try { appVersion = await getVersion(); } catch { /* 非 Tauri 环境回落 */ }
+  try { await resolveRegistry({ appVersion }); } catch { /* resolveRegistry 内部已三段回退 */ }
+  window.dispatchEvent(new Event("hg:registry-changed"));
+}
+void bootstrapRegistry();
 
 /* 源注册表诊断接线（Muse 2026-11-19 根治包·飞行记录仪收口）：注册表
  * 本体在 features/sources，诊断报告在 shared——经 provider 钩子注入

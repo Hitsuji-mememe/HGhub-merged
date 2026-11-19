@@ -16,6 +16,7 @@ import { TagBlockMenu } from "../../shared/ui/TagBlockMenu";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { usePaginatedList } from "../../shared/lib/usePaginatedList";
 import { firstEnabledSource, sourcesForCategory } from "../sources/registry";
+import { getActiveRegistry } from "../sources/manifest";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from "../sources/SourceSwitcher";
 import { CommentsPanel } from "../feed/Panels";
 import { postHot } from "./postData";
@@ -29,10 +30,18 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
   /* 源切换（根治包多源线条目5）：默认吃瓜分类第一顺位 enabled 源；
    * 切换即整页换源、源间不混排。非黄果源取页通道未接入时只出
    * 诚实占位（SourcePendingNotice），不混入黄果数据。 */
+  /* 注册表口径（Muse 2026-11-19 整改 D2）：读 active 表（远程清单
+   * 覆盖生效），hg:registry-changed 后刷新；不再读内置表。 */
+  const [, setRegistryTick] = useState(0);
+  useEffect(() => {
+    const onRegistry = () => setRegistryTick((t) => t + 1);
+    window.addEventListener("hg:registry-changed", onRegistry);
+    return () => window.removeEventListener("hg:registry-changed", onRegistry);
+  }, []);
   const postSourceOptions = sourceOptionsForCategory("posts");
-  const [sourceId, setSourceId] = useState(() => firstEnabledSource("posts")?.id ?? "huangguo");
+  const [sourceId, setSourceId] = useState(() => firstEnabledSource("posts", getActiveRegistry().sources)?.id ?? "huangguo");
   const isNativeSource = sourceId === "huangguo";
-  const activeSource = sourcesForCategory("posts").find((s) => s.id === sourceId);
+  const activeSource = sourcesForCategory("posts", getActiveRegistry().sources).find((s) => s.id === sourceId);
   const { items, page, pages, loading, err, loadMore, scroller: scrollRef, sentinel } = usePaginatedList<Post>({
     filtering,
     enabled: isNativeSource,

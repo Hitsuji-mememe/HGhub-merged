@@ -15,6 +15,7 @@ import { traceFeed } from "../../shared/lib/feedTrace";
 import { Empty } from "../../shared/ui/ui";
 import { IAward, IBack, IChevR, IFilm, IFlame, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
 import { firstEnabledSource, sourcesForCategory } from "../sources/registry";
+import { getActiveRegistry } from "../sources/manifest";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from "../sources/SourceSwitcher";
 
 /* 短剧三类合一（根治包多源线条目5）：原 AI成人短剧 / AI成人漫剧
@@ -33,10 +34,19 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  /* 注册表口径（Muse 2026-11-19 整改 D2）：读 active 表（远程清单
+   * 覆盖生效），hg:registry-changed 后刷新；不再读内置表。 */
+  const [, setRegistryTick] = useState(0);
+  useEffect(() => {
+    const onRegistry = () => setRegistryTick((t) => t + 1);
+    window.addEventListener("hg:registry-changed", onRegistry);
+    return () => window.removeEventListener("hg:registry-changed", onRegistry);
+  }, []);
+  const activeSources = getActiveRegistry().sources;
   /* 吃瓜数据源（条目5）：默认第一顺位 enabled 源，切换整段换源不混排 */
   const postSourceOptions = sourceOptionsForCategory("posts");
-  const [postsSourceId, setPostsSourceId] = useState(() => firstEnabledSource("posts")?.id ?? "huangguo");
-  const postsSource = sourcesForCategory("posts").find((s) => s.id === postsSourceId);
+  const [postsSourceId, setPostsSourceId] = useState(() => firstEnabledSource("posts", getActiveRegistry().sources)?.id ?? "huangguo");
+  const postsSource = sourcesForCategory("posts", activeSources).find((s) => s.id === postsSourceId);
   const mounted = useRef(false);
   const started = useRef(false);
   const pending = useRef(new Set<string>());
@@ -195,7 +205,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IFlame size={18} strokeWidth={1.9} /></span>
             <span role="heading" aria-level={2} className="block text-[16px] font-bold text-on leading-tight">预览专区</span>
           </div>
-          {sourcesForCategory("preview").map((s) => (
+          {sourcesForCategory("preview", activeSources).map((s) => (
             <Button key={s.id} onClick={() => { void api.openUrl(s.baseUrls[0]).catch(() => {}); }}
               className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 text-left pressable">
               <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
@@ -242,8 +252,15 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
   const [searching, setSearching] = useState(false);
   /* 视频数据源（条目5）：黄果为本频道原生源；切其他源整页换源不混排 */
   const [channelSourceId, setChannelSourceId] = useState("huangguo");
+  /* 注册表口径（整改 D2）：同 Category，读 active 表并订阅刷新 */
+  const [, setRegistryTick] = useState(0);
+  useEffect(() => {
+    const onRegistry = () => setRegistryTick((t) => t + 1);
+    window.addEventListener("hg:registry-changed", onRegistry);
+    return () => window.removeEventListener("hg:registry-changed", onRegistry);
+  }, []);
   const videoSourceOptions = [{ id: "huangguo", label: "黄果" }, ...sourceOptionsForCategory("video")];
-  const channelSource = sourcesForCategory("video").find((s) => s.id === channelSourceId);
+  const channelSource = sourcesForCategory("video", getActiveRegistry().sources).find((s) => s.id === channelSourceId);
   const [serverSort, setServerSort] = useState<(typeof CHANNEL_SORTS)[number]["value"]>("latest");
   const [originalCate, setOriginalCate] = useState<(typeof ORIGINAL_CATES)[number]["value"]>("all");
   const [pageItems, setPageItems] = useState<VideoCard[][]>([]);
