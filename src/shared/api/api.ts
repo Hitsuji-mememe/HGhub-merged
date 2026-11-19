@@ -245,7 +245,12 @@ export type LineState = { base: string; default: string; fixed: LineItem[]; cust
   /* 飞行记录仪加性字段（2026-11-19 根治包）：双账本摘要＋熔断状态。 */
   ledger?: LineLedgerEntry[]; breaker?: LineBreakerStatus | null };
 export type LineLedgerEntry = { origin: string; mode: string; stall: number; recovery: number; fallback: number;
-  probeSamples: number; probeBps: number | null; playSamples: number; playBps: number | null };
+  probeSamples: number; probeBps: number | null; playSamples: number; playBps: number | null;
+  /* 样本窗字段（整改 A8 跨线契约，名字与 Rust line_state JSON 对齐、不许改）：
+   * 时刻为 epoch 毫秒、无样本 null；enough＝样本 ≥ LEDGER_MIN_SAMPLES；
+   * playStale＝play 超新鲜期未更新。 */
+  playFirstAt: number | null; playUpdatedAt: number | null; probeUpdatedAt: number | null;
+  playEnough: boolean; probeEnough: boolean; playStale: boolean };
 export type LineBreakerStatus = { total: number; sessionMax: number; windowCount: number; windowMax: number; backoffLines: number };
 export type LineApply = { base: string; custom: boolean };
 export type LineMirrors = { source: string; script?: string; items: LineItem[]; recommended_source?: string; recommended: LineItem[] };

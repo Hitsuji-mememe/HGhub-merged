@@ -30,7 +30,16 @@
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// 当前墙钟（epoch 毫秒）：账本样本窗字段用（整改 A8 跨线契约）。
+/// Instant 只够算间隔、不可序列化，首/末样本时刻另以墙钟记。
+fn wall_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// 账本参与任何决胜/判断的最小吞吐样本数：不足时账本输入一律被
 /// 忽略（自动回退到纯探测排序），不让一两次采样冒充线路画像。
@@ -56,16 +65,21 @@ pub enum LineEvent {
     Fallback,
 }
 
-/// 一套吞吐 EWMA（样本数＋当前值＋最近更新时刻）。
+/// 一套吞吐 EWMA（样本数＋当前值＋最近更新时刻＋墙钟首/末样本时刻）。
 #[derive(Clone, Debug, Default)]
 pub struct Ewma {
     pub samples: u64,
     pub bps: Option<f64>,
     pub updated: Option<Instant>,
+    /// 首个有效样本的墙钟时刻（epoch 毫秒，整改 A8）：供诊断/报告
+    /// 呈现样本窗起点；无样本为 None。
+    pub first_wall_ms: Option<u64>,
+    /// 最近有效样本的墙钟时刻（epoch 毫秒，整改 A8）。
+    pub last_wall_ms: Option<u64>,
 }
 
 impl Ewma {
-    fn apply(&mut self, value: f64, now: Instant) {
+    fn apply(&mut self, value: f64, now: Instant, wall_ms: u64) {
         if !(value.is_finite() && value > 0.0) {
             return;
         }
@@ -78,6 +92,11 @@ impl Ewma {
         // 后续查询按样本不足处理（自动回退），绝不让坏值参与排序。
         self.bps = if next.is_finite() { Some(next) } else { None };
         self.updated = Some(now);
+        // 墙钟样本窗只记有效样本（与 samples 同步增减的口径一致）。
+        if self.first_wall_ms.is_none() {
+            self.first_wall_ms = Some(wall_ms);
+        }
+        self.last_wall_ms = Some(wall_ms);
     }
 
     /// 达到最小样本数且为有限正数才算有效画像。
@@ -166,15 +185,17 @@ pub fn record_throughput(origin: &str, bps: u64) {
 /// 代理模式，整轮测量跨代理切换也记回测量环境的键。
 pub fn record_throughput_with_mode(origin: &str, bps: u64, mode: crate::proxy::Mode) {
     let now = Instant::now();
+    let wall_ms = wall_now_ms();
     let key = ledger_key_with_mode(origin, mode.as_str());
-    let _ = with_entry_key(&key, |stats| stats.probe.apply(bps as f64, now));
+    let _ = with_entry_key(&key, |stats| stats.probe.apply(bps as f64, now, wall_ms));
 }
 
 /// 真实播放吞吐回写（line_record_playback 命令，play EWMA）：
 /// 前端聚合的分片实测 bps（f64），非有限/非正一律丢弃。
 pub fn record_playback(origin: &str, bps: f64) {
     let now = Instant::now();
-    let _ = with_entry(origin, |stats| stats.play.apply(bps, now));
+    let wall_ms = wall_now_ms();
+    let _ = with_entry(origin, |stats| stats.play.apply(bps, now, wall_ms));
 }
 
 pub fn record_event(origin: &str, event: LineEvent) {
@@ -202,11 +223,27 @@ pub struct LedgerEntry {
     pub probe_bps: Option<f64>,
     pub play_samples: u64,
     pub play_bps: Option<f64>,
+    /* 样本窗字段（整改 A8，跨线契约——字段名经 line_state JSON 以
+     * camelCase 暴露为 playFirstAt/playUpdatedAt/probeUpdatedAt/
+     * playEnough/probeEnough/playStale，C 线报告按此名消费，不许改）：
+     * 时刻均为 epoch 毫秒、无样本为 None；enough＝样本数达到
+     * LEDGER_MIN_SAMPLES；play_stale＝play 已超 PLAY_FRESH 未更新
+     * （无样本不算 stale）。 */
+    pub play_first_at: Option<u64>,
+    pub play_updated_at: Option<u64>,
+    pub probe_updated_at: Option<u64>,
+    pub play_enough: bool,
+    pub probe_enough: bool,
+    pub play_stale: bool,
 }
 
 /// 全账本只读汇总（按 origin/mode 排序，输出稳定）。锁失败返回
 /// 空表——诊断旁路不许因账本锁故障报错，报告侧以空表呈现。
 pub fn summary() -> Vec<LedgerEntry> {
+    summary_at(Instant::now())
+}
+
+fn summary_at(now: Instant) -> Vec<LedgerEntry> {
     let Ok(map) = LEDGER.lock() else { return Vec::new() };
     let mut out: Vec<LedgerEntry> = map
         .iter()
@@ -222,6 +259,15 @@ pub fn summary() -> Vec<LedgerEntry> {
                 probe_bps: s.probe.bps,
                 play_samples: s.play.samples,
                 play_bps: s.play.bps,
+                play_first_at: s.play.first_wall_ms,
+                play_updated_at: s.play.last_wall_ms,
+                probe_updated_at: s.probe.last_wall_ms,
+                play_enough: s.play.samples >= LEDGER_MIN_SAMPLES,
+                probe_enough: s.probe.samples >= LEDGER_MIN_SAMPLES,
+                play_stale: s
+                    .play
+                    .updated
+                    .is_some_and(|at| now.duration_since(at) >= PLAY_FRESH),
             }
         })
         .collect();
@@ -539,6 +585,42 @@ mod tests {
         assert_eq!(e.mode, "custom", "条目应记在测量时捕获的 proxyMode 键下");
         assert_eq!(e.probe_samples, 3);
         assert_eq!(e.probe_bps, Some(7_000_000.0));
+    }
+
+    /* ── 整改 A8（跨线契约，C 线报告按此字段名消费）：LedgerEntry
+     * 样本窗字段——playFirstAt/playUpdatedAt/probeUpdatedAt（epoch
+     * 毫秒）、playEnough/probeEnough（≥LEDGER_MIN_SAMPLES）、
+     * playStale（play 超 PLAY_FRESH 未更新）。字段名不许改。 ── */
+    #[test]
+    fn summary_reports_sample_window_fields() {
+        let origin = uniq("window-fields");
+        // 先建条目但不记吞吐：三时刻为空、样本不足、不 stale
+        record_event(&origin, LineEvent::Recovery);
+        let entries = summary();
+        let e = entries.iter().find(|e| e.origin == origin).expect("汇总应含本条目");
+        assert_eq!(e.play_first_at, None, "无 play 样本时 playFirstAt 为 null");
+        assert_eq!(e.play_updated_at, None);
+        assert_eq!(e.probe_updated_at, None);
+        assert!(!e.play_enough && !e.probe_enough, "无样本时 enough 为 false");
+        assert!(!e.play_stale, "无样本不算 stale（只是没数据）");
+        // 记满 3+3 样本：时刻非空、首≤末、enough 置位、刚更新不 stale
+        for _ in 0..3 {
+            record_playback(&origin, 6_000_000.0);
+            record_throughput(&origin, 3_000_000);
+        }
+        let entries = summary();
+        let e = entries.iter().find(|e| e.origin == origin).expect("汇总应含本条目");
+        let first = e.play_first_at.expect("record 后 playFirstAt 非空");
+        let updated = e.play_updated_at.expect("record 后 playUpdatedAt 非空");
+        assert!(updated >= first, "末样本时刻不早于首样本时刻");
+        assert!(first > 1_700_000_000_000, "应为 epoch 毫秒量级, got {first}");
+        assert!(e.probe_updated_at.is_some(), "record 后 probeUpdatedAt 非空");
+        assert!(e.play_enough && e.probe_enough, "满 3 样本 enough 置位");
+        assert!(!e.play_stale, "刚更新的 play 不 stale");
+        // 以 PLAY_FRESH 之后时刻汇总：play 过期 → playStale 置位
+        let later = summary_at(Instant::now() + PLAY_FRESH + Duration::from_secs(1));
+        let e = later.iter().find(|e| e.origin == origin).expect("汇总应含本条目");
+        assert!(e.play_stale, "play 超 PLAY_FRESH 未更新应判 stale");
     }
 
     #[test]

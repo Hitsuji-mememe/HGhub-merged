@@ -46,6 +46,11 @@ pub async fn line_state() -> Result<Value, String> {
             "stall": e.stall, "recovery": e.recovery, "fallback": e.fallback,
             "probeSamples": e.probe_samples, "probeBps": e.probe_bps,
             "playSamples": e.play_samples, "playBps": e.play_bps,
+            /* 样本窗字段（整改 A8 跨线契约，camelCase 名不许改） */
+            "playFirstAt": e.play_first_at, "playUpdatedAt": e.play_updated_at,
+            "probeUpdatedAt": e.probe_updated_at,
+            "playEnough": e.play_enough, "probeEnough": e.probe_enough,
+            "playStale": e.play_stale,
         })).collect::<Vec<_>>(),
         "breaker": crate::lines::ledger::breaker_status().map(|b| json!({
             "total": b.total, "sessionMax": b.session_max,
