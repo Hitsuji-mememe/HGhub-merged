@@ -900,14 +900,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   }, [playKey]);
 
   /* 进出全屏：iOS 会在这时把播放打断，过渡期多次续播（audit6 P1-4：
-     实现收敛到 useFsKeepAlive——三查＋意愿门＋暂停/切条即清定时器） */
-  const pausedRef = useRef(paused);
-  pausedRef.current = paused;
+     实现收敛到 useFsKeepAlive——三查＋意愿门＋切条即清定时器；
+     整改 B2：第①查改活动层三态信号，系统打断不再被当用户暂停） */
   const playKeyRef = useRef(playKey);
   playKeyRef.current = playKey;
   const keepAlive = useFsKeepAlive({
-    paused, playKey,
-    isUserPaused: () => pausedRef.current,
+    playKey,
+    pauseState: () => videoRef.current?.pauseState() ?? "paused_by_system",
     currentPlayKey: () => playKeyRef.current,
     isVideoPaused: () => videoRef.current?.el()?.paused === true,
     play: () => videoRef.current?.play("fs_keepalive", true),

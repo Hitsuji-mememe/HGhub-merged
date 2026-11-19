@@ -681,19 +681,22 @@ function run() {
 
 Object.assign(window, { __engines: run() });
 
-/* ── KA keepAlive 渲染探针（audit6 P1-4）：真实 hook + 真实定时器 ──
- * A：过渡中用户暂停（paused 翻 true，effect 清定时器＋回调三查）→
- * 1.2s 窗内零 play；B：未暂停 → 过渡打断后仍续播（play 被调用）。 */
+/* ── KA keepAlive 渲染探针（audit6 P1-4 → 整改 B2 三态改版）：真实
+ * hook + 真实定时器 + 真实接线语义——Feed 层 paused=true 在两种情形
+ * 下都成立，区别只在活动层三态：A：paused_by_user（用户显式暂停）
+ * → 1.2s 窗内零 play（pausedPlays）；B：paused_by_system（全屏过渡
+ * 的系统打断，正是 keepAlive 要处理的场景）→ 必须续播
+ * （resumedPlays ≥3）。旧接线读 Feed.paused 粗信号，B 情形必被拦。 */
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { useFsKeepAlive } from "../src/features/feed/useFsKeepAlive";
 {
-  const state = { paused: false, pausedNow: false, keyNow: "k1", plays: 0 };
+  const state = { kind: "paused_by_system" as "playing" | "paused_by_user" | "paused_by_system", keyNow: "k1", plays: 0 };
   let trigger: (() => void) | null = null;
-  function Probe({ paused }: { paused: boolean }) {
+  function Probe() {
     const keepAlive = useFsKeepAlive({
-      paused, playKey: "k1",
-      isUserPaused: () => state.pausedNow,
+      playKey: "k1",
+      pauseState: () => state.kind,
       currentPlayKey: () => state.keyNow,
       isVideoPaused: () => true,
       play: () => { state.plays += 1; },
@@ -706,19 +709,16 @@ import { useFsKeepAlive } from "../src/features/feed/useFsKeepAlive";
   const root = createRoot(host);
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   void (async () => {
-    root.render(<Probe paused={false} />);
+    root.render(<Probe />);
     await sleep(30);
-    (trigger as (() => void) | null)?.(); // 进全屏：调度六发（首发在 +50ms）；断言绕 TS 对闭包内赋值的窄化误判（集成修复，Muse 2026-11-19）
-    await sleep(15);
-    state.pausedNow = true; // 用户在首发落地前暂停：六发必须全灭
-    root.render(<Probe paused />); // paused 变化 → 清定时器
+    // A：用户显式暂停 → 六发必须全灭
+    state.kind = "paused_by_user";
+    (trigger as (() => void) | null)?.();
     await sleep(1400);
     const pausedPlays = state.plays;
-    // B：恢复未暂停态，重新调度 → 应续播
-    state.pausedNow = false;
+    // B：系统打断（Feed.paused 同样为 true）→ 必须续播
+    state.kind = "paused_by_system";
     state.plays = 0;
-    root.render(<Probe paused={false} />);
-    await sleep(30);
     (trigger as (() => void) | null)?.();
     await sleep(1400);
     Object.assign(window, { __keepAlive: { pausedPlays, resumedPlays: state.plays } });

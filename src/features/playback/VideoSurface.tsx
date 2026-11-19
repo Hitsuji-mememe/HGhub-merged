@@ -35,6 +35,9 @@ export type VideoHandle = {
   volume: (v: number) => void;
   isActive: () => boolean;
   isPlayWanted: () => boolean;
+  /** 活动层三态暂停信号（整改 B2）：Feed 的 keepAlive 等意愿门控经此
+   * 读取，不再用 Feed.paused 粗信号冒充用户暂停。 */
+  pauseState: () => "playing" | "paused_by_user" | "paused_by_system";
 };
 
 type Props = {
@@ -202,6 +205,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     volume: (vol: number) => { const v = videoRef.current; if (v) v.volume = vol; },
     isActive: () => activity.isActive(),
     isPlayWanted: () => activity.isPlayWanted(),
+    pauseState: () => activity.pauseState(),
   }), []);
 
   useEffect(() => {
