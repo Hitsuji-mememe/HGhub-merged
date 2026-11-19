@@ -1013,14 +1013,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (isDesktop) return undefined;
     const onViewportChange = () => {
       const isLand = window.innerWidth > window.innerHeight;
-      setVpLandscape((prev) => {
-        if (prev !== isLand && active) {
-          setFs(isLand);
-          keepAlive();
-          wake();
-        }
-        return isLand;
-      });
+      /* setFs/keepAlive/wake 挪出状态更新器（整改 B6）：更新器须纯，
+       * 副作用在其中会被双调用/丢弃语义影响；改读 vpLandRef 现值在
+       * 更新器外判定与调用，横置进全屏/竖回退出的行为一字不变。 */
+      if (vpLandRef.current !== isLand && active) { setFs(isLand); keepAlive(); wake(); }
+      vpLandRef.current = isLand;
+      setVpLandscape(isLand);
     };
     window.addEventListener("resize", onViewportChange);
     window.addEventListener("orientationchange", onViewportChange);
