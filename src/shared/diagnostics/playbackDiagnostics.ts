@@ -3,6 +3,7 @@ import { useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
 import type Hls from "hls.js";
 import type { FragBufferedData, FragLoadedData, FragLoadingData, HlsListeners } from "hls.js";
 import { copyText } from "../lib/clipboard";
+import { recordIfCurrent, registerPlayerInstance, unregisterPlayerInstance } from "./eventLedger";
 
 let registeredHlsVersion: string | null = null;
 export function registerHlsVersion(version: string) {
@@ -157,11 +158,35 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
   const id = useRef<string>("");
   if (!id.current) id.current = `player-${++nextPlayer}`;
   const current = useRef(context); current.current = context;
+  /* 事件账本接线（Muse 2026-11-19 根治包，诊断一级模块）：实例挂载
+   * register、卸载 unregister；trace 全量镜像经 recordIfCurrent 入账，
+   * 键＝(playerInstanceId, sourceGeneration)——generation 随资源指纹
+   * 变化递增，报告侧按此隔离消费、禁跨源混合。卸载后的迟到回调被
+   * recordIfCurrent 挡下计 droppedLate，不入窗口。 */
+  const generation = useRef(0);
+  const lastResource = useRef<unknown>(undefined);
+  if (lastResource.current !== context.resource) {
+    if (lastResource.current !== undefined) generation.current += 1;
+    lastResource.current = context.resource;
+  }
+  /* 账本实例 id 由账本模块分配（自带计数器）：首次镜像时惰性注册，
+   * 卸载时注销——注销后迟到回调被 recordIfCurrent 挡下计 droppedLate。 */
+  const ledgerId = useRef<string | null>(null);
+  useEffect(() => () => {
+    if (ledgerId.current) { unregisterPlayerInstance(ledgerId.current); ledgerId.current = null; }
+  }, []);
+  const mirrorLedger = (event: string, data: Data) => {
+    try {
+      if (!ledgerId.current) ledgerId.current = registerPlayerInstance();
+      recordIfCurrent(ledgerId.current, event, { generation: generation.current, ...data });
+    } catch { /* 记账旁路 */ }
+  };
   const snapshot = () => {
     const v = videoRef.current;
     return { player: id.current, ...current.current, ...(v ? mediaSnapshot(v, hlsRef.current) : {}) };
   };
   const trace = (event: string, data: Data = {}) => {
+    mirrorLedger(event, data);
     if (!playbackLogEnabled()) return;
     try { tracePlayback(event, { ...snapshot(), seek: pending.current?.id, ...data }); } catch { /* diagnostics must never interrupt playback */ }
   };
@@ -186,6 +211,7 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
     let lastHeartbeat = 0;
     let timeoutReported = 0;
     const emit = (event: string, data: Data = {}) => {
+      mirrorLedger(event, data);
       if (playbackLogEnabled()) {
         try { tracePlayback(event, { player: id.current, ...current.current, ...mediaSnapshot(v, hlsRef.current), ...data }); } catch { /* detached or changing ranges */ }
       }

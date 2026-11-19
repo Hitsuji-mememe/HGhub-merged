@@ -156,6 +156,15 @@ try {
   check("T origin parsed from play URL", r.t_origin_parse, "https://line.example");
   check("T origin empty on bad URL", r.t_origin_bad, "");
 
+  check("L ledger records while instance active", r.l_record_while_active, true);
+  check("L ledger rejects late event after unregister", r.l_late_rejected, false);
+  check("L droppedLate increments on late event", r.l_dropped_late_delta, 1);
+  check("L window contains in-life event", r.l_window_has_load, true);
+  check("L window excludes late event", r.l_window_has_late, false);
+  check("L integrity validation is pure (same snapshot, same result)", r.l_validate_pure, true);
+  check("L retired instance events counted under new name", r.l_retired_counted, true);
+  check("L orphanedInstance field removed", r.l_no_orphan_field, true);
+
   // W — wiring-level stall escalation matrix (fix2 B1)
   check("W1 first stall retries in place", r.w1_first_stall_retry, ["append_stall"]);
   check("W1 attempt incremented", r.w1_attempt_after, 1);

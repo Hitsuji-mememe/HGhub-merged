@@ -13,6 +13,7 @@ import { evaluateSrGatesV2 } from "../src/shared/diagnostics/gpuProbe";
 import { capRecordByFifo, scopedPlayKey, setCapped } from "../src/features/feed/cacheMap";
 import { prewarmRetryDue } from "../src/features/feed/prewarm";
 import { createFragThroughputReporter, originOf } from "../src/features/playback/playbackThroughput";
+import { recordIfCurrent, registerPlayerInstance, snapshot as ledgerSnapshot, unregisterPlayerInstance, validateLedgerIntegrity } from "../src/shared/diagnostics/eventLedger";
 import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, lockHighestStartLevel, resolveAbrSeedBps } from "../src/features/playback/hlsConfig";
 
 class FakeClock implements StallClock {
@@ -388,6 +389,27 @@ function run() {
     results.t_flush_remainder = sent.length;
     results.t_origin_parse = originOf("https://line.example/path/x.m3u8");
     results.t_origin_bad = originOf("not a url");
+  }
+
+  /* ── L 事件账本接线（audit6 诊断一级模块）：注销后迟到丢弃且不入窗口、
+   * 完整性校验纯函数（同快照同结论）、retired 改名口径 ── */
+  {
+    const id = registerPlayerInstance();
+    const before = ledgerSnapshot();
+    const okIn = recordIfCurrent(id, "source.load", { generation: 0 });
+    unregisterPlayerInstance(id);
+    const lateOk = recordIfCurrent(id, "media.first_frame", { generation: 0 });
+    const after = ledgerSnapshot();
+    results.l_record_while_active = okIn;
+    results.l_late_rejected = lateOk;
+    results.l_dropped_late_delta = after.droppedLate - before.droppedLate;
+    results.l_window_has_load = after.events.some(e => e.name === "source.load" && e.instanceId === id);
+    results.l_window_has_late = after.events.some(e => e.name === "media.first_frame" && e.instanceId === id);
+    const i1 = validateLedgerIntegrity(after);
+    const i2 = validateLedgerIntegrity(after);
+    results.l_validate_pure = JSON.stringify(i1) === JSON.stringify(i2);
+    results.l_retired_counted = i1.retiredInstanceEvents >= 1;
+    results.l_no_orphan_field = !("orphanedInstance" in i1);
   }
 
   /* ── W 接线级矩阵（fix2 B1）：createStallWatchdog 的真实升级链——
