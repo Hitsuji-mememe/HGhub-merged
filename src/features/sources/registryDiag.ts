@@ -12,6 +12,7 @@
  * 「最近自检」口径与「本会话取页」口径同行并存、标注分清、不互盖。 */
 
 import { getRegistryInfo } from "./manifest.ts";
+import { countFetchStates } from "./fetchCounts.ts";
 import { fetchHealthSnapshot } from "./adapters/fetchHealth.ts";
 import { readPlaybackFacts } from "../../shared/diagnostics/playbackFacts.ts";
 import { getSelfCheckResults, selfCheckDiagLines, selfCheckSegmentText } from "./healthCheck.ts";
@@ -63,20 +64,18 @@ export function sourceHealthLines(): string[] {
   const enabled = sources.filter(s => s.enabled).length;
   const byMaturity = new Map<string, number>();
   for (const s of sources) byMaturity.set(s.maturity, (byMaturity.get(s.maturity) ?? 0) + 1);
-  let fetchOk = 0;
-  let fetchFail = 0;
-  let fetchNone = 0;
-  for (const s of sources) {
-    const h = s.origin ? byHost.get(hostOf(s.origin)) : undefined;
-    if (!s.origin) continue; // 记录缺失单独在 L2/明细口径，不混入三态计数
-    if (h) {
-      if (h.ok) fetchOk++; else fetchFail++;
-    } else fetchNone++;
-  }
+  /* 三态＋记录缺失计数走 countFetchStates 唯一口径（Muse 2026-11-19
+   * 3.2.1修复F3b线）：旧内联计数对无生效地址的源 continue 静默跳过，
+   * 三态之和小于源总数、漏计无从察觉；现四计数之和恒等于源总数，
+   * 记录缺失 >0 时在 L1 明示（fetchStateText 的既有定性词）。 */
+  const fc = countFetchStates(sources, byHost, hostOf);
+  const fetchOk = fc.ok;
+  const fetchFail = fc.fail;
+  const fetchNone = fc.none;
   const lines: string[] = [];
   /* L1 总览计数 */
   lines.push(
-    `源总览：注册表 v${info.manifestVersion} · 来源 ${info.registrySource} · 共 ${sources.length} 源 · 启用 ${enabled} · 停用 ${sources.length - enabled} · blocked ${byMaturity.get("blocked") ?? 0} · preview ${byMaturity.get("preview") ?? 0} · 成熟度 ${[...byMaturity.entries()].map(([k, v]) => `${k} ${v}`).join("/")} · 本会话取页 成功 ${fetchOk} · 失败 ${fetchFail} · ${unobserved ? `未观测 ${fetchNone}（观测链无触发）` : `未发生 ${fetchNone}`}`,
+    `源总览：注册表 v${info.manifestVersion} · 来源 ${info.registrySource} · 共 ${sources.length} 源 · 启用 ${enabled} · 停用 ${sources.length - enabled} · blocked ${byMaturity.get("blocked") ?? 0} · preview ${byMaturity.get("preview") ?? 0} · 成熟度 ${[...byMaturity.entries()].map(([k, v]) => `${k} ${v}`).join("/")} · 本会话取页 成功 ${fetchOk} · 失败 ${fetchFail} · ${unobserved ? `未观测 ${fetchNone}（观测链无触发）` : `未发生 ${fetchNone}`}${fc.missing > 0 ? ` · 记录缺失 ${fc.missing}` : ""}`,
   );
   /* L2 当前源：注册表首位＝原生主源（现行生产通道）；选择状态未接
    * 入诊断，故只报主源一行，不冒充用户当前选择。 */

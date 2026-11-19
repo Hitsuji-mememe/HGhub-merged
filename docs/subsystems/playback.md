@@ -252,6 +252,16 @@
   报告（`diagnosticReport.ts`）头印原则与留存范围、口径自检置顶，
   正文含状态快照节与选线近 5 轮。新增子系统必须接入统一时间线
   （事件或快照）才算完成——模块化验收项。
+  汇总层逐节对账（2026-11-19 3.2.1 F3b 线）：报告各汇总节必须与原始
+  记录同源同口径——流水选段经 `flowSegments.selectFlowSegment` 取最新
+  含 `source.load` 的 pid 段（不绑最后一行 pid，尾段混入他 pid 行/
+  轮转/导出裁剪时不塌缩成无记录）；报告与全量导出读日志前先
+  `flushPlaybackLog()`（不读未落盘的过期快照）；日志无完整段时结论/
+  流水/降级三处与事件账本交叉核对（`ledgerPlaybackEvidence`），账本
+  有播放/卡死即按日志状态明示体系写清通道状态，不许假报无记录/未
+  发生；源总览取页计数走 `fetchCounts.countFetchStates`，成功/失败/
+  未发生/记录缺失四计数之和恒等于源总数。回归见
+  `fix321-f3b-diagnostic-summary.contract.test.ts`。
 
 ## 验证命令
 
