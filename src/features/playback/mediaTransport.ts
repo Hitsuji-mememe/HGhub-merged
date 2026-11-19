@@ -18,6 +18,9 @@ export function noteNativeFallback(reason: string): boolean {
   /* 事件名不带 web. 前缀（整改 B15）：落盘层统一加前缀，旧名
    * "web.playback.fallback" 落盘成双前缀、报告按单前缀永不命中。 */
   tracePlayback("playback.fallback", { reason });
+  /* 恢复结果统一埋点（整改 B14，diag-audit #12）：与代理恢复的
+   * recovery.outcome 同名同形，供诊断按 kind/result 聚合恢复结局。 */
+  tracePlayback("recovery.outcome", { kind: "native_fallback", result: "engaged", reason });
   return true;
 }
 

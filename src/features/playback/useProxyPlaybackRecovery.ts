@@ -76,6 +76,10 @@ export function useProxyPlaybackRecovery(
     const { activity, trace } = latest.current;
     // Respect a pause/play made while the replacement source was loading.
     trace("proxy.restored", { time, play_wanted: activity.isPlayWanted() });
+    /* 恢复结果统一埋点（整改 B14，diag-audit #12）：与原生降级的
+     * recovery.outcome 同名同形（本文件 trace 即 tracePlayback 加播放器
+     * 上下文），供诊断按 kind/result 聚合恢复结局。纯埋点不改行为。 */
+    trace("recovery.outcome", { kind: "proxy", result: "restored" });
     if (!activity.isPlayWanted()) activity.pause("proxy_restore");
     else if (activity.isActive()) activity.play("proxy_restore", true);
   }, [resume, videoRef]);
