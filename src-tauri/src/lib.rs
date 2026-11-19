@@ -267,7 +267,6 @@ pub fn run() {
             api::feed::api_post_categories,
             api::feed::api_post_category,
             api::feed::api_related,
-            api::feed::api_following,
             api::feed::api_user,
             api::feed::api_user_stats,
             api::feed::api_user_videos,
