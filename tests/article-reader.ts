@@ -203,6 +203,249 @@ await test("empty and script-only input yields no blocks", () => {
     "script-only input produced blocks");
 });
 
+/* ── 3.3.2 reader-filter2：真机漏杀两类形态（脱敏构造，形态等价） ── */
+
+/* ⑦ 关键词墙·整段形态：空格分隔的短词元堆砌、无句读，现行规则因
+ * 其为长段全部放行（基线红）。 */
+const FIX_WALL = `<article>
+  <p>正文第一段，交代事情的起因。</p>
+  <p>免费短剧 免费小说 免费漫画 高清影视 在线直播 手机投注 体育投注 棋牌娱乐 真人视讯 电子游艺 彩票投注 注册礼金 首存优惠 极速提款 同城交友 视频聊天</p>
+  <p>正文第二段，事情有了结果。</p>
+</article>`;
+
+await test("filter2: keyword wall paragraph dropped, body kept", () => {
+  const bs = extractArticleBlocks(FIX_WALL, { base: BASE_003 });
+  assert(JSON.stringify(texts(bs)) === JSON.stringify([
+    "正文第一段，交代事情的起因。",
+    "正文第二段，事情有了结果。",
+  ]), `texts=${JSON.stringify(texts(bs))}`);
+});
+
+/* ⑦ 关键词墙·分行形态：<br> 分成两行，每行单独不满整段门槛，
+ * 成组判读才杀（基线红）。 */
+const FIX_WALL_LINES = `<div class="entry-content">
+  正文开头段落，说明背景。<br>
+  免费短剧 免费小说 免费漫画 高清影视 在线直播 手机投注<br>
+  体育投注 棋牌娱乐 真人视讯 电子游艺 彩票投注 注册礼金<br>
+  正文结尾段落，说明结果。
+</div>`;
+
+await test("filter2: br-split keyword wall lines dropped as a group", () => {
+  const bs = extractArticleBlocks(FIX_WALL_LINES, { base: BASE_005 });
+  assert(JSON.stringify(texts(bs)) === JSON.stringify([
+    "正文开头段落，说明背景。",
+    "正文结尾段落，说明结果。",
+  ]), `texts=${JSON.stringify(texts(bs))}`);
+});
+
+/* ⑧ 地址发布块·行组形态：带标签的 URL/邮箱连续行组＋播放 CTA 行，
+ * 现行规则只认裸域名行与短段话术、整组漏过（基线红）。 */
+const FIX_ADDR_GROUP = `<article>
+  <p>正文第一段，讲述事情经过。</p>
+  <p>👉 国内：https://addr-a.example.com</p>
+  <p>📩 邮箱：tips@mail.example.org</p>
+  <p>🌍 海外：https://addr-b.example.net</p>
+  <p>🔒 永久：https://addr-c.example.com</p>
+  <p>🎬 播放异常？刷新页面或使用示例APP重试</p>
+  <p>正文第二段，事情有了结果。</p>
+</article>`;
+
+await test("filter2: labeled address-publish line group dropped as a group", () => {
+  const bs = extractArticleBlocks(FIX_ADDR_GROUP, { base: BASE_003 });
+  assert(JSON.stringify(texts(bs)) === JSON.stringify([
+    "正文第一段，讲述事情经过。",
+    "正文第二段，事情有了结果。",
+  ]), `texts=${JSON.stringify(texts(bs))}`);
+});
+
+/* ⑧ 地址发布块·单块形态：行组写进同一段、提取时空白折叠成一整块
+ * （基线红）。 */
+const FIX_ADDR_BLOCK = `<article>
+  <p>正文第一段，讲述事情经过。</p>
+  <p>👉 国内： https://addr-a.example.com 📩 邮箱： tips@mail.example.org 🌍 海外： https://addr-b.example.net 🔒 永久： https://addr-c.example.com</p>
+  <p>正文第二段，事情有了结果。</p>
+</article>`;
+
+await test("filter2: address-publish merged into one block dropped", () => {
+  const bs = extractArticleBlocks(FIX_ADDR_BLOCK, { base: BASE_003 });
+  assert(JSON.stringify(texts(bs)) === JSON.stringify([
+    "正文第一段，讲述事情经过。",
+    "正文第二段，事情有了结果。",
+  ]), `texts=${JSON.stringify(texts(bs))}`);
+});
+
+/* 反例：正常列举多个网址的科普/导航段——有完整句子、非发布口径，
+ * 必须保留（红线）。 */
+const FIX_KEEP_URLS = `<article>
+  <p>挑选镜像站时可以看三点：甲站（https://mirror-a.example.com）更新最快，乙站（https://mirror-b.example.com）界面最清爽，丙站（https://mirror-c.example.com）胜在稳定。三个站的内容完全同步，读者按自己的网络情况任选其一即可，收藏哪一个都不影响后续的阅读进度。</p>
+  <p>他把网址抄在笔记本上，还特意标注了每个站的特点，方便下次直接打开。</p>
+</article>`;
+
+await test("filter2 counter-example: multi-URL explainer with full sentences survives", () => {
+  const bs = extractArticleBlocks(FIX_KEEP_URLS, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 2, `kept ${ts.length}/2: ${JSON.stringify(ts)}`);
+  assert(ts[0].includes("挑选镜像站时可以看三点"), "explainer dropped");
+  assert(ts[1].includes("把网址抄在笔记本上"), "narrative dropped");
+});
+
+/* 反例：人物对白式短句连排——连续短行成组但无联系点无标签，
+ * 必须整组保留（红线）。 */
+const FIX_KEEP_DIALOG = `<article>
+  <p>正文引入段，交代场景。</p>
+  <p>「你来了？」</p>
+  <p>「嗯，刚到，路上有点堵。」</p>
+  <p>「东西都带齐了吗？」</p>
+  <p>「带齐了，清单核对过两遍。」</p>
+  <p>「那就出发吧，别让大家等太久。」</p>
+  <p>正文收尾段，事情告一段落。</p>
+</article>`;
+
+await test("filter2 counter-example: dialogue short-line run survives intact", () => {
+  const bs = extractArticleBlocks(FIX_KEEP_DIALOG, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 7, `kept ${ts.length}/7: ${JSON.stringify(ts)}`);
+  assert(ts.some((t) => t.includes("东西都带齐了吗")), "dialogue line dropped");
+});
+
+/* 反例：叙事吐槽句提到播放失败与 app，但无处置动词，不是 CTA，
+ * 必须保留（红线）。 */
+await test("filter2 counter-example: playback-failure complaint narrative survives", () => {
+  const bs = extractArticleBlocks(
+    `<article><p>他吐槽这个app老是播放失败，气得直接卸载了，再也不想用了。</p></article>`,
+    { base: BASE_003 },
+  );
+  assert(JSON.stringify(texts(bs)) === JSON.stringify([
+    "他吐槽这个app老是播放失败，气得直接卸载了，再也不想用了。",
+  ]), `texts=${JSON.stringify(texts(bs))}`);
+});
+
+/* ── 3.3.2 普查形态：头部模板块（同源跨帖雷同的整块站务模板） ── */
+
+/* ⑨ source-004 形态：标签行（冒号结尾）与值行（裸域名/URL）交替
+ * 分行＋APP 填充行＋占位邮箱行，逐行判读必然漏行、值行被杀后只
+ * 剩孤儿标签行组——按块整段杀（基线红：标签行全存活）。 */
+const FIX_TEMPLATE_ALT = `<div class="editormd-preview">
+  <p>示例站最新入口（中转）：</p>
+  <p>mirror-a.example.com</p>
+  <p>示例站海外主站：</p>
+  <p>https://main.example.com</p>
+  <p>示例站海外中转：</p>
+  <p>mirror-b.example.com</p>
+  <p>示例 APP 免费看，下载还能拿福利</p>
+  <p>获取最新地址：发送任意内容至邮箱</p>
+  <p>[email protected]</p>
+  <p>唯一官方商务合作：</p>
+  <p>https://chat.example.com/abc123</p>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>正文第二段，内容继续展开。</p>
+</div>`;
+
+await test("filter2: alternating label/value head template dropped as a block", () => {
+  const bs = extractArticleBlocks(FIX_TEMPLATE_ALT, { base: BASE_004 });
+  assert(JSON.stringify(texts(bs)) === JSON.stringify([
+    "正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。",
+    "正文第二段，内容继续展开。",
+  ]), `texts=${JSON.stringify(texts(bs))}`);
+});
+
+/* ⑨ source-005 形态：标签与 URL 同行＋浏览器推荐填充行夹在信号
+ * 行之间（其后还有带域名的帖内标题行延伸模板段界）——整段杀
+ * （基线红：同行地址行全存活）。 */
+const FIX_TEMPLATE_INLINE = `<article>
+  <p>示例站最新地址</p>
+  <p>国内地址 https://addr-a.example.com</p>
+  <p>获取最新地址 邮箱自动回复｜长按复制</p>
+  <p>tips@mail.example.org</p>
+  <p>海外地址 https://addr-b.example.com</p>
+  <p>推荐浏览器 Yandex / UC / Chrome / Safari</p>
+  <p>示例站（addr-b.example.com）原创视频招募详情</p>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>正文第二段，内容继续展开。</p>
+</article>`;
+
+await test("filter2: inline label+URL head template dropped as a block", () => {
+  const bs = extractArticleBlocks(FIX_TEMPLATE_INLINE, { base: BASE_005 });
+  assert(JSON.stringify(texts(bs)) === JSON.stringify([
+    "正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。",
+    "正文第二段，内容继续展开。",
+  ]), `texts=${JSON.stringify(texts(bs))}`);
+});
+
+/* 尾部站务残形：播放器占位行、# 标签墙、编号式播放 CTA——逐行
+ * 判据杀（基线红：三行全存活）。 */
+const FIX_TAIL_JUNK = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>播放器加载中...</p>
+  <p>正文第二段，内容继续展开，讲述后续的发展。</p>
+  <p>关键词：#标签甲 #标签乙 #标签丙 #标签丁 #标签戊 #标签己 #标签庚</p>
+  <p>1视频播放异常时请尝试刷新页面；仍无法播放时，建议切换至APP</p>
+  <p>正文第三段，收尾。</p>
+</article>`;
+
+await test("filter2: player placeholder, hashtag wall and numbered playback CTA dropped", () => {
+  const bs = extractArticleBlocks(FIX_TAIL_JUNK, { base: BASE_003 });
+  assert(JSON.stringify(texts(bs)) === JSON.stringify([
+    "正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。",
+    "正文第二段，内容继续展开，讲述后续的发展。",
+    "正文第三段，收尾。",
+  ]), `texts=${JSON.stringify(texts(bs))}`);
+});
+
+/* ⑩ 分类导航行组：≥10 行连续超短行（栏目名单形态）在正文之后
+ * 整组杀（基线红：整组存活）。 */
+const FIX_NAV_RUN = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>栏目甲一</p><p>栏目乙二</p><p>栏目丙三</p><p>栏目丁四</p><p>栏目戊五</p><p>栏目己六</p>
+  <p>栏目庚七</p><p>栏目辛八</p><p>栏目壬九</p><p>栏目癸十</p><p>栏目子一</p><p>栏目丑二</p>
+  <p>正文第二段，收尾。</p>
+</article>`;
+
+await test("filter2: ultra-short nav line run dropped as a group", () => {
+  const bs = extractArticleBlocks(FIX_NAV_RUN, { base: BASE_003 });
+  assert(JSON.stringify(texts(bs)) === JSON.stringify([
+    "正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。",
+    "正文第二段，收尾。",
+  ]), `texts=${JSON.stringify(texts(bs))}`);
+});
+
+/* 反例：章节标题行组——同为连续超短行，但都是标题块，必须全
+ * 保留（⑩ 的标题资格守门）。 */
+const FIX_KEEP_HEADINGS = `<article>
+  <h3>第一章起</h3><h3>第二章承</h3><h3>第三章转</h3><h3>第四章合</h3><h3>第五章进</h3>
+  <h3>第六章深</h3><h3>第七章变</h3><h3>第八章定</h3><h3>第九章终</h3><h3>第十章余</h3>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+</article>`;
+
+await test("filter2 counter-example: heading line run survives", () => {
+  const bs = extractArticleBlocks(FIX_KEEP_HEADINGS, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 11, `kept ${ts.length}/11: ${JSON.stringify(ts)}`);
+  assert(ts.some((t) => t.includes("第五章进")), "heading dropped");
+});
+
+/* 反例：带标点的短行组——每行都有句读，是正文的分行短句，必须
+ * 全保留（⑩/⑨ 的句读守门）。 */
+const FIX_KEEP_PUNCT_LINES = `<article>
+  <p>他推开门，看见屋里坐满了人。</p>
+  <p>大家都抬起头，望向门口。</p>
+  <p>他愣了一下，随即笑了起来。</p>
+  <p>屋里的气氛，一下子热闹起来。</p>
+  <p>有人给他让座，有人递茶。</p>
+  <p>他坐下来，慢慢讲起经过。</p>
+  <p>众人听得入神，不时点头。</p>
+  <p>窗外起了风，吹动了帘子。</p>
+  <p>他讲完最后一句，停了下来。</p>
+  <p>屋里安静了片刻，随后掌声响起。</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter2 counter-example: punctuated short-line narrative survives", () => {
+  const bs = extractArticleBlocks(FIX_KEEP_PUNCT_LINES, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 11, `kept ${ts.length}/11: ${JSON.stringify(ts)}`);
+});
+
 const report = { passed: results.filter((r) => r.passed).length, failed: results.filter((r) => !r.passed).length, results };
 document.querySelector("#results")!.textContent = JSON.stringify(report, null, 2);
 (window as unknown as { readerResults: typeof report }).readerResults = report;
