@@ -34,7 +34,9 @@ export function createHoldJankSampler(trace: TraceFn) {
     phase = "idle";
     if (frames > 5) {
       trace("hold.jank", {
-        at: new Date(startedWall).toISOString(),
+        /* 按下时刻字段改名 pressedAt（整改 C12）：原名 at 会被
+         * tracePlayback 注入的 at 覆盖，落盘值不是按下时刻。 */
+        pressedAt: new Date(startedWall).toISOString(),
         dur_ms: Math.round(releasedAt - startedAt),
         frames, over33, over50, max_gap_ms: Math.round(max),
         post_frames: postFrames, post_over33: postOver33, post_over50: postOver50,
@@ -65,6 +67,9 @@ export function createHoldJankSampler(trace: TraceFn) {
   return {
     start() {
       if (phase === "hold") return;
+      /* 尾窗期间再次按下（整改 C12）：旧实现直接清零上一段数据、
+       * 不落账——先 finish 落账再开新段。 */
+      if (phase === "tail") finish();
       phase = "hold";
       frames = 0;
       over33 = 0;
