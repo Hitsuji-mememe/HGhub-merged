@@ -25,8 +25,11 @@ const scope = LOCAL_SCOPE;
 import { Empty } from "../../shared/ui/ui";
 import { IAward, IBack, IChevR, IFilm, IFlame, IGrid, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
 import { firstEnabledSource, sourcesForCategory, sourcesForChannel } from "../sources/registry";
-import { getActiveRegistry } from "../sources/manifest";
+import { getActiveRegistry, getRegistryInfo } from "../sources/manifest";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory, sourceOptionsForChannel } from "../sources/SourceSwitcher";
+import { sourceHealthBadgeText } from "../sources/healthCheck";
+import { useSourceHealthResults } from "../sources/sourceHealth";
+import type { SourceDef } from "../sources/types";
 import SourceBrowse from "../sources/SourceBrowse";
 import SourceGallery from "../sources/SourceGallery";
 import SourcePosts from "../sources/SourcePosts";
@@ -98,6 +101,12 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
     return () => window.removeEventListener("hg:registry-changed", onRegistry);
   }, []);
   const activeSources = getActiveRegistry().sources;
+  /* 源健康徽标（fix331/source-reliability）：订阅自检结果，图片/
+   * 视频源行的状态标一律读 healthCheck 单一派生（探过按四态、
+   * 未探回落 maturity），补探完成即刷新——不再静态读 maturity。 */
+  const healthResults = useSourceHealthResults();
+  const sourceBadge = (s: SourceDef): string | undefined =>
+    sourceHealthBadgeText(s, healthResults[s.id], Date.now(), getActiveRegistry().manifestVersion, getRegistryInfo().appVersion);
   /* 吃瓜数据源（条目5）：默认第一顺位 enabled 源，切换整段换源不混排 */
   const postSourceOptions = sourceOptionsForCategory("posts");
   const [postsSourceId, setPostsSourceId] = useState(() => firstEnabledSource("posts", getActiveRegistry().sources)?.id ?? "huangguo");
@@ -325,7 +334,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
         {/* 图片分区（Muse 2026-11-19 最终版 D 线，①用户亲定条目8；
             2026-11-19 fix321-F2 修订）：只列 active 注册表
             category="image" 的已启用源（sourcesForCategory 只返回
-            enabled，maturity 徽标照 SourceSwitcher 口径），点开推
+            enabled，状态徽标与切换器同读健康单一派生），点开推
             既有 channel 栈页（cate="image:<源id>"）进图集浏览页。
             浏览面只显示已启用源：停用状态的源不在此排队，只在源管理/
             诊断明细面可见（远程清单启用后自动转入本列表）。 */}
@@ -343,11 +352,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
               <Button key={s.id} onClick={() => push({ kind: "channel", cate: `image:${s.id}`, name: s.displayName })}
                 className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 text-left pressable">
                 <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
-                {s.maturity === "blocked"
-                  ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">暂不可用</span>
-                  : s.maturity === "probe"
-                    ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">未实测</span>
-                    : null}
+                {(() => { const b = sourceBadge(s); return b ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">{b}</span> : null; })()}
                 <IChevR size={14} />
               </Button>
             ))}
@@ -359,10 +364,9 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
         {/* 视频源分区（Muse 2026-11-19 fix330-riban-surfaces）：
             与图片分区同列示口径——只列 active 注册表 category=
             "video" 的已启用源（sourcesForCategory 只返回 enabled，
-            maturity 徽标同图片区：blocked「暂不可用」/probe「未
-            实测」），点开推既有 channel 栈页（cate="video:<源id>"）
-            进该源浏览页（SourceBrowse）。空区隐藏同图片区：无已启
-            用视频源时整区不渲染。 */}
+            状态徽标同图片区：读健康单一派生），点开推既有 channel
+            栈页（cate="video:<源id>"）进该源浏览页（SourceBrowse）。
+            空区隐藏同图片区：无已启用视频源时整区不渲染。 */}
         {videoSources.length > 0 && (
         <section aria-label="视频源" className="mb-5 a-rise">
           <div className="flex items-center gap-3 mb-3">
@@ -374,11 +378,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
               <Button key={s.id} onClick={() => push({ kind: "channel", cate: `video:${s.id}`, name: s.displayName })}
                 className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 text-left pressable">
                 <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
-                {s.maturity === "blocked"
-                  ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">暂不可用</span>
-                  : s.maturity === "probe"
-                    ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">未实测</span>
-                    : null}
+                {(() => { const b = sourceBadge(s); return b ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">{b}</span> : null; })()}
                 <IChevR size={14} />
               </Button>
             ))}

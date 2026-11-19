@@ -117,19 +117,36 @@ const tailSeg: E[] = [
   assert.equal(snap.image.inFlightPeak, 2, "封面在途峰值与原始记录一致");
 }
 
-/* ── ④ 源总览三态计数 ────────────────────────────────────────────── */
+/* ── ④ 源总览三态计数 ──────────────────────────────────────────────
+ * 断言适配（2026-11-20 fix331/source-reliability）：归属口径改多
+ * host 集合（结构审计 C④）——countFetchStates 入参由单 origin 改
+ * 为每源 hosts 集合、记录带 at；原四计数断言逐项保留并新增多域
+ * 归属用例（记录只落在第二 host 的源必须被认领、不许报未发生）。 */
 {
-  const hostOf = (u: string): string => { try { return new URL(u).host || "?"; } catch { return "?"; } };
   const sources = [
-    { origin: "https://a.example.com" },
-    { origin: "https://b.example.com" },
-    { origin: "https://c.example.com" },
-    { origin: "" },
+    { hosts: ["a.example.com"] },
+    { hosts: ["b.example.com"] },
+    { hosts: ["c.example.com"] },
+    { hosts: [] },
   ];
-  const byHost = new Map([["a.example.com", { ok: true }], ["b.example.com", { ok: false }]]);
-  const counts = countFetchStates(sources, byHost, hostOf);
+  const byHost = new Map([["a.example.com", { ok: true, at: 10 }], ["b.example.com", { ok: false, at: 10 }]]);
+  const counts = countFetchStates(sources, byHost);
   assert.deepEqual(counts, { ok: 1, fail: 1, none: 1, missing: 1 }, "成功/失败/未发生/记录缺失逐项与原始记录一致");
   assert.equal(counts.ok + counts.fail + counts.none + counts.missing, sources.length, "四计数之和＝源总数（无源被静默漏计）");
+
+  /* 多域源：记录只落在模板/API host（非首个 baseUrl host）也归该源；
+   * 同源多条记录取最近一条定态。 */
+  const multi = [
+    { hosts: ["main.example.com", "api.example.com"] },
+    { hosts: ["x.example.com", "y.example.com"] },
+  ];
+  const multiByHost = new Map([
+    ["api.example.com", { ok: false, at: 5 }],
+    ["x.example.com", { ok: false, at: 1 }],
+    ["y.example.com", { ok: true, at: 9 }],
+  ]);
+  const multiCounts = countFetchStates(multi, multiByHost);
+  assert.deepEqual(multiCounts, { ok: 1, fail: 1, none: 0, missing: 0 }, "多域源按全部 host 认领、多记录取最近一条定态");
 }
 
 /* ── ⑤ 长按松手分组复核（F3 已修口径：账本保留窗全集） ─────────── */

@@ -1,14 +1,20 @@
 /**
  * 源切换器（Muse 2026-11-19 根治包·多源线 条目5）：
  * 同一分类内切换数据源，切换即整页换源重拉、源间不混排。
- * badge 口径：preview→「仅预览」；probe→「未实测」（适配器已注册、
- * 未完整验通，不假装可用）；blocked→「暂不可用」（用户保留口径：
- * 列表可见、点开诚实提示，不删不假数据）。
+ * badge 口径（2026-11-20 fix331/source-reliability 改读单一派生）：
+ * 一律走 healthCheck.sourceHealthBadgeText——探过的源按实测四态
+ * （可用不挂标/部分可用/不可用/已过期），从未探过才回落静态
+ * maturity 作底（preview→「仅预览」；probe→「未实测」；blocked→
+ * 「暂不可用」，用户保留口径：列表可见、点开诚实提示，不删不假
+ * 数据）。旧口径对 probe 一律挂「未实测」，与自检结果双轨并存、
+ * 探过了也永不摘标，已废。
  */
 import { Button } from "../../shared/ui/ios/controls";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 import { sourcesForCategory, sourcesForChannel } from "./registry.ts";
-import { getActiveRegistry } from "./manifest.ts";
+import { getActiveRegistry, getRegistryInfo } from "./manifest.ts";
+import { getSelfCheckResults, sourceHealthBadgeText } from "./healthCheck.ts";
+import { useSourceHealthResults } from "./sourceHealth.ts";
 import type { SourceCategory, SourceDef, SourceMaturity } from "./types.ts";
 
 export interface SourceOption { id: string; label: string; badge?: string }
@@ -16,7 +22,7 @@ export interface SourceOption { id: string; label: string; badge?: string }
 const toOption = (s: SourceDef): SourceOption => ({
   id: s.id,
   label: s.displayName,
-  badge: s.maturity === "preview" ? "仅预览" : s.maturity === "blocked" ? "暂不可用" : s.maturity === "probe" ? "未实测" : undefined,
+  badge: sourceHealthBadgeText(s, getSelfCheckResults()[s.id], Date.now(), getActiveRegistry().manifestVersion, getRegistryInfo().appVersion),
 });
 
 /* UI 消费口径（Muse 2026-11-19 整改 D2）：一律读 active 注册表
@@ -38,7 +44,16 @@ export function SourceSwitcher({ options, value, onChange, ariaLabel }: {
   onChange: (id: string) => void;
   ariaLabel: string;
 }) {
+  /* 订阅自检结果：补探/整轮落盘即重渲染，徽标按最新派生重算
+   * （options 构建时的 badge 只作注册表外 id 的回落）。 */
+  const healthResults = useSourceHealthResults();
   if (options.length <= 1) return null;
+  const badgeFor = (o: SourceOption): string | undefined => {
+    const def = getActiveRegistry().sources.find((s) => s.id === o.id);
+    return def
+      ? sourceHealthBadgeText(def, healthResults[o.id], Date.now(), getActiveRegistry().manifestVersion, getRegistryInfo().appVersion)
+      : o.badge;
+  };
   /* 源切换事件（Muse 2026-11-19 整改 D5，diag-audit #8）：只带稳定
    * 编号（active 注册表顺序 source-001 式）与分类标识，不带业务名/域名
    * （报告风控口径，AGENTS 不变量 10）。 */
@@ -53,13 +68,16 @@ export function SourceSwitcher({ options, value, onChange, ariaLabel }: {
   };
   return (
     <div role="group" aria-label={ariaLabel} className="flex gap-2 overflow-x-auto pb-1">
-      {options.map((o) => (
-        <Button key={o.id} aria-pressed={value === o.id} onClick={() => handleSelect(o.id)}
-          className="ios-filter-pill shrink-0">
-          <span>{o.label}</span>
-          {o.badge && <span className="ml-1 text-[11px] text-mut">{o.badge}</span>}
-        </Button>
-      ))}
+      {options.map((o) => {
+        const badge = badgeFor(o);
+        return (
+          <Button key={o.id} aria-pressed={value === o.id} onClick={() => handleSelect(o.id)}
+            className="ios-filter-pill shrink-0">
+            <span>{o.label}</span>
+            {badge && <span className="ml-1 text-[11px] text-mut">{badge}</span>}
+          </Button>
+        );
+      })}
     </div>
   );
 }
