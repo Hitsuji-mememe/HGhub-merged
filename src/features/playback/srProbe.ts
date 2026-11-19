@@ -44,14 +44,18 @@ async function loadProbeVideo(url: string, minPresented: number): Promise<{ vide
   video.src = url;
   document.body.appendChild(video);
   video.style.cssText = "position:fixed;left:-9999px;top:0;width:4px;height:4px;pointer-events:none;";
+  /* 失败自清理（fix2.1 批三#9）：play 重试失败或等帧超时都会抛错，
+   * 旧实现直接冒泡、把已挂进 body 的 video 元素留成孤儿（还带着
+   * src 继续加载）。失败路径统一 pause + 清 src + remove 再抛。 */
   try {
-    await withTimeout(video.play(), 6000, "探针视频 play");
-  } catch {
-    /* play 被拒也继续等帧：loadeddata 后再试一次 */
-    await new Promise((r) => setTimeout(r, 300));
-    await withTimeout(video.play(), 6000, "探针视频 play 重试");
-  }
-  const presented = await withTimeout(new Promise<number>((resolve) => {
+    try {
+      await withTimeout(video.play(), 6000, "探针视频 play");
+    } catch {
+      /* play 被拒也继续等帧：loadeddata 后再试一次 */
+      await new Promise((r) => setTimeout(r, 300));
+      await withTimeout(video.play(), 6000, "探针视频 play 重试");
+    }
+    const presented = await withTimeout(new Promise<number>((resolve) => {
     if (typeof video.requestVideoFrameCallback !== "function") {
       /* 无 rVFC：以 readyState + currentTime 前进近似真帧（口径如实记 0 起步）。 */
       const t0 = video.currentTime;
@@ -69,16 +73,29 @@ async function loadProbeVideo(url: string, minPresented: number): Promise<{ vide
       else video.requestVideoFrameCallback!(tick);
     };
     video.requestVideoFrameCallback(tick);
-  }), 9000, "探针视频真帧到达");
-  return { video, presented };
+    }), 9000, "探针视频真帧到达");
+    return { video, presented };
+  } catch (error) {
+    try { video.pause(); } catch { /* 忽略 */ }
+    try { video.removeAttribute("src"); video.load(); } catch { /* 忽略 */ }
+    try { video.remove(); } catch { /* 忽略 */ }
+    throw error;
+  }
 }
 
-function nextPresentedFrame(video: HTMLVideoElement): Promise<void> {
+/* 等帧必须有超时（fix2.1 批三#8）：旧实现纯等 requestVideoFrameCallback，
+ * 源不再呈现新帧（解码停滞/视频播完定格）时 promise 永不落定，
+ * benchPath 整场挂死且无失败记录。3s 无新帧即 reject，由 benchPath
+ * 的 catch 收敛为该路径 ok:false。无 rVFC 时保留 34ms 近似口径。 */
+function nextPresentedFrame(video: HTMLVideoElement, timeoutMs = 3000): Promise<void> {
   const v = video as VideoWithVfc;
   if (typeof v.requestVideoFrameCallback !== "function") {
     return new Promise((r) => setTimeout(r, 34));
   }
-  return new Promise((r) => { v.requestVideoFrameCallback!(() => r()); });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`等帧超时（${Math.round(timeoutMs / 1000)}s 内无新帧呈现）`)), timeoutMs);
+    v.requestVideoFrameCallback!(() => { clearTimeout(timer); resolve(); });
+  });
 }
 
 type BenchResult = { ok: boolean; msAvg: number | null; msP90: number | null; processed: number; dropped: number };
@@ -88,6 +105,7 @@ async function benchPath(
   video: HTMLVideoElement,
   frames: number,
   onLost: () => void,
+  deadline = Number.POSITIVE_INFINITY,
 ): Promise<BenchResult> {
   const canvas = document.createElement("canvas");
   canvas.width = 4;
@@ -99,6 +117,8 @@ async function benchPath(
     engine = await WebGpuSrEngine.create(canvas, { path, onLost });
     if (!engine) return { ok: false, msAvg: null, msP90: null, processed: 0, dropped: 0 };
     for (let i = 0; i < frames; i += 1) {
+      /* 整场总预算（fix2.1 批三#8）：逐帧检查，耗尽即以已处理帧结算 */
+      if (Date.now() > deadline) break;
       await nextPresentedFrame(video);
       engine.processFrame(video, 0);
     }
@@ -122,6 +142,10 @@ async function benchPath(
 
 async function runSrProbeV2(): Promise<SrProbeResult> {
   const at = new Date().toISOString();
+  /* 整场 benchmark 总时间预算 90s（fix2.1 批三#8）：各阶段开始前与
+   * benchPath 逐帧都检查，耗尽后未跑阶段以失败空结果收敛，探针
+   * 永远能在有限时间内交出结果行，不挂死调度方。 */
+  const deadline = Date.now() + 90000;
   let deviceLost = 0;
   const onLost = () => { deviceLost += 1; };
   const empty: BenchResult = { ok: false, msAvg: null, msP90: null, processed: 0, dropped: 0 };
@@ -147,8 +171,8 @@ async function runSrProbeV2(): Promise<SrProbeResult> {
         deviceLost, recommendedPath: null, gatesPass: false,
       };
     }
-    const external = await benchPath("external", video720, 24, onLost);
-    const copy = await benchPath("copy", video720, 24, onLost);
+    const external = await benchPath("external", video720, 24, onLost, deadline);
+    const copy = Date.now() > deadline ? empty : await benchPath("copy", video720, 24, onLost, deadline);
     let recommendedPath: SrIngestPath | null = null;
     if (external.ok && copy.ok) {
       recommendedPath = (external.msAvg ?? Infinity) <= (copy.msAvg ?? Infinity) ? "external" : "copy";
@@ -156,8 +180,8 @@ async function runSrProbeV2(): Promise<SrProbeResult> {
     else if (copy.ok) recommendedPath = "copy";
     let chain720 = { ok: false, msAvg: null as number | null, msP90: null as number | null, withinBudget: false };
     let chain1080 = { ok: false, msAvg: null as number | null, msP90: null as number | null };
-    if (recommendedPath) {
-      const full = await benchPath(recommendedPath, video720, 45, onLost);
+    if (recommendedPath && Date.now() <= deadline) {
+      const full = await benchPath(recommendedPath, video720, 45, onLost, deadline);
       chain720 = {
         ok: full.ok,
         msAvg: full.msAvg,
@@ -165,9 +189,10 @@ async function runSrProbeV2(): Promise<SrProbeResult> {
         withinBudget: full.ok && full.msAvg !== null && full.msAvg < FRAME_BUDGET_720P_MS,
       };
       try {
+        if (Date.now() > deadline) throw new Error("整场预算耗尽，跳过 1080p 段");
         const loaded1080 = await loadProbeVideo("/probe/sr-1080p.mp4", 10);
         video1080 = loaded1080.video;
-        const b1080 = await benchPath(recommendedPath, video1080, 30, onLost);
+        const b1080 = await benchPath(recommendedPath, video1080, 30, onLost, deadline);
         chain1080 = { ok: b1080.ok, msAvg: b1080.msAvg, msP90: b1080.msP90 };
       } catch {
         chain1080 = { ok: false, msAvg: null, msP90: null };
