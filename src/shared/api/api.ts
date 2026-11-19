@@ -241,7 +241,12 @@ export type UpdateInfo = {
 /* ── 线路（数据源） ─────────────────────────────────────── */
 
 export type LineItem = { name?: string; url: string; host?: string };
-export type LineState = { base: string; default: string; fixed: LineItem[]; custom?: boolean };
+export type LineState = { base: string; default: string; fixed: LineItem[]; custom?: boolean;
+  /* 飞行记录仪加性字段（2026-11-19 根治包）：双账本摘要＋熔断状态。 */
+  ledger?: LineLedgerEntry[]; breaker?: LineBreakerStatus | null };
+export type LineLedgerEntry = { origin: string; mode: string; stall: number; recovery: number; fallback: number;
+  probeSamples: number; probeBps: number | null; playSamples: number; playBps: number | null };
+export type LineBreakerStatus = { total: number; sessionMax: number; windowCount: number; windowMax: number; backoffLines: number };
 export type LineApply = { base: string; custom: boolean };
 export type LineMirrors = { source: string; script?: string; items: LineItem[]; recommended_source?: string; recommended: LineItem[] };
 export type LineProbe = { url: string; ok: boolean; status?: number; ms: number; error?: string };

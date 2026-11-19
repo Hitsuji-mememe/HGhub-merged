@@ -166,6 +166,76 @@ pub fn snapshot(origin: &str) -> Option<LineStats> {
     LEDGER.lock().ok()?.get(&ledger_key(origin)).cloned()
 }
 
+/// 账本条目汇总（诊断导出用，Muse 2026-11-19 根治包·飞行记录仪
+/// 收口）：键拆回 origin × mode 两维，双 EWMA 原值与样本数、事件
+/// 计数全量给出——报告侧据此判读每条线路的真实播放画像与探测
+/// 画像，不经排名口径加工（未知问题回溯口径：给原值不给结论）。
+#[derive(Clone, Debug, PartialEq)]
+pub struct LedgerEntry {
+    pub origin: String,
+    pub mode: String,
+    pub stall: u64,
+    pub recovery: u64,
+    pub fallback: u64,
+    pub probe_samples: u64,
+    pub probe_bps: Option<f64>,
+    pub play_samples: u64,
+    pub play_bps: Option<f64>,
+}
+
+/// 全账本只读汇总（按 origin/mode 排序，输出稳定）。锁失败返回
+/// 空表——诊断旁路不许因账本锁故障报错，报告侧以空表呈现。
+pub fn summary() -> Vec<LedgerEntry> {
+    let Ok(map) = LEDGER.lock() else { return Vec::new() };
+    let mut out: Vec<LedgerEntry> = map
+        .iter()
+        .map(|(key, s)| {
+            let (origin, mode) = key.split_once('\u{1f}').unwrap_or((key.as_str(), ""));
+            LedgerEntry {
+                origin: origin.to_string(),
+                mode: mode.to_string(),
+                stall: s.stall,
+                recovery: s.recovery,
+                fallback: s.fallback,
+                probe_samples: s.probe.samples,
+                probe_bps: s.probe.bps,
+                play_samples: s.play.samples,
+                play_bps: s.play.bps,
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| a.origin.cmp(&b.origin).then_with(|| a.mode.cmp(&b.mode)));
+    out
+}
+
+/// 熔断状态只读汇总（诊断导出用）：进程期总量/上限、窗口内计数/
+/// 上限、当前退避中的线路数。惰性过期与 breaker_allows 同口径
+/// （先清过期再计数），报告读到的就是下一次自动切换面对的状态。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BreakerStatus {
+    pub total: u32,
+    pub session_max: u32,
+    pub window_count: usize,
+    pub window_max: usize,
+    pub backoff_lines: usize,
+}
+
+pub fn breaker_status() -> Option<BreakerStatus> {
+    let mut state = BREAKER.lock().ok()?;
+    let now = Instant::now();
+    while matches!(state.window.front(), Some(at) if now.duration_since(*at) >= AUTO_SWITCH_WINDOW) {
+        state.window.pop_front();
+    }
+    state.backoff_until.retain(|_, until| *until > now);
+    Some(BreakerStatus {
+        total: state.total,
+        session_max: AUTO_SWITCH_SESSION_MAX,
+        window_count: state.window.len(),
+        window_max: AUTO_SWITCH_WINDOW_MAX,
+        backoff_lines: state.backoff_until.len(),
+    })
+}
+
 /// 账本决胜查询（双 EWMA 版，line_rank 消费）：play 与 probe 两级
 /// 置信度分开返回，排名按 play ＞ 本轮实测 ＞ probe 的顺序决胜。
 /// - play：play EWMA 有效且 30 分钟内更新过；
@@ -412,6 +482,38 @@ mod tests {
         // 降级值不再被打折。
         let later = tiebreak_at(&origin, Instant::now() + STALL_WINDOW + Duration::from_secs(60));
         assert_eq!(later.probe, Some(10_000_000.0), "窗口外 stall 不再否决");
+    }
+
+    /* ── 飞行记录仪收口（Muse 2026-11-19 根治包，用户点名：诊断
+     * 导出须含双账本摘要与熔断状态）：summary 拆键给原值、
+     * breaker_status 与切换许可同口径惰性过期。 ── */
+    #[test]
+    fn summary_splits_key_and_reports_both_ewmas() {
+        let origin = uniq("summary");
+        record_event(&origin, LineEvent::Stall);
+        for _ in 0..3 {
+            record_playback(&origin, 6_000_000.0);
+            record_throughput(&origin, 3_000_000);
+        }
+        let entries = summary();
+        let e = entries.iter().find(|e| e.origin == origin).expect("汇总应含本条目");
+        assert_eq!(e.stall, 1);
+        assert_eq!(e.play_samples, 3);
+        assert_eq!(e.play_bps, Some(6_000_000.0));
+        assert_eq!(e.probe_samples, 3);
+        assert_eq!(e.probe_bps, Some(3_000_000.0));
+        assert!(!e.mode.is_empty(), "键应拆出代理模式维");
+    }
+
+    #[test]
+    fn breaker_status_reflects_notes() {
+        let before = breaker_status().expect("熔断状态可读");
+        note_auto_switch("https://brk-from.example", "https://brk-to.example");
+        let after = breaker_status().expect("熔断状态可读");
+        assert_eq!(after.total, before.total + 1);
+        assert!(after.backoff_lines >= 1, "刚被切走的线路应处于退避中");
+        assert_eq!(after.session_max, AUTO_SWITCH_SESSION_MAX);
+        assert_eq!(after.window_max, AUTO_SWITCH_WINDOW_MAX);
     }
 
     #[test]

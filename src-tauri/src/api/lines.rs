@@ -31,6 +31,19 @@ pub async fn line_state() -> Result<Value, String> {
         "default": crate::net::DEFAULT_BASE,
         "custom": crate::net::is_custom_line(),
         "fixed": crate::lines::fixed(),
+        /* 飞行记录仪（Muse 2026-11-19 根治包）：双账本全量摘要＋
+         * 熔断状态，加性字段、旧消费方不受影响（不变量 8）。 */
+        "ledger": crate::lines::ledger::summary().iter().map(|e| json!({
+            "origin": e.origin, "mode": e.mode,
+            "stall": e.stall, "recovery": e.recovery, "fallback": e.fallback,
+            "probeSamples": e.probe_samples, "probeBps": e.probe_bps,
+            "playSamples": e.play_samples, "playBps": e.play_bps,
+        })).collect::<Vec<_>>(),
+        "breaker": crate::lines::ledger::breaker_status().map(|b| json!({
+            "total": b.total, "sessionMax": b.session_max,
+            "windowCount": b.window_count, "windowMax": b.window_max,
+            "backoffLines": b.backoff_lines,
+        })),
     }))
 }
 
