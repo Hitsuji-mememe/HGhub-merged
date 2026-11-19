@@ -101,8 +101,8 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     id: "meiridasai", displayName: "每日大赛", kind: "post", category: "posts",
     adapter: { template: "chigua", params: { listPath: "/?page={page}", itemLinkPattern: "/archives/", detailPath: "/archives/{id}" } },
     baseUrls: ["https://meiridasai.com"],
-    enabled: true, order: 31, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "吃瓜模板实例化；未真站实测",
+    enabled: false, order: 31, maturity: "blocked",
+    capabilities: NO_CAPS, network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：apex 与 www 均返回 Cloudflare 525（源站 SSL 握手失败、16 字节错误体）；吃瓜模板保留、源站恢复后改判",
   },
   {
     id: "xiuren", displayName: "秀人网", kind: "image", category: "image",
