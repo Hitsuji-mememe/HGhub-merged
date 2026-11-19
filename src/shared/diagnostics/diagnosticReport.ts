@@ -538,7 +538,13 @@ if (round && Date.now() - round.at < 10 * 60_000) {
 const measuredText = round.measured.length
 ? round.measured.map(m => `${lineIdFor(m.host)} ${m.kbps != null? `${(m.kbps / 8000).toFixed(1)} MB/s`: "吞吐未测"}·${m.ms}ms`).join(" · ")
 : "无";
-lines.push(`镜像覆盖（${Math.max(0, Math.round((Date.now() - round.at) / 1000))} 秒前选线轮次）：发布 ${round.published?? "?"} 条 · 探测 ${round.probed?? "?"} 条（可达 ${round.okCount?? "?"}） · 吞吐实测 ${round.measured.length} 条：${measuredText}`);
+/* 探测池口径（最终版 C 线 P2-02，裁定条目 5）：published＝发布条数、
+ * probed＝延迟探测条数、okCount＝可达数、measured＝吞吐探测池条数
+ * （其中 kbps 非空者为真测得吞吐），四数分开呈现，不再用一个「探测」
+ * 含混带过；池规则明示——可达 ≤6 全测吞吐／>6 池内轮换（延迟前 2
+ * ＋当前线保底＋轮换 1 条），未入池者本轮无吞吐样本、不是被漏测。 */
+const measuredOk = round.measured.filter(m => m.kbps != null).length;
+lines.push(`镜像覆盖（${Math.max(0, Math.round((Date.now() - round.at) / 1000))} 秒前选线轮次）：发布 ${round.published?? "?"} 条 · 延迟探测 ${round.probed?? "?"} 条 · 可达 ${round.okCount?? "?"} 条 · 吞吐探测池 ${round.measured.length} 条（测得吞吐 ${measuredOk} 条；池规则：可达 ≤6 全测／>6 池内轮换）：${measuredText}`);
 }
 if (round?.breakerBlocked) lines.push("最近选线轮次：本轮被熔断拦截——自动选线保持当前线路，未执行切换（熔断冷却中）");
 /* 选线近轮（飞行记录仪收口）：单轮快照看不出抖动/乒乓/待确认拉锯，
@@ -548,7 +554,7 @@ const rounds = recentPickRounds();
 if (rounds.length > 1) {
 lines.push(`选线近轮（最近 ${rounds.length} 轮，旧→新）：`);
 for (const r of rounds) {
-lines.push(`· ${new Date(r.at).toLocaleTimeString("zh-CN", { hour12: false })} 落定 ${lineIdFor(r.base)} · 决胜 ${r.reason} · 候选 ${r.probed?? "?"} 条 · 可达 ${r.okCount?? "?"}${r.breakerBlocked? " · 本轮熔断拦截": ""}`);
+lines.push(`· ${new Date(r.at).toLocaleTimeString("zh-CN", { hour12: false })} 落定 ${lineIdFor(r.base)} · 决胜 ${r.reason} · 发布 ${r.published?? "?"} 条 · 延迟探测 ${r.probed?? "?"} 条 · 可达 ${r.okCount?? "?"} 条 · 吞吐探测池 ${r.measured.length} 条${r.breakerBlocked? " · 本轮熔断拦截": ""}`);
 }
 }
 }
@@ -584,7 +590,7 @@ lines.push(`超分：判档 ${facts.srMode} · 实际管线 ${facts.pipeline?? "
 lines.push("当前集源：无（尚未播放）");
 }
 if (flow && flow.demoteCount > 0) lines.push(`超分降档：本会话 ${flow.demoteCount} 次（帧成本超标自动降档——发热/功耗问题先看这个数）`);
-lines.push(`选线现状：当前 ${currentLineId?? "未知"}${round && Date.now() - round.at < 10 * 60_000? `；最近轮次探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}${flow? `；本会话切线 ${flow.lineSwitchCount} 次${flow.confirmPendingCount > 0? ` · 两轮确认待确认 ${flow.confirmPendingCount} 次`: ""}`: ""}`);
+lines.push(`选线现状：当前 ${currentLineId?? "未知"}${round && Date.now() - round.at < 10 * 60_000? `；最近轮次发布 ${round.published?? "?"} 条、延迟探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条、吞吐探测池 ${round.measured.length} 条（池规则：可达 ≤6 全测／>6 池内轮换）`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}${flow? `；本会话切线 ${flow.lineSwitchCount} 次${flow.confirmPendingCount > 0? ` · 两轮确认待确认 ${flow.confirmPendingCount} 次`: ""}`: ""}`);
 lines.push("");
 lines.push("── 状态快照 ──────────────────────");
 /* 状态快照（飞行记录仪收口）：各子系统当前状态汇总，与时间线流水

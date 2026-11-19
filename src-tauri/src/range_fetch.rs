@@ -207,12 +207,12 @@ pub(crate) async fn fetch_segment_bytes(url: &str) -> Result<(Option<String>, Ve
                         log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "small", "total_bytes": total}));
                         Ok((first.ctype, first.bytes))
                     } else {
-                        // 小分片不拆多路：一条 Range 把剩余取完。
+                        // 小分片不拆多路：一条 Range 把剩余取完。接受
+                        // 判据走 small_rest_ok（P2-03）：除 206＋长度和
+                        // 外再核第二段 total 与两段 ETag，不一致拒拼、
+                        // 落入下方 chunk_fail 回退，不拼混版数据。
                         match fetch_range_direct(url, have, total - 1).await {
-                            Ok(rest)
-                                if rest.status == 206
-                                    && have + rest.bytes.len() as u64 == total =>
-                            {
+                            Ok(rest) if small_rest_ok(&first, &rest, total) => {
                                 let mut bytes = first.bytes;
                                 bytes.extend_from_slice(&rest.bytes);
                                 log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "small", "total_bytes": total}));
@@ -261,6 +261,30 @@ fn piece_total_consistent(probe_total: u64, piece_total: Option<u64>) -> bool {
     piece_total.is_none_or(|t| t == probe_total)
 }
 
+/// 跨片 ETag 一致性（与 piece_total_consistent 同口径的纯函数）：
+/// 探针与分片两边都给 ETag 且不一致 → 资源在抓取途中换版/混源；
+/// 任一边没给 ETag 时跳过（无从核对，不因此失败）。并行路径与
+/// 小分片路径共用本函数及 piece_total_consistent，不许再各写一份。
+fn piece_etag_consistent(probe_etag: Option<&str>, piece_etag: Option<&str>) -> bool {
+    match (probe_etag, piece_etag) {
+        (Some(want), Some(got)) => want == got,
+        _ => true,
+    }
+}
+
+/// 小分片第二段的接受判据（最终版 C 线 P2-03，②实锤，纯函数可测）：
+/// 与并行路径同口径——状态 206、两段长度和恰为探针 total、第二段
+/// 自报 total 与探针一致（piece_total_consistent）、两段 ETag 不
+/// 冲突（piece_etag_consistent）。任一不符拒拼，调用方走既有回退
+/// （单连接全量）。旧实现只验 206＋长度和：同长不同 total、ETag
+/// 冲突的混版数据会被直接拼接（整改批自称修过、实未修，本线核销）。
+fn small_rest_ok(first: &RangeFetch, rest: &RangeFetch, total: u64) -> bool {
+    rest.status == 206
+        && first.bytes.len() as u64 + rest.bytes.len() as u64 == total
+        && piece_total_consistent(total, rest.total)
+        && piece_etag_consistent(first.etag.as_deref(), rest.etag.as_deref())
+}
+
 /// 并行取回探针之后的剩余字节：剩余区间均分 RANGE_PARTS 段并发 Range GET，
 /// 逐段校验状态与长度，按序拼在探针字节之后；任一段不对整段判失败（外层回退）。
 async fn fetch_segment_parallel(
@@ -303,10 +327,9 @@ async fn fetch_segment_parallel(
         // 不代表来自同一资源版本——边缘节点若在抓取途中换版/混源，拼出来是
         // 长度全对的坏数据。探针与分片两边都给 ETag 且不一致 → 整段判失败，
         // 外层回退单连接全量；任一边没给 ETag 则跳过校验，绝不因此失败。
-        if let (Some(want), Some(got)) = (&first.etag, &piece.etag) {
-            if want != got {
-                return Err("并行分段 ETag 与探针不一致".into());
-            }
+        // 判定走 piece_etag_consistent（P2-03 起与小分片路径共用同一函数）。
+        if !piece_etag_consistent(first.etag.as_deref(), piece.etag.as_deref()) {
+            return Err("并行分段 ETag 与探针不一致".into());
         }
         pieces[idx] = Some(piece.bytes);
     }
@@ -331,6 +354,54 @@ mod tests {
         assert!(!piece_total_consistent(100, Some(80)));
         // 分片没给 total：无从核对，跳过（不因此失败）
         assert!(piece_total_consistent(100, None));
+    }
+
+    /* ── 最终版 C 线 P2-03（②实锤，GPT 复审独检）：小分片两段拼接
+     * 路径此前只验 206＋长度和，未调用 piece_total_consistent、无
+     * ETag 对照（并行路径两者都有）。下面用例钉住小分片接受判据
+     * small_rest_ok：同长不同 total、ETag 冲突必须拒拼。 ── */
+    fn rf(status: u16, total: Option<u64>, etag: Option<&str>, len: usize) -> RangeFetch {
+        RangeFetch { status, total, ctype: None, etag: etag.map(str::to_string), bytes: vec![0u8; len] }
+    }
+
+    #[test]
+    fn small_rest_rejects_mismatched_total_same_length() {
+        // 探针 total=100、已收 60；剩余段长度对（40）但自报 total=120
+        let first = rf(206, Some(100), Some("\"v1\""), 60);
+        let rest = rf(206, Some(120), Some("\"v1\""), 40);
+        assert!(!small_rest_ok(&first, &rest, 100), "同长不同 total 必须拒拼走回退");
+    }
+
+    #[test]
+    fn small_rest_rejects_etag_conflict() {
+        // 与 total 不一致用例并列：长度完全对齐（60+40=100）仍判失败
+        let first = rf(206, Some(100), Some("\"v1\""), 60);
+        let rest = rf(206, Some(100), Some("\"v2\""), 40);
+        assert!(!small_rest_ok(&first, &rest, 100), "同长异 ETag 必须拒拼走回退");
+    }
+
+    #[test]
+    fn small_rest_both_etags_absent_is_unverifiable_not_verified() {
+        /* 不可验证口径明示（验收加强第 6 项）：两段都无 ETag ＝没有
+         * 版本指纹可比对，此时只剩 total＋长度校验兜底。本用例通过
+         * 只表示「无指纹时按既有口径放行」，不表示已验证两段同版本
+         * ——回报/注释不得把此场景写成 ETag 覆盖已达。 */
+        let first = rf(206, Some(100), None, 60);
+        let rest = rf(206, Some(100), None, 40);
+        assert!(small_rest_ok(&first, &rest, 100), "双无 ETag 时按 total＋长度口径放行（不可验证，见注释）");
+    }
+
+    #[test]
+    fn small_rest_accepts_consistent_piece_and_skips_absent() {
+        let first = rf(206, Some(100), Some("\"v1\""), 60);
+        assert!(small_rest_ok(&first, &rf(206, Some(100), Some("\"v1\""), 40), 100), "一致分片应正常拼接");
+        // 任一边没给 total/ETag 时跳过对应校验（与并行路径同口径，不因此失败）
+        assert!(small_rest_ok(&first, &rf(206, None, None, 40), 100));
+        let first_no_etag = rf(206, Some(100), None, 60);
+        assert!(small_rest_ok(&first_no_etag, &rf(206, Some(100), Some("\"v9\""), 40), 100));
+        // 状态/长度仍是硬条件
+        assert!(!small_rest_ok(&first, &rf(200, Some(100), Some("\"v1\""), 40), 100));
+        assert!(!small_rest_ok(&first, &rf(206, Some(100), Some("\"v1\""), 39), 100));
     }
 
     #[test]

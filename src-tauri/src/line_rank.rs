@@ -2,7 +2,8 @@
 //! P0-B 改版，Muse 2026-11-19，audit6 §五 P0-B.1/.4）。
 //!
 //! 旧规则只按接口延迟（probe_hit 的 ms）选线——延迟低不等于拉流快。
-//! 探测口径（改版）：全候选测**同一内容**——以当前线目录首条视频为
+//! 探测口径（改版）：池内候选测**同一内容**（池规则：可达 ≤6 全测／
+//! >6 池内轮换，见 pick_ranked/select_pool）——以当前线目录首条视频为
 //! 锚，各候选请求同一 id 的首分片、固定 512KB 字节预算、连测 2 次
 //! 取低值（悲观样本压噪声）；某候选没有锚内容 → 标 incomparable、
 //! 只记延迟不进吞吐排名。探测串行（并行会互相污染带宽），单候选
@@ -209,7 +210,7 @@ fn cap_timed_out_measure(m: &mut LineMeasure) {
     m.probe_hist_bps = m.probe_hist_bps.map(|v| v.min(TIMEOUT_EFFECTIVE_CAP_BPS));
 }
 
-/// 锚内容：当前线目录首条视频 id。全候选测同一 id，样本才可比；
+/// 锚内容：当前线目录首条视频 id。池内候选测同一 id，样本才可比；
 /// 取不到锚（当前线目录异常）→ 本轮全体不可比、只按延迟/账本排。
 async fn anchor_video_id() -> Option<i64> {
     let list = crate::net::edge(&crate::net::base(), "GET", "/api/videos?page=1&size=1", None, None)
@@ -384,7 +385,7 @@ pub async fn pick_ranked(hits: Vec<(String, String, u64)>, current: Option<&str>
         pool
     };
     pool.sort_by_key(|(tier, _, ms)| (tier != "main", *ms));
-    // 锚内容只取一次：全候选测同一 id 的首分片（P0-B.1）。
+    // 锚内容只取一次：池内候选测同一 id 的首分片（P0-B.1）。
     let anchor = anchor_video_id().await;
     let mut measures: Vec<LineMeasure> = Vec::new();
     for (tier, url, ms) in pool {

@@ -269,6 +269,44 @@ try {
 
 
   {
+    /* P1-04 全链·调度干扰（最终版 C 线，验收加强第 6 项）：laterConfirm
+     * 隔离须在普通周期调度正常运转下成立——confirm-pending 落定后，
+     * 在确认延迟窗内反复走 schedule/stopTimer 的生产路径
+     * （visibilitychange 可见 → check → schedule、offline → schedule），
+     * 确认计时器必须存活并到期真触发第二轮 pickLine("confirm")。
+     * 缺陷形态（确认计时器进 timers 注册表）下任一 schedule 的
+     * stopTimer 都会把它清掉、本块的第二轮等待必然超时（恒红）。 */
+    const { context, page } = await open({ [NEW_KEY]: "on" });
+    await page.waitForFunction(() => window.lineSelectionSnapshot?.ready);
+    await page.evaluate(() => {
+      window.lineSelectionFixture.autoMode = "confirm-pending";
+      window.lineSelectionControls.setConfirmDelayForTests(16_000);
+    });
+    const beforeChurn = (await calls(page, "line_auto")).length;
+    await page.evaluate(() => window.lineSelectionControls.pickLine("fixture-confirm-churn", true));
+    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeChurn + 1);
+    /* 干扰窗约 12s：落在 pickLine 15s 非强制冷却内，check 的
+     * main-return 不会真发 line_auto，计数只受确认轮影响。 */
+    const churnStart = Date.now();
+    while (Date.now() - churnStart < 12_000) {
+      await page.evaluate(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        window.dispatchEvent(new Event("offline"));
+      });
+      await new Promise(r => setTimeout(r, 2_000));
+    }
+    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeChurn + 2, { timeout: 25_000 });
+    const churnRound = await page.evaluate(async () => {
+      const mod = await import("/src/shared/network/autoLine.ts");
+      return { rounds: mod.recentPickRounds().length, reason: mod.lastPickRound()?.reason ?? null };
+    });
+    assert.ok(churnRound.rounds >= 2, "confirm round under churn must be recorded as a real second round");
+    assert.equal(churnRound.reason, "confirm-pending", "second round under churn is the confirm round");
+    report.passed.push("Confirm timer survives schedule/stopTimer churn (visibility/offline cycles) and fires the confirm round on expiry");
+    await context.close();
+  }
+
+  {
     /* audit5 条 2 + audit6 条 5/P2-01：confirm 计时器注册表 + epoch、
      * tryMain 收编、breakerBlocked 消费（Muse 2026-11-19 根治包） */
     const { context, page } = await open({ [NEW_KEY]: "on" });

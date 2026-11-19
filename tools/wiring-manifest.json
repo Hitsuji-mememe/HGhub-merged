@@ -336,6 +336,42 @@
         "src-tauri/src/lines/ledger.rs"
       ],
       "min": 2
+    },
+    {
+      "id": "fin-c-confirm-gen-capture",
+      "item": "P1-05 auto_pick 任务开始捕获 CONFIRM_GEN（捕获点＋收尾传参）",
+      "symbol": "confirm_gen_at_start",
+      "files": [
+        "src-tauri/src/lines/probe.rs"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-c-confirm-gate-captured",
+      "item": "P1-05 confirm_gate_captured 代次校验（定义＋auto_pick 生产调用）",
+      "symbol": "confirm_gate_captured",
+      "files": [
+        "src-tauri/src/lines/probe.rs"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-c-small-rest-ok",
+      "item": "P2-03 小分片拼接接受判据 small_rest_ok（定义＋fetch_segment_bytes 生产调用）",
+      "symbol": "small_rest_ok",
+      "files": [
+        "src-tauri/src/range_fetch.rs"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-c-piece-etag-shared",
+      "item": "P2-03 ETag 一致性 piece_etag_consistent（定义＋小分片/并行两路共用）",
+      "symbol": "piece_etag_consistent",
+      "files": [
+        "src-tauri/src/range_fetch.rs"
+      ],
+      "min": 3
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",
