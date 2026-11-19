@@ -1,23 +1,30 @@
 /**
- * 内置源注册表（Muse 2026-11-19 根治包·多源线 条目2）。
- * 名单已冻结（正式 16 + 探路 5 + myfans 预览），不许增删。
+ * 内置源注册表（Muse 2026-11-19 根治包·多源线 条目2；2026-11-19
+ * 用户新口径修订：保留＋全目录导入）。
+ *
+ * 构成：命名源 23（正式 16 + 探路 5 + myfans 预览 + FC2 用户点名）
+ * ＋目录导入源（catalog.ts，Hentai-Park 目录机械导入、单独成文）。
  *
  * 成熟度口径（诚实标注，2026-11-19 真站实测后更新）：
  * - 黄果 stable：仓内既有 native 通道、现行生产源；
  * - 正式源逐源真站实测（每源 ≤3 页：列表+详情+流形态）：列表/详情/流
  *   三段全通的标 stable；只通一段或取流未证的标 probe 并在 note 写卡点；
- *   站点不可达/被墙的标 blocked 并在 note 写证据、enabled=false；
- * - 运行时取页通道（Rust 通用取页命令）由并行线接入，见 adapters/fetchPage.ts；
- * - 探路 5：2026-11-19 探测实测全降级（tools/source-probe/results.md），enabled=false；
+ *   站点不可达/被墙的标 blocked 并在 note 写证据；
+ * - blocked 保留口径（用户 2026-11-19 定）：blocked 源 enabled=true
+ *   保留在切换列表可见、标「暂不可用」，点开为诚实提示页、不拉数据、
+ *   不假数据；远程清单仍可 enabled=false 整体下线（熔断位不变）；
+ * - 运行时取页通道（Rust 通用取页命令）已接入，见 adapters/fetchPage.ts；
+ * - 探路 5：2026-11-19 探测实测全降级（tools/source-probe/results.md），enabled=false、不在列表；
  * - myfans preview：仅预览专区单列，不入正式源。
  */
 import type { SourceDef } from "./types.ts";
+import { CATALOG_SOURCES } from "./catalog.ts";
 
 const NO_CAPS = { search: false, episodes: false, hevc: false, comments: false };
 const HLS_CAPS = { search: true, episodes: false, hevc: false, comments: false };
 const PROBE_NET = { mode: "probe-required" } as const;
 
-export const BUILTIN_SOURCES: SourceDef[] = [
+export const NAMED_SOURCES: SourceDef[] = [
   {
     id: "huangguo", displayName: "黄果", kind: "mixed", category: "posts",
     adapter: { template: "native-huangguo" },
@@ -91,24 +98,31 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：/latest-updates/1/ 解析 23 条、详情 KVS 播放器配置含 360–1080p 多档 mp4 直链（get_file、带 acctoken）、解析层取最高档离线复验通过",
   },
   {
+    id: "fc2", displayName: "FC2", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
+    baseUrls: ["https://adult.contents.fc2.com"],
+    enabled: true, order: 29, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "用户点名添加、未实测（2026-11-19）：Hentai-Park 目录中该条目为作品资料/排行榜（metadataOnly），入口 adult.contents.fc2.com；模板参数为通用 HLS 骨架、未按真站校准，不许据此声称验通",
+  },
+  {
     id: "51chigua", displayName: "51吃瓜网", kind: "post", category: "posts",
     adapter: { template: "chigua", params: { listPath: "/?page={page}", itemLinkPattern: "/archives/", detailPath: "/archives/{id}" } },
     baseUrls: ["https://51chigua.com"],
-    enabled: false, order: 30, maturity: "blocked",
+    enabled: true, order: 30, maturity: "blocked",
     capabilities: NO_CAPS, network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：51chigua.com 与 www 均跳转 *.chiguadama.com 停放页（标题「404 | 站点维护中」、全文无入口锚点）；吃瓜模板保留、待发布页给出新域名后改 baseUrls 一级恢复",
   },
   {
     id: "meiridasai", displayName: "每日大赛", kind: "post", category: "posts",
     adapter: { template: "chigua", params: { listPath: "/?page={page}", itemLinkPattern: "/archives/", detailPath: "/archives/{id}" } },
     baseUrls: ["https://meiridasai.com"],
-    enabled: false, order: 31, maturity: "blocked",
+    enabled: true, order: 31, maturity: "blocked",
     capabilities: NO_CAPS, network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：apex 与 www 均返回 Cloudflare 525（源站 SSL 握手失败、16 字节错误体）；吃瓜模板保留、源站恢复后改判",
   },
   {
     id: "xiuren", displayName: "秀人网", kind: "image", category: "image",
     adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
     baseUrls: ["https://xiuren.com"],
-    enabled: false, order: 40, maturity: "blocked",
+    enabled: true, order: 40, maturity: "blocked",
     capabilities: { search: true, episodes: false, hevc: false, comments: false },
     network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：xiuren.com 首页与 /wp-json/wp/v2/posts 均连接失败（HTTP status 0、本机非中国出口不可达、疑地域限制）；WP REST 模板保留、换可达出口复测可改判",
   },
@@ -130,7 +144,7 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     id: "danbooru", displayName: "Danbooru", kind: "image", category: "image",
     adapter: { template: "danbooru-api", params: { listPath: "/posts.json" } },
     baseUrls: ["https://danbooru.donmai.us"],
-    enabled: false, order: 43, maturity: "blocked",
+    enabled: true, order: 43, maturity: "blocked",
     capabilities: { search: true, episodes: false, hevc: false, comments: false },
     network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：/posts.json 以 iOS 与桌面两种 UA 均返回 403 Cloudflare「Just a moment」challenge 页（本机出口 IP 被拦）；danbooru-api 适配器已就绪、换出口复测通过即可升 stable",
   },
@@ -176,6 +190,11 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     note: "仅公开预览、完整内容回原站付费；条目一律标注「仅预览」",
   },
 ];
+
+/** 内置注册表全量 = 命名源 + 目录导入源（catalog.ts）。远程清单按
+ * id 覆盖 enabled/baseUrls 的口径对两部分同等生效：目录源启用、
+ * 下线、改域名都走清单，不必重出包。 */
+export const BUILTIN_SOURCES: SourceDef[] = [...NAMED_SOURCES, ...CATALOG_SOURCES];
 
 export function getBuiltinRegistry(): SourceDef[] {
   return [...BUILTIN_SOURCES].sort((a, b) => a.order - b.order);
