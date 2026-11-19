@@ -47,7 +47,8 @@ try {
   check("F2 stall fires exactly once", r.f_stays_once, 1);
   check("F3 slow network (no FragLoaded) never stalls", r.f_slow_network, 0);
   check("F4 playing clears the watchdog", r.f_playing_clears, 0);
-  check("F5 hasBuffered predicate rescues at deadline", r.f_predicate_rescue, 0);
+  check("F5 hasBuffered predicate rescues at append deadline", r.f_predicate_rescue, 0);
+  check("F5 handed-off second arm still judges buffered-no-play", r.f_predicate_handoff_stall, 1);
   check("F6 engine starts as hls.js", r.f_engine_before, "hls.js");
   check("F6 first stall retries in place", r.f_first_stall_action, "retry");
   check("F6 second stall falls back", r.f_second_stall_fell_back, true);
@@ -66,6 +67,13 @@ try {
   check("F9 buffered-no-play fires exactly once", r.f_buffered_no_play_once, 1);
   check("F10 will gate blocks second arm", r.f_will_gate_blocks, 0);
   check("F11 playing clears second arm", r.f_playing_clears_second_arm, 0);
+  check("F12 gate suspends without stalling", r.f_gate_suspends_no_stall, 0);
+  check("F12 gate leaves watchdog suspended", r.f_gate_suspended, true);
+  check("F12 resumed watchdog quiet before deadline", r.f_resumed_before_deadline, 0);
+  check("F12 resumed watchdog stalls on renewed freeze", r.f_resumed_stall_fires, 1);
+  check("F13 append deadline hands off without stalling", r.f_transfer_no_stall_yet, 0);
+  check("F13 handed-off second arm stalls", r.f_transfer_stall_fires, 1);
+  check("F13 handed-off state label", r.f_transfer_state, "buffered-no-play");
 
   // C — density-based SR tiering
   check("C high-density 1080p -> off", r.c_1080p_high_density, "off");
@@ -121,7 +129,8 @@ try {
   check("W7 paused_by_system still escalates", r.w7_system_pause_retry, ["append_stall"]);
   check("W8 buffered-no-play escalates", r.w8_buffered_no_play_retry, ["append_stall"]);
   check("W8 buffered-no-play state label", r.w8_buffered_no_play_state, ["buffered-no-play"]);
-  check("W9 deadline predicate rescue", r.w9_predicate_rescue, []);
+  check("W9 deadline predicate rescue (append window)", r.w9_predicate_rescue, []);
+  check("W9 handed-off second arm escalates", r.w9_handoff_retry, ["append_stall"]);
 
   await writeFile(join(output, "report.json"), JSON.stringify({ report, results: r }, null, 2));
   if (report.failed.length) {

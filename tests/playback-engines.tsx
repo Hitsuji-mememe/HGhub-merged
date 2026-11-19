@@ -92,8 +92,14 @@ function run() {
     const wd = new AppendStallWatchdog({ clock, hasBuffered: () => bufferedNow, isPlaying: () => false, onStall: () => stalls++ });
     wd.fragLoaded();
     bufferedNow = true; // 缓冲已有，但 buffered 事件漏报
-    clock.advance(10000);
+    clock.advance(4000);
+    /* 口径随 audit5 条 1 转交语义更新（Muse 2026-11-19 根治包）：
+     * append 窗到期不误判 append 卡死（原 F5 语义保留于此点）；但缓冲
+     * 已有却永不出画是第二臂的 buffered-no-play 签名，转交后照常判死
+     * （见 F13），旧「advance 10000 恒 0」与第二臂契约互斥、就此作废。 */
     results.f_predicate_rescue = stalls;
+    clock.advance(4000);
+    results.f_predicate_handoff_stall = stalls;
     wd.dispose();
   }
   /* ── F6 三段链：判死→重建→再判死→会话降级，后续视频直接 native ── */
@@ -194,6 +200,45 @@ function run() {
     wd.playing();
     clock.advance(10000);
     results.f_playing_clears_second_arm = stalls;
+    wd.dispose();
+  }
+
+  /* ── F12 F10 续集（audit5 条 1）：门控命中挂起 → 意愿返回 resume →
+   * 再卡死必须判死。旧实现门控命中即 cleared 永久退役，本例必红。 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    let wanted = false;
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => true, isPlaying: () => false, shouldEscalate: () => wanted, onStall: () => stalls++ });
+    wd.fragLoaded();
+    wd.buffered();
+    clock.advance(4000); // 出画守候到期：意愿不在 → 挂起，不判死不退役
+    results.f_gate_suspends_no_stall = stalls;
+    results.f_gate_suspended = wd.isSuspended;
+    wanted = true;
+    wd.resume(); // 意愿恢复：重新起守候窗
+    clock.advance(3999);
+    results.f_resumed_before_deadline = stalls;
+    clock.advance(1);
+    results.f_resumed_stall_fires = stalls;
+    wd.dispose();
+  }
+  /* ── F13 append 臂转交（audit5 条 1 旁路）：FRAG_BUFFERED 事件漏报、
+   * append 到点复查 hasBuffered 命中 → 转交出画守候臂而非退役，
+   * 出画窗内 playing 不来仍判死 buffered-no-play。旧实现必红。 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    let state: string | null = null;
+    let bufferedNow = false;
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => bufferedNow, isPlaying: () => false, onStall: s => { stalls++; state = s; } });
+    wd.fragLoaded();
+    bufferedNow = true; // 缓冲已有，但 buffered 事件漏报
+    clock.advance(4000); // append 臂到期：转交第二臂，不判死不退役
+    results.f_transfer_no_stall_yet = stalls;
+    clock.advance(4000); // 第二臂到期：仍不出画 → 判死
+    results.f_transfer_stall_fires = stalls;
+    results.f_transfer_state = state;
     wd.dispose();
   }
 
@@ -353,8 +398,12 @@ function run() {
     {
       const h = harness({ bufferedLen: 1 });
       h.wd.fragLoaded();
-      h.clock.advance(8000);
-      results.w9_predicate_rescue = h.calls.retry;
+      h.clock.advance(4000);
+      /* 同 F5 口径更新：append 窗不升级（原 W9 语义保留于此点），
+       * 转交第二臂后 buffered-no-play 照常升级（W8 同链）。 */
+      results.w9_predicate_rescue = [...h.calls.retry];
+      h.clock.advance(4000);
+      results.w9_handoff_retry = [...h.calls.retry];
       h.wd.dispose();
     }
     resetNativeFallbackForTests();

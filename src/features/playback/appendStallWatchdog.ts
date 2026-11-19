@@ -22,7 +22,15 @@
  * 只在页面激活/意图变化时重播、无超时守候——该状态曾无超时负责人。
  * 现 buffered 首达后转入出画守候：窗口内 playing 不来且播放意愿在
  * （shouldEscalate 门控，用户暂停不判死）→ 以 buffered-no-play 判死，
- * 与 append 臂共用重建/降级链。 */
+ * 与 append 臂共用重建/降级链。
+ *
+ * 生命周期收口（Muse 2026-11-19 根治包，audit5 条 1）：旧实现把
+ * 「已出画/已判死」的终局与「意愿不在、暂不适用」的挂起共用同一个
+ * cleared latch——出画守候窗内用户暂停一次，看门狗即永久退役，恢复
+ * 播放后再卡死无人检出。现拆两态：终局（retired）只许由已出画或
+ * 判死已交付 onStall 进入；意愿门控命中走挂起（suspended），不判死、
+ * 不退役，意愿恢复时经 resume() 重新起守候窗。append 臂到点复查
+ * hasBuffered 命中时转交出画守候臂，不再直接退役。 */
 
 export type StallClock = {
   setTimeout: (fn: () => void, ms: number) => unknown;
@@ -40,7 +48,10 @@ export class AppendStallWatchdog {
   private timer: unknown = null;
   private playTimer: unknown = null;
   private armed = false;
-  private cleared = false;
+  /** 终局态：已出画或判死已交付后为 true，此后永不复活（本源已定性）。 */
+  private retired = false;
+  /** 挂起态：意愿门控命中时进入——不判死、不退役，等 resume() 复查。 */
+  private suspended = false;
   private disposed = false;
   private appendSeen = false;
   private appendInFlight = false;
@@ -65,17 +76,37 @@ export class AppendStallWatchdog {
 
   /** 首个完整/部分分片加载完成时调用；只有第一次会布防。 */
   fragLoaded(): void {
-    if (this.disposed || this.cleared || this.armed) return;
+    if (this.disposed || this.retired || this.armed) return;
     this.armed = true;
     this.armTimer();
+  }
+
+  /** 意愿恢复时由活动层回调：挂起态重新起守候窗（已 buffered 走出画
+   * 守候臂，未 buffered 走 append 臂）。终局/已布防时为无操作。 */
+  resume(): void {
+    if (this.disposed || this.retired || !this.suspended) return;
+    this.suspended = false;
+    if (this.bufferedSeen) this.armPlayTimer();
+    else if (this.armed) this.armTimer();
+  }
+
+  /** 当前是否处于意愿挂起（供接线层/测试观测，不参与判死）。 */
+  get isSuspended(): boolean {
+    return this.suspended;
   }
 
   private armTimer(): void {
     this.timer = this.clock.setTimeout(() => {
       this.timer = null;
-      if (this.disposed || this.cleared) return;
-      if (this.opts.hasBuffered() || this.opts.isPlaying()) {
-        this.cleared = true;
+      if (this.disposed || this.retired || this.suspended) return;
+      if (this.opts.isPlaying()) {
+        this.retire();
+        return;
+      }
+      /* 事件漏报但缓冲实际已有：转交出画守候臂继续盯 playing，
+       * 不许在此退役（旧实现直接 cleared，出画臂从未 engage）。 */
+      if (this.opts.hasBuffered()) {
+        this.buffered();
         return;
       }
       /* append 正在处理且还没给过宽限：先延长一个窗口再判——合法慢
@@ -90,8 +121,50 @@ export class AppendStallWatchdog {
         : this.appendInFlight
           ? "append-hung"
           : "appended-no-buffer";
+      this.retire();
       this.opts.onStall(state);
     }, this.opts.timeoutMs ?? 4000);
+  }
+
+  private armPlayTimer(): void {
+    if (this.playTimer != null) {
+      this.clock.clearTimeout(this.playTimer);
+      this.playTimer = null;
+    }
+    this.playTimer = this.clock.setTimeout(() => {
+      this.playTimer = null;
+      if (this.disposed || this.retired || this.suspended) return;
+      if (this.opts.isPlaying()) {
+        this.retire();
+        return;
+      }
+      if (!this.opts.hasBuffered()) {
+        /* 缓冲已消失：出画守候的前提不在，终局退出（无从判死）。 */
+        this.retire();
+        return;
+      }
+      if (this.opts.shouldEscalate && !this.opts.shouldEscalate()) {
+        /* 意愿门控命中：挂起而非退役——用户恢复播放后 resume()
+         * 必须还能把本臂重新拉起（audit5 条 1 的核心时序）。 */
+        this.suspended = true;
+        return;
+      }
+      this.retire();
+      this.opts.onStall("buffered-no-play");
+    }, this.opts.timeoutMs ?? 4000);
+  }
+
+  private retire(): void {
+    this.retired = true;
+    this.suspended = false;
+    if (this.timer != null) {
+      this.clock.clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.playTimer != null) {
+      this.clock.clearTimeout(this.playTimer);
+      this.playTimer = null;
+    }
   }
 
   /** SourceBuffer 开始 append（BUFFER_APPENDING）。 */
@@ -108,46 +181,24 @@ export class AppendStallWatchdog {
   /** 分片已进入缓冲（FragBuffered / SourceBuffer updateend）：append 臂
    * 达成使命撤防，转入出画守候（第二臂）——playing 在窗口内不来才判死。 */
   buffered(): void {
-    if (this.disposed || this.cleared || this.bufferedSeen) return;
+    if (this.disposed || this.retired) return;
+    if (this.bufferedSeen && !this.suspended) return;
     this.bufferedSeen = true;
+    this.suspended = false;
     if (this.timer != null) {
       this.clock.clearTimeout(this.timer);
       this.timer = null;
     }
     if (this.opts.isPlaying()) {
-      this.clear();
+      this.retire();
       return;
     }
-    this.playTimer = this.clock.setTimeout(() => {
-      this.playTimer = null;
-      if (this.disposed || this.cleared) return;
-      if (this.opts.isPlaying() || !this.opts.hasBuffered()) {
-        this.cleared = true;
-        return;
-      }
-      if (this.opts.shouldEscalate && !this.opts.shouldEscalate()) {
-        this.cleared = true;
-        return;
-      }
-      this.opts.onStall("buffered-no-play");
-    }, this.opts.timeoutMs ?? 4000);
+    this.armPlayTimer();
   }
 
-  /** 已出画播放——本源已活。 */
+  /** 已出画播放——本源已活（终局）。 */
   playing(): void {
-    this.clear();
-  }
-
-  private clear(): void {
-    this.cleared = true;
-    if (this.timer != null) {
-      this.clock.clearTimeout(this.timer);
-      this.timer = null;
-    }
-    if (this.playTimer != null) {
-      this.clock.clearTimeout(this.playTimer);
-      this.playTimer = null;
-    }
+    this.retire();
   }
 
   dispose(): void {

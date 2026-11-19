@@ -68,7 +68,7 @@ export function createStallWatchdog(opts: {
 }
 
 /** 把 hls 与 video 的信号喂给看门狗；返回解绑函数（只解 video 的
- * playing 监听——hls 监听随 hls.destroy() 一并销毁，无悬空监听）。
+ * playing/play 监听——hls 监听随 hls.destroy() 一并销毁，无悬空监听）。
  * 信号次序与收敛前两处原文一致：FRAG_LOADED 先过两处共用的
  * part/sn 守卫、喂看门狗，再走调用方逻辑；FRAG_BUFFERED 先走调用方
  * 逻辑（recovery.buffered 等）再喂看门狗。调用方的 onFragLoaded 只放
@@ -96,5 +96,13 @@ export function wireStallWatchdogSignals(opts: {
   });
   const onPlaying = () => watchdog.playing();
   video.addEventListener("playing", onPlaying);
-  return () => video.removeEventListener("playing", onPlaying);
+  /* 意愿恢复复查（Muse 2026-11-19 根治包，audit5 条 1）：video 的
+   * play 事件即活动层 play 请求落地的信号——看门狗若因意愿门控处于
+   * 挂起态，在此重新起守候窗；终局态 resume 为无操作。 */
+  const onPlay = () => watchdog.resume();
+  video.addEventListener("play", onPlay);
+  return () => {
+    video.removeEventListener("playing", onPlaying);
+    video.removeEventListener("play", onPlay);
+  };
 }
