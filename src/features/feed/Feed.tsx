@@ -293,14 +293,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   useEffect(() => { if (!allowed) { setPanel(null); setTagMenu(false); } }, [allowed]);
   const curEp = epMap[curId] || 1;
   currentEntryRef.current = { id: curId, ep: curEp };
-  const liked = isLiked(curId, curEp, kind);
   const collected = isFav(curId, kind);
-  const likeActionKey = `like:${kind}:${curId}:${curEp}`;
   const collectActionKey = `collect:${kind}:${curId}`;
-  const followActionKey = `follow:${kind === "video" ? detail?.author?.id || 0 : 0}`;
-  const likePending = actionPending(likeActionKey);
   const collectPending = actionPending(collectActionKey);
-  const followPending = actionPending(followActionKey);
   const actionContext = useRef({ accountScope, lineEpoch: store.lineEpoch, id: curId, ep: curEp, kind });
   actionContext.current = { accountScope, lineEpoch: store.lineEpoch, id: curId, ep: curEp, kind };
   const progressScope = useRef(accountScope);
@@ -710,7 +705,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         case "ArrowRight": e.preventDefault(); seekRelative(5); break;
         case "f": case "F": toggleFull(); break;
         case "m": case "M": setMuted((v) => !v); break;
-        case "l": case "L": onLike(); break;
         case "s": case "S": onFav(); break;
         case "e": case "E": setPanel("episodes"); break;
         default: break;
@@ -719,7 +713,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, allowed, controlsLocked, showHoldGuide, panel, index, stepDir, accountScope, curEp, kind, liked, collected, likePending, collectPending]);
+  }, [active, allowed, controlsLocked, showHoldGuide, panel, index, stepDir, accountScope, curEp, kind, collected, collectPending]);
 
   /* 安卓返回键：面板打开时先关面板 */
   useEffect(() => {
@@ -1168,19 +1162,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const actionIsCurrent = () => mounted.current && actionContext.current.accountScope === accountScope && actionContext.current.lineEpoch === store.lineEpoch
     && actionContext.current.id === curId && actionContext.current.ep === curEp && actionContext.current.kind === kind;
 
-  const onLike = async () => {
-    const pendingKey = `${accountScope}:${likeActionKey}`;
-    if (!curId || likePending || pendingActions.current.has(pendingKey)) return;
-    pendingActions.current.add(pendingKey);
-    const on = !liked;
-    try {
-      await setLiked(kind, curId, curEp, on);
-      if (!actionIsCurrent()) return;
-      toast(on ? "已加入喜欢" : "已取消喜欢", on ? "heart" : "info");
-    } catch (error) {
-      if (actionIsCurrent()) toast(error instanceof Error ? error.message : "点赞失败，请重试", "info");
-    } finally { pendingActions.current.delete(pendingKey); }
-  };
 
   const onFav = async () => {
     const pendingKey = `${accountScope}:${collectActionKey}`;
@@ -1195,20 +1176,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     } finally { pendingActions.current.delete(pendingKey); }
   };
 
-  const onFollow = async () => {
-    const uid = meta.authorId > 0 ? meta.authorId : undefined;
-    const pendingKey = `${accountScope}:${followActionKey}`;
-    if (!uid || followPending || pendingActions.current.has(pendingKey)) return;
-    if (!user) { setLoginOpen(true); return; }
-    pendingActions.current.add(pendingKey);
-    const on = !store.follows.includes(uid);
-    try {
-      await setFollowing(uid, on);
-      if (actionIsCurrent()) toast(on ? `已关注 ${meta.author}` : "已取消关注", on ? "ok" : "info");
-    } catch (error) {
-      if (actionIsCurrent()) toast(error instanceof Error ? error.message : "关注失败，请重试", "info");
-    } finally { pendingActions.current.delete(pendingKey); }
-  };
 
   const pickEp = (ep: number) => {
     flushProgressRef.current(); // 切集前先刷当前集位置（此刻 liveRef/playGuard 仍是旧集）
@@ -1228,12 +1195,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
    * 的 effectiveVideoIds/index，无需外部传参；注册逻辑见 useDetailNext。 */
   useDetailNext({ enabled: active && mode === "context", episodes, curEp, index, count: effectiveVideoIds.length, pickEp, go });
 
-  /* 点赞/收藏计数随右栏恢复（上游原算法在 ActionRail.useSocialCounts） */
-  const { likeCount, collectCount } = useSocialCounts(meta, detail, kind, curEp, liked, collected);
+  /* 收藏计数（上游原算法在 ActionRail.useSocialCounts；点赞已于 3.2.2 砍单删除） */
+  const { collectCount } = useSocialCounts(meta, detail, kind, collected);
 
   const detailBody = (onClose?: () => void) => <VideoDetailsPanel meta={meta} videoId={curId} episodeCount={episodes.length}
-    related={related} following={store.follows.includes(meta.authorId)} followPending={followPending} canFollow={!!user}
-    onFollow={() => void onFollow()} onTag={openTag} onClose={onClose} onPreferences={openTagMenu}
+    related={related} onTag={openTag} onClose={onClose} onPreferences={openTagMenu}
     onAuthor={() => { if (meta.authorId > 0) { closePanels(); store.push({ kind: "user", id: meta.authorId, name: meta.author }); } }}
     onRelated={video => { closePanels(); store.push({ kind: "feed", videoIds: related.map(item => item.id), index: related.findIndex(item => item.id === video.id), title: "相关推荐" }); }} />;
 
@@ -1678,7 +1644,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               抽屉）。热度与时间 shrink-0，长剧名先截断、不挤压右侧。 */}
           <div className="px-4 pb-0.5 flex items-baseline gap-2">
             <span className="min-w-0 truncate text-[15px] font-semibold text-[#F5F5F5] hg-ov-shadow">{meta.title}</span>
-            <span className="shrink-0 text-[11px] font-medium text-[#A1A5AD] tabular-nums">赞 {fmt(likeCount)} · 藏 {fmt(collectCount)}</span>
+            <span className="shrink-0 text-[11px] font-medium text-[#A1A5AD] tabular-nums">藏 {fmt(collectCount)}</span>
             <span className="shrink-0 ml-auto text-[11px] font-semibold text-[#A1A5AD] tabular-nums"><PlaybackTime clock={playbackClock} /> / {fmtTime(duration)}</span>
           </div>
           {/* 热区 ≥28px（B2 追加，同信息区 scrub 区口径）：旧包裹高 22px */}

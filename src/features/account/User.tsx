@@ -39,93 +39,28 @@ function PaginationFeedback({ state }: { state: VideoState }) {
 }
 const countLabel = ({ items, total }: VideoState) => `已加载 ${items.length}${total === null ? "" : ` / ${total}`} 部`;
 
-export function FollowingPage({ onBack, wide }: { onBack: () => void; wide: boolean }) {
-  const { accountScope, lineEpoch } = useStore();
-  return <FollowingContent key={`${accountScope}:${lineEpoch}`} onBack={onBack} wide={wide} />;
-}
-
-function FollowingContent({ onBack, wide }: { onBack: () => void; wide: boolean }) {
-  const { push, user, follows, setLoginOpen, setTab, accountScope } = useStore();
-  const [searching, setSearching] = useState(false);
-  const [creators, setCreators] = useState<Record<number, UserProfile>>({});
-  const creatorsRef = useRef(creators);
-  creatorsRef.current = creators;
-  // Identity belongs in the dependency list: switching accounts discards the previous feed.
-  const request = useCallback((page: number) => api.following(page, 20), []);
-  const state = useUserVideos(!!user, accountScope, request);
-  const followSlice = follows.slice(0, 24);
-  const followKey = followSlice.join(",");
-
-  useEffect(() => {
-    if (!user || !followSlice.length) return;
-    let alive = true;
-    const missing = followSlice.filter(uid => !creatorsRef.current[uid]);
-    if (!missing.length) return;
-    Promise.allSettled(missing.map(uid => api.user(uid))).then(results => {
-      if (!alive) return;
-      const loaded: Record<number, UserProfile> = {};
-      results.forEach((r, idx) => {
-        if (r.status === "fulfilled" && r.value) loaded[missing[idx]] = r.value;
-      });
-      if (Object.keys(loaded).length) setCreators(prev => ({ ...prev, ...loaded }));
-    });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, followKey]);
-
-  return <div className="ios-page absolute inset-0 bg-bg flex flex-col">
-    <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
-      <div className="ios-subpage-bar">
-        <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
-        <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IHeart size={18} /></span>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[17px] font-bold text-on leading-tight">关注</h1>
-          {user && <p className="text-[12px] text-mut leading-tight mt-0.5" role="status">{follows.length > 0 ? `已关注 ${follows.length} 人 · ` : ""}{countLabel(state)}</p>}
-        </div>
-        <Button onClick={() => setSearching(true)} aria-label="搜索短剧" className="ios-nav-btn"><ISearch size={18} /></Button>
-      </div>
-    </div>
-    <div ref={state.scroller} className="flex-1 scroll-y px-4 pt-3 pb-8">
-      {/* 收官批 B 补：游客定版不设登录入口，关注流空态去掉「去登录」死引导。 */}
-      {!user ? <Empty icon={<IUser size={26} />} title="游客模式不提供关注流" />
-        : state.loading && !state.items.length ? <div className="flex justify-center py-12"><Loader /></div>
-        : state.err && !state.items.length ? <Empty icon={<IGrid size={26} />} title="关注流加载失败" sub={state.err} action="重试" onAction={() => void state.loadMore()} />
-        : state.items.length ? <Masonry videos={state.items} scopeKey={`following:${accountScope}`} wide={wide} onOpen={video => push({ kind: "feed", videoIds: state.items.map(item => item.id), index: state.items.findIndex(item => item.id === video.id), title: "关注" })} />
-        : <Empty icon={<IGrid size={26} />} title="还没有关注内容" sub="在分类中发现作品，关注喜欢的作者。" action="去分类看看" onAction={() => setTab("category")} />}
-      {user && <PaginationFeedback state={state} />}
-    </div>
-    {searching && <InplaceSearch kind="video" wide={wide} onClose={() => setSearching(false)} onOpenVideo={(v, list, kw) => push({ kind: "feed", videoIds: list.map(x => x.id), index: list.findIndex(x => x.id === v.id), title: kw ? `搜索 · ${kw}` : "搜索" })} />}
-  </div>;
-}
-
 export function UserPage({ id, name, onBack, wide }: { id: number; name?: string; onBack: () => void; wide: boolean }) {
   const { accountScope, lineEpoch } = useStore();
   return <UserContent key={`${accountScope}:${lineEpoch}:${id}`} id={id} name={name} onBack={onBack} wide={wide} />;
 }
 
 function UserContent({ id, name, onBack, wide }: { id: number; name?: string; onBack: () => void; wide: boolean }) {
-  const { push, toast, follows, setFollowing, actionPending, accountScope, user, setLoginOpen } = useStore();
+  const { push, accountScope } = useStore();
   const [searching, setSearching] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [stats, setStats] = useState<Awaited<ReturnType<typeof api.userStats>> | null>(null);
   const [infoError, setInfoError] = useState("");
   const [infoLoading, setInfoLoading] = useState(true);
   const [infoReload, setInfoReload] = useState(0);
-  const [followBusy, setFollowBusy] = useState(false);
-  const [followError, setFollowError] = useState("");
-  const followPending = useRef(false);
   const context = useRef({ id, accountScope });
   context.current = { id, accountScope };
   const mounted = useRef(false);
-  const followVersion = useRef(0);
   const request = useCallback((page: number) => api.userVideos(id, page, 20), [id]);
   const state = useUserVideos(true, `${accountScope}:${id}`, request);
 
   useEffect(() => {
     mounted.current = true;
-    followVersion.current++; followPending.current = false;
-    setFollowBusy(false); setFollowError("");
-    return () => { mounted.current = false; followVersion.current++; };
+    return () => { mounted.current = false; };
   }, [id, accountScope]);
   useEffect(() => { setProfile(null); setStats(null); }, [id]);
   useEffect(() => {
@@ -142,24 +77,6 @@ function UserContent({ id, name, onBack, wide }: { id: number; name?: string; on
     return () => { alive = false; };
   }, [id, infoReload]);
 
-  const following = follows.includes(id);
-  const onFollow = async () => {
-    if (followPending.current || actionPending(`follow:${id}`)) return;
-    if (!user) { setLoginOpen(true); return; }
-    const version = ++followVersion.current;
-    const on = !following;
-    followPending.current = true; setFollowBusy(true); setFollowError("");
-    const current = () => mounted.current && followVersion.current === version && context.current.id === id && context.current.accountScope === accountScope;
-    try {
-      await setFollowing(id, on);
-      if (!current()) return;
-      toast(on ? `已关注 ${profile?.nickname || name || ""}` : "已取消关注", on ? "ok" : "info");
-    } catch (error) {
-      if (current()) setFollowError(error instanceof Error ? error.message : "操作失败，请重试");
-    } finally {
-      if (current()) { followPending.current = false; setFollowBusy(false); }
-    }
-  };
   const stat = (value: number | undefined) => value === undefined ? "—" : fmt(value);
 
   return <div className="ios-page absolute inset-0 bg-bg flex flex-col">
@@ -185,12 +102,8 @@ function UserContent({ id, name, onBack, wide }: { id: number; name?: string; on
             <span>粉丝 <b className="text-on">{stat(stats?.followers)}</b></span>
             <span>获赞 <b className="text-on">{stat(stats?.like_count)}</b></span>
           </div>
-          <Button onClick={() => void onFollow()} disabled={followBusy || actionPending(`follow:${id}`)} aria-busy={followBusy || actionPending(`follow:${id}`)} aria-pressed={following}
-            className={`min-h-11 px-3.5 rounded-full text-[13px] font-semibold shrink-0 ${following ? "bg-s3 text-mut" : "bg-primary text-on-primary"}`}>
-            {followBusy || actionPending(`follow:${id}`) ? "处理中…" : following ? "已关注" : "+ 关注"}
-          </Button>
+
         </div>
-        {followError && <p role="alert" className="mt-3 text-[13px] text-danger break-words">{followError}。关注状态未更改，请重试。</p>}
       </Surface>
       {infoError && <div role="status" className="mt-3 rounded-(--r-md) bg-s2 p-3 text-[13px]">
         <p className="font-semibold">资料信息未完整加载</p><p className="mt-1 text-mut break-words">{infoError}</p>

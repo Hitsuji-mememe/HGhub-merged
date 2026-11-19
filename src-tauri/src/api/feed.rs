@@ -213,10 +213,6 @@ pub async fn api_related(state: State<'_, Api>, id: i64) -> Result<Value, String
     state.get(&format!("/api/videos/{id}/related")).await
 }
 
-/// 关注流：`/api/videos/following`（需登录）。
-#[tauri::command]
-pub async fn api_following(
-    state: State<'_, Api>,
     page: u32,
     size: u32,
 ) -> Result<Value, String> {

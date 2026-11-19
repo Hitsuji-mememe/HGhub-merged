@@ -280,21 +280,10 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
               </div>
               <div className="mt-3.5 flex flex-wrap items-center gap-2">
                 {(() => {
-                  const liked = isLiked(id, 1, "post");
                   const fav = isFav(id, "post");
-                  const likeBusy = actionPending(`like:post:${id}:1`);
                   const favBusy = actionPending(`collect:post:${id}`);
-                  const likeCount = Math.max(0, (currentPost.counts?.like ?? 0) + Number(liked));
                   const favCount = Math.max(0, (currentPost.counts?.collect ?? 0) + Number(fav));
                   return <>
-                    <Button aria-pressed={liked} disabled={likeBusy} onClick={() => {
-                      void setLiked("post", id, 1, !liked)
-                        .then(() => toast(!liked ? "已加入喜欢" : "已取消喜欢", !liked ? "heart" : "info"))
-                        .catch(e => toast(e instanceof Error ? e.message : "操作失败", "info"));
-                    }} className="h-9 px-3.5 rounded-full bg-s2 flex items-center gap-1.5 text-[13px] text-on pressable">
-                      {liked ? <IHeartF size={15} className="text-neon" /> : <IHeart size={15} />}
-                      <span>{likeCount > 0 ? fmt(likeCount) : "喜欢"}</span>
-                    </Button>
                     <Button aria-pressed={fav} disabled={favBusy} onClick={() => {
                       void setCollected("post", id, !fav)
                         .then(() => toast(!fav ? "已收藏" : "已取消收藏", !fav ? "star" : "info"))

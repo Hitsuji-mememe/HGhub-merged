@@ -161,11 +161,9 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
             className="inline-flex items-center min-h-9 -mx-2 px-2 text-primary font-semibold shrink-0">{accountSync.busy ? "正在重试…" : "重试同步"}</Button>
         </div>}
 
-        {/* 关注 / 我的主页 */}
+        {/* 我的主页（关注已于 3.2.2 砍单删除） */}
         {user && (
           <CollectionLinks className="ios-profile-links mt-4">
-            <CollectionLink icon={<IHeart size={18} />} title="我的关注"
-              onClick={() => push({ kind: "following" })} />
             <CollectionLink icon={<IUserF size={18} />} title="我的主页"
               onClick={() => push({ kind: "user", id: user.id, name: user.nickname })} />
           </CollectionLinks>
