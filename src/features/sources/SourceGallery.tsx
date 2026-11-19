@@ -102,7 +102,7 @@ export default function SourceGallery({ def }: { def: SourceDef }) {
           <AlbumViewer title={album.item.title} images={album.images} index={album.index}
             onIndexChange={(i) => setAlbum({ ...album, index: i })}
             onBack={() => setAlbum(null)} backLabel="返回相册列表"
-            onClose={() => setAlbum(null)} />
+            onClose={() => setAlbum(null)} immersive />
         </div>
       );
     }

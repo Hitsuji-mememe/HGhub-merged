@@ -1640,6 +1640,34 @@
         "src/features/category/Category.tsx"
       ],
       "min": 3
+    },
+    {
+      "id": "fix330-gallery-immersive",
+      "item": "fix330/gallery-viewer 沉浸式安全区：AlbumViewer immersive 模式 chrome 吃 --sat/--sab/--sal/--sar，SourceGallery fixed 宿主传入（定义＋宿主接线）",
+      "symbol": "immersive",
+      "files": [
+        "src/features/sources/AlbumViewer.tsx",
+        "src/features/sources/SourceGallery.tsx"
+      ],
+      "each": true
+    },
+    {
+      "id": "fix330-gallery-thumb-window",
+      "item": "fix330/gallery-viewer 缩略图条窗口闩锁：以条本体为 root 的 IO 闩锁 nearThumbs，进窗才挂 Img eager 取图（状态＋观察＋渲染三处）",
+      "symbol": "nearThumbs",
+      "files": [
+        "src/features/sources/AlbumViewer.tsx"
+      ],
+      "min": 3
+    },
+    {
+      "id": "fix330-img-settle-guard",
+      "item": "fix330/gallery-viewer Img attempt 时钟对账 settleOkFromDom：起算前与 timeout 裁决前先核 DOM img 真实状态（定义＋两调用点）",
+      "symbol": "settleOkFromDom",
+      "files": [
+        "src/shared/ui/ui.tsx"
+      ],
+      "min": 3
     }
   ]
 }

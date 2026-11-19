@@ -773,10 +773,155 @@ try {
     }
   }
 
+  /* ── 图集全屏 chrome 安全区（Muse 2026-11-19 fix330/gallery-viewer）──
+   * 真机实报：fixed 全屏查看器顶栏（返回/标题/计数/关闭）与 iOS 状态
+   * 栏同带重叠、底部条压手势区。根因：AlbumViewer chrome 只有写死
+   * 12px 内边距、全仓独此一处沉浸层不吃安全区变量。夹具 immersive
+   * 模式注入 --sat 47 / --sab 34（刘海机型量级），断言：①返回/关闭
+   * 钮顶缘 ≥ 47（不得侵入状态栏带）；②缩略图条底缘 ≤ 视口高-34
+   * （不得侵入手势区）。旧码两断言皆红（顶 12 / 条底 840>818）。 */
+  async function runGallerySafeAreaCase() {
+    const name = "gallery-safe-area";
+    const result = { name, viewport: [393, 852], status: "running" };
+    report.cases.push(result);
+    const context = await browser.newContext({ userAgent: IPHONE_UA, hasTouch: true, viewport: { width: 393, height: 852 } });
+    const page = await context.newPage();
+    page.setDefaultTimeout(15000);
+    await context.route("**/*", route => {
+      const url = new URL(route.request().url());
+      if (url.origin === ui) return route.continue();
+      return route.abort("blockedbyclient");
+    });
+    try {
+      await page.goto(`${ui}/tests/gallery-viewer.html?immersive=1&n=3`);
+      const stage = page.locator('[data-ui="album-viewer-stage"]');
+      await stage.waitFor({ state: "visible" });
+      const backBox = await page.getByRole("button", { name: "返回相册列表", exact: true }).boundingBox();
+      const closeBox = await page.getByRole("button", { name: "关闭大图", exact: true }).boundingBox();
+      assert(backBox && closeBox, `${name}: chrome buttons must exist`);
+      result.backTop = Math.round(backBox.y); result.closeTop = Math.round(closeBox.y);
+      assert(backBox.y >= 47, `${name}: back button top ${backBox.y} must be >= safe-area top 47 (status bar overlap)`);
+      assert(closeBox.y >= 47, `${name}: close button top ${closeBox.y} must be >= safe-area top 47 (status bar overlap)`);
+      const stripBox = await page.getByRole("group", { name: "相册图片缩略图", exact: true }).boundingBox();
+      assert(stripBox, `${name}: strip must exist`);
+      result.stripBottom = Math.round(stripBox.y + stripBox.height);
+      assert(stripBox.y + stripBox.height <= 852 - 34 + 1,
+        `${name}: strip bottom ${stripBox.y + stripBox.height} must be <= ${852 - 34} (home-indicator overlap)`);
+      result.status = "passed";
+      console.log(`PASS ${name}`);
+    } catch (error) {
+      result.status = "failed"; result.error = error.message;
+      console.error(`FAIL ${name}: ${error.message}`);
+      await page.screenshot({ path: join(output, `${name.replace(/[^\w-]+/g, "_")}.png`) }).catch(() => {});
+    } finally {
+      await context.close();
+      await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+    }
+  }
+
+  /* ── 图集缩略图随可见性加载（Muse 2026-11-19 fix330/gallery-viewer）──
+   * 真机实报：126 张图集底部缩略图条除当前张外全是 HG 失败占位。
+   * 根因：全量 lazy 挂载下浏览器取图窗口（条滚动口）与 Img attempt
+   * 时钟窗口（主视口 IO）脱节、attempt 烧光终局锁死。修复形态＝条
+   * 本体 root 的 IO 闩锁：进窗才挂 Img。断言：①打开后条内 <img>
+   * 数有界（窗口量级 ≤40；旧码全量 126 红）；②远端索引（≥115）
+   * 不发请求；③可视缩略图真实出图（naturalWidth>0、无失败占位）；
+   * ④条滚到尾后尾部缩略图才挂图并出图、请求集合随之扩展，挂图
+   * 总数仍有界（≤60）。图源统一 200ms 延迟 fulfill 1x1 PNG。 */
+  async function runGalleryStripLoadCase() {
+    const name = "gallery-strip-load";
+    const result = { name, viewport: [393, 852], status: "running" };
+    report.cases.push(result);
+    const context = await browser.newContext({ userAgent: IPHONE_UA, hasTouch: true, viewport: { width: 393, height: 852 } });
+    const page = await context.newPage();
+    page.setDefaultTimeout(15000);
+    const PNG1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    const requested = new Set();
+    page.on("request", (req) => {
+      try {
+        const inner = new URL(req.url()).searchParams.get("u") || "";
+        const m = /album\/(\d+)\.jpg/.exec(inner);
+        if (m) requested.add(Number(m[1]) - 1);
+      } catch { /* ignore */ }
+    });
+    await context.route("**/*", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.origin === ui) return route.continue();
+      await new Promise((r) => setTimeout(r, 200));
+      return route.fulfill({ status: 200, contentType: "image/png", body: PNG1 });
+    });
+    const stripState = async () => page.evaluate(() => {
+      const strip = document.querySelector('[data-album-chrome="bottom"] .scroll-x');
+      const sr = strip.getBoundingClientRect();
+      const thumbs = [...strip.querySelectorAll("[data-thumb-index]")].map((el) => {
+        const r = el.getBoundingClientRect();
+        const img = el.querySelector("img");
+        return {
+          i: Number(el.getAttribute("data-thumb-index")),
+          inView: r.right > sr.left && r.left < sr.right,
+          hasImg: !!img,
+          loaded: !!img && img.complete && img.naturalWidth > 0,
+          err: !!el.querySelector(".ios-image-error"),
+        };
+      });
+      return { imgCount: thumbs.filter((t) => t.hasImg).length, thumbs };
+    });
+    try {
+      await page.goto(`${ui}/tests/gallery-viewer.html?n=126`);
+      await page.locator('[data-ui="album-viewer-stage"]').waitFor({ state: "visible" });
+      await page.waitForTimeout(1500);
+      const s1 = await stripState();
+      result.initialImgCount = s1.imgCount;
+      assert(s1.imgCount >= 5 && s1.imgCount <= 40,
+        `${name}: mounted thumbnail <img> count ${s1.imgCount} must be a bounded window (5..40), not all 126`);
+      assert(![...requested].some((i) => i >= 115),
+        `${name}: far thumbnails (>=115) must not be requested before the strip scrolls there`);
+      // 可视缩略图须真实出图（轮询等图源 200ms 延迟落座）
+      await page.waitForFunction(() => {
+        const strip = document.querySelector('[data-album-chrome="bottom"] .scroll-x');
+        const sr = strip.getBoundingClientRect();
+        const vis = [...strip.querySelectorAll("[data-thumb-index]")].filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.right > sr.left && r.left < sr.right;
+        });
+        return vis.length >= 5 && vis.every((el) => {
+          const img = el.querySelector("img");
+          return img && img.complete && img.naturalWidth > 0 && !el.querySelector(".ios-image-error");
+        });
+      }, null, { timeout: 8000 });
+      // 条滚到尾：尾部缩略图此时才挂图并出图
+      await page.evaluate(() => {
+        const strip = document.querySelector('[data-album-chrome="bottom"] .scroll-x');
+        strip.scrollLeft = strip.scrollWidth;
+        strip.dispatchEvent(new Event("scroll", { bubbles: true }));
+      });
+      await page.waitForFunction(() => {
+        const el = document.querySelector('[data-thumb-index="125"]');
+        const img = el?.querySelector("img");
+        return !!img && img.complete && img.naturalWidth > 0 && !el.querySelector(".ios-image-error");
+      }, null, { timeout: 8000 });
+      assert(requested.has(125), `${name}: last thumbnail must be requested after scrolling to the end`);
+      const s2 = await stripState();
+      result.afterScrollImgCount = s2.imgCount;
+      assert(s2.imgCount <= 60, `${name}: mounted thumbnail <img> count after scroll ${s2.imgCount} must stay bounded (<=60)`);
+      result.status = "passed";
+      console.log(`PASS ${name}`);
+    } catch (error) {
+      result.status = "failed"; result.error = error.message;
+      console.error(`FAIL ${name}: ${error.message}`);
+      await page.screenshot({ path: join(output, `${name.replace(/[^\w-]+/g, "_")}.png`) }).catch(() => {});
+    } finally {
+      await context.close();
+      await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+    }
+  }
+
   await runGalleryCase([393, 852]);
   await runGalleryCase([360, 780]);
   await runGalleryStripCase();
   await runGalleryFastSwipeCase();
+  await runGallerySafeAreaCase();
+  await runGalleryStripLoadCase();
   if (process.env.LAYOUT_ONLY === "gallery") {
     console.log("LAYOUT_ONLY=gallery: player cases skipped");
   } else {
