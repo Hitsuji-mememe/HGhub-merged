@@ -117,7 +117,7 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/gallery/", detailPath: "/gallery/{id}/" } },
     baseUrls: ["https://www.pornpics.com"],
     enabled: true, order: 41, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用图集模板实例化；未真站实测",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：首页与 /galleries/（重定向回首页）SSR 均无图集锚点（281 锚点全为导航/语言/外链）、内容由前端渲染 → probe；残留：前端数据接口未定位",
   },
   {
     id: "cosplaytele", displayName: "CosplayTele", kind: "image", category: "image",
