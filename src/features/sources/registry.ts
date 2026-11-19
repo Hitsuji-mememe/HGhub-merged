@@ -1,0 +1,190 @@
+/**
+ * 内置源注册表（Muse 2026-11-19 根治包·多源线 条目2）。
+ * 名单已冻结（正式 16 + 探路 5 + myfans 预览），不许增删。
+ *
+ * 成熟度口径（诚实标注）：
+ * - 黄果 stable：仓内既有 native 通道、现行生产源；
+ * - 其余正式源 probe：适配器已按模板实现并过夹具契约测试，但运行时
+ *   取页通道（仓内无通用取页 Tauri 命令，见 adapters/fetchPage.ts）
+ *   未接入、未做真站实测，不标 stable；
+ * - 探路 5：2026-11-19 探测实测全降级（tools/source-probe/results.md：
+ *   直连无出口、代理出口被 Cloudflare 403 拦截），enabled=false；
+ * - myfans preview：仅预览专区单列，不入正式源。
+ */
+import type { SourceDef } from "./types.ts";
+
+const NO_CAPS = { search: false, episodes: false, hevc: false, comments: false };
+const HLS_CAPS = { search: true, episodes: false, hevc: false, comments: false };
+const PROBE_NET = { mode: "probe-required" } as const;
+
+export const BUILTIN_SOURCES: SourceDef[] = [
+  {
+    id: "huangguo", displayName: "黄果", kind: "mixed", category: "posts",
+    adapter: { template: "native-huangguo" },
+    baseUrls: ["https://huangguoai.com"],
+    enabled: true, order: 10, maturity: "stable",
+    capabilities: { search: true, episodes: true, hevc: true, comments: true },
+    network: { mode: "native" },
+    note: "现行生产源：帖子板块 remen-chigua + 视频线路 /api，包既有 api 调用不重写",
+  },
+  {
+    id: "rouvideo", displayName: "肉视频", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
+    baseUrls: ["https://rou.video"],
+    enabled: true, order: 20, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+  },
+  {
+    id: "91video", displayName: "91视频", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/view_video.php", detailPath: "/view_video.php?viewkey={id}" } },
+    baseUrls: ["https://91porn.com"],
+    enabled: true, order: 21, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+  },
+  {
+    id: "pornhub", displayName: "Pornhub", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/video?page={page}", itemLinkPattern: "/view_video.php", detailPath: "/view_video.php?viewkey={id}" } },
+    baseUrls: ["https://www.pornhub.com"],
+    enabled: true, order: 22, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+  },
+  {
+    id: "xvideos", displayName: "XVideos", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/?k=&p={page}", itemLinkPattern: "/video", detailPath: "/video{id}" } },
+    baseUrls: ["https://www.xvideos.com"],
+    enabled: true, order: 23, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+  },
+  {
+    id: "hanime-tv", displayName: "Hanime.tv", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/browse?page={page}", itemLinkPattern: "/videos/hentai/", detailPath: "/videos/hentai/{id}" } },
+    baseUrls: ["https://hanime.tv"],
+    enabled: true, order: 24, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+  },
+  {
+    id: "swag", displayName: "SWAG", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
+    baseUrls: ["https://swag.live"],
+    enabled: true, order: 25, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+  },
+  {
+    id: "fyptt", displayName: "Fyptt", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
+    baseUrls: ["https://fyptt.to"],
+    enabled: true, order: 26, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+  },
+  {
+    id: "redgifs", displayName: "RedGifs", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/watch/", detailPath: "/watch/{id}" } },
+    baseUrls: ["https://www.redgifs.com"],
+    enabled: true, order: 27, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测（官方 API 亦可达时改走 API）",
+  },
+  {
+    id: "rule34video", displayName: "Rule34Video", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/latest-updates/{page}/", itemLinkPattern: "/video/", detailPath: "/video/{id}/" } },
+    baseUrls: ["https://rule34video.com"],
+    enabled: true, order: 28, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+  },
+  {
+    id: "51chigua", displayName: "51吃瓜网", kind: "post", category: "posts",
+    adapter: { template: "chigua", params: { listPath: "/?page={page}", itemLinkPattern: "/archives/", detailPath: "/archives/{id}" } },
+    baseUrls: ["https://51chigua.com"],
+    enabled: true, order: 30, maturity: "probe",
+    capabilities: NO_CAPS, network: PROBE_NET, note: "吃瓜模板实例化；未真站实测",
+  },
+  {
+    id: "meiridasai", displayName: "每日大赛", kind: "post", category: "posts",
+    adapter: { template: "chigua", params: { listPath: "/?page={page}", itemLinkPattern: "/archives/", detailPath: "/archives/{id}" } },
+    baseUrls: ["https://meiridasai.com"],
+    enabled: true, order: 31, maturity: "probe",
+    capabilities: NO_CAPS, network: PROBE_NET, note: "吃瓜模板实例化；未真站实测",
+  },
+  {
+    id: "xiuren", displayName: "秀人网", kind: "image", category: "image",
+    adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
+    baseUrls: ["https://xiuren.com"],
+    enabled: true, order: 40, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    network: PROBE_NET, note: "WP REST 模板实例化；未真站实测",
+  },
+  {
+    id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
+    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/gallery/", detailPath: "/gallery/{id}/" } },
+    baseUrls: ["https://www.pornpics.com"],
+    enabled: true, order: 41, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用图集模板实例化；未真站实测",
+  },
+  {
+    id: "cosplaytele", displayName: "CosplayTele", kind: "image", category: "image",
+    adapter: { template: "hls-site", params: { listPath: "/page/{page}/", itemLinkPattern: "/cosplay/", detailPath: "/cosplay/{id}/" } },
+    baseUrls: ["https://cosplaytele.com"],
+    enabled: true, order: 42, maturity: "probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用图集模板实例化；未真站实测",
+  },
+  {
+    id: "danbooru", displayName: "Danbooru", kind: "image", category: "image",
+    adapter: { template: "danbooru-api", params: { listPath: "/posts.json" } },
+    baseUrls: ["https://danbooru.donmai.us"],
+    enabled: true, order: 43, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    network: PROBE_NET, note: "公开 API 实例化；未真站实测",
+  },
+  /* ── 探路 5：2026-11-19 探测全降级，enabled=false、不写适配器 ── */
+  {
+    id: "jabletv", displayName: "JableTV", kind: "video", category: "video",
+    adapter: { template: "none" }, baseUrls: ["https://jable.tv"],
+    enabled: false, order: 50, maturity: "probe", capabilities: NO_CAPS, network: PROBE_NET,
+    note: "探路降级：代理出口 Cloudflare 403 challenge（tools/source-probe/results.md）",
+  },
+  {
+    id: "missav", displayName: "MissAV", kind: "video", category: "video",
+    adapter: { template: "none" }, baseUrls: ["https://missav.ws"],
+    enabled: false, order: 51, maturity: "probe", capabilities: NO_CAPS, network: PROBE_NET,
+    note: "探路降级：代理出口 Cloudflare 403 / 连接中断（tools/source-probe/results.md）",
+  },
+  {
+    id: "tikporn", displayName: "Tik.porn", kind: "video", category: "video",
+    adapter: { template: "none" }, baseUrls: ["https://tik.porn"],
+    enabled: false, order: 52, maturity: "probe", capabilities: NO_CAPS, network: PROBE_NET,
+    note: "探路降级：代理出口 Cloudflare 403 Attention Required（tools/source-probe/results.md）",
+  },
+  {
+    id: "hanime1", displayName: "Hanime1", kind: "video", category: "video",
+    adapter: { template: "none", params: {} }, baseUrls: ["https://hanime1.me"],
+    enabled: false, order: 53, maturity: "probe", capabilities: NO_CAPS,
+    network: { mode: "probe-required", needsNonJpExit: true },
+    note: "探路降级：封日本 IP 之外，代理（非日本）出口同样被 Cloudflare 403 拦截（tools/source-probe/results.md）",
+  },
+  {
+    id: "iwara", displayName: "Iwara", kind: "video", category: "video",
+    adapter: { template: "none" }, baseUrls: ["https://www.iwara.tv"],
+    enabled: false, order: 54, maturity: "probe", capabilities: NO_CAPS, network: PROBE_NET,
+    note: "探路降级：代理出口 Cloudflare 403 / 传输中断（tools/source-probe/results.md）",
+  },
+  /* ── 预览专区（单列，不入正式源） ── */
+  {
+    id: "myfans", displayName: "myfans（仅预览）", kind: "mixed", category: "preview",
+    adapter: { template: "preview-only" },
+    baseUrls: ["https://myfans.jp"],
+    enabled: true, order: 90, maturity: "preview",
+    capabilities: NO_CAPS, network: PROBE_NET,
+    note: "仅公开预览、完整内容回原站付费；条目一律标注「仅预览」",
+  },
+];
+
+export function getBuiltinRegistry(): SourceDef[] {
+  return [...BUILTIN_SOURCES].sort((a, b) => a.order - b.order);
+}
+
+export function sourcesForCategory(category: SourceDef["category"], list: SourceDef[] = getBuiltinRegistry()): SourceDef[] {
+  return list.filter((s) => s.category === category && s.enabled);
+}
+
+export function firstEnabledSource(category: SourceDef["category"], list?: SourceDef[]): SourceDef | null {
+  return sourcesForCategory(category, list)[0] ?? null;
+}
