@@ -50,9 +50,29 @@ export const SR_ENGINE_VERSION = 1;
 /* 会话级闩锁：WebGPU 引擎死过一次，本会话所有播放面都不再试。 */
 let webgpuSessionDead = false;
 
+/* 死亡订阅（整改 B17-3）：旧实现只有触发死亡的那个实例 setState
+ * 退出，其余已挂载面不知情、继续跑 WebGPU。现死亡经
+ * noteWebgpuSessionDeath 统一置位并通知全部订阅者，各实例自行
+ * 重渲染回落 SuperResCanvas。 */
+const webgpuDeathListeners = new Set<() => void>();
+export function subscribeWebgpuSessionDeath(fn: () => void): () => void {
+  webgpuDeathListeners.add(fn);
+  return () => { webgpuDeathListeners.delete(fn); };
+}
+export function noteWebgpuSessionDeath(): void {
+  if (webgpuSessionDead) return;
+  webgpuSessionDead = true;
+  for (const fn of [...webgpuDeathListeners]) {
+    try { fn(); } catch { /* 订阅者异常不外溢 */ }
+  }
+}
+
 export default function SrCanvas(props: Props) {
   const [probeReady, setProbeReady] = useState(() => getSrProbeResult() !== null);
   const [, setDeadTick] = useState(0);
+
+  /* 任一播放面的引擎死亡 → 全部已挂载面退出 WebGPU（整改 B17-3）。 */
+  useEffect(() => subscribeWebgpuSessionDeath(() => setDeadTick((v) => v + 1)), []);
 
   /* 探针在启动后后台完成：轮询缓存直到有结果（上限 ~40s），
    * 有结果后若门全过，后续挂载的播放面自动走 WebGPU 管线。 */
@@ -93,9 +113,8 @@ export default function SrCanvas(props: Props) {
         onActiveModeChange={props.onActiveModeChange}
         onTrace={props.onTrace}
         onEngineDead={() => {
-          webgpuSessionDead = true;
+          noteWebgpuSessionDeath();
           props.onTrace?.("sr.webgpu_dead", {});
-          setDeadTick((v) => v + 1);
         }}
       />
     );
@@ -106,4 +125,10 @@ export default function SrCanvas(props: Props) {
 /* 供测试/诊断读取的会话闩锁状态。 */
 export function isWebgpuSessionDead(): boolean {
   return webgpuSessionDead;
+}
+
+/** 仅测试夹具用：闩锁是进程级单向状态，夹具需在场景间隔离复位；
+ * 生产路径不调用（与 mediaTransport 的同名口径一致）。 */
+export function resetWebgpuSessionDeathForTests(): void {
+  webgpuSessionDead = false;
 }
