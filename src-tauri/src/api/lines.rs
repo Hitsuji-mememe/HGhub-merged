@@ -212,9 +212,60 @@ pub async fn line_health() -> Result<Value, String> {
 /// VideoSurface 把分片实测聚合 bps（每 5 片中位数节流）经此命令
 /// 写入账本 play EWMA，与主动探测的 probe EWMA 分账。签名与前端
 /// api.lineRecordPlayback(origin, bps) 对齐（bps 为 f64 bit/s）；
-/// 非有限/非正值由账本层丢弃，本命令不因记账失败打断播放。
+/// 非有限/非正值由账本层丢弃，本命令不因记账失败打断播放。origin
+/// 另经 known_playback_origin 校验：不属于已知线路的一律不记账
+/// （整改 A3）。
+/// 吞吐回写记账的已知线路校验（整改 A3，Hark G2 P1-2 附带）：前端
+/// 回写的 origin 未经校验时，本地媒体包装 origin（hg://localhost、
+/// WebKit 的 "null"）与任意媒体主机都会入账、挤占账本 64 个名额且
+/// 永不被排名查到。口径：先经 normalize_base 规整（非纯 HTTPS
+/// origin 直接出局），再要求命中固定线路、发布页可信镜像或当前
+/// base 之一；记账统一用规整值，与排名查账的候选 url 同口径。
+fn known_playback_origin(origin: &str) -> Option<String> {
+    let normalized = crate::net::normalize_base(origin)?;
+    (crate::lines::is_fixed(&normalized)
+        || crate::lines::is_trusted_mirror(&normalized)
+        || normalized == crate::net::base())
+    .then_some(normalized)
+}
+
 #[tauri::command]
 pub async fn line_record_playback(origin: String, bps: f64) -> Result<(), String> {
-    crate::lines::ledger::record_playback(&origin, bps);
+    // 未知 origin 静默不记账（旁路记账不打断播放，口径同命令头注释）。
+    if let Some(known) = known_playback_origin(&origin) {
+        crate::lines::ledger::record_playback(&known, bps);
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::known_playback_origin;
+
+    /* ── 整改 A3（Hark G2 P1-2 附带）：吞吐回写命令侧 origin 校验。
+     * 未知 origin 不入账、已知线路（固定/当前 base）入账。 ── */
+    #[test]
+    fn playback_record_rejects_unknown_origins() {
+        // 本地媒体包装 origin（hg://）与 WebKit 的 "null" origin
+        assert_eq!(known_playback_origin("hg://localhost"), None);
+        assert_eq!(known_playback_origin("null"), None);
+        // 任意媒体主机：是合法 https origin 也不是已知线路
+        assert_eq!(known_playback_origin("https://media.example"), None);
+        assert_eq!(known_playback_origin("https://cdn.example:8443"), None);
+    }
+
+    #[test]
+    fn playback_record_accepts_known_lines() {
+        assert_eq!(
+            known_playback_origin("https://huangguoai.com").as_deref(),
+            Some("https://huangguoai.com"),
+            "固定线路应放行"
+        );
+        // 写法不规整的同一线路：先规整再比对（大小写/默认端口/尾斜杠）
+        assert_eq!(
+            known_playback_origin("https://HUANGGUOAI.COM:443/").as_deref(),
+            Some("https://huangguoai.com"),
+            "规整后命中已知线路应放行并返回规整值"
+        );
+    }
 }
