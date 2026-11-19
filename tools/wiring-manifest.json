@@ -599,6 +599,53 @@
       "min": 2
     },
     {
+      "id": "fix321-f2c-main-consumes-derivation",
+      "item": "3.2.1修复F2c线 main.tsx 白名单推送只消费唯一派生 sourceFetchAllowlistOrigins（import＋调用）",
+      "symbol": "sourceFetchAllowlistOrigins",
+      "files": [
+        "src/main.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f2c-derivation-unions-template-origins",
+      "item": "3.2.1修复F2c线 白名单派生并入模板声明 origin（allowlist.ts import＋派生消费 templateFetchOrigins）",
+      "symbol": "templateFetchOrigins",
+      "files": [
+        "src/features/sources/allowlist.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f2c-template-declaration",
+      "item": "3.2.1修复F2c线 模板取页 origin 声明表 TEMPLATE_FETCH_ORIGINS（定义＋templateFetchOrigins 消费）",
+      "symbol": "TEMPLATE_FETCH_ORIGINS",
+      "files": [
+        "src/features/sources/adapters/fetchOrigins.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f2c-swag-shared-origin",
+      "item": "3.2.1修复F2c线 SWAG API origin 单一常数 SWAG_API_ORIGIN（声明定义＋模板声明表＋适配器回落消费）",
+      "symbol": "SWAG_API_ORIGIN",
+      "files": [
+        "src/features/sources/adapters/fetchOrigins.ts",
+        "src/features/sources/adapters/templates.ts"
+      ],
+      "min": 3
+    },
+    {
+      "id": "fix321-f2c-redgifs-shared-origin",
+      "item": "3.2.1修复F2c线 RedGifs API origin 单一常数 REDGIFS_API_ORIGIN（声明定义＋模板声明表＋适配器回落消费）",
+      "symbol": "REDGIFS_API_ORIGIN",
+      "files": [
+        "src/features/sources/adapters/fetchOrigins.ts",
+        "src/features/sources/adapters/templates.ts"
+      ],
+      "min": 3
+    },
+    {
       "id": "fix321-f3-hold-summary-ledger-source",
       "item": "3.2.1修复F3线：长按松手分组汇总数据源＝事件账本快照（不许改喂播放日志 entries，日志落盘名带 web. 前缀与聚合器精确匹配对不上、恒 0）",
       "symbol": "summarizeHoldEvents(ledgerSnapshot().events)",

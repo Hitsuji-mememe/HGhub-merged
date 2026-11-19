@@ -15,6 +15,7 @@ import { hasAcceptedAgreement } from "./shared/storage/usageAgreement";
 import { setFetchPage } from "./features/sources/adapters/fetchPage";
 import { recordFetchResult } from "./features/sources/adapters/fetchHealth";
 import { FALLBACK_APP_VERSION, getActiveRegistry, getRegistryInfo, resolveRegistry } from "./features/sources/manifest";
+import { sourceFetchAllowlistOrigins } from "./features/sources/allowlist";
 import { getVersion } from "@tauri-apps/api/app";
 import { sourceHealthLines } from "./features/sources/registryDiag";
 import { registerSourceRegistryProvider, registerSourceHealthProvider } from "./shared/diagnostics/sourceRegistry";
@@ -56,18 +57,17 @@ async function bootstrapRegistry(): Promise<void> {
   window.dispatchEvent(new Event("hg:registry-changed"));
 }
 
-/* source_fetch origin 白名单推送（Muse 2026-11-19 整改 D6.2）：注册表
- * 落定（hg:registry-changed）时把 active 表全部 baseUrls 的 origin
- * （URL.origin 规范化 scheme://host:port、默认端口省略）推给 Rust 命令
- * source_allowlist_set；Rust 侧名单未设置时 source_fetch 一律拒绝，
- * 名单内才放行。推送失败不阻塞启动（取页会明确报错、可再触发）。 */
+/* source_fetch origin 白名单推送（Muse 2026-11-19 整改 D6.2；
+ * 2026-11-19 fix321-F2c 改派生出处）：注册表落定（hg:registry-changed）
+ * 时把白名单推给 Rust 命令 source_allowlist_set；名单内容不在此
+ * 内联拼装、只消费 features/sources/allowlist.ts 的唯一派生
+ * sourceFetchAllowlistOrigins（已启用且可取页源的 baseUrls ∪ 模板
+ * 声明 origin——旧内联只拼 baseUrls，远程清单削掉 swag/redgifs 的
+ * API origin 后两源 API 取页被 Rust 拒，验收 D 缺口 G1）。Rust 侧
+ * 名单未设置时 source_fetch 一律拒绝，名单内才放行。推送失败不
+ * 阻塞启动（取页会明确报错、可再触发）。 */
 function pushSourceAllowlist(): void {
-  const origins = [...new Set(
-    getActiveRegistry().sources
-      .flatMap((s) => s.baseUrls)
-      .map((u) => { try { return new URL(u).origin; } catch { return ""; } })
-      .filter((o) => o !== "" && o !== "null"),
-  )];
+  const origins = sourceFetchAllowlistOrigins(getActiveRegistry().sources);
   invoke("source_allowlist_set", { origins }).catch(() => { /* 名单推送失败：source_fetch 将明确拒绝，不静默放行 */ });
 }
 window.addEventListener("hg:registry-changed", pushSourceAllowlist);
