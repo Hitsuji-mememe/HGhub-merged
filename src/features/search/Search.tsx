@@ -12,6 +12,7 @@ import { Empty, Img } from "../../shared/ui/ui";
 import { SearchTags } from "./SearchTags";
 import { IBack, IChevR, IClose, IFilm, IFireF, IPlayF, IRefresh, ISearch, ITrophy } from "../../shared/ui/icons";
 import { withRequestTimeout } from "../../shared/lib/withTimeout";
+import { registerOverlayBack } from "../../shared/lib/back";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 
 /* 资料库作用域（账号体系拆除后恒定）：代次键的前缀成分。 */
@@ -97,6 +98,16 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   const [hgError, setHgError] = useState<string | null>(null);
   const [extDetail, setExtDetail] = useState<ExtDetailState | null>(null);
   const [imgIdx, setImgIdx] = useState(0);
+  /* 嵌套返回语义（fix331/gesture-precedence）：外部详情层虽带
+   * role="dialog"（手势链 inOverlay 只许 back），此前却未登记返
+   * 回消费方——back 在统一返回序里无人接、落穿成切页签/退页。
+   * 打开期间登记本层消费方（与弹层同一机制），back 先关详情回
+   * 搜索结果；登记同时是手势链嵌套资格的事实源。 */
+  const extDetailOpen = extDetail !== null;
+  useEffect(() => {
+    if (!extDetailOpen) return undefined;
+    return registerOverlayBack(() => { setExtDetail(null); return true; });
+  }, [extDetailOpen]);
   const seqRef = useRef(0);
   const moreSentinelRef = useRef<HTMLDivElement>(null);
   const detailCache = useRef(new Map<string, SourceDetail>());

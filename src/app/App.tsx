@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "re
 import { useStore, type Page, type Tab } from "../shared/model/store";
 import { selfTest } from "../shared/api/api";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
-import { runBack, backHeldByStartup } from "../shared/lib/back";
+import { runBack, backHeldByStartup, backConsumerActive } from "../shared/lib/back";
 import { runDetailNext } from "../shared/lib/detailNext";
 import { exitDocumentFullscreen, getFullscreenElement } from "../shared/lib/fullscreen";
 import Home from "../features/feed/Home";
@@ -200,7 +200,14 @@ function AppBody() {
        DialogFrame 的自带判定已删）；
      ⑤详情页左划下一条——仅栈顶 feed 页、起手落在详情信息区
        （data-feed-info-zone）且不在进度条区（data-feed-scrub-zone）
-       时，经 detailNext 通道切下一集/下一条；边缘返回优先于它。 */
+       时，经 detailNext 通道切下一集/下一条；边缘返回优先于它；
+     ⑥嵌套资格（fix331/gesture-precedence，3.3.1 真机首验）：内嵌
+       详情/相册（组件局部状态、不推栈）在 back.ts 登记返回消费
+       方后，起手采样 backConsumerActive 为 nestedBack 资格——与
+       栈页同科（双缘返回、前进链关闭），落点由返回序的 runBack
+       先行消费本层；起手有资格而落点无登记者（竞态）时本次滑
+       动作废、不落穿退栈/切页签。前进链与回上一页签只在页签根
+       （栈空∧无嵌套层）成立。 */
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
@@ -237,7 +244,14 @@ function AppBody() {
         /* 登录弹窗已随账号体系拆除（3.3.0）：loginOpen 恒 false，
          * gestureChain 的字段保留待 UI 线后续收敛（见 account 线报告）。 */
         fs, loginOpen: false, tab, stackDepth: stack.length,
-        topKind: stack[stack.length - 1]?.kind, clientX: t.clientX,
+        topKind: stack[stack.length - 1]?.kind,
+        /* 嵌套返回资格（fix331/gesture-precedence）：内嵌详情/
+         * 相册/面板的返回层登记在 back.ts 消费集合里，起手时采样
+         * 与 runBack 同源的探针——判定（gestureChain 资格）与落点
+         * （onEnd 的 runBack 先行消费）共用同一事实，嵌套面不再
+         * 被只认 App 栈的 topKind 误判为页签根。 */
+        nestedBack: backConsumerActive(),
+        clientX: t.clientX,
         viewportWidth: window.innerWidth,
       });
       start = { x: t.clientX, y: t.clientY, ...c };
@@ -274,6 +288,12 @@ function AppBody() {
         if (runBack()) return;
         if (fs) { setFs(false); return; }
         if (getFullscreenElement()) { void exitDocumentFullscreen().catch(() => {}); return; }
+        /* 嵌套资格护栏（fix331/gesture-precedence）：起手时存在嵌
+         * 套返回层、但落点处 runBack 未消费（登记在手势途中被程
+         * 序化关闭等竞态）——本次滑动的语义对象是那一层，它既已
+         * 不在，就此作废：不许落穿成退宿主页或切页签（3.3.1 真
+         * 机主诉正是此落穿的常态版：详情从未登记、back 恒落穿）。 */
+        if (s.nestedBack) return;
         if (stack.length) {
           const now = Date.now();
           if (now - lastChainPopAt.current >= 300) {

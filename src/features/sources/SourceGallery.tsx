@@ -14,6 +14,7 @@ import { MediaCard } from "../../shared/ui/cards";
 import { Empty } from "../../shared/ui/ui";
 import { IBack, IGrid } from "../../shared/ui/icons";
 import { AlbumViewer } from "./AlbumViewer.tsx";
+import { registerOverlayBack } from "../../shared/lib/back";
 import { createAdapter } from "./adapters/index.ts";
 import type { SourceDef, SourceItem } from "./types.ts";
 
@@ -77,6 +78,17 @@ export default function SourceGallery({ def }: { def: SourceDef }) {
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def.id]);
+
+  /* 嵌套返回语义（fix331/gesture-precedence）：相册查看态活在本
+   * 组件局部状态里（fixed 覆层但无弹层登记）——打开期间向统一
+   * 返回序登记本层消费方，back 先关相册回网格，不再落穿成退整
+   * 个频道页；登记同时是手势链嵌套资格的事实源
+   * （backConsumerActive）。 */
+  const albumOpen = album !== null;
+  useEffect(() => {
+    if (!albumOpen) return undefined;
+    return registerOverlayBack(() => { setAlbum(null); return true; });
+  }, [albumOpen]);
 
   const openAlbum = useCallback(async (item: SourceItem) => {
     const adapter = createAdapter(def);

@@ -30,7 +30,7 @@ import { chainMoveVerticalClaim, classifyChainStart, decideChainSwipe, type Chai
 
 function swipe(ancestors: ChainAncestor[], ctx: Partial<ChainStartContext> & { clientX?: number }, dx: number, dy: number, opts?: { claimed?: boolean }) {
   const full: ChainStartContext = {
-    fs: false, loginOpen: false, tab: "home", stackDepth: 0, topKind: undefined, clientX: 200, viewportWidth: 393, ...ctx,
+    fs: false, loginOpen: false, tab: "home", stackDepth: 0, topKind: undefined, nestedBack: false, clientX: 200, viewportWidth: 393, ...ctx,
   };
   const start: ChainStart = classifyChainStart(ancestors, full);
   if (opts?.claimed) start.scrollClaimed = true;
@@ -181,6 +181,40 @@ assert.deepEqual(
 assert.equal(
   swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 100, 80), null,
   "纵向占优位移（dx=100,dy=80 未过方向门）：链不触发",
+);
+
+/* ── 嵌套组（fix331/gesture-precedence，3.3.1 真机首验）：页签根
+ * 面内嵌详情（分类总览 compact 吃瓜详情为典型：详情在组件局部状态
+ * 里原地替换列表、宿主外层页头与切换器仍在屏、栈深 0）——3.3.1
+ * 时分类器只认 App 栈 topKind，嵌套层不可见，左划落根面前进链、
+ * 右划 back 在 glue 落穿到「回上一页签」，用户实报横滑切去搜索
+ * 页签而非退回列表。定版：嵌套层经 runBack 登记获得返回语义后，
+ * 链的资格判定以 nestedBack（back.ts 消费集合探针，glue 起手时
+ * 采样）与 topKind 同权——嵌套面按栈页同科：双缘返回、前进链
+ * 只在页签根（无栈页∧无嵌套层）成立。── */
+assert.deepEqual(
+  swipe(PLAIN, { tab: "category", stackDepth: 0, nestedBack: true, clientX: 385 }, -120, 5), { type: "back" },
+  "嵌套①分类页签内嵌吃瓜详情右缘左滑：旧实现落根面前进链切去我的页签、新实现返回（落点由 runBack 先关详情层）",
+);
+assert.deepEqual(
+  swipe(PLAIN, { tab: "category", stackDepth: 0, nestedBack: true, clientX: 10 }, 120, 5), { type: "back" },
+  "嵌套②同面左缘右滑：触发 back（旧实现动作同为 back、但详情未登记时 glue 落穿切去搜索页签；登记＋资格同批落地后落点为关详情）",
+);
+assert.equal(
+  swipe(PLAIN, { tab: "category", stackDepth: 0, nestedBack: true, clientX: 200 }, -120, 5), null,
+  "嵌套③同面中部起手左划：不触发（嵌套资格不放松边缘锚，中部横滑仍归面内滚动/内容）",
+);
+assert.equal(
+  swipe(PLAIN, { tab: "category", stackDepth: 0, nestedBack: true, clientX: 200 }, 120, 5), null,
+  "嵌套④同面中部起手右划：不触发（同③，资格变化不产生中部布防）",
+);
+assert.deepEqual(
+  swipe(INFO, { tab: "search", stackDepth: 0, nestedBack: true, clientX: 385 }, -130, 8), { type: "back" },
+  "嵌套⑤搜索页签内嵌详情（信息区祖先形态）右缘左滑：旧实现切去分类页签、新实现返回；detailNext 只认栈顶 feed、嵌套资格不冒领",
+);
+assert.deepEqual(
+  swipe(PLAIN, { tab: "category", stackDepth: 0, nestedBack: false, clientX: 385 }, -120, 5), { type: "tab", tab: "profile" },
+  "嵌套⑥同面无嵌套层（真页签根）：前进链照旧成立——资格探针未置位时根面行为逐字不变，防误伤正例",
 );
 
 /* ── 过程方向锁谓词（glue 的 touchmove 采样口径） ── */
