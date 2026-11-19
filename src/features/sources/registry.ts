@@ -108,9 +108,9 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     id: "xiuren", displayName: "秀人网", kind: "image", category: "image",
     adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
     baseUrls: ["https://xiuren.com"],
-    enabled: true, order: 40, maturity: "probe",
+    enabled: false, order: 40, maturity: "blocked",
     capabilities: { search: true, episodes: false, hevc: false, comments: false },
-    network: PROBE_NET, note: "WP REST 模板实例化；未真站实测",
+    network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：xiuren.com 首页与 /wp-json/wp/v2/posts 均连接失败（HTTP status 0、本机非中国出口不可达、疑地域限制）；WP REST 模板保留、换可达出口复测可改判",
   },
   {
     id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
