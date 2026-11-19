@@ -238,42 +238,6 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
           <div className="flex justify-center py-12"><Loader className="w-8 h-8 spinner" /></div>
         ) : (
           <>
-            <div data-post-media className="relative w-full bg-black mx-auto" style={{ height: isMobile ? "min(48vh, 420px)" : "min(60vh, 640px)" }}>
-              {play && src ? (
-                <Player src={src} scopeKey={id} poster={cover(currentPost.cover)} autoPlay active={active && !tagMenu && !commentsOpen} controls muted={muted} volume={volume}
-                  onToggleMute={() => setMuted((m) => !m)} diagnosticContext={{ video_id: id, active: active && !tagMenu && !commentsOpen }} className="w-full h-full"
-                  onEnded={() => {
-                    /* 多段吃瓜视频：播完自动接下一段；末段保留播放器以便回拖或重看 */
-                    if (seg < segs.length - 1) setSeg(seg + 1);
-                  }} />
-              ) : src ? (
-                <Button aria-label="播放视频" onClick={() => setPlay(true)} className="absolute inset-0">
-                  <Img src={currentPost.cover} eager />
-                    <span className="absolute inset-0 flex items-center justify-center">
-                      <span className="w-14 h-14 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center elev-2">
-                        <IPlayF size={24} className="text-white ml-0.5" />
-                      </span>
-                    </span>
-                </Button>
-              ) : (
-                <div className="absolute inset-0"><Img src={currentPost.cover} eager /></div>
-              )}
-              {resolving && !src && <div className="absolute inset-0 flex items-center justify-center gap-3 pointer-events-none bg-black/40 text-white"><Loader label="正在解析视频" /><span>正在解析视频…</span></div>}
-            </div>
-            {mediaError && !src && <div role="alert" className="flex flex-wrap items-center justify-center gap-3 px-4 py-3 text-[13px] text-danger"><span>{mediaError}</span><Button disabled={resolving} onClick={() => setMediaRetry(n => n + 1)} className="text-primary">重新解析</Button></div>}
-              {segs.length > 1 && (
-                <div role="group" aria-label="视频分段" className="flex items-center gap-2 px-4 py-3 overflow-x-auto">
-                  {segs.map((_, i) => (
-                    <Button aria-label={`第 ${i + 1} 段`} aria-pressed={i === seg} key={i} onClick={() => { setSeg(i); setPlay(true); }}
-                      className="shrink-0 min-h-11 px-3 rounded-full text-[13px] font-semibold pressable"
-                      style={i === seg
-                        ? { background: "var(--p-primary)", color: "var(--p-on-primary)" }
-                        : { background: "var(--p-s3)", color: "var(--p-on)" }}>
-                      {i + 1}
-                    </Button>
-                  ))}
-                </div>
-              )}
             <div className="px-4 pt-3.5 mx-auto max-w-[800px] select-text">
               <h1 className="text-[17px] font-bold text-on leading-snug">{currentPost.title}</h1>
               <div className="flex items-center gap-2 mt-2 text-[12px] text-mut">
@@ -326,6 +290,47 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
                   : <Surface className="mt-3.5 rounded-(--r-md) bg-s2 p-3.5 text-[14px] leading-relaxed text-on/80 whitespace-pre-wrap">{currentPost.content}</Surface>
               )}
             </div>
+            {/* 先文后视频（Muse 2026-11-19 最终版D2线，用户实报）：标题/标签/介绍在前，
+                播放器移到介绍之后；仍是点了才播——play 态与分段解析逻辑不变、不自动装载。
+                封面圆罩修复同批：播放 Button 加 rounded-none，断掉 .ios-button 胶囊圆角
+                (999px) 经 .ios-image{border-radius:inherit} 继承裁切封面的链。 */}
+            <div data-post-media className="relative w-full bg-black mx-auto mt-5" style={{ height: isMobile ? "min(48vh, 420px)" : "min(60vh, 640px)" }}>
+              {play && src ? (
+                <Player src={src} scopeKey={id} poster={cover(currentPost.cover)} autoPlay active={active && !tagMenu && !commentsOpen} controls muted={muted} volume={volume}
+                  onToggleMute={() => setMuted((m) => !m)} diagnosticContext={{ video_id: id, active: active && !tagMenu && !commentsOpen }} className="w-full h-full"
+                  onEnded={() => {
+                    /* 多段吃瓜视频：播完自动接下一段；末段保留播放器以便回拖或重看 */
+                    if (seg < segs.length - 1) setSeg(seg + 1);
+                  }} />
+              ) : src ? (
+                <Button aria-label="播放视频" onClick={() => setPlay(true)} className="absolute inset-0 rounded-none">
+                  <Img src={currentPost.cover} eager />
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <span className="w-14 h-14 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center elev-2">
+                        <IPlayF size={24} className="text-white ml-0.5" />
+                      </span>
+                    </span>
+                </Button>
+              ) : (
+                <div className="absolute inset-0"><Img src={currentPost.cover} eager /></div>
+              )}
+              {resolving && !src && <div className="absolute inset-0 flex items-center justify-center gap-3 pointer-events-none bg-black/40 text-white"><Loader label="正在解析视频" /><span>正在解析视频…</span></div>}
+            </div>
+            {mediaError && !src && <div role="alert" className="flex flex-wrap items-center justify-center gap-3 px-4 py-3 text-[13px] text-danger"><span>{mediaError}</span><Button disabled={resolving} onClick={() => setMediaRetry(n => n + 1)} className="text-primary">重新解析</Button></div>}
+              {segs.length > 1 && (
+                <div role="group" aria-label="视频分段" className="flex items-center gap-2 px-4 py-3 overflow-x-auto">
+                  {segs.map((_, i) => (
+                    <Button aria-label={`第 ${i + 1} 段`} aria-pressed={i === seg} key={i} onClick={() => { setSeg(i); setPlay(true); }}
+                      className="shrink-0 min-h-11 px-3 rounded-full text-[13px] font-semibold pressable"
+                      style={i === seg
+                        ? { background: "var(--p-primary)", color: "var(--p-on-primary)" }
+                        : { background: "var(--p-s3)", color: "var(--p-on)" }}>
+                      {i + 1}
+                    </Button>
+                  ))}
+                </div>
+              )}
+
           </>
         )}
       </div>

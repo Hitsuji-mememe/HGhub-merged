@@ -390,6 +390,24 @@
       ],
       "symbol": "sourcesForCategory(\"image\"",
       "min": 1
+    },
+    {
+      "id": "fin-d2-post-media-hook",
+      "item": "最终版D2线 吃瓜详情播放器区钩子 data-post-media（顺序/圆角回归脚本锚点）",
+      "files": [
+        "src/features/posts/Posts.tsx"
+      ],
+      "symbol": "data-post-media",
+      "min": 1
+    },
+    {
+      "id": "fin-d2-cover-radius-fix",
+      "item": "最终版D2线 封面圆罩修复：播放 Button rounded-none 断胶囊圆角继承链",
+      "files": [
+        "src/features/posts/Posts.tsx"
+      ],
+      "symbol": "inset-0 rounded-none",
+      "min": 1
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",

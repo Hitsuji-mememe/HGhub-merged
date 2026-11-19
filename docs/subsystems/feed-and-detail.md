@@ -151,6 +151,16 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   矩阵守门：横屏用例走手动进/退全屏验出口（返回）可达，竖屏用例走
   呈现态流程（独立退出钮负断言 + 同套几何探针）。
 
+- 吃瓜详情排版（最终版 D2 线，2026-11-19，用户实报）：`PostDetail`
+  先文后视频——标题/元信息/标签/动作行/介绍正文在前，播放器区
+  （`data-post-media`）移到正文之后；仍是点了才播（分段只解析备好、
+  海报点击才 `setPlay`，排版调整不改变装载时机）。播放封面 Button
+  必须带 `rounded-none`：`.ios-button` 全局胶囊圆角（999px）会被
+  `.ios-image{border-radius:inherit}` 继承并经 `overflow:hidden`
+  把封面裁成大椭圆（黑边圆罩，用户实报 bug）；回归脚本
+  `scripts/test-post-detail.mjs`（夹具 `tests/post-detail`）断言
+  DOM 顺序、未点击零视频装载、封面框计算圆角 0px。
+
 ## 验证命令
 
 ```sh
