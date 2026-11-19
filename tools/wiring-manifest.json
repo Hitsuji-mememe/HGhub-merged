@@ -336,6 +336,42 @@
         "src-tauri/src/lines/ledger.rs"
       ],
       "min": 2
+    },
+    {
+      "id": "fin-b-native-pause-writeback",
+      "item": "最终版B线 P1-02：原生暂停意愿写回（pause 事件监听，source=native_controls）",
+      "files": [
+        "src/features/playback/usePlaybackActivity.ts"
+      ],
+      "symbol": "native_controls",
+      "min": 1
+    },
+    {
+      "id": "fin-b-hold-release-profile",
+      "item": "最终版B线任务3：松手剖面事件 hold.release_profile（holdJank 剖面器）",
+      "files": [
+        "src/features/feed/holdJank.ts"
+      ],
+      "symbol": "hold.release_profile",
+      "min": 1
+    },
+    {
+      "id": "fin-b-release-profiler-feed",
+      "item": "最终版B线任务3：Feed 接松手剖面器（ratechange 零点＋rVFC 首帧）",
+      "files": [
+        "src/features/feed/Feed.tsx"
+      ],
+      "symbol": "createHoldReleaseProfiler",
+      "min": 1
+    },
+    {
+      "id": "fin-b-sr-release-marks",
+      "item": "最终版B线任务3：WebGPU SR 画布上报剖面 SR 段时刻＋松手首帧让行",
+      "files": [
+        "src/features/playback/WebGpuSrCanvas.tsx"
+      ],
+      "symbol": "noteHoldSrPresent",
+      "min": 1
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",

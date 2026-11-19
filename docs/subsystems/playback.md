@@ -73,7 +73,16 @@
 - 页面失活：`active=false` → 暂停 + `stopLoad()`；被标签门/教程覆盖也走同一条
   active 边界，不启动后台恢复。
 - 页面恢复：只有 `wanted=true` 才恢复；原生控件造成的暂停也要被记住，不能凭
-  “之前自动播放过”强行继续。
+  “之前自动播放过”强行继续。原生暂停的写回由活动层 pause 事件监听承担
+  （最终版 B 线 P1-02）：我方 pause 先计数、监听按数消费，未被消费的
+  pause 事件（PiP/系统控件/iOS 原生全屏）一律写回 wanted=false＋
+  pauseKind=user（trace `pause.request` source=native_controls）；换源
+  拆除型暂停（currentSrc 空/readyState=0）不表态。回归见
+  playback-engines FIN-B1 组。
+- 松手剖面（最终版 B 线）：ratechange 退出 ≥2x 域起，Feed 剖面器
+  （holdJank.createHoldReleaseProfiler）收齐首帧呈现与 SR 重接管
+  时刻后落 `hold.release_profile` 分段耗时；WebGPU 画布松手首帧
+  让行一帧 SR 处理（releaseSkip），效果以真机剖面判读为准。
 - seek：preview → commit → `seeking` → `seeked`/`playing`；拖动取消、
   页面失活或换源不会提交旧目标。
 - 控件闲置隐藏（`src/features/feed/fsIdle.ts`）：桌面 2.8s（键盘聚焦控件时不隐藏）；

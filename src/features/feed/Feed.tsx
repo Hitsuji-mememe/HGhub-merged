@@ -32,7 +32,7 @@ import { isScopeOnlyChange, usePlayUrlCache } from "./usePlayUrlCache";
 import { useFsKeepAlive } from "./useFsKeepAlive";
 import { capStringRecordByFifo } from "./cacheMap";
 import { holdState } from "./holdState";
-import { createHoldJankSampler } from "./holdJank";
+import { createHoldJankSampler, createHoldReleaseProfiler, setActiveHoldReleaseProfiler } from "./holdJank";
 import { HoldBadge } from "./HoldBadge";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText,
@@ -175,6 +175,51 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     jankSamplerRef.current = createHoldJankSampler((event, data) => videoRef.current?.trace(event, data));
   }
   const startHoldJank = () => jankSamplerRef.current?.start();
+  /* 松手剖面（最终版 B 线任务 3，实现在 holdJank.ts）：ratechange
+   * 退出 ≥2x 域即松手零点；SR 段时刻由 WebGPU 画布经总线上报、
+   * 首帧呈现走 rVFC。剖面行与 hold.jank 同 trace 通道进诊断账本。 */
+  const releaseProfilerRef = useRef<ReturnType<typeof createHoldReleaseProfiler> | null>(null);
+  if (!releaseProfilerRef.current) {
+    releaseProfilerRef.current = createHoldReleaseProfiler((event, data) => videoRef.current?.trace(event, data));
+  }
+  useEffect(() => {
+    const profiler = releaseProfilerRef.current;
+    if (!profiler || !active) return undefined;
+    setActiveHoldReleaseProfiler(profiler);
+    let el: HTMLVideoElement | null = null;
+    let prevRate = 0;
+    let poll = 0;
+    const onRateChange = () => {
+      if (!el) return;
+      const now = el.playbackRate;
+      if (prevRate >= 2 && now < 2) {
+        profiler.release(performance.now());
+        const vv = el as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number };
+        if (typeof vv.requestVideoFrameCallback === "function") {
+          vv.requestVideoFrameCallback(() => profiler.firstFrame(performance.now()));
+        } else {
+          requestAnimationFrame(() => profiler.firstFrame(performance.now()));
+        }
+      }
+      prevRate = now;
+    };
+    const attach = () => {
+      el = videoRef.current?.el() ?? null;
+      if (!el) return false;
+      prevRate = el.playbackRate;
+      el.addEventListener("ratechange", onRateChange);
+      return true;
+    };
+    if (!attach()) {
+      poll = window.setInterval(() => { if (attach()) window.clearInterval(poll); }, 500);
+    }
+    return () => {
+      window.clearInterval(poll);
+      el?.removeEventListener("ratechange", onRateChange);
+      setActiveHoldReleaseProfiler(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
   const [scrub, setScrub] = useState<{ pct: number; target: number } | null>(null);
   const scrubTarget = useRef<number | null>(null);
   /* scrub 退出不变量：任何退出路径都经此清 scrub+scrubTarget；restorePlay

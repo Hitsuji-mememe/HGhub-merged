@@ -24,6 +24,7 @@ import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, 
 import { isPlaybackPlaying, notePlaybackPlaying } from "../src/shared/diagnostics/playbackFacts";
 import Hls from "hls.js";
 import { wireStallWatchdogSignals } from "../src/features/playback/stallWatchdogWiring";
+import * as holdJankModule from "../src/features/feed/holdJank";
 import { observeFirstRendition } from "../src/features/playback/hlsConfig";
 
 class FakeClock implements StallClock {
@@ -766,6 +767,87 @@ function run() {
     resetNativeFallbackForTests();
   }
 
+  /* ── FB 两臂等价（最终版 B 线任务 2，先证伪）：append 臂与出画臂走
+   * 同一脚本「意愿门拦下 → 挂起不退役 → 意愿恢复 resume → 再卡死判死」，
+   * 结局元组（门内判死数／挂起态／恢复后判死数／总判死数）必须一致；
+   * 任一臂分歧即由此钉住。整改 P1-9 已修 append 臂意愿门，本例为
+   * 两臂同脚本对照（B10/F12 此前是各臂单独测，无同脚本等价断言）。 ── */
+  {
+    const drive = (arm: "append" | "play") => {
+      const clock = new FakeClock();
+      let stalls = 0;
+      let wanted = false;
+      const wd = new AppendStallWatchdog({
+        clock, timeoutMs: 4000,
+        hasBuffered: () => arm === "play",
+        isPlaying: () => false,
+        shouldEscalate: () => wanted,
+        onStall: () => stalls++,
+      });
+      wd.fragLoaded();
+      if (arm === "play") wd.buffered();
+      clock.advance(4000); // 意愿门拦下
+      const gatedStalls = stalls;
+      const suspended = wd.isSuspended;
+      wanted = true;
+      wd.resume(); // 意愿恢复：重新布防
+      clock.advance(3999);
+      const beforeDeadline = stalls;
+      clock.advance(1); // 再卡死 → 必须判死
+      const out = { gatedStalls, suspended, beforeDeadline, afterResume: stalls };
+      wd.dispose();
+      return out;
+    };
+    results.fb_append_arm = drive("append");
+    results.fb_play_arm = drive("play");
+    results.fb_arms_equivalent = JSON.stringify(results.fb_append_arm) === JSON.stringify(results.fb_play_arm);
+  }
+
+  /* ── HP 松手剖面（最终版 B 线任务 3）：createHoldReleaseProfiler 以
+   * 注入时刻模拟 SR 接管时序——release→srAttempt→firstFrame→srPresent
+   * 四点齐后立即落一行 hold.release_profile，分段 ms 必须与注入差值
+   * 一致；无 SR 场景尾窗 flush 后落行且 SR 段为 null；无任何帧标记的
+   * release 不落行（不制造噪声）。旧 holdJank 无此导出 → missing 先红。 ── */
+  {
+    const mk = () => {
+      const lines: { event: string; data?: Record<string, unknown> }[] = [];
+      const timers: { fn: () => void }[] = [];
+      const create = (holdJankModule as Record<string, unknown>).createHoldReleaseProfiler as
+        | ((trace: (e: string, d?: Record<string, unknown>) => void, opts: { setTimeoutFn: (fn: () => void) => void }) => {
+          release: (t: number) => void; srAttempt: (t: number) => void; srPresent: (t: number) => void; firstFrame: (t: number) => void;
+        })
+        | undefined;
+      if (!create) return { lines, profiler: null, flushTimers: () => {} };
+      const profiler = create((event, data) => lines.push({ event, data }), {
+        setTimeoutFn: (fn) => { timers.push({ fn }); },
+      });
+      return { lines, profiler, flushTimers: () => { for (const t of timers.splice(0)) t.fn(); } };
+    };
+    const a = mk();
+    results.hp_profiler_exists = !!a.profiler;
+    if (a.profiler) {
+      a.profiler.release(1000);
+      a.profiler.srAttempt(1012);
+      a.profiler.firstFrame(1033);
+      results.hp_no_emit_before_sr_present = a.lines.length;
+      a.profiler.srPresent(1040);
+      results.hp_emit_count = a.lines.length;
+      results.hp_event = a.lines[0]?.event ?? null;
+      results.hp_segments = a.lines[0]?.data ?? null;
+      const b = mk();
+      b.profiler!.release(2000);
+      b.profiler!.firstFrame(2016);
+      results.hp_nosr_no_emit_before_tail = b.lines.length;
+      b.flushTimers();
+      results.hp_nosr_emit_count = b.lines.length;
+      results.hp_nosr_segments = b.lines[0]?.data ?? null;
+      const c = mk();
+      c.profiler!.release(3000);
+      c.flushTimers();
+      results.hp_silent_release_dropped = c.lines.length;
+    }
+  }
+
   return results;
 }
 
@@ -940,6 +1022,127 @@ import * as stallHealModule from "../src/features/feed/stallHeal";
     while (Date.now() - t0 < 6000 && !seen.includes(true)) await sleep(100);
     Object.assign(window, { __srTakeover: { waitingBeforeProbe, sawEngaged: seen.includes(true), seen: [...seen] } });
     root.unmount();
+  })();
+}
+
+/* ── FIN-B1 原生暂停意愿写回（最终版 B 线任务 1，GPT P1-02）：真实
+ * usePlaybackActivity hook + 真实 <video>（夹具 mp4）。正向：起播后
+ * 绕过 activity 直接 video.pause()（模拟 PiP/系统控件原生暂停；能进
+ * PiP 时在 PiP 内做）→ isPlayWanted 必须 false、pauseState 必须
+ * paused_by_user、automatic play 必须被意愿门拦住不自动播。对照：
+ * 页面挂起（active=false）语义不变（wanted 保留、paused_by_system、
+ * 回页续播）；activity.pause("proxy_restore") 仍为 paused_by_system；
+ * activity.pause("toggle") 仍为 paused_by_user。旧实现无原生 pause
+ * 监听：原生暂停后 wanted 恒 true、pauseState 恒 paused_by_system，
+ * 正向组必红。 ── */
+import { usePlaybackActivity } from "../src/features/playback/usePlaybackActivity";
+{
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  const waitFor = async (fn: () => boolean, ms = 3000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) { if (fn()) return true; await sleep(50); }
+    return fn();
+  };
+  void (async () => {
+    const out: Record<string, unknown> = {};
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    /* 夹具 mp4 仅 1s：不 loop 会在用例中途 ended 抢发 pause 事件、
+     * 污染原生暂停的判别时序（runner 环境实测）。 */
+    video.loop = true;
+    video.src = "/tests/fixtures-media/master320.mp4";
+    document.body.appendChild(video);
+    const videoRef = { current: video as HTMLVideoElement | null };
+    const hlsRef = { current: null };
+    let api: ReturnType<typeof usePlaybackActivity> | null = null;
+    const traces: string[] = [];
+    function Probe({ active, k }: { active: boolean; k: number }) {
+      void k;
+      api = usePlaybackActivity(videoRef, hlsRef, { active, autoPlay: false, src: "finb", trace: (e, d) => traces.push(d?.source ? `${e}:${String(d.source)}` : d && "ready_state" in d ? `${e}|src=${String(d.current_src)}|rs=${String(d.ready_state)}|w=${String(d.wanted)}` : e) });
+      return null;
+    }
+    let root: ReturnType<typeof createRoot> | null = null;
+    const mount = async (active: boolean, k: number) => {
+      if (!root) {
+        const host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+      }
+      root.render(<Probe active={active} k={k} />);
+      await waitFor(() => api !== null, 2000);
+      await sleep(30);
+    };
+    const unmount = async () => {
+      root?.unmount();
+      root = null;
+      api = null;
+      await sleep(60);
+    };
+    try {
+      /* 正向：原生暂停写回 */
+      await mount(true, 1);
+      api!.play("toggle");
+      out.native_started = await waitFor(() => !video.paused && video.readyState >= 2);
+      let pip = false;
+      try {
+        await (video as HTMLVideoElement & { requestPictureInPicture?: () => Promise<unknown> }).requestPictureInPicture?.();
+        pip = document.pictureInPictureElement === video;
+      } catch { pip = false; }
+      out.native_pip_entered = pip;
+      video.pause(); // 原生控件暂停：不经 activity.pause
+      /* pause 事件是排队任务，整页夹具主线程竞争下固定等待不可靠：
+       * 等写回落定（上限 2s）再取三态快照。 */
+      await waitFor(() => api!.isPlayWanted() === false, 2000);
+      await sleep(100);
+      out.native_wanted = api!.isPlayWanted();
+      out.native_state = api!.pauseState();
+      out.native_traces = [...traces];
+      api!.play("retry_auto", true); // 自愈式 automatic play：必须被意愿门拦住
+      await sleep(400);
+      out.native_autoplay_blocked = video.paused;
+      if (document.pictureInPictureElement) {
+        try { await document.exitPictureInPicture(); } catch { /* 忽略 */ }
+      }
+      await unmount();
+
+      /* 对照 S：页面挂起/回页 */
+      await mount(true, 2);
+      api!.play("toggle");
+      out.suspend_started = await waitFor(() => !video.paused && video.readyState >= 2);
+      await mount(false, 2);
+      await waitFor(() => video.paused);
+      await sleep(150);
+      out.suspend_wanted = api!.isPlayWanted();
+      out.suspend_state = api!.pauseState();
+      await mount(true, 2);
+      out.suspend_resumed = await waitFor(() => !video.paused);
+      await unmount();
+
+      /* 对照 P：proxy_restore 系统暂停 */
+      await mount(true, 3);
+      api!.play("toggle");
+      await waitFor(() => !video.paused);
+      api!.pause("proxy_restore");
+      await sleep(150);
+      out.proxy_wanted = api!.isPlayWanted();
+      out.proxy_state = api!.pauseState();
+      await unmount();
+
+      /* 对照 U：我方 toggle 暂停 */
+      await mount(true, 4);
+      api!.play("toggle");
+      await waitFor(() => !video.paused);
+      api!.pause("toggle");
+      await sleep(150);
+      out.own_wanted = api!.isPlayWanted();
+      out.own_state = api!.pauseState();
+      await unmount();
+    } catch (e) {
+      out.error = e instanceof Error ? e.message : String(e);
+      try { (root as ReturnType<typeof createRoot> | null)?.unmount(); } catch { /* 忽略 */ }
+    }
+    Object.assign(window, { __finB1: out });
   })();
 }
 
