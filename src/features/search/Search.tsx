@@ -1,16 +1,64 @@
 import { Button, Form, Input, SegmentedControl, Surface } from "../../shared/ui/ios/controls";
 import { Loader } from "../../shared/ui/ios/effects";
-import { useEffect, useRef, useState } from "react";
-import { api, fmt, isMobile } from "../../shared/api/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, cover, fmt, isMobile } from "../../shared/api/api";
 import type { HotSearchVideo, Post, RankItem, VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
-import { MediaCard, Masonry, RankRow } from "../../shared/ui/cards";
+import { MediaCard, RankRow } from "../../shared/ui/cards";
 import { FilteredContent } from "../../shared/ui/FilteredContent";
-import { Empty } from "../../shared/ui/ui";
-import { useSearchResults } from "./useSearchResults";
+import { Empty, Img } from "../../shared/ui/ui";
 import { SearchTags } from "./SearchTags";
-import { IBack, IChevR, IClose, IFireF, IPlayF, IRefresh, ISearch, ITrophy } from "../../shared/ui/icons";
+import { IBack, IChevR, IClose, IFilm, IFireF, IPlayF, IRefresh, ISearch, ITrophy } from "../../shared/ui/icons";
+import { withRequestTimeout } from "../../shared/lib/withTimeout";
+import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
+import { getActiveRegistry } from "../sources/manifest";
+import { createAdapter } from "../sources/adapters/index.ts";
+import { sourceStableId } from "../sources/registryDiag";
+import type { SourceDetail } from "../sources/types";
+import { Player } from "../playback";
+import { fetchHealthSnapshot } from "../sources/adapters/fetchHealth.ts";
+import {
+  GLOBAL_SEARCH_TABS, aggregateHits, fanoutSearch, kindForHuangguoVideo,
+  loadWithFallback, orderCopiesForDisplay, structuralCompletenessOf,
+  type CopyAssessment, type CopyRef, type FanoutHit, type GlobalSearchKind, type MergedHit,
+} from "./multiSourceSearch";
+
+/* 全局搜索（Muse 2026-11-19 最终版 D3 线，用户亲点＋定稿）：
+ * 提交后三路并发——黄果视频（api.search kind=video，按 is_original
+ * 分视频/短剧）、黄果帖子（api.searchPosts）、外部源扇出
+ * （fanoutSearch：active 注册表经 searchPolicyFor 分层纳入、经
+ * createAdapter 调各源 search；单源超时＋每源上限、onPartial 渐进
+ * 呈现先到先显）。全部结果统一成 FanoutHit 后经 aggregateHits
+ * 跨源合并（多信号置信门、索引层合并保留全部副本）＋同类混排
+ * （相关性优先、源等级只作 tiebreak、单源首屏贡献上限），页签
+ * 恒四类（GLOBAL_SEARCH_TABS），永不按源分段。外部单源失败
+ * 静默跳过、只经 tracePlayback 留痕（search.source_fail），不弹窗、
+ * 不整页报错；黄果通道失败保留既有错误行＋重试（其余源结果照常）。
+ * 外部条目点击走 D 线接通口径：视频 resolve→Player、图片 detail→
+ * 图集、帖子 detail→正文，均在本页详情层呈现（外部源无黄果数值
+ * id 路由）；多副本可切换（副本 pills），默认副本按「可用性→
+ * 结构完整度→历史可靠性→分层 tiebreak」选择链定，失败经
+ * loadWithFallback 静默顺延（search.copy_fail 留痕）——自动顺延
+ * 仅限身份已确认的合并条目，身份未确认时只试默认副本、失败后
+ * 由用户手动选副本（手动切换不受身份门限）。 */
+
+type HgState<T> = { keyword: string; items: T[]; page: number; pages: number } | null;
+
+type ExtReady = {
+  merged: MergedHit;
+  ordered: CopyRef[];
+  active: CopyRef;
+  streamUrl?: string;
+  detail?: SourceDetail;
+  images?: string[];
+};
+type ExtDetailState =
+  | { phase: "loading"; merged: MergedHit }
+  | { phase: "ready"; data: ExtReady }
+  | { phase: "error"; merged: MergedHit; message: string };
+
+const copyCacheKey = (c: CopyRef) => `${c.sourceId}:${c.item.externalId}`;
 
 export default function Search({ active, wide }: { active: boolean; wide: boolean }) {
   const { push, searchHist, addSearch, clearSearchHist, lineEpoch, accountScope, setTab: setMainTab } = useStore();
@@ -18,12 +66,18 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
   const [q, setQ] = useState("");
   const [submitted, setSubmitted] = useState("");
-  const [tab, setTab] = useState<"video" | "post">("video");
-  const results = useSearchResults();
-  const { result, request, loading, error: err } = results;
-  const items = result?.kind === "video" ? result.items as VideoCard[] : [];
-  const posts = result?.kind === "post" ? result.items as Post[] : [];
-  const count = result?.items.length ?? 0;
+  const [tab, setTab] = useState<GlobalSearchKind>("video");
+  const [hgVideo, setHgVideo] = useState<HgState<VideoCard>>(null);
+  const [hgPost, setHgPost] = useState<HgState<Post>>(null);
+  const [extHits, setExtHits] = useState<FanoutHit[]>([]);
+  const [hgLoading, setHgLoading] = useState(false);
+  const [moreLoading, setMoreLoading] = useState(false);
+  const [extLoading, setExtLoading] = useState(false);
+  const [hgError, setHgError] = useState<string | null>(null);
+  const [extDetail, setExtDetail] = useState<ExtDetailState | null>(null);
+  const [imgIdx, setImgIdx] = useState(0);
+  const seqRef = useRef(0);
+  const detailCache = useRef(new Map<string, SourceDetail>());
   const inputRef = useRef<HTMLInputElement>(null);
   const [hotVideos, setHotVideos] = useState<HotSearchVideo[]>([]);
   const [hotLoading, setHotLoading] = useState(false);
@@ -82,10 +136,28 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     if (active && (epochChanged || Date.now() - hotLoadedAt.current > 60_000)) void refreshHot(epochChanged);
   }, [active, lineEpoch]);
 
-  const changeTab = (next: "video" | "post") => {
-    if (next === tab) return;
-    setTab(next);
-    if (submitted) results.search(submitted, next, true);
+  /* ── 全局搜索三路（黄果视频/黄果帖子/外部扇出） ── */
+  const runHgVideo = async (keyword: string, page: number, seq: number) => {
+    const res = await withRequestTimeout(api.search(keyword, page, 20, "video"));
+    if (seq !== seqRef.current) return;
+    const incoming = (res?.items ?? []) as VideoCard[];
+    setHgVideo((prev) => {
+      const base = page > 1 && prev?.keyword === keyword ? prev.items : [];
+      const seen = new Set(base.map((x) => x.id));
+      const items = [...base, ...incoming.filter((x) => !seen.has(x.id))];
+      return { keyword, items, page, pages: Math.max(page, res?.pagination?.pages || page) };
+    });
+  };
+  const runHgPost = async (keyword: string, page: number, seq: number) => {
+    const res = await withRequestTimeout(api.searchPosts(keyword, page, 20));
+    if (seq !== seqRef.current) return;
+    const incoming = res?.items ?? [];
+    setHgPost((prev) => {
+      const base = page > 1 && prev?.keyword === keyword ? prev.items : [];
+      const seen = new Set(base.map((x) => x.id));
+      const items = [...base, ...incoming.filter((x) => !seen.has(x.id))];
+      return { keyword, items, page, pages: Math.max(page, res?.pagination?.pages || page) };
+    });
   };
 
   const submit = (keyword: string) => {
@@ -94,10 +166,238 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     setQ(k);
     setSubmitted(k);
     addSearch(k);
-    results.search(k, tab);
+    const seq = ++seqRef.current;
+    setHgError(null);
+    setHgVideo(null);
+    setHgPost(null);
+    setExtHits([]);
+    setExtDetail(null);
+    setHgLoading(true);
+    setExtLoading(true);
+    void (async () => {
+      const settled = await Promise.allSettled([runHgVideo(k, 1, seq), runHgPost(k, 1, seq)]);
+      if (seq !== seqRef.current) return;
+      setHgLoading(false);
+      const failed = settled.find((r) => r.status === "rejected");
+      if (failed && failed.status === "rejected") {
+        setHgError(failed.reason instanceof Error ? failed.reason.message : "搜索失败，请重试");
+      }
+    })();
+    void (async () => {
+      const defs = getActiveRegistry().sources;
+      const out = await fanoutSearch(k, defs, (d) => createAdapter(d), {
+        onFailure: (sourceId) => {
+          const idx = defs.findIndex((s) => s.id === sourceId);
+          tracePlayback("search.source_fail", { source: sourceStableId(idx >= 0 ? idx : 0) });
+        },
+        /* 渐进呈现：先落定的源先显；聚合排序是全序，已显条目相对序不被后到结果打乱。 */
+        onPartial: (hits) => { if (seq === seqRef.current) setExtHits(hits); },
+      });
+      if (seq !== seqRef.current) return;
+      setExtHits(out.hits);
+      setExtLoading(false);
+    })();
+  };
+
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+  const submittedRef = useRef("");
+  submittedRef.current = submitted;
+  const envKey = `${accountScope}:${lineEpoch}`;
+  const prevEnvRef = useRef(envKey);
+  useEffect(() => {
+    if (prevEnvRef.current === envKey) return;
+    prevEnvRef.current = envKey;
+    if (submittedRef.current) submitRef.current(submittedRef.current);
+  }, [envKey]);
+
+  const loadMore = () => {
+    const seq = seqRef.current;
+    if (tab === "video" || tab === "drama") {
+      if (!hgVideo || hgVideo.page >= hgVideo.pages || moreLoading) return;
+      setMoreLoading(true);
+      void runHgVideo(submitted, hgVideo.page + 1, seq)
+        .catch((e) => { if (seq === seqRef.current) setHgError(e instanceof Error ? e.message : "加载更多失败"); })
+        .finally(() => { if (seq === seqRef.current) setMoreLoading(false); });
+    } else if (tab === "post") {
+      if (!hgPost || hgPost.page >= hgPost.pages || moreLoading) return;
+      setMoreLoading(true);
+      void runHgPost(submitted, hgPost.page + 1, seq)
+        .catch((e) => { if (seq === seqRef.current) setHgError(e instanceof Error ? e.message : "加载更多失败"); })
+        .finally(() => { if (seq === seqRef.current) setMoreLoading(false); });
+    }
+  };
+  const hasMore = (tab === "video" || tab === "drama")
+    ? Boolean(hgVideo && hgVideo.page < hgVideo.pages)
+    : tab === "post" ? Boolean(hgPost && hgPost.page < hgPost.pages) : false;
+
+  /* ── 聚合：黄果与外部统一成 FanoutHit 后跨源合并＋混排 ── */
+  const groups = useMemo(() => {
+    const parseTs = (s?: string) => {
+      const t = s ? Date.parse(s) : NaN;
+      return Number.isFinite(t) ? t : undefined;
+    };
+    const nativeHits: FanoutHit[] = [];
+    let seq = 0;
+    for (const v of hgVideo?.items ?? []) {
+      nativeHits.push({
+        sourceId: "huangguo", sourceName: "黄果", kind: kindForHuangguoVideo(v),
+        item: { sourceId: "huangguo", externalId: String(v.id), title: v.title, cover: v.cover, href: "", tags: v.tags ?? [], hot: v.hot },
+        weight: 100, hot: v.hot ?? 0, seq: seq++, publishedAt: parseTs(v.created_at),
+      });
+    }
+    for (const p of hgPost?.items ?? []) {
+      nativeHits.push({
+        sourceId: "huangguo", sourceName: "黄果", kind: "post",
+        item: { sourceId: "huangguo", externalId: String(p.id), title: p.title, cover: p.cover, href: "", tags: p.tags ?? [], hot: p.hot },
+        weight: 100, hot: p.hot ?? 0, seq: seq++, publishedAt: parseTs(p.publish_time ?? p.created_at),
+      });
+    }
+    const ext = extHits.map((h) => ({ ...h, seq: 100_000 + h.seq }));
+    return aggregateHits([...nativeHits, ...ext]);
+  }, [hgVideo, hgPost, extHits]);
+
+  const openNativeCopy = (merged: MergedHit, copy: CopyRef) => {
+    if (merged.kind === "post") {
+      push({ kind: "post", id: Number(copy.item.externalId) });
+      return;
+    }
+    const ids = (hgVideo?.items ?? []).map((x) => x.id);
+    const id = Number(copy.item.externalId);
+    push({ kind: "feed", videoIds: ids, index: Math.max(0, ids.indexOf(id)), title: `搜索 · ${submitted}` });
+  };
+
+  const loadCopy = async (merged: MergedHit, copy: CopyRef): Promise<Omit<ExtReady, "merged" | "ordered" | "active">> => {
+    const def = getActiveRegistry().sources.find((s) => s.id === copy.sourceId);
+    if (!def) throw new Error("源不在注册表");
+    const adapter = createAdapter(def);
+    if (!adapter) throw new Error("该源未注册可用适配器");
+    if (merged.kind === "video" || merged.kind === "drama") {
+      const res = await adapter.resolve(copy.item.externalId);
+      const stream = res.streams[0];
+      if (!stream) throw new Error("该副本未解析到可播放地址");
+      return { streamUrl: stream.url, detail: detailCache.current.get(copyCacheKey(copy)) };
+    }
+    let detail = detailCache.current.get(copyCacheKey(copy));
+    if (!detail) {
+      detail = await adapter.detail(copy.item.externalId);
+      detailCache.current.set(copyCacheKey(copy), detail);
+    }
+    if (merged.kind === "image") {
+      const images = (detail.images?.length ? detail.images : [detail.cover]).filter(Boolean);
+      if (!images.length) throw new Error("该副本未解析到图片");
+      return { detail, images };
+    }
+    return { detail };
+  };
+
+  const traceCopyFail = (sourceId: string) => {
+    const defs = getActiveRegistry().sources;
+    const idx = defs.findIndex((s) => s.id === sourceId);
+    tracePlayback("search.copy_fail", { source: sourceStableId(idx >= 0 ? idx : 0) });
+  };
+
+  const openExternal = async (merged: MergedHit) => {
+    setExtDetail({ phase: "loading", merged });
+    setImgIdx(0);
+    const extCopies = merged.copies.filter((c) => c.sourceId !== "huangguo");
+    /* 多副本时逐副本实测评估（可用性＋结构完整度）＋历史可靠性
+     * （取页健康成功率），按选择链定默认副本与顺延序：可用性 →
+     * 结构完整度 → 历史可靠性 → 分层权重（最后 tiebreak）。
+     * 结构完整度只认图数/文长/有无视频，不判画质。 */
+    const assessments = new Map<string, CopyAssessment>();
+    if (extCopies.length > 1) {
+      const health = fetchHealthSnapshot();
+      await Promise.all(extCopies.map(async (c) => {
+        const def = getActiveRegistry().sources.find((s) => s.id === c.sourceId);
+        const adapter = def ? createAdapter(def) : null;
+        let available: boolean | null = null;
+        let structural: CopyAssessment["structural"] = null;
+        if (adapter) {
+          try {
+            const d = await adapter.detail(c.item.externalId);
+            detailCache.current.set(copyCacheKey(c), d);
+            available = true;
+            structural = structuralCompletenessOf(d);
+          } catch { available = false; }
+        }
+        let reliability: number | null = null;
+        if (def) {
+          let host = "";
+          try { host = new URL(def.baseUrls[0]).host; } catch { host = ""; }
+          const rec = health.find((h) => h.host === host);
+          if (rec && rec.okCount + rec.failCount > 0) reliability = rec.okCount / (rec.okCount + rec.failCount);
+        }
+        assessments.set(c.sourceId, { available, structural, reliability });
+      }));
+    }
+    const ordered = orderCopiesForDisplay(extCopies, assessments);
+    const got = await loadWithFallback(ordered, (copy) => loadCopy(merged, copy), {
+      /* 自动顺延仅限身份已确认的合并条目；未确认时只试默认副本。 */
+      allowAutoSwitch: merged.identityConfirmed,
+      onFail: (copy) => traceCopyFail(copy.sourceId),
+    });
+    if (!got) {
+      setExtDetail({
+        phase: "error", merged,
+        message: merged.identityConfirmed ? "全部来源副本均加载失败" : "默认副本加载失败（该合并条目身份未确认，不自动切换，可手动选副本）",
+      });
+      return;
+    }
+    setExtDetail({ phase: "ready", data: { merged, ordered, active: got.copy, ...got.value } });
+  };
+
+  /* 手动选副本（不受身份门限）：错误态与详情态共用。 */
+  const manualPick = async (merged: MergedHit, copy: CopyRef) => {
+    if (copy.sourceId === "huangguo") {
+      setExtDetail(null);
+      openNativeCopy(merged, copy);
+      return;
+    }
+    setExtDetail({ phase: "loading", merged });
+    try {
+      const value = await loadCopy(merged, copy);
+      setImgIdx(0);
+      setExtDetail({
+        phase: "ready",
+        data: { merged, ordered: merged.copies.filter((c) => c.sourceId !== "huangguo"), active: copy, ...value },
+      });
+    } catch {
+      traceCopyFail(copy.sourceId);
+      setExtDetail({ phase: "error", merged, message: "该副本加载失败，可换其他副本或重试" });
+    }
+  };
+
+  const switchCopy = async (merged: MergedHit, copy: CopyRef, current: ExtReady) => {
+    if (copy.sourceId === current.active.sourceId && copy.item.externalId === current.active.item.externalId) return;
+    if (copy.sourceId === "huangguo") {
+      setExtDetail(null);
+      openNativeCopy(merged, copy);
+      return;
+    }
+    try {
+      const value = await loadCopy(merged, copy);
+      setImgIdx(0);
+      setExtDetail({ phase: "ready", data: { ...current, active: copy, ...value } });
+    } catch {
+      /* 切换失败静默保持当前副本（不弹窗、不打断），留痕即可。 */
+      const defs = getActiveRegistry().sources;
+      const idx = defs.findIndex((s) => s.id === copy.sourceId);
+      tracePlayback("search.copy_fail", { source: sourceStableId(idx >= 0 ? idx : 0) });
+    }
+  };
+
+  const openMerged = (merged: MergedHit) => {
+    const first = merged.copies[0];
+    if (!first) return;
+    if (first.sourceId === "huangguo") { openNativeCopy(merged, first); return; }
+    void openExternal(merged);
   };
 
   const querying = submitted.length > 0;
+  const loading = hgLoading || extLoading || moreLoading;
+  const currentGroup = groups[tab];
+  const tabLabel = GLOBAL_SEARCH_TABS.find((t) => t.kind === tab)?.label ?? "";
   const currentHotTags = hotTagState.epoch === lineEpoch ? hotTagState.tags : {};
   const currentHotFailed = hotTagState.epoch === lineEpoch ? hotTagState.failed : [];
   const hotFailedSet = new Set(currentHotFailed);
@@ -163,6 +463,103 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     </ol>
   ) : null;
 
+  const renderExtDetail = () => {
+    if (!extDetail) return null;
+    const merged = extDetail.phase === "ready" ? extDetail.data.merged : extDetail.merged;
+    const activeCopy = extDetail.phase === "ready" ? extDetail.data.active : null;
+    return (
+      <div className="ios-page absolute inset-0 z-30 bg-bg flex flex-col" role="dialog" aria-modal="true" aria-label="搜索结果详情">
+        <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
+          <div className="ios-subpage-bar">
+            <Button aria-label="返回搜索结果" onClick={() => setExtDetail(null)} className="ios-nav-btn"><IBack size={20} /></Button>
+            <h2 className="flex-1 min-w-0 truncate text-[15px] font-bold text-on">{merged.title}</h2>
+          </div>
+          {merged.copies.length > 1 && extDetail.phase !== "loading" && (
+            <div className="pb-3 flex flex-wrap items-center gap-2" role="group" aria-label="来源副本切换">
+              <span className="text-[12px] text-mut">来源副本</span>
+              {merged.copies.map((c: CopyRef) => (
+                <Button key={`${c.sourceId}:${c.item.externalId}`} aria-pressed={activeCopy?.sourceId === c.sourceId && activeCopy?.item.externalId === c.item.externalId}
+                  onClick={() => {
+                    if (extDetail.phase === "ready") void switchCopy(merged, c, extDetail.data);
+                    else if (extDetail.phase === "error") void manualPick(merged, c);
+                  }}
+                  className="ios-filter-pill">{c.sourceName}</Button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex-1 scroll-y pb-8">
+          {extDetail.phase === "loading" && (
+            <div className="flex justify-center py-16"><Loader label="正在加载" className="w-8 h-8 spinner" /></div>
+          )}
+          {extDetail.phase === "error" && (
+            <Empty icon={<IFilm size={26} />} title="加载失败" sub={extDetail.message} action="重试" onAction={() => void openExternal(merged)} />
+          )}
+          {extDetail.phase === "ready" && (() => {
+            const data = extDetail.data;
+            if (merged.kind === "video" || merged.kind === "drama") {
+              return (
+                <div className="px-4 pt-2">
+                  {data.streamUrl ? (
+                    <Player src={data.streamUrl} poster={cover(data.active.item.cover)} autoPlay active controls
+                      scopeKey={`search:${data.active.sourceId}:${data.active.item.externalId}`}
+                      diagnosticContext={{ view: "search_external", source_id: data.active.sourceId }}
+                      className="w-full aspect-video" />
+                  ) : (
+                    <Empty icon={<IFilm size={26} />} title="播放地址获取失败" />
+                  )}
+                  <p className="mt-3 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>
+                  {data.detail?.description && <p className="mt-2 text-[13px] text-on/85 leading-relaxed">{data.detail.description}</p>}
+                </div>
+              );
+            }
+            if (merged.kind === "image") {
+              const images = data.images ?? [];
+              const idx = Math.min(imgIdx, Math.max(0, images.length - 1));
+              return (
+                <div className="px-4 pt-2">
+                  {images.length > 0 && (
+                    <div className="relative w-full overflow-hidden rounded-[16px] bg-s2" style={{ aspectRatio: "4 / 5" }}>
+                      <Img src={images[idx]} alt={merged.title} eager />
+                    </div>
+                  )}
+                  {images.length > 1 && (
+                    <div className="mt-3 flex items-center justify-between">
+                      <Button aria-label="上一张" disabled={idx <= 0} onClick={() => setImgIdx(idx - 1)} className="ios-filter-pill disabled:opacity-40">上一张</Button>
+                      <span className="text-[12px] text-mut">{idx + 1} / {images.length}</span>
+                      <Button aria-label="下一张" disabled={idx >= images.length - 1} onClick={() => setImgIdx(idx + 1)} className="ios-filter-pill disabled:opacity-40">下一张</Button>
+                    </div>
+                  )}
+                  <p className="mt-3 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>
+                </div>
+              );
+            }
+            return (
+              <div className="px-4 pt-2">
+                {data.detail?.cover || data.active.item.cover ? (
+                  <div className="relative w-full overflow-hidden rounded-[16px] bg-s2" style={{ aspectRatio: "16 / 9" }}>
+                    <Img src={data.detail?.cover || data.active.item.cover} alt={merged.title} eager />
+                  </div>
+                ) : null}
+                {data.detail?.description && <p className="mt-3 text-[13px] text-on/85 leading-relaxed">{data.detail.description}</p>}
+                {(data.detail?.images ?? []).length > 0 && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    {data.detail!.images.map((src, i) => (
+                      <div key={`${src}-${i}`} className="relative w-full overflow-hidden rounded-[12px] bg-s2">
+                        <Img src={src} alt="" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-3 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
       <div className="ios-page-heading shrink-0 flex items-center gap-2.5 px-4">
@@ -179,15 +576,15 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
         <Form className="ios-search-form flex-1 min-w-0 flex items-center gap-2"
           onSubmit={(e) => { e.preventDefault(); submit(q); }}>
           <ISearch size={17} className="text-mut shrink-0" />
-          <Input aria-label="搜索短剧、帖子、题材…" ref={inputRef} value={q}
+          <Input aria-label="搜索视频、短剧、帖子、图片…" ref={inputRef} value={q}
             onChange={(e) => {
               const next = e.target.value;
               setQ(next);
-              if (!next && submitted) { setSubmitted(""); results.clear(); }
+              if (!next && submitted) { setSubmitted(""); seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setHgError(null); setExtDetail(null); }
             }}
-            placeholder="搜索短剧、帖子、题材…"
+            placeholder="搜索视频、短剧、帖子、图片…"
             className="flex-1 min-w-0 bg-transparent text-[14px] text-on placeholder-dim outline-none" />
-          {(q || submitted) && <Button aria-label="清空搜索" type="button" onClick={() => { results.clear(); setQ(""); setSubmitted(""); inputRef.current?.focus(); }} className="ios-icon-button ios-search-clear"><IClose size={16} /></Button>}
+          {(q || submitted) && <Button aria-label="清空搜索" type="button" onClick={() => { seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setHgError(null); setExtDetail(null); setQ(""); setSubmitted(""); inputRef.current?.focus(); }} className="ios-icon-button ios-search-clear"><IClose size={16} /></Button>}
         </Form>
         <Button onClick={() => push({ kind: "ranks" })} aria-label="排行榜"
           variant="primary" className="ios-icon-button ios-search-shortcut">
@@ -254,39 +651,37 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
           </>
         ) : (
           <>
-            <SegmentedControl className="mt-1 mb-3" aria-label="搜索结果类型" activeIndex={tab === "video" ? 0 : 1}>
-              {([["video", "视频"], ["post", "帖子"]] as const).map(([k, label]) => (
-                <Button aria-pressed={tab === k} key={k} onClick={() => changeTab(k)}>{label}</Button>
+            <SegmentedControl className="mt-1 mb-3" aria-label="搜索结果类型" activeIndex={Math.max(0, GLOBAL_SEARCH_TABS.findIndex((t) => t.kind === tab))}>
+              {GLOBAL_SEARCH_TABS.map((t) => (
+                <Button aria-pressed={tab === t.kind} key={t.kind} onClick={() => setTab(t.kind)}>{t.label}</Button>
               ))}
             </SegmentedControl>
             <div role="status" className="text-[12px] text-mut mb-2.5" aria-live="polite">
-              {loading && <span className="block">{request?.page === 1 ? `正在搜索「${submitted}」…` : "正在加载更多…"}</span>}
-              {result && <>「{result.keyword}」已加载 <span className="text-primary font-bold">{count}{result.total !== null ? ` / ${result.total}` : ""}</span> 条{result.kind === "post" ? "帖子" : "视频"}</>}
+              {loading && <span className="block">{moreLoading ? "正在加载更多…" : `正在搜索「${submitted}」…`}</span>}
+              {!loading && <>「{submitted}」已加载 <span className="text-primary font-bold">{currentGroup.length}</span> 条{tabLabel}</>}
             </div>
-            {err && <div role="alert" className="flex flex-wrap items-center gap-2 mb-3 text-[13px] text-danger">
-              <span>「{submitted}」{request?.page && request.page > 1 ? "加载更多失败" : "搜索失败"}：{err}</span>
-              <Button onClick={results.retry} disabled={loading} className="px-3 text-primary">重试</Button>
+            {hgError && <div role="alert" className="flex flex-wrap items-center gap-2 mb-3 text-[13px] text-danger">
+              <span>「{submitted}」黄果通道搜索失败：{hgError}（其他来源结果不受影响）</span>
+              <Button onClick={() => submit(submitted)} disabled={loading} className="px-3 text-primary">重试</Button>
             </div>}
             <section aria-label="搜索结果" aria-busy={loading}>
-              {result && count > 0 ? <>
-                {result.kind === "video" ? (
-                  <Masonry videos={items} scopeKey={JSON.stringify([submitted, tab, result.keyword, result.kind])} wide={wide} onOpen={(v, visible) => push({ kind: "feed", videoIds: visible.map((x) => x.id), index: visible.findIndex((x) => x.id === v.id), title: `搜索 · ${result.keyword}` })} />
-                ) : (
-                  <FilteredContent items={posts} scopeKey={JSON.stringify([submitted, tab, result.keyword, result.kind])}>{visible => <div className={`ios-media-grid ${wide ? "is-wide" : ""}`}>
-                    {visible.map((post) => (
-                      <MediaCard key={post.id} title={post.title} cover={post.cover} subtitle={`${fmt(post.hot)} 次浏览`} onOpen={() => push({ kind: "post", id: post.id })} />
-                    ))}
-                  </div>}</FilteredContent>
-                )}
+              {currentGroup.length > 0 ? <>
+                <FilteredContent items={currentGroup} scopeKey={JSON.stringify([submitted, tab])}>{visible => <div className={`ios-media-grid ${wide ? "is-wide" : ""}`}>
+                  {visible.map((m) => (
+                    <MediaCard key={`${m.kind}:${m.sourceId}:${m.item.externalId}:${m.title}`} title={m.title} cover={m.cover}
+                      subtitle={m.alsoOn.length ? `${m.sourceName} · 多源都有` : m.sourceName}
+                      onOpen={() => openMerged(m)} />
+                  ))}
+                </div>}</FilteredContent>
                 <div className="flex justify-center py-4">
-                  {loading ? <Loader label="搜索结果更新中" className="w-6 h-6 spinner" />
-                    : !err && result.keyword === submitted && (result.page < result.pages ? (
-                      <Button onClick={results.loadMore} className="px-5 h-9 rounded-(--r-ctl) bg-s3 text-[13px] text-on/85 pressable">加载更多</Button>
-                    ) : <span className="text-[12px] text-dim">— 已经到底啦 —</span>)}
+                  {moreLoading ? <Loader label="搜索结果更新中" className="w-6 h-6 spinner" />
+                    : hasMore ? (
+                      <Button onClick={loadMore} className="px-5 h-9 rounded-(--r-ctl) bg-s3 text-[13px] text-on/85 pressable">加载更多</Button>
+                    ) : <span className="text-[12px] text-dim">— 已经到底啦 —</span>}
                 </div>
               </> : loading ? (
                 <div className="flex justify-center py-12"><Loader label="正在搜索" className="w-8 h-8 spinner" /></div>
-              ) : !err && (
+              ) : (
                 <Empty icon={<ISearch size={26} />} title="没有找到相关内容" sub="换个关键词试试，比如「都市」「逆袭」"
                   action="看看排行榜" onAction={() => push({ kind: "ranks" })} />
               )}
@@ -294,6 +689,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
           </>
         )}
       </div>
+      {renderExtDetail()}
     </div>
   );
 }

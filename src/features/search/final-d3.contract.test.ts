@@ -1,0 +1,314 @@
+/**
+ * 最终版 D3 线契约测试（Muse 2026-11-19，(1)用户亲点：全局搜索多源
+ * 扇出；任务 brief 与后续用户拍板＋GPT 设计审查裁定明确要求正向
+ * 测试，故新增本文件——AGENTS 新增测试须经同意口径以 brief 的
+ * 明确要求为据）。
+ * 运行：node src/features/search/final-d3.contract.test.ts
+ * 覆盖：四页签封顶、内容性质归类、权重分层口径（总表＋每日大赛
+ * 改判）、扇出聚合混排＋源名标注、单源失败/超时静默隔离、每源
+ * 上限、首屏贡献上限、跨源合并置信门（多信号、宁漏勿误）＋保
+ * 留全部副本、默认副本选择链（可用性→结构完整度→历史可靠性→
+ * 分层 tiebreak）、身份未确认禁止自动切副本、真实模板 search
+ * 数据流、Search.tsx 生产接线文本断言。不访问真实网络。
+ */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { getBuiltinRegistry } from "../sources/registry.ts";
+import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../sources/types.ts";
+import { setFetchPage } from "../sources/adapters/fetchPage.ts";
+import { createHlsSiteAdapter, createWpRestAdapter } from "../sources/adapters/templates.ts";
+import {
+GLOBAL_SEARCH_TABS, aggregateHits, applySourceContributionCap, areTitlesDuplicate,
+fanoutSearch, kindForHuangguoVideo, kindForSourceDef, loadWithFallback, mergeConfidence,
+mergeHits, normalizeTitle, orderCopiesForDisplay, rankMerged, searchPolicyFor,
+selectDefaultCopy, structuralCompletenessOf,
+type CopyAssessment, type CopyRef, type FanoutHit,
+} from "./multiSourceSearch.ts";
+
+const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
+const fx = (name: string) => readFileSync(new URL(`../sources/adapters/fixtures/${name}`, import.meta.url), "utf8");
+const def = (id: string): SourceDef => {
+  const d = getBuiltinRegistry().find((s) => s.id === id);
+  assert.ok(d, `registry has ${id}`);
+  return d;
+};
+const item = (sourceId: string, externalId: string, title: string, hot?: number, cover?: string): SourceItem => ({
+  sourceId, externalId, title, cover: cover ?? `https://img.example.com/${externalId}.jpg`, href: "", tags: [], hot,
+});
+const hit = (sourceId: string, sourceName: string, kind: FanoutHit["kind"], title: string, weight: number, hot = 0, seq = 0, cover?: string, publishedAt?: number): FanoutHit => ({
+  sourceId, sourceName, kind, item: item(sourceId, `${sourceId}-${seq}`, title, hot || undefined, cover), weight, hot, seq, publishedAt,
+});
+const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
+
+/* ── 四页签封顶：种类恒为四类，与注册表源数（52）无关、永不按源分段 ── */
+{
+  assert.deepEqual(GLOBAL_SEARCH_TABS.map((t) => t.kind), ["video", "drama", "post", "image"], "页签 kind 恒四类");
+  assert.deepEqual(GLOBAL_SEARCH_TABS.map((t) => t.label), ["视频", "短剧", "帖子", "图片"], "页签标签恒四类");
+  assert.ok(getBuiltinRegistry().length >= 52, "注册表 52 源下页签仍封顶四类（上一断言即证据）");
+  const groups = aggregateHits([]);
+  assert.deepEqual(Object.keys(groups).sort(), ["drama", "image", "post", "video"], "聚合分组恒四键");
+}
+
+/* ── 归类：按内容性质、不按媒体格式（每条只归一个主类） ── */
+{
+  assert.equal(kindForHuangguoVideo({ total_episodes: 80, episode_count: 80 }), "drama", "分集视频→短剧");
+  assert.equal(kindForHuangguoVideo({ total_episodes: 1, episode_count: 1 }), "video", "单条视频→视频");
+  assert.equal(kindForSourceDef(def("feedheiliao")), "post", "文字主体→帖子（带视频也归帖子：post 类不因内容带视频改类）");
+  assert.equal(kindForSourceDef(def("cosplaytele")), "image", "图集→图片");
+  assert.equal(kindForSourceDef(def("pornpics")), "image", "图片主体→图片");
+  assert.equal(kindForSourceDef(def("rouvideo-drama")), "drama", "专用短剧源（连续剧集）→短剧");
+  assert.equal(kindForSourceDef(def("fyptt")), "video", "独立单条视频源→视频");
+  assert.equal(kindForSourceDef(def("51chigua")), "post", "吃瓜图文→帖子");
+}
+
+/* ── 权重分层口径（分层总表＋每日大赛 2026-11-19 改判） ── */
+{
+  const p = (id: string) => searchPolicyFor(def(id));
+  assert.deepEqual([p("51chigua").include, p("51chigua").weight], [true, 100], "51吃瓜主力：纳入、权重最高");
+  assert.deepEqual([p("feedheiliao").include, p("feedheiliao").weight], [true, 60], "黑料网补充：纳入、次之");
+  assert.deepEqual([p("meiridasai").include, p("meiridasai").weight], [true, 50], "每日大赛改判：补充默认启用、权重在黑料网之下");
+  assert.ok(p("51chigua").weight > p("feedheiliao").weight && p("feedheiliao").weight > p("meiridasai").weight, "吃瓜三层权重严格递减");
+  assert.deepEqual([p("redgifs").include, p("redgifs").weight], [true, 100], "RedGifs 短视频主力");
+  assert.deepEqual([p("shorties").include, p("shorties").weight], [true, 100], "Shorties 短视频主力（总表默认启用）");
+  assert.deepEqual([p("supjav").include, p("supjav").weight], [true, 100], "SupJav JAV 主力（汇总表）");
+  assert.deepEqual([p("av123").include, p("av123").weight], [true, 60], "123AV JAV 补充");
+  assert.deepEqual([p("rouvideo-drama").include, p("rouvideo-drama").weight], [true, 60], "肉视频短剧补充首选");
+  assert.deepEqual([p("pornpics").include, p("pornpics").weight], [true, 100], "PornPics 写真主力");
+  assert.deepEqual([p("missav").include, p("missav").weight], [false, 100], "MissAV 主力目标但无适配器：权重落表、暂不纳入");
+  assert.deepEqual([p("tikporn").include, p("tikporn").weight], [false, 60], "Tik.porn 补充但无适配器：暂不纳入");
+  assert.deepEqual([p("drama91").include, p("huangdou").include], [false, false], "91短剧待实测/黄豆暂缓：不纳入");
+  assert.equal(p("xiuren").include, false, "秀人网观察位+blocked：不纳入");
+  assert.equal(p("danbooru").include, false, "Danbooru blocked：不纳入（非权重问题）");
+  assert.equal(p("myfans").include, false, "myfans 预览源无 search：不纳入");
+  assert.deepEqual([p("pornhub").include, p("pornhub").weight], [true, 40], "总表未覆盖的已启用源：中性 40 纳入");
+  assert.deepEqual([p("cosplaytele").include, p("cosplaytele").weight], [true, 40], "CosplayTele 维持现状：中性纳入");
+  assert.equal(p("jabletv").include, false, "JableTV 无适配器：不纳入");
+}
+
+/* ── 扇出聚合：多源夹具结果都在、按种类分键、源名标注、混排 ── */
+{
+  const stub = (items: SourceItem[]): SourceAdapter => ({
+    sourceId: "stub",
+    list: async () => ({ items, pagination: { page: 1, pages: 1, size: 20, total: items.length } }),
+    detail: async () => { throw new Error("unused"); },
+    resolve: async () => ({ streams: [] }),
+    search: async () => ({ items, pagination: { page: 1, pages: 1, size: 20, total: items.length } }),
+  });
+  const defs = [def("pornhub"), def("cosplaytele"), def("feedheiliao")];
+  const adapters = new Map<string, SourceAdapter>([
+    ["pornhub", stub([item("pornhub", "v1", "扇出视频一", 5), item("pornhub", "v2", "扇出视频二", 9)])],
+    ["cosplaytele", stub([item("cosplaytele", "g1", "扇出图集一", 3)])],
+    ["feedheiliao", stub([item("feedheiliao", "p1", "扇出帖子一", 7)])],
+  ]);
+  const out = await fanoutSearch("扇出", defs, (d) => adapters.get(d.id) ?? null);
+  assert.deepEqual(out.failures, [], "全成功无失败记录");
+  assert.deepEqual(out.searched.sort(), ["cosplaytele", "feedheiliao", "pornhub"], "三源都真被搜");
+  const groups = aggregateHits(out.hits);
+  assert.equal(groups.video.length, 2, "视频组 2 条");
+  assert.equal(groups.image.length, 1, "图片组 1 条");
+  assert.equal(groups.post.length, 1, "帖子组 1 条");
+  assert.equal(groups.video[0].item.title, "扇出视频二", "同类混排按相关性（热度）：hot 9 在前");
+  assert.equal(groups.video[0].sourceName, "Pornhub", "源名标注正确（video）");
+  assert.equal(groups.image[0].sourceName, "CosplayTele", "源名标注正确（image）");
+  assert.equal(groups.post[0].sourceName, "黑料网", "源名标注正确（post）");
+}
+
+/* ── 单源失败静默隔离＋单源超时不阻塞＋每源上限 ── */
+{
+  const good: SourceAdapter = {
+    sourceId: "91video",
+    list: async () => ({ items: [], pagination: { page: 1, pages: 1, size: 20, total: 0 } }),
+    detail: async () => { throw new Error("unused"); },
+    resolve: async () => ({ streams: [] }),
+    search: async () => ({ items: [item("91video", "ok1", "幸存结果", 1)], pagination: { page: 1, pages: 1, size: 20, total: 1 } }),
+  };
+  const bad: SourceAdapter = {
+    ...good, sourceId: "pornhub",
+    search: async () => { throw new Error("fixture boom"); },
+  };
+  const traced: string[] = [];
+  const out = await fanoutSearch("隔离", [def("pornhub"), def("91video")],
+    (d) => (d.id === "pornhub" ? bad : good),
+    { onFailure: (sourceId) => { traced.push(sourceId); } });
+  assert.equal(out.hits.length, 1, "失败源不阻塞：幸存源结果在");
+  assert.equal(out.hits[0].item.title, "幸存结果");
+  assert.deepEqual(out.failures.map((f) => f.sourceId), ["pornhub"], "失败留痕（源 id＋信息）");
+  assert.deepEqual(traced, ["pornhub"], "失败回调被调用（生产接 tracePlayback 留痕）");
+
+  const slow: SourceAdapter = {
+    ...good, sourceId: "pornhub",
+    search: async () => {
+      await new Promise((r) => setTimeout(r, 60));
+      return { items: [item("pornhub", "slow1", "慢源结果", 1)], pagination: { page: 1, pages: 1, size: 20, total: 1 } };
+    },
+  };
+  const timed = await fanoutSearch("超时", [def("pornhub"), def("91video")],
+    (d) => (d.id === "pornhub" ? slow : good), { timeoutMs: 10 });
+  assert.equal(timed.hits.length, 1, "单源超时不阻塞：快源结果在");
+  assert.equal(timed.hits[0].sourceId, "91video");
+  assert.deepEqual(timed.failures.map((f) => f.sourceId), ["pornhub"], "超时源按失败留痕");
+  assert.ok(timed.failures[0].message.includes("超时"), "失败信息标明超时");
+
+  const many: SourceAdapter = {
+    ...good, sourceId: "pornhub",
+    search: async () => ({
+      items: Array.from({ length: 25 }, (_, i) => item("pornhub", `m${i}`, `批量结果${i}`)),
+      pagination: { page: 1, pages: 2, size: 25, total: 25 },
+    }),
+  };
+  const capped = await fanoutSearch("上限", [def("pornhub")], () => many, { perSourceLimit: 5 });
+  assert.equal(capped.hits.length, 5, "每源结果上限生效（25→5）");
+}
+
+/* ── 首屏贡献上限：单一源不淹没首屏 ── */
+{
+  const hits: FanoutHit[] = [];
+  for (let i = 0; i < 10; i++) hits.push(hit("pornhub", "Pornhub", "video", `甲源视频${i}`, 40, 100 - i, i));
+  for (let i = 0; i < 10; i++) hits.push(hit("91video", "91视频", "video", `乙源视频${i}`, 40, 50 - i, 100 + i));
+  const capped = applySourceContributionCap(rankMerged(mergeHits(hits)), 12, 6);
+  assert.equal(capped.length, 20, "条目不丢、只顺延");
+  const firstScreen = capped.slice(0, 12);
+  assert.ok(firstScreen.filter((m) => m.sourceId === "pornhub").length <= 6, "首屏内甲源至多 6 条");
+  assert.equal(firstScreen.filter((m) => m.sourceId === "91video").length, 6, "乙源填入首屏空出的 6 位（低热度不被单一源淹没）");
+}
+
+/* ── 标题归一化与相似判据 ── */
+{
+  assert.equal(normalizeTitle("独家！某网红 翻车［现场］"), normalizeTitle("独家 某网红翻车现场"), "标点/空白差异归一后相等");
+  assert.equal(areTitlesDuplicate("超长标题的完整版视频回放", "超长标题的完整版"), true, "包含关系（短方≥8）判同条");
+  assert.equal(areTitlesDuplicate("完全不同的两个标题内容", "另一条毫不相干的视频"), false, "不相干标题不误判");
+  assert.equal(areTitlesDuplicate("短题甲", "短题乙"), false, "短标题不靠模糊判据误杀");
+}
+
+/* ── 跨源合并置信门：高置信合并保留全部副本；低置信不合并（宁漏勿误） ── */
+{
+  const t0 = Date.parse("2026-11-18T10:00:00Z");
+  const hits: FanoutHit[] = [
+    hit("feedheiliao", "黑料网", "post", "独家 某网红翻车现场", 60, 10, 0, SHARED_COVER, t0),
+    hit("51chigua", "51吃瓜网", "post", "独家！某网红翻车现场", 100, 2, 1, SHARED_COVER, t0 + 3600_000),
+    hit("meiridasai", "每日大赛", "post", "独家：某网红翻车现场！", 50, 1, 2, SHARED_COVER, t0 + 7200_000),
+    hit("51chigua", "51吃瓜网", "post", "另一条独立帖子", 100, 3, 3),
+    hit("pornhub", "Pornhub", "video", "独家！某网红翻车现场", 40, 99, 4),
+  ];
+  assert.ok(mergeConfidence(hits[1], hits[0]) >= 4, "同题＋同封面＋时间近：置信达身份确认门");
+  const merged = mergeHits(hits);
+  const posts = merged.filter((m) => m.kind === "post");
+  assert.equal(posts.length, 2, "帖子同题三源合并为一条＋独立一条");
+  const cluster = posts.find((m) => m.copies.length === 3)!;
+  assert.ok(cluster, "合并条目存在且副本数=3（索引层合并、不删副本）");
+  assert.deepEqual(cluster.copies.map((c) => c.sourceId), ["51chigua", "feedheiliao", "meiridasai"], "副本按优先级序保留全量");
+  assert.deepEqual(cluster.alsoOn, ["黑料网", "每日大赛"], "alsoOn 记其余来源名（供「多源都有」呈现）");
+  assert.equal(cluster.title, "独家！某网红翻车现场", "展示标题取最高优先级副本");
+  assert.equal(cluster.identityConfirmed, true, "高置信合并：身份已确认（可自动切副本）");
+  assert.equal(merged.filter((m) => m.kind === "video").length, 1, "跨 kind 同名不互吞：视频条独立");
+
+  /* 低置信：同题但封面完全不同 → 置信 3−2=1 ＜门 → 不合并、留重复 */
+  const lowConf: FanoutHit[] = [
+    hit("51chigua", "51吃瓜网", "post", "同题不同内容判例", 100, 5, 0, "https://a.example.com/x/aaa-111.jpg"),
+    hit("feedheiliao", "黑料网", "post", "同题不同内容判例", 60, 4, 1, "https://b.example.com/y/zzz-999.jpg"),
+  ];
+  assert.ok(mergeConfidence(lowConf[0], lowConf[1]) < 3, "同题异封面置信低于合并门");
+  assert.equal(mergeHits(lowConf).length, 2, "低置信不合并：两条独立保留");
+
+  /* 中置信：标题相似（包含）＋同封面 → 置信 3 达合并门但未达确认门 */
+  const midConf: FanoutHit[] = [
+    hit("51chigua", "51吃瓜网", "post", "某事件完整版后续报道来了", 100, 5, 0, SHARED_COVER),
+    hit("feedheiliao", "黑料网", "post", "某事件完整版后续", 60, 4, 1, SHARED_COVER),
+  ];
+  const midMerged = mergeHits(midConf);
+  assert.equal(midMerged.length, 1, "中置信（相似题＋同封面）合并为一条");
+  assert.equal(midMerged[0].identityConfirmed, false, "中置信合并：身份未确认（禁止自动切副本）");
+  assert.equal(midMerged[0].copies.length, 2, "未确认条目副本仍全量保留（手动可切）");
+}
+
+/* ── 默认副本选择链：可用性→结构完整度→历史可靠性→分层 tiebreak ── */
+{
+  const detail = (over: Partial<SourceDetail>): SourceDetail => ({
+    sourceId: "x", externalId: "e", title: "t", cover: "", href: "", tags: [], images: [], episodes: [], ...over,
+  });
+  assert.equal(structuralCompletenessOf(detail({ episodes: [{ label: "正片", externalId: "e" }] })).hasVideo, true, "结构完整度：episodes 非空=带视频（结构信号、非质量判优）");
+  const copies: CopyRef[] = [
+    { sourceId: "a", sourceName: "源A", weight: 100, hot: 5, seq: 0, item: item("a", "a1", "同题") },
+    { sourceId: "b", sourceName: "源B", weight: 40, hot: 5, seq: 1, item: item("b", "b1", "同题") },
+  ];
+  const assess = (over: Partial<CopyAssessment>): CopyAssessment => ({ available: true, structural: null, reliability: null, ...over });
+  const rich = structuralCompletenessOf(detail({ episodes: [{ label: "正片", externalId: "e" }], images: ["1", "2", "3"], description: "正文很长的描述文本" }));
+  const poor = structuralCompletenessOf(detail({ images: [] }));
+
+  const m1 = new Map<string, CopyAssessment>([["a", assess({ structural: rich })], ["b", assess({ structural: rich })]]);
+  assert.equal(selectDefaultCopy(copies, m1)?.sourceId, "a", "全同分时分层权重决胜（tiebreak 在最后）");
+  const m2 = new Map<string, CopyAssessment>([["a", assess({ structural: poor })], ["b", assess({ structural: rich })]]);
+  assert.equal(selectDefaultCopy(copies, m2)?.sourceId, "b", "结构完整度优先于分层：低权重但结构更全者胜");
+  const m3 = new Map<string, CopyAssessment>([["a", assess({ available: false, structural: rich })], ["b", assess({ structural: poor })]]);
+  assert.equal(selectDefaultCopy(copies, m3)?.sourceId, "b", "可用性优先于结构完整度：实测失败者出局");
+  const m4 = new Map<string, CopyAssessment>([["a", assess({ structural: rich, reliability: 0.2 })], ["b", assess({ structural: rich, reliability: 0.9 })]]);
+  assert.equal(selectDefaultCopy(copies, m4)?.sourceId, "b", "历史可靠性优先于分层：成功率高者胜");
+  const ordered = orderCopiesForDisplay(copies, m2);
+  assert.equal(ordered[0].sourceId, "b", "展示序首位=选择链定出的默认副本");
+  const mAllFail = new Map<string, CopyAssessment>([["a", assess({ available: false })], ["b", assess({ available: false })]]);
+  assert.equal(selectDefaultCopy(copies, mAllFail), null, "全部副本实测失败→无默认副本");
+}
+
+/* ── 副本顺延：已确认可自动切；身份未确认禁止自动切 ── */
+{
+  const copies: CopyRef[] = [
+    { sourceId: "51chigua", sourceName: "51吃瓜网", weight: 100, hot: 0, seq: 0, item: item("51chigua", "x", "同题") },
+    { sourceId: "feedheiliao", sourceName: "黑料网", weight: 60, hot: 0, seq: 1, item: item("feedheiliao", "x", "同题") },
+  ];
+  const failed: string[] = [];
+  const got = await loadWithFallback(copies, async (c) => {
+    if (c.sourceId === "51chigua") throw new Error("fixture primary down");
+    return `stream-from-${c.sourceId}`;
+  }, (c) => { failed.push(c.sourceId); });
+  assert.ok(got, "主副本失败仍有结果（不中断）");
+  assert.equal(got!.copy.sourceId, "feedheiliao", "自动落到下一副本");
+  assert.equal(got!.value, "stream-from-feedheiliao");
+  assert.deepEqual(failed, ["51chigua"], "失败副本留痕、顺延发生");
+  const none = await loadWithFallback(copies, async () => { throw new Error("all down"); });
+  assert.equal(none, null, "全部副本失败才返回 null（调用方此时才呈现错误态）");
+
+  let calls = 0;
+  const gated = await loadWithFallback(copies, async (c) => {
+    calls++;
+    if (c.sourceId === "51chigua") throw new Error("fixture primary down");
+    return "should-not-be-reached";
+  }, { allowAutoSwitch: false });
+  assert.equal(gated, null, "身份未确认：默认副本失败不自动切、返回 null 交用户手动选");
+  assert.equal(calls, 1, "身份未确认：只试了首个副本（第二副本未被自动尝试）");
+}
+
+/* ── 真实模板 search 数据流（夹具）：hls-site 与 wp-rest 的 search 非占位 ── */
+{
+  setFetchPage(async () => fx("hls-list.html"));
+  const a = createHlsSiteAdapter(def("rouvideo"));
+  assert.ok(a.search, "hls-site 适配器有 search");
+  const r = await a.search!("夹具", 1, 20);
+  assert.equal(r.items.length, 2, "hls search 解析出夹具条目");
+  assert.equal(r.items[0].sourceId, "rouvideo", "search 条目带源 id");
+}
+{
+  setFetchPage(async () => fx("wp-rest-list.json"));
+  const a = createWpRestAdapter(def("cosplaytele"));
+  const r = await a.search!("夹具", 1, 20);
+  assert.equal(r.items.length, 2, "wp-rest search 解析出夹具条目");
+}
+
+/* ── 生产接线（文本断言，与 wiring-manifest fin-d3-* 互证） ── */
+{
+  const search = read("./Search.tsx");
+  assert.ok(search.includes("fanoutSearch"), "Search 生产调用 fanoutSearch");
+  assert.ok(search.includes("createAdapter"), "Search 生产调用 createAdapter（适配器工厂）");
+  assert.ok(search.includes("getActiveRegistry"), "Search 读 active 注册表");
+  assert.ok(search.includes("GLOBAL_SEARCH_TABS"), "Search 页签走四类常量");
+  assert.ok(search.includes("aggregateHits"), "Search 经 aggregateHits 聚合");
+  assert.ok(search.includes("loadWithFallback"), "Search 详情走副本顺延");
+  assert.ok(search.includes("allowAutoSwitch: merged.identityConfirmed"), "自动切副本受身份确认门约束");
+  assert.ok(search.includes("structuralCompletenessOf"), "Search 实测结构完整度（选择链）");
+  assert.ok(search.includes("fetchHealthSnapshot"), "Search 历史可靠性取取页健康快照");
+  assert.ok(search.includes("onPartial"), "Search 渐进呈现（先到先显）");
+  assert.ok(search.includes("多源都有"), "Search 呈现「多源都有」标注");
+  assert.ok(search.includes('tracePlayback("search.source_fail"'), "单源失败经 tracePlayback 留痕");
+  assert.ok(search.includes('tracePlayback("search.copy_fail"'), "副本失败经 tracePlayback 留痕");
+}
+
+console.log("final-d3.contract: all assertions passed");
