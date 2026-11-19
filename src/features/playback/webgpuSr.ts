@@ -252,25 +252,30 @@ export class WebGpuSrEngine {
     /* 呈现矩形 uniform：2×vec4（dst/src），UNIFORM=0x40 | COPY_DST=0x08。 */
     this.presentUniform = device.createBuffer({ size: 32, usage: 0x40 | 0x08 });
     void device.lost.then((info) => {
-      if (!this.dead) {
-        this.dead = true;
-        this.stats.degrade = 2;
-        this.lastError = `device lost: ${info?.reason ?? "?"} ${info?.message ?? ""}`.slice(0, 200);
-        try { this.onLost(); } catch { /* 上层回调异常不外溢 */ }
-      }
+      this.failFatally(`device lost: ${info?.reason ?? "?"} ${info?.message ?? ""}`);
     });
     /* 本引擎独占该 device：任何未捕获的校验/带外错误都说明管线状态
      * 不可信（如摄入拷贝被拒），按死亡处理回退锐化档，不带病呈现。 */
     try {
       device.addEventListener?.("uncapturederror", (e) => {
-        if (!this.dead) {
-          this.dead = true;
-          this.stats.degrade = 2;
-          this.lastError = `uncaptured: ${e?.error?.message ?? "?"}`.slice(0, 200);
-          try { this.onLost(); } catch { /* 忽略 */ }
-        }
+        this.failFatally(`uncaptured: ${e?.error?.message ?? "?"}`);
       });
     } catch { /* 老实现无此事件：靠 lost 与成本门兜底 */ }
+  }
+
+  /* 统一死亡处理（fix2.1 批二#6）：device lost / 未捕获错误 /
+   * processFrame 同步异常 / 成本降级到停，四条致死路径收敛到同一
+   * 出口——dead 置位、degrade=2、lastError 记录、onLost 只回调一次。
+   * 旧实现 processFrame 的 catch 只复位 inFlight，同步异常（如
+   * ensureTextures 建纹理失败）不置 dead、不回调，上层永远等不到
+   * 回退信号，与引擎头注的死亡承诺不符。destroy() 先置 dead，
+   * 故销毁后的 lost 不会误报 onLost。 */
+  private failFatally(reason: string) {
+    if (this.dead) return;
+    this.dead = true;
+    this.stats.degrade = 2;
+    this.lastError = reason.slice(0, 200);
+    try { this.onLost(); } catch { /* 上层回调异常不外溢 */ }
   }
 
   static async create(canvas: HTMLCanvasElement, opts: { path: SrIngestPath; onLost: () => void }): Promise<WebGpuSrEngine | null> {
@@ -380,10 +385,13 @@ export class WebGpuSrEngine {
       this.stats.droppedStale += 1;
       return false;
     }
-    this.ensureTextures(w, h);
     const device = this.device;
     const t0 = performance.now();
     try {
+      /* ensureTextures 必须在 try 内（fix2.1 批二#6）：建纹理是同步
+       * GPU 调用，失败属不可恢复——旧实现把它放在 try 外，异常直接
+       * 冒泡出 processFrame、引擎不死不回退、调用方帧循环还会被打断。 */
+      this.ensureTextures(w, h);
       const ingest = this.textures.get("ingest")!;
       let ingestSource: unknown;
       if (this.path === "external") {
@@ -504,8 +512,7 @@ export class WebGpuSrEngine {
               this.stats.costs = [];
               if (this.stats.degrade === 0) this.stats.degrade = 1;
               else if (this.stats.degrade === 1) {
-                this.stats.degrade = 2;
-                try { this.onLost(); } catch { /* 忽略 */ }
+                this.failFatally("帧成本持续超预算，引擎停用");
               }
             }
           } else {
@@ -514,8 +521,11 @@ export class WebGpuSrEngine {
         }
       }).catch(() => { this.inFlight = false; });
       return true;
-    } catch {
+    } catch (error) {
+      /* 同步异常统一走死亡处理（fix2.1 批二#6）：置 dead、记
+       * lastError、onLost 只回调一次，上层据此回退 WebGL 锐化。 */
       this.inFlight = false;
+      this.failFatally(`processFrame 同步异常: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
