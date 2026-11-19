@@ -572,16 +572,7 @@ for (const e of recent) lines.push(`· ${e.kind} ${JSON.stringify(e.data)}`);
 lines.push("读取失败（纯旁路，不影响本报告其余内容）");
 }
 lines.push("");
-lines.push("── WebGPU 探针 ───────────────────");
-/* WebGPU 探针（Muse 2026-11-18 U3）：只读会话内后台自动探针的缓存
- * 结果，报告生成不在此现跑（探针时机见 gpuProbe.scheduleGpuProbe）。
- * 纯旁路：读缓存失败只降级本节，不拖垮报告其余内容。 */
-try {
-for (const l of formatGpuProbeLines(getCachedGpuProbe())) lines.push(l);
-} catch {
-lines.push("读取失败（纯旁路，不影响本报告其余内容）");
-}
-lines.push("");
+/* 探针 v1 节已随 v1 退役删除（整改 C10）：只保留 v2 超分检证节。 */
 lines.push("── WebGPU 探针 v2（超分检证）───────");
 try {
 for (const l of formatSrProbeLines(getSrProbeResult())) lines.push(l);
