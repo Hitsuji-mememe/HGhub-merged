@@ -751,6 +751,7 @@ for (const e of imgFinalFails) {
 const d = e.data;
 const surface = typeof d.surface === "string" && d.surface? d.surface: "未标注";
 lines.push(`· 图片失败[${imgSurfaceLabels[surface] ?? surface}] ${String(d.origin ?? d.url ?? "")} · ${String(d.reason ?? "?")} · attempt ${Number(d.attempt ?? 0) + 1} · ${imgMsBucket(d.ms)}`);
+}
 /* 逐图终局失败明细（fix331/gallery-device）：聚合行定位不了单图，
  * 这里逐条给最近 12 条——指纹（host#长度）/面/段位/attempt/耗时档。
  * 判读键：error-event 且耗时小＝上游快速拒绝（防盗链类）；耗时大＝
