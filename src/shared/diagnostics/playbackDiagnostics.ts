@@ -177,10 +177,10 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
    * 未运行（如 video 缺失）时由其后声明的兜底清理 dispose（幂等）。 */
   const ledgerBinding = useRef<LedgerBinding | null>(null);
   if (!ledgerBinding.current) ledgerBinding.current = createLedgerBinding();
-  const mirrorLedger = (event: string, data: Data) => {
+  const mirrorLedger = (event: string, data: Data, gen: number = generation.current): boolean => {
     try {
-      ledgerBinding.current?.record(event, data, generation.current);
-    } catch { /* 记账旁路 */ }
+      return ledgerBinding.current?.record(event, data, gen) ?? false;
+    } catch { /* 记账旁路 */ return false; }
   };
   const snapshot = () => {
     const v = videoRef.current;
@@ -190,6 +190,19 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
     mirrorLedger(event, data);
     if (!playbackLogEnabled()) return;
     try { tracePlayback(event, { ...snapshot(), seek: pending.current?.id, ...data }); } catch { /* diagnostics must never interrupt playback */ }
+  };
+  /* 代次捕获 trace（最终版 A 线 P2-08，②实锤）：供绑定到具体 HLS
+   * 实例的观察者（observeHls）在登记时调用——捕获此刻的 generation，
+   * 此后该实例的全部事件恒按捕获代次校验：换源推进代次后，旧实例
+   * 迟到事件被账本按起源代次拒收＋计数，本函数也随之不再落盘，
+   * 不许记成新代次。捕获时即当前代次的事件照常入账/落盘。 */
+  const captureTrace = () => {
+    const captured = generation.current;
+    return (event: string, data: Data = {}) => {
+      if (!mirrorLedger(event, data, captured)) return;
+      if (!playbackLogEnabled()) return;
+      try { tracePlayback(event, { ...snapshot(), seek: pending.current?.id, ...data }); } catch { /* diagnostics must never interrupt playback */ }
+    };
   };
   const pending = useRef<{ id: number; target: number; start: number; seeks: number; seeked: boolean } | null>(null);
   const seekSeq = useRef(0);
@@ -274,7 +287,7 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
     try { ledgerBinding.current?.dispose(); } catch { /* 记账旁路 */ }
   }, []);
   useEffect(() => { trace("player.context"); }, [context.active, context.view, context.video_id, context.episode, context.resource]);
-  return { trace, requestSeek };
+  return { trace, requestSeek, captureTrace };
 }
 
 type HlsEventsMap = typeof Hls.Events;
