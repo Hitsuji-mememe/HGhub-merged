@@ -24,7 +24,7 @@ import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot, validateLedgerIntegrity} from "./eventLedger";
 import { sourceRegistryVersion, sourceHealthLines } from "./sourceRegistry";
 import { cacheCountersSnapshot } from "../../features/feed/cacheMap";
-import { formatGpuProbeLines, formatSrProbeLines, getCachedGpuProbe, getSrProbeResult } from "./gpuProbe";
+import { formatSrProbeLines, getSrProbeResult } from "./gpuProbe";
 import { feedTraceSnapshot, feedTraceSummary} from "../lib/feedTrace";
 
 type Json = Record<string, unknown>;
