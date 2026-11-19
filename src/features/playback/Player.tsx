@@ -97,7 +97,7 @@ export default function Player({
    * 时直接裸播无保底）。无任何设计理由区别对待，属漏接，现补齐，
    * 选档纯函数与 VideoSurface 共用一份。 */
   const [canvasSrMode, setCanvasSrMode] = useState<SuperResMode>(srMode);
-  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback, canvasOffReason: srMode === "off" ? "judged" : "demoted" });
+  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback, canvasOffReason: svgFallback ? "unavailable" : srMode === "off" ? "judged" : "demoted" });
   const seek = useSeekInput({ time, duration, enabled: active && !controlsLocked, resetKey: src,
     onInteraction: (phase, input, target, pointerTarget) => trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget }),
     onSeek: (target, input) => {

@@ -142,7 +142,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const canvasModeForFacts = canvasSrMode;
   useEffect(() => {
     if (srSize.w <= 0 || srSize.h <= 0) return;
-    const fm = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasModeForFacts, svgFallback, canvasOffReason: srMode === "off" ? "judged" : "demoted" });
+    const fm = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasModeForFacts, svgFallback, canvasOffReason: svgFallback ? "unavailable" : srMode === "off" ? "judged" : "demoted" });
     publishPlaybackFacts({ w: srSize.w, h: srSize.h, bitrateBps: srDensity?.bitrateBps, fps: srDensity?.fps, codec: srDensity?.codec, srMode, engine: engineRef.current || undefined, firstRendition, pipeline: presentationPipeline({ webgpuEngaged, canvasMode: canvasModeForFacts, filterMode: fm }), srDemoteCount, at: Date.now() });
   }, [srSize, srDensity, srMode, firstRendition, webgpuEngaged, canvasModeForFacts, svgFallback, srDemoteCount, store?.srPref]);
   const { trace, requestSeek } = usePlayerDiagnostics(videoRef, hlsRef, { ...diagnosticContext, active, resource: mediaResource(src) });
@@ -412,7 +412,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
    * off / 性能降到 off）且用户未显式关时挂 SVG natural 保底；硬故障
    * svgFallback 时挂本档位滤镜（既有路径）。保底的退出全自动：WebGL
    * 升档恢复呈现的同一渲染内摘除，用户零操作。 */
-  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback, canvasOffReason: srMode === "off" ? "judged" : "demoted" });
+  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback, canvasOffReason: svgFallback ? "unavailable" : srMode === "off" ? "judged" : "demoted" });
   const videoFilter = filterMode ? getSvgFilterUrl(filterMode) : undefined;
 
   return (
