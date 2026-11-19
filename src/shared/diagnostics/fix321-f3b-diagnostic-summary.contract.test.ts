@@ -134,13 +134,18 @@ const tailSeg: E[] = [
 
 /* ── ⑤ 长按松手分组复核（F3 已修口径：账本保留窗全集） ─────────── */
 {
+  /* 断言适配（3.3.0 批诊断标尺线）：聚合改判读尾窗载荷，jank 行补
+   * 采样器落行原样的真卡顿载荷（尾窗 max 132／post_over50 2），
+   * 分组计数口径不变、桶形态随新标尺补齐顿帧与分布字段。 */
+  const jankPayload = { over33: 5, over50: 3, max_gap_ms: 140, post_over33: 3, post_over50: 2, post_max_gap_ms: 132 };
   const hs = summarizeHoldEvents([
     { name: "hold.release_profile", data: { sr_engaged: true } },
-    { name: "hold.jank", data: { sr_engaged: true } },
-    { name: "hold.jank", data: { sr_engaged: false } },
+    { name: "hold.jank", data: { sr_engaged: true, ...jankPayload } },
+    { name: "hold.jank", data: { sr_engaged: false, ...jankPayload } },
   ]);
-  assert.deepEqual(hs.engaged, { holds: 1, janks: 1 }, "SR 接管组与账本原始事件一致");
-  assert.deepEqual(hs.bypass, { holds: 0, janks: 1 }, "判档直通组与账本原始事件一致");
+  const dist = { hesitations: 0, over33: 5, over50: 3, maxGapMs: 140, postOver33: 3, postOver50: 2, postMaxGapMs: 132 };
+  assert.deepEqual(hs.engaged, { holds: 1, janks: 1, ...dist }, "SR 接管组与账本原始事件一致");
+  assert.deepEqual(hs.bypass, { holds: 0, janks: 1, ...dist }, "判档直通组与账本原始事件一致");
 }
 
 /* ── 报告侧接线断言 ──────────────────────────────────────────────── */

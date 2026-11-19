@@ -217,22 +217,67 @@ export function createHoldReleaseProfiler(
  * sr_engaged 显式布尔分桶计数。无显式布尔的事件（旧行/他类）不入
  * 桶——不许靠 SR 段 null 之类侧信号推断。纯函数，真机判读与单测
  * 共用同一口径。 ── */
-export type HoldEventSummary = {
-  engaged: { holds: number; janks: number };
-  bypass: { holds: number; janks: number };
+/* ── 卡顿标尺（3.3.0 批诊断标尺线，问题 B 口径修复）：旧口径对每个
+ * hold.jank 采样行无条件计一次卡顿，而采样行在每次长按结束时无条
+ * 件落盘——计数恒等于长按次数、与帧间隔无关（3.2.2 真机尾窗最大
+ * 间隔 32ms 亦被读成卡顿）。新标尺只判读尾窗分布载荷：尾窗
+ * post_max_gap_ms > 66（>2 个 30fps 帧间隔）或 post_over50 > 0 才
+ * 计「卡顿」；未达卡顿判据但尾窗最大间隔 >33ms（或 post_over33
+ * > 0）的计「顿帧」并列呈现；无分布载荷的采样行两档都不计（不许
+ * 拿行数冒充）。3.2.1 整帧人为冻结形态（尾窗 max 远超 66 且
+ * post_over50 > 0）仍计卡顿、不被洗绿。原始分布字段（期间
+ * over33/over50/max_gap_ms、尾窗 post_*）逐桶汇总照印不丢：计数
+ * 求和、最大间隔取最大，无数值载荷时最大间隔为 null。只动聚合与
+ * 报告呈现，采样器（createHoldJankSampler）与剖面器零改动。 */
+export type HoldBucketSummary = {
+  holds: number;
+  janks: number;
+  hesitations: number;
+  over33: number;
+  over50: number;
+  maxGapMs: number | null;
+  postOver33: number;
+  postOver50: number;
+  postMaxGapMs: number | null;
 };
+export type HoldEventSummary = {
+  engaged: HoldBucketSummary;
+  bypass: HoldBucketSummary;
+};
+const emptyHoldBucket = (): HoldBucketSummary => ({
+  holds: 0, janks: 0, hesitations: 0,
+  over33: 0, over50: 0, maxGapMs: null,
+  postOver33: 0, postOver50: 0, postMaxGapMs: null,
+});
+const holdNum = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? v : null;
 export function summarizeHoldEvents(
   events: readonly { name?: string; event?: string; data?: Record<string, unknown> }[],
 ): HoldEventSummary {
-  const out: HoldEventSummary = { engaged: { holds: 0, janks: 0 }, bypass: { holds: 0, janks: 0 } };
+  const out: HoldEventSummary = { engaged: emptyHoldBucket(), bypass: emptyHoldBucket() };
   for (const e of events) {
     const name = e.name ?? e.event;
     if (name !== "hold.release_profile" && name !== "hold.jank") continue;
     const engaged = e.data?.sr_engaged;
     if (typeof engaged !== "boolean") continue;
     const bucket = engaged ? out.engaged : out.bypass;
-    if (name === "hold.release_profile") bucket.holds += 1;
-    else bucket.janks += 1;
+    if (name === "hold.release_profile") { bucket.holds += 1; continue; }
+    const d = e.data ?? {};
+    const over33 = holdNum(d.over33);
+    const over50 = holdNum(d.over50);
+    const maxGap = holdNum(d.max_gap_ms);
+    const postOver33 = holdNum(d.post_over33);
+    const postOver50 = holdNum(d.post_over50);
+    const postMaxGap = holdNum(d.post_max_gap_ms);
+    if (over33 !== null) bucket.over33 += over33;
+    if (over50 !== null) bucket.over50 += over50;
+    if (maxGap !== null && (bucket.maxGapMs === null || maxGap > bucket.maxGapMs)) bucket.maxGapMs = maxGap;
+    if (postOver33 !== null) bucket.postOver33 += postOver33;
+    if (postOver50 !== null) bucket.postOver50 += postOver50;
+    if (postMaxGap !== null && (bucket.postMaxGapMs === null || postMaxGap > bucket.postMaxGapMs)) bucket.postMaxGapMs = postMaxGap;
+    const isJank = (postMaxGap !== null && postMaxGap > 66) || (postOver50 !== null && postOver50 > 0);
+    if (isJank) bucket.janks += 1;
+    else if ((postMaxGap !== null && postMaxGap > 33) || (postOver33 !== null && postOver33 > 0)) bucket.hesitations += 1;
   }
   return out;
 }

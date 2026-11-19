@@ -127,6 +127,15 @@
   hold.* 只落账本，播放日志是另一套存储且落盘名带 `web.` 前缀、
   聚合器精确匹配不上——改喂日志即恒 0（3.2.0 真机实锤）；回归见
   `fix321-f3-hold-summary.contract.test.ts`。
+  卡顿标尺（2026-11-19 3.3.0 批诊断标尺线）：`summarizeHoldEvents`
+  不再按采样行数计卡顿（采样行每次长按结束无条件落盘，旧口径下
+  「长按 N 次·卡顿 N 次」恒等成立）——现判读尾窗分布载荷：尾窗
+  `post_max_gap_ms > 66` 或 `post_over50 > 0` 计「卡顿」，未达判据
+  但尾窗最大间隔 >33ms（或 `post_over33 > 0`）计「顿帧」，无分布
+  载荷不计；报告汇总行卡顿/顿帧并列，并逐桶印分布汇总（期间
+  over33/over50/max、尾窗 post_*，计数求和、最大间隔取最大）。
+  采样器与剖面器零改动，3.2.1 整帧冻结形态仍计卡顿。回归见
+  `fix330-diag-hold-ruler.contract.test.ts`。
 - 代理恢复落点（最终版 B3 线，裁定条目 4）：useProxyPlaybackRecovery
   的 pending 快照在存续期间跟随用户 seek——元素 seeking 事件把
   快照 time 更新为最新 seek 目标，restore 落点以用户最新位置为
@@ -293,6 +302,20 @@
   化 `PlaybackFacts.levelFacts`（两播放面共用 attachHls；原生引擎标
   不可控来源）；纯观测补强，不改 ABR/选档与 SR 判档。回归见
   `fix330-diag-levels.contract.test.ts`。
+  停滞判读补埋点（2026-11-19 3.3.0 批诊断标尺线）：video 元素
+  `emptied`/`abort` 在 `usePlayerDiagnostics`（两播放面经
+  `usePlaybackKernel` 共用的唯一装配点，元素随组件挂载/卸载同生命
+  周期）提为字面名专用埋点 `media.emptied`/`media.abort`，带生命
+  周期判读载荷（`mediaLifecycleTraceData`：ready_state/
+  network_state/media_error/buffered_end/seeking），只入账本与日志、
+  零自动处置。此前两事件只经通用 `media.${type}` 拼接通道入账，
+  无字面名、无载荷。内存压力在本 WebView 环境**无可用信号**
+  （WKWebView/WebKit 不向页面 JS 暴露压力事件，`performance.memory`/
+  `deviceMemory` 仅 Chromium 系用量仪表、非事件源，Tauri 桥无原生
+  内存警告暴露）：`installPlaybackPageEvents` 只落一行
+  `memory.signal_check` 能力查实记录（`pressure_event_available`
+  恒 false），不编造事件源、不轮询。回归见
+  `fix330-diag-hold-stall-signals.contract.test.ts`。
 
 ## 验证命令
 

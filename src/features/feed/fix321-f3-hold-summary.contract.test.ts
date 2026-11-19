@@ -26,14 +26,18 @@ import { summarizeHoldEvents } from "./holdJank.ts";
 
 /* 账本形态（LedgerEvent 全形态：seq/ts/monoMs/name/instanceId/data）：
  * release_profile ×3（接管 2＋直通 1）、jank ×3（接管 1＋直通 2），
- * 与 3.2.0 真机账本尾段同构（player-1, gen=0）。 */
+ * 与 3.2.0 真机账本尾段同构（player-1, gen=0）。jank 行带采样器落行
+ * 原样的尾窗分布载荷（断言适配，3.3.0 批诊断标尺线：聚合改判读载荷
+ * 后，无载荷行不再计卡顿——本夹具的 jank 行本就是真卡顿形态，载荷
+ * 取尾窗 max 132ms／post_over50 2 的整帧冻结量级，计数口径不变）。 */
+const jankPayload = { over33: 5, over50: 3, max_gap_ms: 140, post_over33: 3, post_over50: 2, post_max_gap_ms: 132 };
 const ledgerEvents = [
   { seq: 41, ts: "2026-11-19T10:04:31.000Z", monoMs: 61000, name: "hold.release_profile", instanceId: "player-1", data: { generation: 0, sr_engaged: true, pipeline: "webgpu" } },
-  { seq: 42, ts: "2026-11-19T10:04:33.000Z", monoMs: 63000, name: "hold.jank", instanceId: "player-1", data: { generation: 0, sr_engaged: true, pipeline: "webgpu" } },
+  { seq: 42, ts: "2026-11-19T10:04:33.000Z", monoMs: 63000, name: "hold.jank", instanceId: "player-1", data: { generation: 0, sr_engaged: true, pipeline: "webgpu", ...jankPayload } },
   { seq: 55, ts: "2026-11-19T10:05:02.000Z", monoMs: 92000, name: "hold.release_profile", instanceId: "player-1", data: { generation: 0, sr_engaged: true, pipeline: "webgpu" } },
   { seq: 71, ts: "2026-11-19T10:06:10.000Z", monoMs: 160000, name: "hold.release_profile", instanceId: "player-1", data: { generation: 0, sr_engaged: false, pipeline: "none" } },
-  { seq: 72, ts: "2026-11-19T10:06:12.000Z", monoMs: 162000, name: "hold.jank", instanceId: "player-1", data: { generation: 0, sr_engaged: false, pipeline: "none" } },
-  { seq: 73, ts: "2026-11-19T10:06:20.000Z", monoMs: 170000, name: "hold.jank", instanceId: "player-1", data: { generation: 0, sr_engaged: false, pipeline: "none" } },
+  { seq: 72, ts: "2026-11-19T10:06:12.000Z", monoMs: 162000, name: "hold.jank", instanceId: "player-1", data: { generation: 0, sr_engaged: false, pipeline: "none", ...jankPayload } },
+  { seq: 73, ts: "2026-11-19T10:06:20.000Z", monoMs: 170000, name: "hold.jank", instanceId: "player-1", data: { generation: 0, sr_engaged: false, pipeline: "none", ...jankPayload } },
   /* 无 sr_engaged 显式布尔的 hold 事件：不入桶、不推断 */
   { seq: 80, ts: "2026-11-19T10:07:00.000Z", monoMs: 210000, name: "hold.jank", instanceId: "player-1", data: { generation: 0 } },
   /* 无关事件：忽略 */
@@ -42,8 +46,8 @@ const ledgerEvents = [
 
 {
   const hs = summarizeHoldEvents(ledgerEvents);
-  assert.deepEqual(hs.engaged, { holds: 2, janks: 1 }, "SR 接管组：release_profile ×2、jank ×1");
-  assert.deepEqual(hs.bypass, { holds: 1, janks: 2 }, "判档直通组：release_profile ×1、jank ×2");
+  assert.deepEqual(hs.engaged, { holds: 2, janks: 1, hesitations: 0, over33: 5, over50: 3, maxGapMs: 140, postOver33: 3, postOver50: 2, postMaxGapMs: 132 }, "SR 接管组：release_profile ×2、真卡顿 jank ×1");
+  assert.deepEqual(hs.bypass, { holds: 1, janks: 2, hesitations: 0, over33: 10, over50: 6, maxGapMs: 140, postOver33: 6, postOver50: 4, postMaxGapMs: 132 }, "判档直通组：release_profile ×1、真卡顿 jank ×2");
 }
 
 /* 旧数据源形态（播放日志落盘行经 parseLog 后的 event 键＋web. 前缀）
@@ -52,7 +56,8 @@ const ledgerEvents = [
 {
   const logShaped = ledgerEvents.map(e => ({ event: `web.${e.name}`, data: e.data }));
   const hs = summarizeHoldEvents(logShaped);
-  assert.deepEqual(hs, { engaged: { holds: 0, janks: 0 }, bypass: { holds: 0, janks: 0 } }, "播放日志形态（web. 前缀）恒 0：旧数据源不可用");
+  const emptyBucket = { holds: 0, janks: 0, hesitations: 0, over33: 0, over50: 0, maxGapMs: null, postOver33: 0, postOver50: 0, postMaxGapMs: null };
+  assert.deepEqual(hs, { engaged: emptyBucket, bypass: emptyBucket }, "播放日志形态（web. 前缀）恒 0：旧数据源不可用");
 }
 
 /* ② 数据源接线：报告汇总节必须以账本快照事件为 summarizeHoldEvents

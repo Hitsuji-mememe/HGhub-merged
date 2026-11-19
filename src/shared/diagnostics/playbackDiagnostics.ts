@@ -4,6 +4,7 @@ import type Hls from "hls.js";
 import type { FragBufferedData, FragLoadedData, FragLoadingData, HlsListeners } from "hls.js";
 import { copyText } from "../lib/clipboard";
 import { createLedgerBinding, type LedgerBinding } from "./eventLedger";
+import { mediaLifecycleTraceData, memoryPressureSignalCheck } from "./mediaLifecycle";
 
 let registeredHlsVersion: string | null = null;
 export function registerHlsVersion(version: string) {
@@ -243,7 +244,26 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
       const p = pending.current;
       if (e.type === "seeking" && p) p.seeks++;
       if (e.type === "seeked" && p) p.seeked = true;
-      emit(`media.${e.type}`, p ? { seek: p.id, target: round(p.target), elapsed_ms: Math.round(performance.now() - p.start), seeking_events: p.seeks } : {});
+      const seekData = p ? { seek: p.id, target: round(p.target), elapsed_ms: Math.round(performance.now() - p.start), seeking_events: p.seeks } : {};
+      /* 停滞判读专用埋点（Muse 2026-11-19 3.3.0批诊断标尺线）：
+       * emptied/abort 是 append 停滞候选 5 的判读信号，此前只经下方
+       * 通用拼接通道入账（无字面名、无判读载荷）。现给字面名专用
+       * 分支＋生命周期载荷（mediaLifecycleTraceData），仍走同一 emit
+       * （账本＋日志同源、恰一次），不接任何恢复/降级处置；装配点
+       * 即本 effect——两播放面经 usePlaybackKernel 共用本 hook，video
+       * 元素随组件挂载/卸载同生命周期，元素重挂即重新装配。 */
+      if (e.type === "emptied" || e.type === "abort") {
+        let bufferedEnd: number | null = null;
+        try { if (v.buffered.length > 0) bufferedEnd = round(v.buffered.end(v.buffered.length - 1)); } catch { /* 元素拆除中 */ }
+        const lifecycle = mediaLifecycleTraceData({
+          readyState: v.readyState, networkState: v.networkState,
+          errorCode: v.error?.code ?? null, bufferedEnd, seeking: v.seeking,
+        });
+        if (e.type === "emptied") emit("media.emptied", { ...seekData, ...lifecycle });
+        else emit("media.abort", { ...seekData, ...lifecycle });
+      } else {
+        emit(`media.${e.type}`, seekData);
+      }
       if (e.type === "seeked") {
         if (frame != null) v.cancelVideoFrameCallback?.(frame);
         if (v.paused && v.readyState >= 2) finish("paused_ready");
@@ -358,4 +378,14 @@ export function installPlaybackPageEvents() {
   document.addEventListener("visibilitychange", () => tracePlayback("page.visibility", { visibility: document.visibilityState }));
   window.addEventListener("pagehide", () => { tracePlayback("page.hide"); void flushPlaybackLog(); });
   document.addEventListener("securitypolicyviolation", e => tracePlayback("security.csp_violation", { directive: e.effectiveDirective, disposition: e.disposition, resource: mediaResource(e.blockedURI) }));
+  /* 内存压力信号查实记录（Muse 2026-11-19 3.3.0批诊断标尺线）：
+   * 本 WebView 环境无可用内存压力事件源（查实结论与依据见
+   * mediaLifecycle.ts 头注）——只落一行 memory.signal_check 供报告
+   * 判读「候选 5 为何仍不可判」，不编造事件源、不轮询、不处置。 */
+  try {
+    tracePlayback("memory.signal_check", memoryPressureSignalCheck({
+      performanceMemory: typeof performance !== "undefined" && "memory" in performance,
+      deviceMemory: typeof navigator !== "undefined" && "deviceMemory" in navigator,
+    }));
+  } catch { /* 诊断旁路，不挡启动 */ }
 }

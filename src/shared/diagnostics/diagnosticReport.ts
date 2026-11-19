@@ -761,8 +761,16 @@ try {
 const holdEvents = ledgerSnapshot().events;
 const hs = summarizeHoldEvents(holdEvents);
 lines.push("── 长按松手分组（SR 接管 vs 判档直通）──");
-lines.push(`SR 接管：长按 ${hs.engaged.holds} 次 · 松手卡顿 ${hs.engaged.janks} 次`);
-lines.push(`判档直通：长按 ${hs.bypass.holds} 次 · 松手卡顿 ${hs.bypass.janks} 次`);
+/* 标尺口径（Muse 2026-11-19 3.3.0批诊断标尺线）：卡顿/顿帧计数由
+ * 聚合器判读尾窗分布载荷（post_max_gap_ms > 66 或 post_over50 > 0
+ * 计卡顿；未达判据但尾窗 >33ms 计顿帧），不再把采样行数直标卡顿；
+ * 原始分布汇总紧随其后照印，剖面分段呈现（fix322/sr）不动。 */
+lines.push(`SR 接管：长按 ${hs.engaged.holds} 次 · 松手卡顿 ${hs.engaged.janks} 次 · 顿帧 ${hs.engaged.hesitations} 次`);
+lines.push(`判档直通：长按 ${hs.bypass.holds} 次 · 松手卡顿 ${hs.bypass.janks} 次 · 顿帧 ${hs.bypass.hesitations} 次`);
+const distText = (b: typeof hs.engaged): string =>
+`期间 over33 ${b.over33} · over50 ${b.over50} · max ${b.maxGapMs === null ? "—" : `${b.maxGapMs}ms`} · 尾窗 over33 ${b.postOver33} · over50 ${b.postOver50} · max ${b.postMaxGapMs === null ? "—" : `${b.postMaxGapMs}ms`}`;
+if (hs.engaged.maxGapMs !== null || hs.engaged.postMaxGapMs !== null) lines.push(`松手分布[SR 接管]：${distText(hs.engaged)}`);
+if (hs.bypass.maxGapMs !== null || hs.bypass.postMaxGapMs !== null) lines.push(`松手分布[判档直通]：${distText(hs.bypass)}`);
 /* 判读面补齐（fix322/sr）：旧节只印桶计数，release_profile 的分段
  * 值从不进报告——账本尾段又被播放器心跳挤出导出窗，报告侧实际判
  * 读不了松手帧成本落在哪一段（首帧/SR 尝试/SR 呈现/主线程长任务）。

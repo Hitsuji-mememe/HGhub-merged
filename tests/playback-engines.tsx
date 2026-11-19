@@ -1141,12 +1141,15 @@ function run() {
       | undefined;
     results.hp2_agg_exists = typeof agg === "function";
     if (agg) {
+      /* 断言适配（3.3.0 批诊断标尺线）：聚合改判读尾窗载荷，jank 行
+       * 补采样器落行原样的真卡顿载荷，分桶计数口径不变。 */
+      const jankPayload = { over33: 5, over50: 3, max_gap_ms: 140, post_over33: 3, post_over50: 2, post_max_gap_ms: 132 };
       results.hp2_agg_counts = agg([
         { name: "hold.release_profile", data: { sr_engaged: true } },
-        { name: "hold.jank", data: { sr_engaged: true } },
-        { name: "hold.jank", data: { sr_engaged: true } },
+        { name: "hold.jank", data: { sr_engaged: true, ...jankPayload } },
+        { name: "hold.jank", data: { sr_engaged: true, ...jankPayload } },
         { event: "hold.release_profile", data: { sr_engaged: false } },
-        { name: "hold.jank", data: { sr_engaged: false } },
+        { name: "hold.jank", data: { sr_engaged: false, ...jankPayload } },
         { name: "hold.jank", data: {} },
         { name: "media.first_frame", data: { sr_engaged: true } },
       ]);

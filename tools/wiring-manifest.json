@@ -1359,6 +1359,53 @@
       ],
       "symbol": "hghubx_adapter_params_v1",
       "min": 1
+    },
+    {
+      "id": "fix330-diag-hold-ruler",
+      "item": "3.3.0批诊断标尺线 卡顿标尺顿帧档 hesitations（聚合器判读尾窗载荷计档＋报告汇总行消费）：卡顿/顿帧并列、采样器零改动",
+      "files": [
+        "src/features/feed/holdJank.ts",
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "symbol": "hesitations",
+      "min": 3
+    },
+    {
+      "id": "fix330-diag-hold-media-emptied",
+      "item": "3.3.0批诊断标尺线 video emptied 专用埋点 media.emptied（usePlayerDiagnostics 字面名分支＋生命周期判读载荷，两播放面经共用内核同装配）",
+      "files": [
+        "src/shared/diagnostics/playbackDiagnostics.ts"
+      ],
+      "symbol": "media.emptied",
+      "min": 1
+    },
+    {
+      "id": "fix330-diag-hold-media-abort",
+      "item": "3.3.0批诊断标尺线 video abort 专用埋点 media.abort（同 emptied 装配点，只入账本零处置）",
+      "files": [
+        "src/shared/diagnostics/playbackDiagnostics.ts"
+      ],
+      "symbol": "media.abort",
+      "min": 1
+    },
+    {
+      "id": "fix330-diag-hold-memory-signal",
+      "item": "3.3.0批诊断标尺线 内存压力信号查实记录 memory.signal_check（installPlaybackPageEvents 落行：本 WebView 无可用压力事件源、只记能力不编造事件）",
+      "files": [
+        "src/shared/diagnostics/playbackDiagnostics.ts"
+      ],
+      "symbol": "memory.signal_check",
+      "min": 1
+    },
+    {
+      "id": "fix330-diag-hold-lifecycle-data",
+      "item": "3.3.0批诊断标尺线 生命周期判读载荷纯函数 mediaLifecycleTraceData（定义＋playbackDiagnostics 专用埋点消费）",
+      "files": [
+        "src/shared/diagnostics/mediaLifecycle.ts",
+        "src/shared/diagnostics/playbackDiagnostics.ts"
+      ],
+      "symbol": "mediaLifecycleTraceData",
+      "min": 2
     }
   ]
 }

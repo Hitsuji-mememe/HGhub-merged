@@ -308,7 +308,7 @@ try {
   check("HP2 HLS rebuilt during window flagged", r.hp2_hls_rebuilt, true);
   check("HP2 HLS id is release-time instance", r.hp2_hls_id, "hls-1");
   check("HP2 aggregator exists", r.hp2_agg_exists, true);
-  check("HP2 aggregator buckets by explicit sr_engaged only", r.hp2_agg_counts, { engaged: { holds: 1, janks: 2 }, bypass: { holds: 1, janks: 1 } });
+  check("HP2 aggregator buckets by explicit sr_engaged only", r.hp2_agg_counts, { engaged: { holds: 1, janks: 2, hesitations: 0, over33: 10, over50: 6, maxGapMs: 140, postOver33: 6, postOver50: 4, postMaxGapMs: 132 }, bypass: { holds: 1, janks: 1, hesitations: 0, over33: 5, over50: 3, maxGapMs: 140, postOver33: 3, postOver50: 2, postMaxGapMs: 132 } });
   check("HP silent release (no frames) dropped", r.hp_silent_release_dropped, 0);
 
   await page.waitForFunction(() => (window).__seekArb !== undefined, null, { timeout: 20000 });
