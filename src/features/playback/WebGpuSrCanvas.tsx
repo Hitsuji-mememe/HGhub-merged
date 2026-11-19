@@ -115,20 +115,28 @@ export default function WebGpuSrCanvas({
      * 本组件只提供引擎 stats。 */
     let publishStatsFn: ((force?: boolean) => void) | null = null;
     let statsTimer = 0;
-    /* 松手解耦（最终版 B 线任务 3）：倍速退出 ≥2x 域后的第一个帧
-     * 周期不跑 SR 处理——processFrame 的同步 GPU ingest/编码与 1x
-     * 首帧呈现在主线程上串行竞争，让开一帧使视频本体先稳定呈现，
-     * 画布保留上一帧 SR 结果不闪；第二帧起恢复逐帧处理。效果由
-     * hold.release_profile 剖面在真机判读（本地不可复现 WebGPU
-     * 时序，代码就绪未验证）。 */
-    let releaseSkip = false;
+    /* 松手帧口径（fix322/sr，取代 B 线 releaseSkip）：旧实现松手后
+     * 跳过一个帧周期的 SR 处理「让视频本体先稳定呈现」——但本画布
+     * 是不透明覆盖层（呈现后 opacity=1、整幅 clear＋全屏三角），视
+     * 频本体在画布之下根本不可见，让行对象不存在；被跳过的周期里
+     * 用户看到的是冻结的旧 SR 帧，且该周期恰是速率切换后帧队列重
+     * 定时的延迟周期，两段延迟在松手帧上叠加。现行：松手不跳帧，
+     * 首个 1x 帧照常处理；ratechange 只记松手时刻 lastReleaseAt，
+     * 供剖面 SR 呈现时刻的归属判定（见 pendingSrAttemptAt）。 */
+    let lastReleaseAt = -1;
     let prevRate = video.playbackRate;
     const onRateChange = () => {
       const now = video.playbackRate;
-      if (prevRate >= 2 && now < 2) releaseSkip = true;
+      if (prevRate >= 2 && now < 2) lastReleaseAt = performance.now();
       prevRate = now;
     };
     video.addEventListener("ratechange", onRateChange);
+    /* SR 呈现时刻归属（fix322/sr）：引擎在飞帧唯一（inFlight 串行），
+     * pendingSrAttemptAt 恒为在飞帧的提交时刻；其完成回调到达时，
+     * 提交发生在最近一次松手之后才把完成时刻记为剖面 SR 呈现——
+     * 呈现口径＝GPU 工作落定（可合成），不是 processFrame 同步返回
+     * 的提交时刻（旧口径下 GPU 侧停顿对剖面不可见）。 */
+    let pendingSrAttemptAt = -1;
     setPresented(false);
     presentedRef.current = false;
     setDegrade(0);
@@ -142,7 +150,18 @@ export default function WebGpuSrCanvas({
     const start = async () => {
       const probe = getSrProbeResult();
       const path = probe?.recommendedPath ?? "copy";
-      const engine = await WebGpuSrEngine.create(canvas, { path, onLost: die, onDegrade: (d) => { if (!cancelled) setDegrade(d); publishStatsFn?.(); } });
+      const engine = await WebGpuSrEngine.create(canvas, {
+        path,
+        onLost: die,
+        onDegrade: (d) => { if (!cancelled) setDegrade(d); publishStatsFn?.(); },
+        /* 帧完成→剖面 SR 呈现（fix322/sr）：归属判定见 pendingSrAttemptAt。 */
+        onFrameDone: (_submittedAt, doneAt) => {
+          if (pendingSrAttemptAt >= 0 && pendingSrAttemptAt >= lastReleaseAt) {
+            noteHoldSrPresent(doneAt);
+          }
+          pendingSrAttemptAt = -1;
+        },
+      });
       if (cancelled) {
         engine?.destroy();
         return;
@@ -187,11 +206,7 @@ export default function WebGpuSrCanvas({
           return;
         }
         const pausedStill = video.paused && Math.abs(video.currentTime - lastMediaTime) < 0.001;
-        if (releaseSkip) {
-          /* 松手首帧让行：本周期不处理（见上方 releaseSkip 注释），
-           * 帧循环照常续排，下一帧恢复 SR 处理并记剖面 attempt。 */
-          releaseSkip = false;
-        } else if (activeRef.current && readyRef.current && video.videoWidth > 0 && !pausedStill) {
+        if (activeRef.current && readyRef.current && video.videoWidth > 0 && !pausedStill) {
           const cw = canvas.width;
           const ch = canvas.height;
           let dst: [number, number, number, number] = [0, 0, 1, 1];
@@ -213,11 +228,14 @@ export default function WebGpuSrCanvas({
           /* 帧预算按倍速核销（fin-e2 条目 2）：srFrameBudgetMs 把
            * playbackRate 纳入预算，1.25x/1.5x 不再被旧 1000/fps 误判
            * 超标；呈现档 mode 同步入引擎（fin-e2 条目 3 两档差异）。
-           * 松手剖面（B 线）：attempt/present 时刻经 holdJank 总线入账。 */
+           * 松手剖面（B 线＋fix322/sr 口径）：attempt 在提交前记；
+           * present 不在此记——processFrame 返回只是提交完成，呈现
+           * 时刻由引擎 onFrameDone 在工作落定时以 doneAt 回报。 */
           const intervalMs = srFrameBudgetMs(fps, video.playbackRate);
-          noteHoldSrAttempt(performance.now());
+          const attemptAt = performance.now();
+          noteHoldSrAttempt(attemptAt);
           const did = eng.processFrame(video, intervalMs, { dst, src, mode: srPresentModeFor(modeRef.current) });
-          if (did) noteHoldSrPresent(performance.now());
+          if (did) pendingSrAttemptAt = attemptAt;
           if (did) lastMediaTime = video.currentTime;
           if (did && !presentedRef.current) {
             /* 首帧呈现：只置 presented＋记 trace；呈现档回报收敛到

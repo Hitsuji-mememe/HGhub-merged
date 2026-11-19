@@ -746,10 +746,34 @@ try {
  * release_profile/jank ×3、汇总却报 0。账本事件无 pid、会话内不再
  * 分段，口径＝本会话保留窗全集（最近 512 条），与报告头留存范围
  * 一致；回归见 fix321-f3-hold-summary.contract.test.ts。 */
-const hs = summarizeHoldEvents(ledgerSnapshot().events);
+const holdEvents = ledgerSnapshot().events;
+const hs = summarizeHoldEvents(holdEvents);
 lines.push("── 长按松手分组（SR 接管 vs 判档直通）──");
 lines.push(`SR 接管：长按 ${hs.engaged.holds} 次 · 松手卡顿 ${hs.engaged.janks} 次`);
 lines.push(`判档直通：长按 ${hs.bypass.holds} 次 · 松手卡顿 ${hs.bypass.janks} 次`);
+/* 判读面补齐（fix322/sr）：旧节只印桶计数，release_profile 的分段
+ * 值从不进报告——账本尾段又被播放器心跳挤出导出窗，报告侧实际判
+ * 读不了松手帧成本落在哪一段（首帧/SR 尝试/SR 呈现/主线程长任务）。
+ * 现印最近 3 条剖面分段＋两桶松手尾窗最大帧间隔（hold.jank 的
+ * post_max_gap_ms），量级在报告内可直接判读。 */
+const msOr = (v: unknown): string => { const n = num(v); return n === null ? "—" : `${n}ms`; };
+for (const p of holdEvents.filter(e => e.name === "hold.release_profile").slice(-3)) {
+const d = p.data ?? {};
+const bucket = d.sr_engaged === true ? "SR 接管" : d.sr_engaged === false ? "判档直通" : "未标记";
+lines.push(`松手剖面[${bucket}]：首帧 ${msOr(d.release_to_first_frame_ms)} · SR 尝试 ${msOr(d.release_to_sr_attempt_ms)} · 尝试→呈现 ${msOr(d.sr_attempt_to_present_ms)} · SR 呈现 ${msOr(d.release_to_sr_present_ms)} · 长任务max ${msOr(d.longtask_max_ms)}`);
+}
+const worstPostGap = (engaged: boolean): number | null => {
+let worst: number | null = null;
+for (const e of holdEvents) {
+if (e.name !== "hold.jank" || e.data?.sr_engaged !== engaged) continue;
+const g = num(e.data?.post_max_gap_ms);
+if (g !== null && (worst === null || g > worst)) worst = g;
+}
+return worst;
+};
+const wgE = worstPostGap(true);
+const wgB = worstPostGap(false);
+lines.push(`松手尾窗最大帧间隔：SR 接管 ${wgE === null ? "—" : `${wgE}ms`} · 判档直通 ${wgB === null ? "—" : `${wgB}ms`}`);
 } catch {
 lines.push("长按松手分组：读取失败（纯旁路，不影响本报告其余内容）");
 }
