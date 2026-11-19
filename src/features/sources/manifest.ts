@@ -29,7 +29,7 @@ export const REMOTE_MANIFEST_URL = "https://hghub-registry.pages.dev/sources-man
 export const MANIFEST_CACHE_KEY = "hghubx_sources_manifest_last_good";
 /** 不反向依赖 shared/api（其顶层含 Tauri/navigator 副作用）：版本号由
  * resolveRegistry 入参注入，未注入时用此兜底（与 package.json 同步）。 */
-export const FALLBACK_APP_VERSION = "3.2.1";
+export const FALLBACK_APP_VERSION = "3.3.0";
 export const BUILTIN_MANIFEST_VERSION = 1;
 
 export interface ManifestSourceOverride {
