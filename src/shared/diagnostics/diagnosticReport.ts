@@ -18,7 +18,8 @@
 import { api, APP_VERSION, BUILD_STAMP, hostOf, platform} from "../api/api";
 import { autoLineEnabled, lastPickRound, recentPickRounds} from "../network/autoLine";
 import { nativeFallbackState} from "../../features/playback/mediaTransport";
-import { playbackLogApi} from "./playbackDiagnostics";
+import { flushPlaybackLog, playbackLogApi} from "./playbackDiagnostics";
+import { ledgerPlaybackEvidence, selectFlowSegment } from "./flowSegments";
 import { readPlaybackFacts, type PlaybackFacts } from "./playbackFacts";
 import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot, validateLedgerIntegrity} from "./eventLedger";
@@ -138,8 +139,14 @@ fellBack: boolean;
 };
 
 export function analyzeFlow(entries: LogEntry[]): FlowResult | null {
-const lastPid = entries.length? entries[entries.length - 1].pid: null;
-const sessionEntries = lastPid == null? entries: entries.filter(e => e.pid === lastPid);
+/* 选段（Muse 2026-11-19 3.2.1修复F3b线）：旧口径只取最后一行 pid
+ * 的段——读到窗口的尾段 pid 不是当前播放段时（轮转/导出裁剪/debug
+ * 行混入），段内无 source.load 即整体返回 null、报告假报「无记
+ * 录」，与同窗完整播放段和账本 media.playing 打架（3.2.0 第二份真
+ * 机诊断实锤）。现经 selectFlowSegment 取最新含 load 的段；全窗无
+ * load 时回落最后 pid 段（仍为 null），由报告层结合账本证据明示
+ * 通道状态。回归见 fix321-f3b-diagnostic-summary.contract.test.ts。 */
+const sessionEntries = selectFlowSegment(entries);
 /* 流水与逐次共用同一套分段（fix2 A4）：旧版流水取全日志最后一次
  * load 起的 tail（不分进程/实例），逐次却按 pid 分段——同一份报告
  * 里 append 偏移可来自另一个实例，与 playing 互相打架（真机实锤：
@@ -351,6 +358,9 @@ export async function buildFullDiagnosticExport(): Promise<string> {
   const report = await buildDiagnosticReport();
   let logTail = "（日志读取失败）";
   try {
+    /* 读前 flush（F3b 线，同 buildDiagnosticReport）：日志尾必须是
+     * 含写队列在内的当前记录，不许是未落盘前的过期快照。 */
+    await flushPlaybackLog();
     const raw = await playbackLogApi.read();
     logTail = raw ? raw.slice(-8000) : "（暂无日志）";
   } catch { /* 保持失败文案 */ }
@@ -387,6 +397,12 @@ export async function buildFullDiagnosticExport(): Promise<string> {
 }
 
 export async function buildDiagnosticReport(): Promise<string> {
+/* 读日志前先 flush 写队列（Muse 2026-11-19 3.2.1修复F3b线）：
+ * tracePlayback 是 250ms 批量落盘，报告直接 read 会读到未含最近
+ * 事件的过期快照——当前播放段可能整段还在队列里。copyPlaybackLog
+ * 一直是 flush 后读，报告侧此前漏了这一步。flush 失败不挡报告，
+ * 后续读取按既有降级口径走。 */
+await flushPlaybackLog().catch(() => { /* 降级：按读取结果如实明示 */ });
 const [diagR, lineStateR, logR, proxyStateR] = await Promise.allSettled([
 api.netDiag(),
 api.lineState(),
@@ -466,6 +482,15 @@ const flow = entries.length? analyzeFlow(entries): null;
  * 记录时误导判读。报告必须能自证记录通道是否活着。 */
 const logReadFailed = logR.status !== "fulfilled";
 const logEmpty = !logReadFailed && entries.length === 0;
+/* 账本交叉核对（Muse 2026-11-19 3.2.1修复F3b线）：播放事实在日志
+ * 与账本两套存储都有记录，汇总不许只因日志一侧无完整段就报「无记
+ * 录」——flow 为空时先看账本证据：账本有播放则结论/流水/降级三处
+ * 按日志状态明示体系写清通道状态（日志无完整播放段），账本也无
+ * 播放才成立「无最近播放记录」。账本读取失败只降级本核对（证据
+ * 按无计），不拖垮报告。 */
+let ledgerEvidence = { hasPlayback: false, stallCount: 0 };
+try { ledgerEvidence = ledgerPlaybackEvidence(ledgerSnapshot().events); } catch { /* 证据缺失按无计 */ }
+const flowMissingButPlaying = flow == null && !logReadFailed && !logEmpty && ledgerEvidence.hasPlayback;
 const fallback = nativeFallbackState();
 const facts = readPlaybackFacts();
 
@@ -512,7 +537,7 @@ lines.push(`分片吞吐：${speedText}`);
 const startupNote = flow == null || flow.startupMs == null
 ? (flow && flow.plays.length? " · 起播统计不完整（缺首帧/playing 信号）": "")
 : ` · 起播约 ${(flow.startupMs / 1000).toFixed(1)}s${flow.startupBasis === "playing"? "（以 playing 代首帧）": ""}`;
-lines.push(`最近播放：${logReadFailed? "未知（诊断日志读取失败）": logEmpty? "未知（诊断日志为空——记录未启动或未写入）": flow? `${flow.verdict}${startupNote}`: "无最近播放记录"}`);
+lines.push(`最近播放：${logReadFailed? "未知（诊断日志读取失败）": logEmpty? "未知（诊断日志为空——记录未启动或未写入）": flow? `${flow.verdict}${startupNote}`: flowMissingButPlaying? "未知（诊断日志无完整播放段——事件账本显示本会话有播放，流水通道与账本不一致）": "无最近播放记录"}`);
 /* 本会话逐次汇总（复审批 §6）：只看最近一次会把前面的失败藏掉——
  * 频繁切换的用户要先看全会话的成败分布。unknown（未定性中断）单列、
  * 不算失败；起播中位/最慢只取干净出画，恢复耗时不混入。 */
@@ -531,6 +556,10 @@ lines.push(`本会话播放：${bits.join(" · ")}`);
 const healCounts = flow && flow.stallCount > 0? `（本会话卡死 ${flow.stallCount} 次 · 自愈重建 ${flow.rebuildCount} 次 · 降级 ${flow.fallbackCount} 次 · 最近卡死形态：${flow.lastStallState? STALL_STATE_LABEL[flow.lastStallState] ?? flow.lastStallState: "未记录"}）`: "";
 if (fallback || flow?.fallbackThisSession) lines.push(`会话降级：本会话已降级原生播放（append 停滞）${healCounts}`);
 else if (flow?.stalledThisSession) lines.push(`会话降级：发生过 append 卡死、已自愈重建（未降级）${healCounts}`);
+/* 日志无完整段时降级结论改认账本卡死计数（F3b 线）：不许在账本明明
+ * 有 append 卡死时报「未发生」；账本亦无卡死且原生降级态为假，
+ * 「未发生」才有两套存储共同支撑。 */
+else if (flowMissingButPlaying && ledgerEvidence.stallCount > 0) lines.push(`会话降级：发生过 append 卡死、已自愈重建（未降级）（本会话卡死 ${ledgerEvidence.stallCount} 次——据事件账本，诊断日志无完整播放段）`);
 else lines.push("会话降级：未发生");
 /* 镜像覆盖（整改 2）：复用最近一轮自动选线的探测结果（10 分钟内），
  * 不为生成报告重测；无近期轮次时只报固定+当前延迟（上方各线延迟行）。
@@ -646,7 +675,7 @@ else lines.push("源健康：未接（注册表健康 provider 未注册）");
 }
 lines.push("");
 lines.push("── 最近一次播放流水 ──────────────");
-lines.push(flow? flow.table: logReadFailed? "（诊断日志读取失败——本次无法提供播放流水）": logEmpty? "（诊断日志为空——记录可能未成功开启）": "（无记录）");
+lines.push(flow? flow.table: logReadFailed? "（诊断日志读取失败——本次无法提供播放流水）": logEmpty? "（诊断日志为空——记录可能未成功开启）": flowMissingButPlaying? "（诊断日志无完整播放段——事件账本显示本会话有播放，本次无法提供播放流水）": "（无记录）");
 /* 起播阶段增量表（audit6 诊断节）：绝对偏移看不出哪段吃时间，
  * 相邻增量一眼定位慢环。 */
 if (flow?.stageIncrements) lines.push(`阶段增量：${flow.stageIncrements}`);

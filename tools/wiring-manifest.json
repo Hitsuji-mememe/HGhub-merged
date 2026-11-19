@@ -915,6 +915,45 @@
       ],
       "symbol": "列表确为空",
       "each": true
+    },
+    {
+      "id": "fix321-f3b-flow-segment-fallback",
+      "item": "3.2.1修复F3b线 流水选段 selectFlowSegment（定义＋analyzeFlow 消费）：取最新含 source.load 的 pid 段，不被尾段 pid 绑架",
+      "files": [
+        "src/shared/diagnostics/flowSegments.ts",
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "symbol": "selectFlowSegment",
+      "min": 3
+    },
+    {
+      "id": "fix321-f3b-flush-before-read",
+      "item": "3.2.1修复F3b线 报告/全量导出读播放日志前先 flush 写队列（两处读点）",
+      "files": [
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "symbol": "await flushPlaybackLog()",
+      "min": 2
+    },
+    {
+      "id": "fix321-f3b-ledger-evidence-disclosure",
+      "item": "3.2.1修复F3b线 账本交叉核对 ledgerPlaybackEvidence（定义＋报告消费）：日志无完整段但账本有播放时明示通道状态，不假报无记录",
+      "files": [
+        "src/shared/diagnostics/flowSegments.ts",
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "symbol": "ledgerPlaybackEvidence",
+      "min": 3
+    },
+    {
+      "id": "fix321-f3b-source-fetch-counts",
+      "item": "3.2.1修复F3b线 源总览计数 countFetchStates（定义＋registryDiag 消费）：成功/失败/未发生/记录缺失四计数之和＝源总数",
+      "files": [
+        "src/features/sources/fetchCounts.ts",
+        "src/features/sources/registryDiag.ts"
+      ],
+      "symbol": "countFetchStates",
+      "min": 3
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",
