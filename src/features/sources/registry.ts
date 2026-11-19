@@ -121,10 +121,10 @@ export const BUILTIN_SOURCES: SourceDef[] = [
   },
   {
     id: "cosplaytele", displayName: "CosplayTele", kind: "image", category: "image",
-    adapter: { template: "hls-site", params: { listPath: "/page/{page}/", itemLinkPattern: "/cosplay/", detailPath: "/cosplay/{id}/" } },
+    adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
     baseUrls: ["https://cosplaytele.com"],
-    enabled: true, order: 42, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用图集模板实例化；未真站实测",
+    enabled: true, order: 42, maturity: "stable",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：本站为 WP 站、/wp-json/wp/v2/posts 列表实测可达、详情正文实测 103 张图（图集型、wp-rest detail.images 承接）；原 HTML slug 列表参数作废",
   },
   {
     id: "danbooru", displayName: "Danbooru", kind: "image", category: "image",
