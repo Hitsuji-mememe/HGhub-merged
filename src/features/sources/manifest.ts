@@ -5,21 +5,12 @@
  * 清单只做覆盖层：按 id 覆盖 enabled（熔断位，可远程下线）与 baseUrls，
  * 不新增/删除源（名单冻结在内置注册表）。schema 校验不过即整份丢弃；
  * minAppVersion 高于当前 App 版本的清单不生效。
- * fix321-F8 起另有 adapterParams 参数下发（仅 hls-site）：其校验/应用/
- * 回滚状态机在 adapterParams.ts，参数非法只丢该条目参数（不整份丢）。
  *
  * getRegistryInfo() 导出路径：src/features/sources/manifest.ts
  * （诊断线接线点：版本号 + 每源生效 origin + 数据来源）。
  */
 import { BUILTIN_SOURCES, getBuiltinRegistry } from "./registry.ts";
 import type { SourceDef } from "./types.ts";
-import {
-  fingerprintParams,
-  isParamsVersionRejected,
-  recordAppliedParams,
-  validateAdapterParams,
-  type AdapterParams,
-} from "./adapterParams.ts";
 
 /** 远程清单 URL：全仓唯一集中点，改地址只改这一行。
  * 2026-11-19 最终版 D 线改址：旧 hghubx.pages.dev 项目不存在（DNS 不
@@ -29,20 +20,13 @@ export const REMOTE_MANIFEST_URL = "https://hghub-registry.pages.dev/sources-man
 export const MANIFEST_CACHE_KEY = "hghubx_sources_manifest_last_good";
 /** 不反向依赖 shared/api（其顶层含 Tauri/navigator 副作用）：版本号由
  * resolveRegistry 入参注入，未注入时用此兜底（与 package.json 同步）。 */
-export const FALLBACK_APP_VERSION = "3.2.1";
+export const FALLBACK_APP_VERSION = "3.2.0";
 export const BUILTIN_MANIFEST_VERSION = 1;
 
 export interface ManifestSourceOverride {
   id: string;
   enabled?: boolean;
   baseUrls?: string[];
-  /** 清单参数下发（fix321-F8）：仅对 hls-site 模板源生效的声明式
-   * 模板参数；paramsVersion 为 per-source 参数版本（回滚防抖锚）；
-   * minAppVersion 为条目级版本门（高于当前 App 版本时仅参数不应用，
-   * enabled/baseUrls 既有覆盖不受影响）。三者任一非法 → 只丢参数。 */
-  adapterParams?: AdapterParams;
-  paramsVersion?: number;
-  minAppVersion?: string;
 }
 
 export interface SourcesManifest {
@@ -79,28 +63,7 @@ export function validateManifest(raw: unknown): SourcesManifest | null {
        * 不经本校验、不受影响。 */
       if (!Array.isArray(entry.baseUrls) || entry.baseUrls.some((u) => typeof u !== "string" || !/^https:\/\//.test(u))) return null;
     }
-    /* adapterParams 校验（fix321-F8）：与 enabled/baseUrls 的整份丢弃
-     * 口径有别——参数非法只丢该条目参数（理由见 adapterParams.ts
-     * 文件头⑤）。paramsVersion 须为正整数、minAppVersion 须为
-     * x.y.z 形态，任一不合 → 参数整体不下发，既有覆盖照常。 */
-    let adapterParams: AdapterParams | undefined;
-    let paramsVersion: number | undefined;
-    let minAppVersion: string | undefined;
-    if (entry.adapterParams !== undefined) {
-      const validParams = validateAdapterParams(entry.adapterParams);
-      const validVersion = typeof entry.paramsVersion === "number" && Number.isInteger(entry.paramsVersion) && entry.paramsVersion > 0;
-      const validGate = entry.minAppVersion === undefined
-        || (typeof entry.minAppVersion === "string" && /^\d+\.\d+\.\d+$/.test(entry.minAppVersion));
-      if (validParams !== null && validVersion && validGate) {
-        adapterParams = validParams;
-        paramsVersion = entry.paramsVersion as number;
-        minAppVersion = entry.minAppVersion as string | undefined;
-      }
-    }
-    sources.push({
-      id: entry.id, enabled: entry.enabled as boolean | undefined, baseUrls: entry.baseUrls as string[] | undefined,
-      adapterParams, paramsVersion, minAppVersion,
-    });
+    sources.push({ id: entry.id, enabled: entry.enabled as boolean | undefined, baseUrls: entry.baseUrls as string[] | undefined });
   }
   return { manifestVersion: raw.manifestVersion, minAppVersion: raw.minAppVersion, sources };
 }
@@ -116,36 +79,16 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-export function applyManifest(builtin: SourceDef[], manifest: SourcesManifest, appVersion: string = FALLBACK_APP_VERSION): SourceDef[] {
+export function applyManifest(builtin: SourceDef[], manifest: SourcesManifest): SourceDef[] {
   const byId = new Map(manifest.sources.map((s) => [s.id, s]));
   return builtin.map((def) => {
     const over = byId.get(def.id);
     if (!over) return def;
-    let next: SourceDef = {
+    return {
       ...def,
       enabled: over.enabled !== undefined ? over.enabled : def.enabled,
       baseUrls: over.baseUrls && over.baseUrls.length ? over.baseUrls : def.baseUrls,
     };
-    /* 参数下发应用（fix321-F8）：仅 hls-site 模板、条目版本门达标、
-     * 该 paramsVersion 未被自检回滚拒绝过时，才把校验过的参数覆盖
-     * 到生效 def 的 adapter.params（未下发字段保留内置值）；生效
-     * 结果对适配器创建透明（createAdapter 读生效 def 即得新参数）。
-     * 参数不触碰 enabled/maturity。覆盖同时记已应用快照（pending，
-     * 待启动后自检验证/回滚，见 adapterParams.ts）。 */
-    if (over.adapterParams && over.paramsVersion !== undefined
-      && def.adapter.template === "hls-site"
-      && (over.minAppVersion === undefined || compareVersions(over.minAppVersion, appVersion) <= 0)
-      && !isParamsVersionRejected(def.id, over.paramsVersion)) {
-      next = { ...next, adapter: { ...next.adapter, params: { ...(def.adapter.params ?? {}), ...over.adapterParams } } };
-      recordAppliedParams({
-        sourceId: def.id,
-        paramsVersion: over.paramsVersion,
-        params: over.adapterParams,
-        appliedAt: Date.now(),
-        builtinFingerprint: fingerprintParams(def.adapter.params),
-      });
-    }
-    return next;
   });
 }
 
@@ -214,12 +157,12 @@ export async function resolveRegistry(deps?: {
     const manifest = validateManifest(await fetcher(deps?.url ?? REMOTE_MANIFEST_URL));
     if (usable(manifest) && (cachedManifest === null || manifest.manifestVersion >= cachedManifest.manifestVersion)) {
       try { storage?.setItem(MANIFEST_CACHE_KEY, JSON.stringify(manifest)); } catch { /* 缓存失败不影响本轮生效 */ }
-      return setActive({ sources: applyManifest(getBuiltinRegistry(), manifest, appVersion), manifestVersion: manifest.manifestVersion, source: "remote" });
+      return setActive({ sources: applyManifest(getBuiltinRegistry(), manifest), manifestVersion: manifest.manifestVersion, source: "remote" });
     }
   } catch { /* 远程失败 → last-good */ }
 
   if (usable(cachedManifest)) {
-    return setActive({ sources: applyManifest(getBuiltinRegistry(), cachedManifest, appVersion), manifestVersion: cachedManifest.manifestVersion, source: "last-good" });
+    return setActive({ sources: applyManifest(getBuiltinRegistry(), cachedManifest), manifestVersion: cachedManifest.manifestVersion, source: "last-good" });
   }
 
   return setActive({ sources: getBuiltinRegistry(), manifestVersion: BUILTIN_MANIFEST_VERSION, source: "builtin" });
@@ -229,29 +172,13 @@ export function getActiveRegistry(): ResolvedRegistry {
   return active;
 }
 
-/** 参数回滚生效点（fix321-F8）：把 active 注册表中该源的
- * adapter.params 复位为内置注册表原值（enabled/baseUrls 等其余
- * 生效覆盖不动）。源不在生效表/已是内置参数时返回 false。 */
-export function revertActiveSourceParams(sourceId: string): boolean {
-  const builtin = getBuiltinRegistry().find((s) => s.id === sourceId);
-  if (!builtin) return false;
-  let changed = false;
-  const sources = active.sources.map((s) => {
-    if (s.id !== sourceId) return s;
-    changed = true;
-    return { ...s, adapter: { ...s.adapter, params: builtin.adapter.params } };
-  });
-  if (changed) active = { ...active, sources };
-  return changed;
-}
-
 /** 诊断线接线：版本号 + 每源生效 origin（baseUrls 首个）+ 启用态。 */
 export function getRegistryInfo(): {
   manifestVersion: number;
   appVersion: string;
   registrySource: RegistrySource;
   builtinCount: number;
-  sources: { id: string; displayName: string; enabled: boolean; maturity: SourceDef["maturity"]; origin: string; template: string }[];
+  sources: { id: string; displayName: string; enabled: boolean; maturity: SourceDef["maturity"]; origin: string }[];
 } {
   return {
     manifestVersion: active.manifestVersion,
@@ -264,7 +191,6 @@ export function getRegistryInfo(): {
       enabled: s.enabled,
       maturity: s.maturity,
       origin: s.baseUrls[0] ?? "",
-      template: s.adapter.template,
     })),
   };
 }

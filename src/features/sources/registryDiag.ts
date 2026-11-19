@@ -16,8 +16,6 @@ import { countFetchStates } from "./fetchCounts.ts";
 import { fetchHealthSnapshot } from "./adapters/fetchHealth.ts";
 import { readPlaybackFacts } from "../../shared/diagnostics/playbackFacts.ts";
 import { getSelfCheckResults, selfCheckDiagLines, selfCheckSegmentText } from "./healthCheck.ts";
-import { adapterParamsSegmentText, classifySourceFault, getAdapterParamsState } from "./adapterParams.ts";
-import { getBuiltinRegistry } from "./registry.ts";
 
 function hostOf(url: string): string {
   try { return new URL(url).host || "?"; } catch { return "?"; }
@@ -135,14 +133,7 @@ export function sourceHealthDetailLinesInApp(): string[] {
      * 口径标注分清；无结果写「未自检」，不冒充未发生。 */
     const check = selfCheck[s.id];
     const checkText = check ? selfCheckSegmentText(check) : "未自检";
-    /* 清单参数段＋故障类标注（fix321-F8）：参数来源（清单 vN/已回滚）
-     * 只在有下发记录时呈现；故障类按 classifySourceFault 纯函数口径
-     * （参数可热修 vs 需发版）标注在自检失败源上，无故障不标。 */
-    const paramsText = adapterParamsSegmentText(s.id, getAdapterParamsState());
-    const builtinDef = getBuiltinRegistry().find((d) => d.id === s.id);
-    const faultClass = builtinDef ? classifySourceFault(builtinDef, check) : null;
-    const faultText = faultClass ? ` · 故障类：${faultClass}` : "";
-    lines.push(`源 ${s.displayName}（${s.id}）：${s.enabled ? "启用" : "停用"} · 成熟度 ${s.maturity} · 生效 ${s.origin} · ${fetchText} · ${checkText}${paramsText ? ` · ${paramsText}` : ""}${faultText}`);
+    lines.push(`源 ${s.displayName}（${s.id}）：${s.enabled ? "启用" : "停用"} · 成熟度 ${s.maturity} · 生效 ${s.origin} · ${fetchText} · ${checkText}`);
   }
   for (const h of health) {
     if (claimed.has(h.host)) continue;
