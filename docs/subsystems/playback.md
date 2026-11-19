@@ -19,6 +19,14 @@
   `onDurationTick`、`resumeRef`、`enterFs`/`exitFs`、`keepAlive`。
 - Feed 播放内核：[`src/features/playback/VideoSurface.tsx`](../../src/features/playback/VideoSurface.tsx)
   的 `VideoSurface`、`VideoHandle.seek`、`reportSize`、`handleVideoError`。
+- 共用播放内核（最终版 A 线收敛）：[`src/features/playback/usePlaybackKernel.ts`](../../src/features/playback/usePlaybackKernel.ts)
+  的 `usePlaybackKernel`——VideoSurface 与 Player 共用一份：诊断登记/注销、活动层
+  消费、全局 playing 置位、PlaybackFacts 发布、HLS 分片吞吐回写（按当前线路 base
+  记账）、SR 密度采样接入、append 看门狗接线、首分片 rendition 与呈现档/降档计数。
+  两面只留渲染与控件差异；Player 经此获得 facts 发布与吞吐回写（此前只有
+  VideoSurface 有，GPT 复审 P2-09）。HLS 观察经内核以代次捕获 trace
+  （`captureTrace`）登记：换源后旧 HLS 实例的迟到事件按起源代次被账本拒收并计
+  droppedLate，不记成新代次（P2-08）。
 - 内嵌播放器：[`src/features/playback/Player.tsx`](../../src/features/playback/Player.tsx)
   的 `Player`，以及 `PlayerControls.tsx`、`PlaybackLock.tsx`、`PlaybackProgress.tsx`。
 - 恢复与时钟：[`hlsRecovery.ts`](../../src/features/playback/hlsRecovery.ts) 的
