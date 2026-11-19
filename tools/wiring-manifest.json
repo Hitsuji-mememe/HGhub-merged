@@ -786,6 +786,33 @@
       "min": 2
     },
     {
+      "id": "fix321-f5-chain-gate",
+      "item": "3.2.1 F5线 三段齐全门判定 missingSearchSegments（定义＋searchPolicyFor 消费）",
+      "symbol": "missingSearchSegments",
+      "files": [
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f5-override-gated",
+      "item": "3.2.1 F5线 INCLUDE_OVERRIDE 只在三段门后生效（常量定义＋searchPolicyFor 门后消费）",
+      "symbol": "INCLUDE_OVERRIDE",
+      "files": [
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f5-policy-in-fanout",
+      "item": "3.2.1 F5线 扇出经 searchPolicyFor 资格过滤（定义＋fanoutSearch 过滤＋命中权重消费）",
+      "symbol": "searchPolicyFor",
+      "files": [
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 3
+    },
+    {
       "id": "fin-coord-hold-summary",
       "item": "协调接线：诊断报告长按松手分组汇总（summarizeHoldEvents 消费点）",
       "symbol": "summarizeHoldEvents",

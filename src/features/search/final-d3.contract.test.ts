@@ -4,6 +4,8 @@
  * 测试，故新增本文件——AGENTS 新增测试须经同意口径以 brief 的
  * 明确要求为据）。
  * 运行：node src/features/search/final-d3.contract.test.ts
+ * 注：扇出纳入断言已按 3.2.1 F5 三段齐全门适配（契约变更适配、
+ * 权重断言不削弱；全量名单断言在 fix321-f5.contract.test.ts）。
  * 覆盖：四页签封顶、内容性质归类、权重分层口径（总表＋每日大赛
  * 改判）、扇出聚合混排＋源名标注、单源失败/超时静默隔离、每源
  * 上限、首屏贡献上限、跨源合并置信门（多信号、宁漏勿误）＋保
@@ -61,19 +63,22 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   assert.equal(kindForSourceDef(def("51chigua")), "post", "吃瓜图文→帖子");
 }
 
-/* ── 权重分层口径（分层总表＋每日大赛 2026-11-19 改判） ── */
+/* ── 权重分层口径（分层总表＋每日大赛 2026-11-19 改判；纳入与否
+ * 另受 3.2.1 F5 三段齐全门约束：权重照落表、三段不齐不进扇出，
+ * 本段断言已按 F5 契约适配——权重不断、纳入按门，见 fix321-f5
+ * .contract.test.ts 的全量扇出名单断言） ── */
 {
   const p = (id: string) => searchPolicyFor(def(id));
-  assert.deepEqual([p("51chigua").include, p("51chigua").weight], [true, 100], "51吃瓜主力：纳入、权重最高");
-  assert.deepEqual([p("feedheiliao").include, p("feedheiliao").weight], [true, 60], "黑料网补充：纳入、次之");
-  assert.deepEqual([p("meiridasai").include, p("meiridasai").weight], [true, 50], "每日大赛改判：补充默认启用、权重在黑料网之下");
+  assert.deepEqual([p("51chigua").include, p("51chigua").weight], [false, 100], "51吃瓜主力：权重最高仍落表，但 blocked＋三段不齐、F5 门后不纳入");
+  assert.deepEqual([p("feedheiliao").include, p("feedheiliao").weight], [false, 60], "黑料网补充：权重仍落表，目录骨架三段不齐不纳入");
+  assert.deepEqual([p("meiridasai").include, p("meiridasai").weight], [false, 50], "每日大赛：权重在黑料网之下仍落表，blocked＋三段不齐不纳入");
   assert.ok(p("51chigua").weight > p("feedheiliao").weight && p("feedheiliao").weight > p("meiridasai").weight, "吃瓜三层权重严格递减");
-  assert.deepEqual([p("redgifs").include, p("redgifs").weight], [true, 100], "RedGifs 短视频主力");
-  assert.deepEqual([p("shorties").include, p("shorties").weight], [true, 100], "Shorties 短视频主力（总表默认启用）");
-  assert.deepEqual([p("supjav").include, p("supjav").weight], [true, 100], "SupJav JAV 主力（汇总表）");
-  assert.deepEqual([p("av123").include, p("av123").weight], [true, 60], "123AV JAV 补充");
-  assert.deepEqual([p("rouvideo-drama").include, p("rouvideo-drama").weight], [true, 60], "肉视频短剧补充首选");
-  assert.deepEqual([p("pornpics").include, p("pornpics").weight], [true, 100], "PornPics 写真主力");
+  assert.deepEqual([p("redgifs").include, p("redgifs").weight], [false, 100], "RedGifs 短视频主力：权重仍落表，probe 三段未验通不纳入");
+  assert.deepEqual([p("shorties").include, p("shorties").weight], [false, 100], "Shorties：权重仍落表，目录骨架三段不齐不纳入（F5 样本源）");
+  assert.deepEqual([p("supjav").include, p("supjav").weight], [false, 100], "SupJav JAV 主力：权重仍落表，目录骨架不纳入");
+  assert.deepEqual([p("av123").include, p("av123").weight], [false, 60], "123AV JAV 补充：权重仍落表，目录骨架不纳入");
+  assert.deepEqual([p("rouvideo-drama").include, p("rouvideo-drama").weight], [false, 60], "肉视频短剧补充首选：权重仍落表，目录骨架不纳入");
+  assert.deepEqual([p("pornpics").include, p("pornpics").weight], [false, 100], "PornPics 写真主力：权重仍落表，probe 三段未验通不纳入");
   assert.deepEqual([p("missav").include, p("missav").weight], [false, 100], "MissAV 主力目标但无适配器：权重落表、暂不纳入");
   assert.deepEqual([p("tikporn").include, p("tikporn").weight], [false, 60], "Tik.porn 补充但无适配器：暂不纳入");
   assert.deepEqual([p("drama91").include, p("huangdou").include], [false, false], "91短剧待实测/黄豆暂缓：不纳入");
@@ -94,15 +99,17 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
     resolve: async () => ({ streams: [] }),
     search: async () => ({ items, pagination: { page: 1, pages: 1, size: 20, total: items.length } }),
   });
-  const defs = [def("pornhub"), def("cosplaytele"), def("feedheiliao")];
+  /* 帖子侧样本源原用黑料网（feedheiliao）；F5 三段门后该源已出局，
+   * 换三段齐全的帖子侧源黄果承接同一覆盖（适配理由同上段）。 */
+  const defs = [def("pornhub"), def("cosplaytele"), def("huangguo")];
   const adapters = new Map<string, SourceAdapter>([
     ["pornhub", stub([item("pornhub", "v1", "扇出视频一", 5), item("pornhub", "v2", "扇出视频二", 9)])],
     ["cosplaytele", stub([item("cosplaytele", "g1", "扇出图集一", 3)])],
-    ["feedheiliao", stub([item("feedheiliao", "p1", "扇出帖子一", 7)])],
+    ["huangguo", stub([item("huangguo", "p1", "扇出帖子一", 7)])],
   ]);
   const out = await fanoutSearch("扇出", defs, (d) => adapters.get(d.id) ?? null);
   assert.deepEqual(out.failures, [], "全成功无失败记录");
-  assert.deepEqual(out.searched.sort(), ["cosplaytele", "feedheiliao", "pornhub"], "三源都真被搜");
+  assert.deepEqual(out.searched.sort(), ["cosplaytele", "huangguo", "pornhub"], "三源都真被搜");
   const groups = aggregateHits(out.hits);
   assert.equal(groups.video.length, 2, "视频组 2 条");
   assert.equal(groups.image.length, 1, "图片组 1 条");
@@ -110,7 +117,7 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   assert.equal(groups.video[0].item.title, "扇出视频二", "同类混排按相关性（热度）：hot 9 在前");
   assert.equal(groups.video[0].sourceName, "Pornhub", "源名标注正确（video）");
   assert.equal(groups.image[0].sourceName, "CosplayTele", "源名标注正确（image）");
-  assert.equal(groups.post[0].sourceName, "黑料网", "源名标注正确（post）");
+  assert.equal(groups.post[0].sourceName, "黄果", "源名标注正确（post）");
 }
 
 /* ── 单源失败静默隔离＋单源超时不阻塞＋每源上限 ── */

@@ -7,7 +7,9 @@
  *   kindForSourceDef/kindForHuangguoVideo 口径），永不按源分段；
  * - 扇出范围与权重按分层总表落搜索层口径（searchPolicyFor），
  *   不改注册表本身；权重只作排序/副本选择的最后 tiebreak，
- *   不冒充单条内容的质量证明（裁定第 1/5 条）；
+ *   不冒充单条内容的质量证明（裁定第 1/5 条）；扇出资格另受三段
+ *   齐全门约束（3.2.1 修复 F5 线，见 missingSearchSegments）：三段
+ *   未验通的源权重照落表、但不进扇出，INCLUDE_OVERRIDE 不得绕过；
  * - 搜索调度（裁定第 5 条）：单源超时＋每源结果上限、渐进呈现
  *   （onPartial 先到先显；(热度,权重,seq) 全序保证已显条目相对
  *   顺序不被新到结果打乱＝稳定插入）、相关性（热度）优先于源
@@ -46,12 +48,44 @@ const SUPPLEMENT_WEIGHTS: Record<string, number> = {
 const SUPPLEMENT_LOW_WEIGHTS: Record<string, number> = { meiridasai: 50 };
 /** 默认禁用/暂缓/观察：保留注册、不进搜索默认范围。 */
 const OFF_IDS = new Set(["drama91", "huangdou", "xiuren", "myfans"]);
-/** 总表点名默认启用：覆盖注册表 enabled/capabilities/blocked 的搜索层纳入
- * （适配器模板须真有 search；不可达时按静默规则跳过）。注册表本身的
- * 启用与域名动作走清单 v2，不在本层。 */
+/** 总表点名默认启用：在三段齐全者中覆盖注册表 enabled 的搜索层纳入
+ * （3.2.1 修复 F5 线收紧：override 不得绕过下方三段门——D3 时代它曾
+ * 绕过 enabled/capabilities/blocked，把只有骨架模板的源放进扇出，
+ * 搜得出≠播得了，见 fix321-f5.contract.test.ts）。注册表本身的启用
+ * 与域名动作走清单 v2，不在本层。 */
 const INCLUDE_OVERRIDE = new Set(["51chigua", "feedheiliao", "meiridasai", "shorties", "supjav", "av123", "rouvideo-drama"]);
-const NO_SEARCH_TEMPLATES = new Set(["none", "preview-only"]);
 export const NEUTRAL_WEIGHT = 40;
+
+/* ── 扇出资格：三段齐全门（3.2.1 修复 F5 线，用户实报 Shorties 搜得出
+ * 播不了＋封面全占位后立） ──
+ * 资格＝适配器三段（搜索＋详情＋取流）都有真实现，缺一段即出局；源不
+ * 删、频道浏览不受此限，只管搜索扇出（与 F2 线口径一致）。
+ * 「真实现」的可测口径（源粒度认定，因注册表证据本身是源粒度的）：
+ * ① 模板在 CHAIN_TEMPLATES 内——工厂真能实例化出带 search/detail/
+ *    resolve 的适配器（none→null、preview-only 无 search 且 resolve
+ *    明确拒绝，均不算）；② capabilities.search 为真（搜索段声明）；
+ * ③ maturity="stable"——types.ts 定义即「真站实测三段全通」，probe=
+ *    部分未证、blocked/preview 自不在内；④ note 不含「未按真站校准」
+ *    （目录导入通用骨架标记，防被误标 stable 时兜底）。
+ * 结构上有方法≠真实现：hls-site 骨架对任何源都生成三方法，Shorties
+ * 正是这样混进扇出的——故认定只认验通标记，不认方法存在性。 */
+export type SearchSegment = "search" | "detail" | "play";
+const CHAIN_TEMPLATES = new Set(["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api"]);
+
+/** 未获真实现认定的段（三段全列或空）：认定须四条同时成立，任一不
+ * 成立则三段均不获认定（卡点段逐源写在注册表 note 里）。 */
+export function missingSearchSegments(def: SourceDef): SearchSegment[] {
+  const skeleton = (def.note ?? "").includes("未按真站校准");
+  const verified = CHAIN_TEMPLATES.has(def.adapter.template)
+    && def.capabilities.search
+    && def.maturity === "stable"
+    && !skeleton;
+  return verified ? [] : ["search", "detail", "play"];
+}
+
+export function hasCompleteSearchChain(def: SourceDef): boolean {
+  return missingSearchSegments(def).length === 0;
+}
 
 export interface SearchPolicy {
   include: boolean;
@@ -68,14 +102,13 @@ export function searchPolicyFor(def: SourceDef): SearchPolicy {
   else if (id in SUPPLEMENT_WEIGHTS) { weight = SUPPLEMENT_WEIGHTS[id]; tier = "supplement"; }
   else if (id in SUPPLEMENT_LOW_WEIGHTS) { weight = SUPPLEMENT_LOW_WEIGHTS[id]; tier = "supplement-low"; }
   if (OFF_IDS.has(id)) return { include: false, weight: 0, tier: "off", reason: "分层总表默认禁用/暂缓/观察，不进搜索默认范围" };
-  if (NO_SEARCH_TEMPLATES.has(def.adapter.template)) {
-    return { include: false, weight, tier, reason: "无适配器或适配器无 search（如 MissAV/Tik.porn 待适配器，权重已落表）" };
+  const missing = missingSearchSegments(def);
+  if (missing.length > 0) {
+    return { include: false, weight, tier, reason: `三段不齐（缺 ${missing.join("/")} 真实现）：不进搜索扇出（源保留、频道浏览不受此限）` };
   }
-  if (INCLUDE_OVERRIDE.has(id)) return { include: true, weight, tier, reason: "分层总表点名默认启用（搜索层纳入，注册表动作走清单 v2）" };
+  if (INCLUDE_OVERRIDE.has(id)) return { include: true, weight, tier, reason: "分层总表点名默认启用且三段齐全（搜索层纳入，注册表动作走清单 v2）" };
   if (!def.enabled) return { include: false, weight, tier, reason: "未启用" };
-  if (def.maturity === "blocked") return { include: false, weight, tier, reason: "blocked 源不拉数据（D 线口径）" };
-  if (!def.capabilities.search) return { include: false, weight, tier, reason: "注册表 capabilities.search=false 且总表未点名" };
-  return { include: true, weight, tier, reason: "已启用且适配器支持搜索（总表未覆盖者中性纳入）" };
+  return { include: true, weight, tier, reason: "已启用且三段齐全（总表未覆盖者中性纳入）" };
 }
 
 /* ── 归类（用户 2026-11-19 17:43 原则：按内容性质、不按媒体格式） ──
