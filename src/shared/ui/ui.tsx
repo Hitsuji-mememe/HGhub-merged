@@ -120,12 +120,15 @@ export function ToastHost() {
 }
 
 /* ——— 图片（骨架 + 渐显，自动走本地解密协议） ——— */
-export function Img({ src, alt = "", className = "", eager = false, raw = false, loadingIndicator = false }: {
+export function Img({ src, alt = "", className = "", eager = false, raw = false, loadingIndicator = false, fit = "cover" }: {
   src: string; alt?: string; className?: string; eager?: boolean; raw?: boolean; loadingIndicator?: boolean;
+  /* fit（Muse 2026-11-19 3.2.1修复F6线）：默认 cover 与既有封面口径
+   * 不变；全屏图集查看器传 contain——照片完整贴边、不裁切。 */
+  fit?: "cover" | "contain";
 }) {
   const url = raw ? src : cover(src);
   // 每个地址独立持有状态，避免换图后的 effect 把缓存命中的 onLoad 重置掉。
-  return <ImageLoad key={url} url={url} alt={alt} className={className} eager={eager} raw={raw} loadingIndicator={loadingIndicator} />;
+  return <ImageLoad key={url} url={url} alt={alt} className={className} eager={eager} raw={raw} loadingIndicator={loadingIndicator} fit={fit} />;
 }
 
 /* 封面加载状态机（Muse 2026-11-19 fix2 A3）：loading→decoded→
@@ -144,8 +147,8 @@ export function Img({ src, alt = "", className = "", eager = false, raw = false,
  * （请求已在路上，滚出视口不等于没在加载）。 */
 type ImgState = "loading" | "decoded" | "displayed" | "failed";
 const IMG_ATTEMPT_TIMEOUT_MS = 20_000;
-function ImageLoad({ url, alt, className, eager, raw, loadingIndicator }: {
-  url: string; alt: string; className: string; eager: boolean; raw: boolean; loadingIndicator: boolean;
+function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "cover" }: {
+  url: string; alt: string; className: string; eager: boolean; raw: boolean; loadingIndicator: boolean; fit?: "cover" | "contain";
 }) {
   const [state, setState] = useState<ImgState>("loading");
   const [attempt, setAttempt] = useState(0);
@@ -228,7 +231,7 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator }: {
             setState("failed");
           }
         }}
-        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${ok ? "opacity-100" : "opacity-0"}`} draggable={false} />}
+        className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"} transition-opacity duration-300 ${ok ? "opacity-100" : "opacity-0"}`} draggable={false} />}
     </div>
   );
 }

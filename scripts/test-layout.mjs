@@ -487,9 +487,108 @@ try {
     }
   }
 
+  /* ── 图集查看器布局 (Muse 2026-11-19 3.2.1修复F6线) ──
+   * 用户实报 CosplayTele 图集图片太小: 两层顶栏+上下张按钮行+常驻
+   * 缩略图条把照片挤在写死 4/5 盒子里。本场景保护新形态:
+   * ①源码层: SourceGallery/Search 两个查看器不得再有写死 4/5 盒子;
+   * ②几何层: 查看态舞台占可用区 ≥98% 宽高 (占屏比下限);
+   * ③悬浮层: 计数/返回/关闭/缩略图条都在悬浮层内, 静止自动淡出、
+   *    中央点按呼出/收起、左右两侧点按翻页、横滑翻页、缩略图跳张、
+   *    上一张/下一张大按钮行不存在。LAYOUT_ONLY=gallery 只跑本场景。 */
+  async function runGalleryCase(viewport) {
+    const name = `gallery-${viewport[0]}x${viewport[1]}`;
+    const result = { name, viewport, status: "running" };
+    report.cases.push(result);
+    const context = await browser.newContext({ userAgent: IPHONE_UA, hasTouch: true, viewport: { width: viewport[0], height: viewport[1] } });
+    const page = await context.newPage();
+    page.setDefaultTimeout(15000);
+    await context.route("**/*", route => {
+      const url = new URL(route.request().url());
+      if (url.origin === ui) return route.continue();
+      return route.abort("blockedbyclient");
+    });
+    try {
+      for (const rel of ["src/features/sources/SourceGallery.tsx", "src/features/search/Search.tsx"]) {
+        const src = await readFile(join(root, rel), "utf8");
+        assert(!src.includes('aspectRatio: "4 / 5"'), `${name}: ${rel} must not keep the fixed 4/5 image box`);
+      }
+      await page.goto(`${ui}/tests/gallery-viewer.html`);
+      const stage = page.locator('[data-ui="album-viewer-stage"]');
+      await stage.waitFor({ state: "visible" });
+      const geo = await page.evaluate(() => {
+        const avail = document.querySelector('[data-ui="fixture-avail"]').getBoundingClientRect();
+        const st = document.querySelector('[data-ui="album-viewer-stage"]').getBoundingClientRect();
+        return { avail: { width: avail.width, height: avail.height }, stage: { width: st.width, height: st.height } };
+      });
+      assert(geo.stage.width >= geo.avail.width * 0.98, `${name}: stage width ${geo.stage.width} < 98% of available ${geo.avail.width}`);
+      assert(geo.stage.height >= geo.avail.height * 0.98, `${name}: stage height ${geo.stage.height} < 98% of available ${geo.avail.height}`);
+      result.stageFill = { w: +(geo.stage.width / geo.avail.width).toFixed(3), h: +(geo.stage.height / geo.avail.height).toFixed(3) };
+      assert.equal(await page.getByRole("button", { name: "上一张", exact: true }).count(), 0, `${name}: prev button row must be gone`);
+      assert.equal(await page.getByRole("button", { name: "下一张", exact: true }).count(), 0, `${name}: next button row must be gone`);
+      const countText = async () => page.evaluate(() => document.querySelector('[data-ui="album-viewer-count"]')?.textContent?.trim() || "");
+      const chromeOpacity = async () => page.evaluate(() => {
+        const el = document.querySelector('[data-album-chrome="top"]');
+        return el ? Number(getComputedStyle(el).opacity) : -1;
+      });
+      assert.equal(await countText(), "1 / 3", `${name}: count must start at 1 / 3`);
+      assert(await chromeOpacity() > 0.9, `${name}: chrome must start visible`);
+      // 静止自动淡出 (3s 口径, 留余量)
+      await page.waitForTimeout(3600);
+      assert(await chromeOpacity() < 0.05, `${name}: chrome must auto-fade when idle`);
+      const stageBox = await stage.boundingBox();
+      assert(stageBox, `${name}: stage box missing`);
+      const tapAt = async (fx, fy) => { await page.touchscreen.tap(stageBox.x + stageBox.width * fx, stageBox.y + stageBox.height * fy); await page.waitForTimeout(200); };
+      await tapAt(0.5, 0.5); // 中央点按呼出
+      assert(await chromeOpacity() > 0.9, `${name}: center tap must reveal chrome`);
+      await tapAt(0.88, 0.5); // 右侧点按翻页
+      assert.equal(await countText(), "2 / 3", `${name}: right-zone tap must go next`);
+      await tapAt(0.12, 0.5); // 左侧点按翻页
+      assert.equal(await countText(), "1 / 3", `${name}: left-zone tap must go prev`);
+      // 横滑翻页: 舞台上合成 touchstart→touchend (dx=-80)
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-ui="album-viewer-stage"]');
+        const r = el.getBoundingClientRect();
+        const mk = (type, x) => {
+          const t = new Touch({ identifier: 1, target: el, clientX: x, clientY: r.top + r.height / 2 });
+          el.dispatchEvent(new TouchEvent(type, { touches: type === "touchend" ? [] : [t], changedTouches: [t], bubbles: true, cancelable: true }));
+        };
+        mk("touchstart", r.left + r.width * 0.7); mk("touchend", r.left + r.width * 0.7 - 80);
+      });
+      await page.waitForTimeout(200);
+      assert.equal(await countText(), "2 / 3", `${name}: swipe left must go next`);
+      // 缩略图条随悬浮层呼出才在场, 点选跳张 + 当前张高亮
+      // (横滑翻页已 setChrome(true) 呼出悬浮层, 此处不再点中央——
+      // 中央点按是显隐开关, 再点会把悬浮层关掉)
+      const thumb3 = page.getByRole("button", { name: "第 3 张", exact: true });
+      await thumb3.waitFor({ state: "visible" });
+      await thumb3.click();
+      await page.waitForTimeout(200);
+      assert.equal(await countText(), "3 / 3", `${name}: thumbnail tap must jump to 3 / 3`);
+      assert.equal(await thumb3.getAttribute("aria-pressed"), "true", `${name}: current thumbnail must be pressed/highlighted`);
+      // 返回列表经悬浮层返回钮
+      await page.getByRole("button", { name: "返回相册列表", exact: true }).click();
+      await page.locator('[data-ui="fixture-closed"]').waitFor({ state: "visible" });
+      result.status = "passed";
+      console.log(`PASS ${name}`);
+    } catch (error) {
+      result.status = "failed"; result.error = error.message;
+      console.error(`FAIL ${name}: ${error.message}`);
+      await page.screenshot({ path: join(output, `${name.replace(/[^\w-]+/g, "_")}.png`) }).catch(() => {});
+    } finally {
+      await context.close();
+      await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+    }
+  }
+
+  await runGalleryCase([393, 852]);
+  await runGalleryCase([360, 780]);
+  if (process.env.LAYOUT_ONLY === "gallery") {
+    console.log("LAYOUT_ONLY=gallery: player cases skipped");
+  } else {
   for (const vp of PORTRAIT_VIEWPORTS) await runCase(`portrait-${vp[0]}x${vp[1]}`, vp, portBase, portBase, [360, 640], true);
   await runCase("portrait-393-rotated-source", [393, 852], landBase, landBase, [320, 180], false, true);
   for (const vp of LANDSCAPE_VIEWPORTS) await runCase(`landscape-${vp[0]}x${vp[1]}`, vp, landBase, landBase, [320, 180]);
+  }
 } catch (error) {
   report.setup_error = error.message;
   console.error(`SETUP FAIL: ${error.message}`);

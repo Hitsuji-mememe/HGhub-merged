@@ -171,6 +171,7 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   /home + /v/<id>、PornPics 为 /recent/ + /galleries/（真站结构
   夹具 `adapters/fixtures/real-*.html`，契约
   `fix321-f2.contract.test.ts`）。
+- 图集查看器形态（3.2.1 fix321-F6，2026-11-19 用户实报图片太小）：图集查看统一走共用 `AlbumViewer`（`src/features/sources/AlbumViewer.tsx`，SourceGallery 与搜索图片详情同治）——舞台填满可用高度（SourceGallery 为 fixed 覆满视口、搜索详情页内 h-full）、图片 contain 贴边、无写死比例盒子与上下张按钮行；标题/计数/返回/关闭/缩略图条收进悬浮层（静止 3s 自动淡出、中央点按显隐、左右点按与横滑翻页、缩略图点选跳张且当前张高亮定位），index 受控于调用方单份状态。几何由 `scripts/test-layout.mjs` gallery 场景守门（舞台占可用区 ≥98%＋源码层无 4/5 写死盒）。
 - 吃瓜详情排版（最终版 D2 线，2026-11-19，用户实报）：`PostDetail`
   先文后视频——标题/元信息/标签/动作行/介绍正文在前，播放器区
   （`data-post-media`）移到正文之后；仍是点了才播（分段只解析备好、
