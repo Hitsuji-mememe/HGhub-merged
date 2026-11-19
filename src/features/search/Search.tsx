@@ -41,7 +41,12 @@ import {
  * 结构完整度→历史可靠性→分层 tiebreak」选择链定，失败经
  * loadWithFallback 静默顺延（search.copy_fail 留痕）——自动顺延
  * 仅限身份已确认的合并条目，身份未确认时只试默认副本、失败后
- * 由用户手动选副本（手动切换不受身份门限）。 */
+ * 由用户手动选副本（手动切换不受身份门限）。
+ * 3.2.1 F1：黄果已由原生两路（视频 api.search＋帖子 api.searchPosts）
+ * 完整覆盖，扇出侧排除黄果（FANOUT_EXCLUDE_NATIVE）——其 native
+ * 适配器 search 只重复调 api.searchPosts，同一帖子会双路到达；
+ * 聚合层同源去重（multiSourceSearch 同源同 ID/同题同封面合并）作
+ * 第二道防线。 */
 
 type HgState<T> = { keyword: string; items: T[]; page: number; pages: number } | null;
 
@@ -59,6 +64,9 @@ type ExtDetailState =
   | { phase: "error"; merged: MergedHit; message: string };
 
 const copyCacheKey = (c: CopyRef) => `${c.sourceId}:${c.item.externalId}`;
+
+/** 扇出排除（3.2.1 F1）：已由原生通道完整覆盖、不进 fanoutSearch 的源。 */
+const FANOUT_EXCLUDE_NATIVE = new Set(["huangguo"]);
 
 export default function Search({ active, wide }: { active: boolean; wide: boolean }) {
   const { push, searchHist, addSearch, clearSearchHist, lineEpoch, accountScope, setTab: setMainTab } = useStore();
@@ -184,7 +192,9 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
       }
     })();
     void (async () => {
-      const defs = getActiveRegistry().sources;
+      /* FANOUT_EXCLUDE_NATIVE（3.2.1 F1）：黄果不进扇出——原生两路已
+       * 覆盖其视频与帖子，扇出适配器只会重复 api.searchPosts。 */
+      const defs = getActiveRegistry().sources.filter((d) => !FANOUT_EXCLUDE_NATIVE.has(d.id));
       const out = await fanoutSearch(k, defs, (d) => createAdapter(d), {
         onFailure: (sourceId) => {
           const idx = defs.findIndex((s) => s.id === sourceId);

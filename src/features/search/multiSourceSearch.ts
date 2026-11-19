@@ -306,8 +306,30 @@ export interface MergedHit {
 
 const byPriority = (a: CopyRef, b: CopyRef) => b.weight - a.weight || b.hot - a.hot || a.seq - b.seq;
 
-/** 只在同 kind 内、跨源、过置信门才合并（同源同名视为不同条目，
- * 不合并）；代表条目取簇内首个（最高优先级）副本逐条比对。 */
+/** 副本去重键（3.2.1 F1）：(sourceId, externalId)——同一条目经两条
+ * 路径重复到达时是同一副本、不是两个副本。 */
+export function copyDedupKey(c: { sourceId: string; item: { externalId: string } }): string {
+  return `${c.sourceId}:${c.item.externalId}`;
+}
+
+/** 同源重复判据（3.2.1 F1，用户实报同源同帖出两张卡）：与簇内已有
+ * 副本同源时，externalId 相同 = 同一条目（"id"，自明）；标题规范化
+ * 全等＋封面指纹相同 = 同内容重复挂载（"content"）；其余同源条目
+ * 仍视为不同条目（返回 null，不合并）。 */
+export function sameSourceDuplicateKind(existing: CopyRef, incoming: FanoutHit): "id" | "content" | null {
+  if (existing.sourceId !== incoming.sourceId) return null;
+  if (existing.item.externalId === incoming.item.externalId) return "id";
+  if (titleSignal(existing.item.title, incoming.item.title) === "exact"
+    && coverSignal(existing.item.cover, incoming.item.cover) === "match") return "content";
+  return null;
+}
+
+/** 合并规则（3.2.1 F1 修订）：同 kind 内——
+ * ① 同源同 ID 必合并（去重、不留假副本、身份自明不降置信）；
+ * ② 同源同标题＋同封面必合并；
+ * ③ 跨源仍走既有多信号置信门（≥3 合并、≥4 身份确认、宁漏勿误，
+ * 口径不削弱）；同源但非重复者不合并。
+ * 代表条目取簇内首个（最高优先级）副本逐条比对。 */
 export function mergeHits(hits: FanoutHit[]): MergedHit[] {
   const sorted = [...hits].sort((a, b) => byPriority(
     { sourceId: a.sourceId, sourceName: a.sourceName, weight: a.weight, hot: a.hot, seq: a.seq, item: a.item },
@@ -319,19 +341,33 @@ export function mergeHits(hits: FanoutHit[]): MergedHit[] {
     const copy: CopyRef = { sourceId: h.sourceId, sourceName: h.sourceName, weight: h.weight, hot: h.hot, seq: h.seq, item: h.item, publishedAt: h.publishedAt };
     let mergedInto: MergedHit | null = null;
     let conf = 0;
+    let dedupSameId = false;
     for (let i = 0; i < clusters.length; i++) {
       const c = clusters[i];
       if (c.kind !== h.kind) continue;
+      let sameKind: "id" | "content" | null = null;
+      for (const cp of c.copies) {
+        const k = sameSourceDuplicateKind(cp, h);
+        if (k === "id") { sameKind = "id"; break; }
+        if (k === "content") sameKind = "content";
+      }
+      if (sameKind === "id") { mergedInto = c; dedupSameId = true; break; }
+      if (sameKind === "content") {
+        /* 同题（+3）＋同封面（+2）=5；同源重发发布时间可远，不扣时间分。 */
+        mergedInto = c; conf = 5; break;
+      }
       if (c.copies.some((cp) => cp.sourceId === h.sourceId)) continue;
       const score = mergeConfidence(reps[i], h);
       if (score >= MERGE_THRESHOLD) { mergedInto = c; conf = score; break; }
     }
     if (mergedInto) {
-      mergedInto.copies.push(copy);
-      if (h.sourceName !== mergedInto.sourceName && !mergedInto.alsoOn.includes(h.sourceName)) mergedInto.alsoOn.push(h.sourceName);
+      if (!dedupSameId) {
+        if (!mergedInto.copies.some((cp) => copyDedupKey(cp) === copyDedupKey(copy))) mergedInto.copies.push(copy);
+        if (h.sourceName !== mergedInto.sourceName && !mergedInto.alsoOn.includes(h.sourceName)) mergedInto.alsoOn.push(h.sourceName);
+        mergedInto.mergeConfidence = Math.min(mergedInto.mergeConfidence, conf);
+        mergedInto.identityConfirmed = mergedInto.mergeConfidence >= CONFIRMED_THRESHOLD;
+      }
       mergedInto.hot = Math.max(mergedInto.hot, h.hot);
-      mergedInto.mergeConfidence = Math.min(mergedInto.mergeConfidence, conf);
-      mergedInto.identityConfirmed = mergedInto.mergeConfidence >= CONFIRMED_THRESHOLD;
     } else {
       clusters.push({
         kind: h.kind, title: h.item.title, cover: h.item.cover, tags: h.item.tags ?? [],
