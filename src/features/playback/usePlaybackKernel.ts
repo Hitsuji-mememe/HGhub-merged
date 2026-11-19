@@ -19,7 +19,7 @@ import type { AppendStallWatchdog, AppendStallState } from "./appendStallWatchdo
 import { useSrDensity, type SrDensity, type SrFragSample, type SrLevelInfo } from "./useSrDensity";
 import { formatFirstRendition, observeFirstRendition } from "./hlsConfig";
 import { presentationPipeline, srVideoFilterMode } from "./SuperResCanvas";
-import type { SuperResMode } from "../../shared/model/store";
+import type { SrPref, SuperResMode } from "../../shared/model/store";
 
 /* ── 纯核心：分片 ingest 的采样身份／吞吐口径与 playing 信号门控 ── */
 
@@ -128,8 +128,10 @@ export function usePlaybackKernel(opts: {
    * dispose 账本绑定，两面共用一份（原各自调用同一 hook，保留）。 */
   const diag = usePlayerDiagnostics(videoRef, hlsRef, { ...(opts.diagnosticContext ?? {}), active, resource: mediaResource(src) });
   const activity = usePlaybackActivity(videoRef, hlsRef, { active, autoPlay: opts.autoPlay, src, trace: diag.trace });
-  /* SR 密度采样：共享 hook（前 3 片中位数＋frameRate＋videoCodec，
-   * 换源/换线重置），两面同口径。 */
+  /* SR 密度采样：共享 hook（未满 3 片为已采样本上中位数、满 3 片
+   * 定稿，provisional 不驱动判档；＋frameRate＋videoCodec，换源/
+   * 换线重置——口径以 useSrDensity.ts 文件头为准，E 线定版），
+   * 两面同口径。density 的 provisional 字段按可选消费。 */
   const { density, ingest } = useSrDensity(src, opts.lineEpoch);
   const ingestRef = useRef(ingest);
   ingestRef.current = ingest;
@@ -269,13 +271,18 @@ export function usePlaybackKernel(opts: {
     },
     onFragBuffered: o.onFragBuffered,
   });
-  /** playing 事实置位（活动门控）：播放面事件处理器统一经此。 */
-  const notePlaying = (playing: boolean) => {
+  /** playing 事实置位（活动门控）：播放面事件处理器统一经此；
+   * force=true 为无条件置位（ended/error 的清零口径，两面现行一致）。 */
+  const notePlaying = (playing: boolean, force = false) => {
+    if (force) {
+      notePlaybackPlaying(playing);
+      return;
+    }
     core.notePlaying(playing, activity.isActive);
   };
   /** facts 发布：尺寸/判档由调用方给（渲染侧状态），其余字段（密度/
    * 引擎/首档/管线/降档）全部取内核呈现侧状态，一份组装口径。 */
-  const publishFacts = (input: { w: number; h: number; srMode: string; srPref: string; canvasMode: SuperResMode; svgFallback: boolean }) => {
+  const publishFacts = (input: { w: number; h: number; srMode: SuperResMode; srPref: SrPref; canvasMode: SuperResMode; svgFallback: boolean }) => {
     if (input.w <= 0 || input.h <= 0) return;
     const fm = srVideoFilterMode({
       srPref: input.srPref, srMode: input.srMode, canvasMode: input.canvasMode, svgFallback: input.svgFallback,

@@ -8,7 +8,7 @@ import { AppendStallWatchdog, type StallClock } from "../src/features/playback/a
 import { nativeFallbackState, noteNativeFallback, playbackSource, resetNativeFallbackForTests } from "../src/features/playback/mediaTransport";
 import { createStallWatchdog } from "../src/features/playback/stallWatchdogWiring";
 import { createSrPerfTracker, effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
-import { createSrDensitySampler } from "../src/features/playback/useSrDensity";
+import { createSrDensitySampler, type SrFragSample, type SrLevelInfo } from "../src/features/playback/useSrDensity";
 import { evaluateSrGatesV2, runSrProbe, srProbeCacheKey } from "../src/shared/diagnostics/gpuProbe";
 import * as webgpuSrModule from "../src/features/playback/webgpuSr";
 import * as srCanvasModule from "../src/features/playback/SrCanvas";
@@ -991,7 +991,7 @@ import * as stallHealModule from "../src/features/feed/stallHeal";
         const sampler = createSrDensitySampler();
         const core = km.createPlaybackKernelCore({
           sendThroughput: (o: string, b: number) => sent.push([o, b]),
-          ingestDensity: (frag, level) => sampler.ingest(frag, level),
+          ingestDensity: (frag: SrFragSample, level: SrLevelInfo) => sampler.ingest(frag, level),
         });
         core.setLineOrigin("https://line.example");
         const fakeHls = {

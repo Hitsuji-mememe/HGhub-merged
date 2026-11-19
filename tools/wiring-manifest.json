@@ -151,12 +151,13 @@
     },
     {
       "files": [
-        "src/features/playback/VideoSurface.tsx"
+        "src/features/playback/usePlaybackKernel.ts"
       ],
       "id": "p1-throughput-line-key",
       "item": "P1 吞吐回写按当前线路 base 记账（前端）",
       "min": 1,
-      "symbol": "currentLineOrigin"
+      "symbol": "currentLineOrigin",
+      "note": "最终版 A 线收敛后调用点随内核迁入 usePlaybackKernel（beginSource＋lineEpoch effect），条目改指内核文件，接线语义不变。"
     },
     {
       "files": [
@@ -186,7 +187,8 @@
       ],
       "id": "p1-player-playing-facts",
       "item": "P1 全局播放状态双播放面接入（VideoSurface＋Player）",
-      "symbol": "notePlaybackPlaying"
+      "symbol": "notePlaying",
+      "note": "最终版 A 线收敛：两面改经内核 notePlaying 置位（内核内直调 notePlaybackPlaying，见 fin-a-kernel-playing-facts），双面接入语义不变。"
     },
     {
       "files": [
@@ -216,14 +218,14 @@
       "symbol": "offOf"
     },
     {
-      "each": true,
       "files": [
-        "src/features/playback/VideoSurface.tsx",
-        "src/features/playback/Player.tsx"
+        "src/features/playback/usePlaybackKernel.ts"
       ],
       "id": "p1-bpp-same-rendition",
       "item": "P1 判档 bpp 分子分母同 rendition（双播放面）",
-      "symbol": "playingLevelRef"
+      "symbol": "setPlayingLevel",
+      "min": 2,
+      "note": "最终版 A 线收敛：playing level 维护迁入内核（LEVEL_SWITCHED→core.setPlayingLevel，ingest 只认该 level），两面共用一份，条目改指内核文件。"
     },
     {
       "files": [
@@ -335,6 +337,64 @@
       "files": [
         "src-tauri/src/lines/ledger.rs"
       ],
+      "min": 2
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/VideoSurface.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "id": "fin-a-kernel-consumed",
+      "item": "最终版A线 共用播放内核双面消费（VideoSurface＋Player 同走 usePlaybackKernel）",
+      "symbol": "usePlaybackKernel"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/VideoSurface.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "id": "fin-a-facts-publish",
+      "item": "最终版A线 facts 发布双面接入（P2-09：Player 由此获得 publishPlaybackFacts 发布，经内核 publishFacts）",
+      "symbol": "publishFacts"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/VideoSurface.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "id": "fin-a-throughput-wire",
+      "item": "最终版A线 吞吐回写双面接入（P2-09：Player 由此获得分片吞吐回写，经内核 wireSignals→ingestFrag）",
+      "symbol": "wireSignals"
+    },
+    {
+      "files": [
+        "src/features/playback/usePlaybackKernel.ts"
+      ],
+      "id": "fin-a-kernel-playing-facts",
+      "item": "最终版A线 内核内 notePlaybackPlaying 实际置位点（双面 notePlaying 的落点）",
+      "symbol": "notePlaybackPlaying",
+      "min": 2
+    },
+    {
+      "files": [
+        "src/features/playback/usePlaybackKernel.ts"
+      ],
+      "id": "fin-a-kernel-ingest",
+      "item": "最终版A线 内核分片 ingest（密度＋吞吐一份实现）",
+      "symbol": "ingestFrag",
+      "min": 2
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/playbackDiagnostics.ts",
+        "src/features/playback/usePlaybackKernel.ts"
+      ],
+      "id": "fin-a-capture-trace",
+      "item": "最终版A线 P2-08 代次捕获 trace（诊断侧定义＋内核 attachHls 登记时捕获）",
+      "symbol": "captureTrace",
       "min": 2
     }
   ],
