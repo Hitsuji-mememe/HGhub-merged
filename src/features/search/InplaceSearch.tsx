@@ -27,10 +27,23 @@ export function InplaceSearch({ kind, postLabel = "吃瓜帖", scope, onOpenVide
   const [submitted, setSubmitted] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const moreSentinelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const results = useSearchResults(scope);
   const { result, request, loading, error } = results;
+
+  /* 自动续页（3.2.2 集成批）：结果接近底部自动加载下一页；失败
+   * 后哨兵停摆，失败行「重试」即兜底（手点不作主路径），原成功
+   * 路径的「加载更多」按钮已撤。 */
+  useEffect(() => {
+    const el = moreSentinelRef.current;
+    if (!el || !result || loading || error || result.keyword !== submitted || result.page >= result.pages) return;
+    const io = new IntersectionObserver((es) => { if (es[0].isIntersecting) results.loadMore(); }, { rootMargin: "300px" });
+    io.observe(el);
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, loading, error, submitted]);
   const items = result?.kind === "video" ? result.items as VideoCard[] : [];
   const posts = result?.kind === "post" ? result.items as Post[] : [];
   const count = result?.items.length ?? 0;
@@ -116,11 +129,11 @@ export function InplaceSearch({ kind, postLabel = "吃瓜帖", scope, onOpenVide
               : !error && <Empty icon={<ISearch size={26} />}
                 title={result && result.page < result.pages ? "已加载页面没有匹配内容" : "没有找到相关内容"}
                 sub={result && result.page < result.pages ? "继续加载，看看后面的搜索结果" : "换个关键词试试"} />}
+            {result && <div ref={moreSentinelRef} style={{ height: 1 }} />}
             {result && <div className="flex justify-center py-4">
               {loading && count > 0 ? <Loader label="搜索结果更新中" className="w-6 h-6 spinner" />
-                : !loading && !error && result.keyword === submitted && (result.page < result.pages
-                  ? <Button onClick={results.loadMore} className="px-5 h-9 rounded-(--r-ctl) bg-s3 text-[13px] text-on/85 pressable">加载更多</Button>
-                  : count > 0 && <span className="text-[12px] text-dim">— 已经到底啦 —</span>)}
+                : !loading && !error && result.keyword === submitted && result.page >= result.pages && count > 0
+                  ? <span className="text-[12px] text-dim">— 已经到底啦 —</span> : null}
             </div>}
           </section>
         </>}

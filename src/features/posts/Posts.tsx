@@ -31,8 +31,6 @@ export const shouldResetPostForNav = (prevId: number | null, id: number): boolea
 /* ================= 吃瓜列表 ================= */
 export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean }) {
   const { push, lineEpoch } = useStore();
-  const { preferences } = useContentPreferences();
-  const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
   const [searching, setSearching] = useState(false);
   /* 源切换（根治包多源线条目5）：默认吃瓜分类第一顺位 enabled 源；
    * 切换即整页换源、源间不混排。非黄果源取页通道未接入时只出
@@ -50,7 +48,6 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
   const isNativeSource = sourceId === "huangguo";
   const activeSource = sourcesForCategory("posts", getActiveRegistry().sources).find((s) => s.id === sourceId);
   const { items, page, pages, loading, err, loadMore, scroller: scrollRef, sentinel } = usePaginatedList<Post>({
-    filtering,
     enabled: isNativeSource,
     resetKey: `${lineEpoch}:${sourceId}`,
     listId: "posts:remen-chigua",

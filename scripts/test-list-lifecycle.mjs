@@ -94,6 +94,44 @@ try {
   await pagScene("conflict", [{ wait: (s) => s.calls.length === 1 && !s.loading }],
     (s) => check("contract total-conflict: 终止只认 pages 不认 total", s.hasMore === true && s.total === 1, JSON.stringify(s)));
 
+  /* —— 3.2.2 自动续页：滚动到底自动拉页（全程不调手动 loadMore） —— */
+  {
+    const page = await newPage();
+    await gotoScene(page, "autoscroll");
+    await waitList(page, (s) => s.page === 1 && !s.loading && s.calls.length === 1);
+    const scrollBottom = () => page.evaluate(() => {
+      const el = document.querySelector('[data-testid="scroller"]');
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    await scrollBottom();
+    await waitList(page, (s) => s.calls.length >= 2);
+    await scrollBottom();
+    const s = await waitList(page, (s) => s.page === 3 && !s.loading);
+    check("autoscroll: 滚动到底自动续页到尾页（未调用手动 loadMore）",
+      s.items === 3 && s.hasMore === false && s.calls.join() === "1,2,3", JSON.stringify(s));
+    await page.close();
+  }
+  /* —— 3.2.2 自动续页失败：进 error 态不前进，兜底重试同页成功 —— */
+  {
+    const page = await newPage();
+    await gotoScene(page, "autofail");
+    await waitList(page, (s) => s.page === 1 && !s.loading);
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="scroller"]');
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    const f = await waitList(page, (s) => s.err !== "" && !s.loading);
+    check("autofail: 自动续页失败进 error 态、页码不前进",
+      f.page === 1 && f.calls.join() === "1,2", JSON.stringify(f));
+    await page.evaluate(() => (window).__list.loadMore());
+    /* 重试成功后哨兵仍在底部、预取链会立即续拉下一页——page=2 是
+     * 瞬态，等到页码越过 2 且请求序列以 1,2,2 开头即证重试同页成功。 */
+    const s = await waitList(page, (s) => s.page >= 2 && !s.loading);
+    check("autofail: 兜底（手动 loadMore）重试同页成功",
+      s.items >= 2 && s.calls.slice(0, 3).join() === "1,2,2", JSON.stringify(s));
+    await page.close();
+  }
+
   /* —— 封面场景 A：视口外不烧 attempt —— */
   {
     const page = await newPage();

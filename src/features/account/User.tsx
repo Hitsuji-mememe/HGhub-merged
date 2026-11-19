@@ -13,11 +13,8 @@ import { IBack, IChevronDown, IGrid, IHeart, ISearch, IUser } from "../../shared
 
 /** Keep pagination local to the scrolling page and reject responses from an old account/author. */
 function useUserVideos(enabled: boolean, resetKey: string | number, request: (page: number) => Promise<Paged<VideoCard>>) {
-  const { preferences } = useContentPreferences();
-  const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
   return usePaginatedList<VideoCard>({
     enabled,
-    filtering,
     resetKey,
     listId: `user-videos:${String(resetKey)}`,
     rootMargin: "200px",

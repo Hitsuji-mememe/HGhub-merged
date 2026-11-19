@@ -206,7 +206,7 @@ export function TopicPage({ slug, name, onBack, wide }: { slug: string; name: st
    * 冷却 3s 后重入可重试失败页（页码未前进）。 */
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || filtering || loading || loadingMore || !hasMore || !scrollRef.current) return;
+    if (!el || loading || loadingMore || !hasMore || !scrollRef.current) return;
     const io = new IntersectionObserver(entries => {
       if (!entries[0].isIntersecting) return;
       if (error && Date.now() - lastFailAt.current < 3000) return;
@@ -215,7 +215,7 @@ export function TopicPage({ slug, name, onBack, wide }: { slug: string; name: st
     io.observe(el);
     return () => io.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtering, loading, loadingMore, error, hasMore, page, pages]);
+  }, [loading, loadingMore, error, hasMore, page, pages]);
 
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
@@ -431,7 +431,7 @@ export function TagPage({ tag, name, onBack, wide }: { tag: string; name: string
    * 冷却 3s 后重入可重试失败页（页码未前进）。 */
   useEffect(() => {
     const el = videoSentinel.current;
-    if (!el || filtering || videoLoading || videoPage >= videoPages) return;
+    if (!el || videoLoading || videoPage >= videoPages) return;
     const io = new IntersectionObserver(entries => {
       if (!entries[0].isIntersecting) return;
       if (videoErr && Date.now() - lastFailAt.current.video < 3000) return;
@@ -439,10 +439,10 @@ export function TagPage({ tag, name, onBack, wide }: { tag: string; name: string
     }, { root: scrollContainer.current, rootMargin: "300px" });
     io.observe(el);
     return () => io.disconnect();
-  }, [load, videoPage, videoPages, videoErr, videoLoading, filtering]);
+  }, [load, videoPage, videoPages, videoErr, videoLoading]);
   useEffect(() => {
     const el = postSentinel.current;
-    if (!el || filtering || postLoading || postPage >= postPages) return;
+    if (!el || postLoading || postPage >= postPages) return;
     const io = new IntersectionObserver(entries => {
       if (!entries[0].isIntersecting) return;
       if (postErr && Date.now() - lastFailAt.current.post < 3000) return;
@@ -450,7 +450,7 @@ export function TagPage({ tag, name, onBack, wide }: { tag: string; name: string
     }, { root: scrollContainer.current, rootMargin: "300px" });
     io.observe(el);
     return () => io.disconnect();
-  }, [load, postPage, postPages, postErr, postLoading, filtering]);
+  }, [load, postPage, postPages, postErr, postLoading]);
 
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">

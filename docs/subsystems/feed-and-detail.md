@@ -118,6 +118,15 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   筛选的 pages 取 max（响应缺 pages 时回落链按新基线算）；`feedTrace`
   事件全带 `list` 标识、`feedTraceSummary` 按列表隔离汇总，诊断报告
   逐列表输出，多列表同会话不再混算。
+  3.2.2 集成批：全部分页信息流统一为接近底部自动加载——
+  `usePaginatedList` 的 `filtering` 门已撤销（开标签屏蔽时哨兵与
+  预取链曾被整体停用、只剩手点按钮，用户实报；连拉由
+  `MAX_AUTO_PREFETCH`＋接口 pages 终止＋失败 3s 冷却兜底）；频道页
+  与专题/标签页（Discover）的手写哨兵同去 filtering 门；源浏览/
+  图集页（SourceBrowse/SourceGallery）与两处搜索结果（Search/
+  InplaceSearch）补上哨兵自动续页，手点「加载更多」只在自动失败
+  后作兜底出现。证伪夹具：`tests/list-lifecycle` 的 autoscroll/
+  autofail 场景（`scripts/test-list-lifecycle.mjs` 驱动）。
 - 封面状态机（同批）：`ImageLoad` 状态 loading→decoded→displayed 或
   failed(reason)（http/timeout/decode 分因），每 attempt 20s 超时，
   src 变化自动重试；失败计数与分页证据同节进诊断报告。fix2.1 修正

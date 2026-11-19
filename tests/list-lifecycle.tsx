@@ -18,7 +18,19 @@ const paged = (items: Item[], pagination: Record<string, unknown>): Paged<Item> 
 
 /* 分页脚本：respond 按页返回脚本化响应；delay 模拟慢线（让哨兵边沿
  * 在 reset 完成前被消费，复现 GPT 四审 #2 的停摆时序）。 */
-const scenarios: Record<string, { delay: number; respond: (page: number) => Paged<Item> }> = {
+const scenarios: Record<string, { delay: number; failOnce?: number; respond: (page: number) => Paged<Item> }> = {
+  /* 3.2.2 自动续页证伪：高条目（800px）＋矮容器，哨兵初始在检测区
+   * 外——只有真滚动到底才许自动拉下一页（驱动不调 loadMore）。 */
+  autoscroll: {
+    delay: 0,
+    respond: (page) => paged([{ id: page }], { page, pages: 3, size: 1, total: 3 }),
+  },
+  /* 3.2.2 自动续页失败证伪：第 2 页首次请求抛错——自动路径进
+   * error 态、页码不前进；兜底（手动 loadMore）重试同页成功。 */
+  autofail: {
+    delay: 0, failOnce: 2,
+    respond: (page) => paged([{ id: page }], { page, pages: 3, size: 1, total: 3 }),
+  },
   /* #2：总 5 页、每页 1 条、内容总高远小于容器，哨兵恒可见 */
   prefetch: {
     delay: 120,
@@ -64,6 +76,9 @@ function Harness({ name }: { name: string }) {
     request: async (page) => {
       calls.current.push(page);
       if (sc.delay) await new Promise((r) => setTimeout(r, sc.delay));
+      if (sc.failOnce === page && calls.current.filter((c) => c === page).length === 1) {
+        throw new Error("fixture page failure");
+      }
       return sc.respond(page);
     },
   });
@@ -82,7 +97,7 @@ function Harness({ name }: { name: string }) {
    * 场景只走手动 loadMore。 */
   const short = name === "prefetch";
   return (
-    <div ref={list.scroller} style={{ height: short ? 600 : 300, overflowY: "auto" }}>
+    <div ref={list.scroller} data-testid="scroller" style={{ height: short ? 600 : 300, overflowY: "auto" }}>
       {/* 契约场景占位块：空列表阶段哨兵本在容器顶部（可见），首帧起就
           把它顶出检测区，免得 reset 成功瞬间预取链靠陈旧可见性抢跑 */}
       {!short && <div style={{ height: 800 }} />}

@@ -462,7 +462,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
    * 页码未前进、重打的正是失败页）；错误行重试按钮仍在。 */
   useEffect(() => {
     const el = sentinel.current;
-    if (!el || filtering || loading || replacing || page >= pages) return;
+    if (!el || loading || replacing || page >= pages) return;
     const io = new IntersectionObserver((es) => {
       if (!es[0].isIntersecting) return;
       if (err && Date.now() - lastFailAt.current < 3000) return;
@@ -471,7 +471,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
     io.observe(el);
     return () => io.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pages, loading, err, replacing, filtering]);
+  }, [page, pages, loading, err, replacing]);
 
   const ChannelGlyph = CHANNELS.find(c => c.cate === cate)?.Icon ?? IFilm;
   /* 图片源页（Muse 2026-11-19 最终版 D 线，①用户亲定条目8）：

@@ -4,8 +4,6 @@ import { traceFeed } from "./feedTrace";
 
 type Options<T> = {
   enabled?: boolean;
-  /** 内容过滤激活时暂停滚动哨兵自动翻页，避免整页被屏蔽时连续循环请求 */
-  filtering?: boolean;
   resetKey?: string | number;
   rootMargin?: string;
   /** 诊断轨迹的列表标识（fix2.1 批三#10）：本 hook 的分页事件统一带
@@ -36,7 +34,6 @@ const MAX_AUTO_PREFETCH = 3;
 
 export function usePaginatedList<T>({
   enabled = true,
-  filtering = false,
   resetKey = "",
   rootMargin = "240px",
   listId = "paginated",
@@ -65,8 +62,6 @@ export function usePaginatedList<T>({
   requestRef.current = request;
   const getIdRef = useRef(getId);
   getIdRef.current = getId;
-  const filteringRef = useRef(filtering);
-  filteringRef.current = filtering;
   const scroller = useRef<HTMLDivElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   const sentinelVisible = useRef(false);
@@ -154,7 +149,7 @@ export function usePaginatedList<T>({
        * 过矮时哨兵在 reset 完成前就已可见、边沿早被消费，旧条件
        * 排除 reset 会让短列表永远停在第一页——MAX_AUTO_PREFETCH
        * 注释本就是为「内容过矮」设的，reset 路径不该被排除在外。 */
-      if (more && sentinelVisible.current && !filteringRef.current
+      if (more && sentinelVisible.current
         && m.autoPrefetch < MAX_AUTO_PREFETCH) {
         m.autoPrefetch++;
         void runRequest(false, "prefetch");
@@ -206,7 +201,10 @@ export function usePaginatedList<T>({
 
   /* 哨兵：只记录可见性并「提请求」，是否放行由状态机决定（error 态
    * 过冷却后哨兵重入可再触发重试，不再因 err 整体停摆——旧失效
-   * 模式②）。filtering 时不自动提请求（原契约：防整页屏蔽连环拉）。 */
+   * 模式②）。自动翻页无条件启用（3.2.2 集成批，用户实报开标签屏蔽
+   * 时信息流永不自动续页）：旧 filtering 门（防整页屏蔽连环拉）已
+   * 撤销——连拉由 MAX_AUTO_PREFETCH 上限＋接口 pages 终止＋失败
+   * 3s 冷却三重兜底，整页被屏蔽时最多多拉 3 页即停。 */
   useEffect(() => {
     const el = sentinel.current;
     if (!enabled || !el || !scroller.current) return;
@@ -220,7 +218,7 @@ export function usePaginatedList<T>({
           ratio: Math.round(entry.intersectionRatio * 100) / 100,
           status: machine.current.status, page: machine.current.page,
         });
-        if (entry.isIntersecting && !filteringRef.current) void runRequest(false, "sentinel");
+        if (entry.isIntersecting) void runRequest(false, "sentinel");
       },
       { root: scroller.current, rootMargin },
     );

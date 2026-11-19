@@ -31,6 +31,7 @@ export default function SourceGallery({ def }: { def: SourceDef }) {
   const [album, setAlbum] = useState<AlbumState | null>(null);
   const busy = useRef(false);
   const seq = useRef(0);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async (reset: boolean) => {
     if (busy.current) return;
@@ -55,6 +56,19 @@ export default function SourceGallery({ def }: { def: SourceDef }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def, page, pages]);
+
+  /* 自动续页（3.2.2 集成批）：哨兵接近底部自动拉下一页；失败置
+   * err 后哨兵停摆、底部「加载更多」按钮只作兜底出现（手点不作
+   * 主路径）。连拉由接口 pages 终止与 busy 单飞兜底。 */
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || loading || err || page >= pages || items.length === 0) return;
+    const io = new IntersectionObserver((es) => {
+      if (es[0].isIntersecting) void load(false);
+    }, { rootMargin: "300px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loading, err, page, pages, items.length, load]);
 
   useEffect(() => {
     seq.current++;
@@ -130,8 +144,9 @@ export default function SourceGallery({ def }: { def: SourceDef }) {
       ) : (
         <Empty icon={<IGrid size={26} />} title="该源暂无相册" sub="已取数，列表确为空（解析不到条目时已按加载失败处理）" />
       )}
+      {items.length > 0 && <div ref={sentinelRef} style={{ height: 1 }} />}
       {loading && items.length > 0 && <div className="flex justify-center py-3"><Loader className="w-6 h-6 spinner" /></div>}
-      {!loading && !err && page < pages && items.length > 0 && (
+      {!loading && err && page < pages && items.length > 0 && (
         <Button onClick={() => void load(false)} className="my-3 px-4 text-primary">加载更多</Button>
       )}
       {!loading && !err && page >= pages && items.length > 0 && (

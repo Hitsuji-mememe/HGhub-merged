@@ -95,6 +95,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   const [extDetail, setExtDetail] = useState<ExtDetailState | null>(null);
   const [imgIdx, setImgIdx] = useState(0);
   const seqRef = useRef(0);
+  const moreSentinelRef = useRef<HTMLDivElement>(null);
   const detailCache = useRef(new Map<string, SourceDetail>());
   const inputRef = useRef<HTMLInputElement>(null);
   const [hotVideos, setHotVideos] = useState<HotSearchVideo[]>([]);
@@ -250,6 +251,18 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   const hasMore = (tab === "video" || tab === "drama")
     ? Boolean(hgVideo && hgVideo.page < hgVideo.pages)
     : tab === "post" ? Boolean(hgPost && hgPost.page < hgPost.pages) : false;
+
+  /* 自动续页（3.2.2 集成批）：结果接近底部自动加载下一页（黄果
+   * 通道分页）；加载失败（hgError）后哨兵停摆，底部「加载更多」
+   * 按钮只作兜底出现、不作主路径。 */
+  useEffect(() => {
+    const el = moreSentinelRef.current;
+    if (!el || !hasMore || moreLoading || hgError) return;
+    const io = new IntersectionObserver((es) => { if (es[0].isIntersecting) loadMore(); }, { rootMargin: "300px" });
+    io.observe(el);
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, moreLoading, hgError, tab, submitted]);
 
   /* ── F4b 补判＋fix322 标记升级：性质未决定的原生条目按 ID 查
    * Detail 规范信号——触发门 needsCanonicalKindLookup（共用出处）：
@@ -734,11 +747,12 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
                       onOpen={() => openMerged(m)} />
                   ))}
                 </div>}</FilteredContent>
+                <div ref={moreSentinelRef} style={{ height: 1 }} />
                 <div className="flex justify-center py-4">
                   {moreLoading ? <Loader label="搜索结果更新中" className="w-6 h-6 spinner" />
-                    : hasMore ? (
+                    : hasMore ? (hgError ? (
                       <Button onClick={loadMore} className="px-5 h-9 rounded-(--r-ctl) bg-s3 text-[13px] text-on/85 pressable">加载更多</Button>
-                    ) : <span className="text-[12px] text-dim">— 已经到底啦 —</span>}
+                    ) : null) : <span className="text-[12px] text-dim">— 已经到底啦 —</span>}
                 </div>
               </> : loading ? (
                 <div className="flex justify-center py-12"><Loader label="正在搜索" className="w-8 h-8 spinner" /></div>
