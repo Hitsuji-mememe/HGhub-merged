@@ -181,6 +181,12 @@
   （`srProbe.ts`，内置 720p/1080p 固定测试片、双纹理路径实测）照常在
   诊断中测量与报告，翻转开关后即按探针门条件式启用。引擎死亡
   （device lost/未捕获错误）走会话级闩锁永久回退锐化档，不重试不打扰。
+  fix2.1 可靠性补强：死亡路径收敛为引擎内 `failFatally` 单一出口
+  （lost/未捕获错误/`processFrame` 同步异常/成本停用四路同处理：
+  dead 置位 + lastError + onLost 只回调一次；`ensureTextures` 纳入
+  异常边界）；`create()` 失败路径销毁已建 device；`WebGpuSrCanvas`
+  暂停时停止逐帧处理（保留最后一帧，seek 跳变补一帧）；探针等帧
+  加 3s 超时、整场 90s 总预算，探针视频加载失败自清理元素。
 
 ## 验证命令
 
