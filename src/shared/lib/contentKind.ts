@@ -76,3 +76,22 @@ export function searchKindForHuangguoVideo(
   if (canonical && hasEpisodeStructureSignal(canonical)) return kindForHuangguoVideo(canonical);
   return "unknown";
 }
+
+/**
+ * 搜索面性质门（3.2.1 修复 F4c 线，验收 C 遍历抓到的真违例）：频道内
+ * 站内搜索（InplaceSearch/useSearchResults）此前两面都未接性质判定——
+ * original 面（标「视频」）仅以 is_original 过滤、多集剧被放行；无
+ * scope 面（标「短剧」）零过滤、单条视频混入。本函数是该面的唯一
+ * 过滤口径：逐条经 searchKindForHuangguoVideo（自带信号直判、缺失
+ * 以 canonicalFor 提供的 Detail 补判信号判），只保留 resolved kind
+ * 与目标面一致者；unknown 暂不呈现（不进错面、也不重复进两面），
+ * 补判到达后由调用方以新 canonical 重跑本函数自动归位。canonicalFor
+ * 的键控/作用域由调用方负责（同 Search.tsx 的 envKey:id 口径）。
+ */
+export function filterSearchCardsByKind<T extends EpisodeStructureSignal>(
+  cards: readonly T[],
+  target: HuangguoCardKind,
+  canonicalFor: (card: T) => EpisodeStructureSignal | null | undefined,
+): T[] {
+  return cards.filter((card) => searchKindForHuangguoVideo(card, canonicalFor(card)) === target);
+}

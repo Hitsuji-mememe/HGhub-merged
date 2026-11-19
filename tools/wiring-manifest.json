@@ -704,6 +704,34 @@
       "min": 1
     },
     {
+      "id": "fix321-f4c-kind-gate",
+      "item": "3.2.1修复F4c线 站内搜索性质门 filterSearchCardsByKind（shared/lib/contentKind 定义＋useSearchResults 生产消费）",
+      "symbol": "filterSearchCardsByKind",
+      "files": [
+        "src/shared/lib/contentKind.ts",
+        "src/features/search/useSearchResults.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f4c-target-kind",
+      "item": "3.2.1修复F4c线 站内搜索目标性质与呈现标签同口径（original 面=video、其余面=drama）",
+      "files": [
+        "src/features/search/useSearchResults.ts"
+      ],
+      "symbol": "scope === \"original\" ? \"video\" : \"drama\"",
+      "min": 1
+    },
+    {
+      "id": "fix321-f4c-canonical-lookup",
+      "item": "3.2.1修复F4c线 站内搜索信号缺失条目按 ID 查 Detail 补判（kindLookupRequested 登记＋api.video 消费，并发 ≤4）",
+      "files": [
+        "src/features/search/useSearchResults.ts"
+      ],
+      "symbol": "kindLookupRequested",
+      "min": 2
+    },
+    {
       "id": "fix321-f5-chain-gate",
       "item": "3.2.1 F5线 三段齐全门判定 missingSearchSegments（定义＋searchPolicyFor 消费）",
       "symbol": "missingSearchSegments",
