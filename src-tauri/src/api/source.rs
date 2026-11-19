@@ -66,7 +66,13 @@ pub fn filter_source_post_headers(
     }
     Ok(out)
 }
-
+/// X-Version 定向放行（Muse 2026-11-19 fix330 接通批，Iwara 取流
+/// 签名链）：仅当目标 origin 恰为 Iwara 文件 host（files/filesq
+/// .iwara.tv，公开协议证据的两 host）时保留 X-Version——该头是
+/// 站点协议签名（fileUrl 末段＋expires＋公开固定盐的 SHA-1），
+/// 非用户凭据；其余 origin 一律丢弃，不构成通用自定义头通道。
+pub const X_VERSION_SCOPED_ORIGINS: [&str; 2] =
+    ["https://files.iwara.tv", "https://filesq.iwara.tv"];
 pub fn filter_source_headers(
     headers: Vec<(String, String)>,
     target_origin: Option<&str>,
@@ -80,6 +86,10 @@ pub fn filter_source_headers(
         if ALLOWED_SOURCE_HEADERS.contains(&lower.as_str()) {
             out.push((name, value));
         } else if lower == "authorization" && target_origin == Some(AUTHORIZATION_SCOPED_ORIGIN) {
+            out.push((name, value));
+        } else if lower == "x-version"
+            && target_origin.map(|o| X_VERSION_SCOPED_ORIGINS.contains(&o)).unwrap_or(false)
+        {
             out.push((name, value));
         }
     }
@@ -261,7 +271,20 @@ mod tests {
             assert!(filter_source_post_headers(pairs(&[("x-signature", "s")]), origin).is_err(), "非 auth.hanime.tv origin 必须拒绝 POST");
         }
         assert!(filter_source_post_headers(pairs(&[("Host", "evil.example")]), Some("https://auth.hanime.tv")).is_err());
-    }
+    /* fix330 接通批：X-Version 定向放行只对 Iwara 文件 host 生效，
+     * 其他 origin（含 www/api 子域与仿冒子域）一律丢弃。 */
+    #[test]
+    fn header_x_version_scoped_to_iwara_file_hosts() {
+        for origin in [Some("https://files.iwara.tv"), Some("https://filesq.iwara.tv")] {
+            let kept = filter_source_headers(pairs(&[("X-Version", "0123abcd")]), origin)
+                .expect("定向 origin 应放行");
+            assert_eq!(kept.len(), 1, "Iwara 文件 host 保留 X-Version");
+        }
+        for origin in [Some("https://www.iwara.tv"), Some("https://api.iwara.tv"), Some("https://files.iwara.tv.evil.example"), None] {
+            let dropped = filter_source_headers(pairs(&[("X-Version", "0123abcd")]), origin)
+                .expect("非定向 origin 不报错、只丢弃");
+            assert!(dropped.is_empty(), "非 Iwara 文件 host 必须丢弃 X-Version");
+        }    }
 
     #[test]
     fn header_allowlist_keeps_host_content_length_ban() {

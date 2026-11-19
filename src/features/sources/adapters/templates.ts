@@ -11,11 +11,10 @@
 import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
-import { REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
+import { IWARA_API_ORIGIN, REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
 import { allImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
 
-export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "preview-only", "none"] as const;
-
+export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "hentaihaven-api", "preview-only", "none"] as const;
 type Params = Record<string, unknown>;
 const str = (p: Params, k: string, d = "") => (typeof p[k] === "string" ? (p[k] as string) : d);
 
@@ -370,6 +369,282 @@ export function createRedgifsAdapter(def: SourceDef): SourceAdapter {
     async search(q, page, size) {
       const d = await api<{ gifs?: RgGif[] }>(`/v2/gifs/search?search_text=${encodeURIComponent(q)}&order=trending&count=${size}&page=${page}`);
       const items = (d.gifs ?? []).map(toItem).filter((x): x is SourceItem => x !== null);
+      return { items, pagination: pageOf(items.length, page, size) };
+    },
+  };
+}
+
+/* ── SHA-1（纯实现，Muse 2026-11-19 fix330 接通批）：Iwara 取流
+ * 签名头 X-Version 的摘要算法；同步实现避免 WebView/Node 两环境
+ * crypto.subtle 可用性差异，契约以 Node createHash 对照验证。 */
+function sha1Hex(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  const bitLen = bytes.length * 8;
+  const padded = new Uint8Array((((bytes.length + 8) >> 6) + 1) << 6);
+  padded.set(bytes);
+  padded[bytes.length] = 0x80;
+  const dv = new DataView(padded.buffer);
+  dv.setUint32(padded.length - 4, bitLen >>> 0);
+  dv.setUint32(padded.length - 8, Math.floor(bitLen / 0x100000000));
+  let h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476, h4 = 0xc3d2e1f0;
+  const w = new Int32Array(80);
+  for (let off = 0; off < padded.length; off += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getInt32(off + i * 4);
+    for (let i = 16; i < 80; i++) { const x = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]; w[i] = (x << 1) | (x >>> 31); }
+    let a = h0, b = h1, c = h2, d = h3, e = h4;
+    for (let i = 0; i < 80; i++) {
+      let f = 0, k = 0;
+      if (i < 20) { f = (b & c) | (~b & d); k = 0x5a827999; }
+      else if (i < 40) { f = b ^ c ^ d; k = 0x6ed9eba1; }
+      else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }
+      else { f = b ^ c ^ d; k = 0xca62c1d6; }
+      const tmp = (((a << 5) | (a >>> 27)) + f + e + k + w[i]) | 0;
+      e = d; d = c; c = (b << 30) | (b >>> 2); b = a; a = tmp;
+    }
+    h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0; h3 = (h3 + d) | 0; h4 = (h4 + e) | 0;
+  }
+  return [h0, h1, h2, h3, h4].map((h) => (h >>> 0).toString(16).padStart(8, "0")).join("");
+}
+
+/** Iwara fileUrl 签名盐：站点协议固定常数（公开插件 iwara.js 与
+ * 独立用户脚本双证据的协议事实、非用户凭据），X-Version =
+ * sha1(<fileUrl 末段>_<expires 参数>_<盐>)。 */
+const IWARA_FILE_VERSION_SALT = "mSvL05GfEmeEmsEYfGCnVpEjYgTJraJN";
+
+/** (h) Iwara 公开 API（Muse 2026-11-19 fix330 接通批）：结构据
+ * Hentai-Park 公开插件 iwara.js 的协议事实（只借协议/结构、代码
+ * 原创）：列表 GET api.iwara.tv/videos?sort=views&page=<0基>&limit
+ * → {results:[{id,slug,title,file:{id,duration},user,tags,body}]}；
+ * 搜索 GET /search?type=videos&query&page&limit 同形；详情 GET
+ * /video/<id>；封面由 file.id 拼 files.iwara.tv/image/thumbnail/
+ * <file.id>/thumbnail-00.jpg；取流 GET 详情 fileUrl（带 X-Version
+ * 签名头，Rust source_fetch 仅对 files/filesq.iwara.tv 两 host
+ * 定向放行该头）→ [{name,src:{view,download}}] mp4 多档取最高档。 */
+export function createIwaraAdapter(def: SourceDef): SourceAdapter {
+  const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? IWARA_API_ORIGIN;
+  const siteBase = def.baseUrls.find((u) => !u.includes("api.")) ?? "https://www.iwara.tv";
+  interface IwaraVideo {
+    id?: string; slug?: string; title?: string; body?: string; fileUrl?: string;
+    file?: { id?: string; duration?: number };
+    tags?: { id?: string }[];
+  }
+  const toItem = (v: IwaraVideo): SourceItem | null => {
+    const id = String(v?.id ?? "");
+    const title = String(v?.title ?? "").trim();
+    const fileId = String(v?.file?.id ?? "");
+    if (!/^[A-Za-z0-9]{8,32}$/.test(id) || !title || !fileId) return null;
+    return {
+      sourceId: def.id, externalId: id, title,
+      cover: `https://files.iwara.tv/image/thumbnail/${encodeURIComponent(fileId)}/thumbnail-00.jpg`,
+      href: `${siteBase}/video/${id}/${v.slug ?? ""}`,
+      tags: (v.tags ?? []).map((t) => String(t?.id ?? "")).filter(Boolean),
+      duration: v.file?.duration ? String(v.file.duration) : undefined,
+    };
+  };
+  const getJson = async <T>(url: string, headers?: Record<string, string>): Promise<T> =>
+    JSON.parse(await fetchPage(url, headers)) as T;
+  const listFrom = async (url: string, page: number, size: number) => {
+    const d = await getJson<{ results?: IwaraVideo[] }>(url);
+    const rows = Array.isArray(d?.results) ? d.results : [];
+    const items = rows.map(toItem).filter((x): x is SourceItem => x !== null);
+    return { items, pagination: pageOf(rows.length, page, size) };
+  };
+  return {
+    sourceId: def.id,
+    async list(page, size) {
+      const r = await listFrom(`${apiBase}/videos?sort=views&page=${page - 1}&limit=${size}`, page, size);
+      if (r.items.length === 0) throw new SourceParseEmptyError(def.id);
+      return r;
+    },
+    async detail(id) {
+      const v = await getJson<IwaraVideo>(`${apiBase}/video/${id}`);
+      const item = toItem(v);
+      if (!item) throw new Error("Iwara 条目无效");
+      return { ...item, description: String(v.body ?? ""), images: [], episodes: [{ label: "正片", externalId: id }] };
+    },
+    async resolve(id) {
+      const v = await getJson<IwaraVideo>(`${apiBase}/video/${id}`);
+      const fileUrl = String(v?.fileUrl ?? "");
+      if (!fileUrl) return { streams: [] };
+      let version = "";
+      try {
+        const u = new URL(fileUrl);
+        const seg = u.pathname.split("/").filter(Boolean).pop() ?? "";
+        const exp = u.searchParams.get("expires") ?? "";
+        if (seg && exp) version = sha1Hex(`${seg}_${exp}_${IWARA_FILE_VERSION_SALT}`);
+      } catch { /* fileUrl 形态异常：无签名取数、由响应形态决定成败 */ }
+      const rows = await getJson<{ name?: string; quality?: string; src?: { view?: string; download?: string }; url?: string }[]>(
+        fileUrl, version ? { "X-Version": version } : undefined);
+      if (!Array.isArray(rows)) return { streams: [] };
+      const cands = rows
+        .map((r) => ({ url: r.src?.view ?? r.src?.download ?? r.url ?? "", q: Number(String(r.name ?? r.quality ?? "").match(/\d+/)?.[0] ?? 0) }))
+        .filter((c) => /^https:\/\//i.test(c.url));
+      cands.sort((a, b) => b.q - a.q);
+      return { streams: cands.length ? [{ url: cands[0].url, kind: "file" as const }] : [] };
+    },
+    async search(q, page, size) {
+      return listFrom(`${apiBase}/search?type=videos&query=${encodeURIComponent(q.slice(0, 100))}&page=${page - 1}&limit=${size}`, page, size);
+    },
+  };
+}
+
+/** (i) Hanime1 HTML 站（Muse 2026-11-19 fix330 接通批）：结构据
+ * Hentai-Park 公开插件 hanime1.js 的协议事实（只借协议/结构、代码
+ * 原创）：列表与搜索同走 GET /search（列表=sort 最新上市、搜索=
+ * query 参数），卡片为 a[href*=watch?v=<数字id>]（标题取卡内
+ * home-rows-videos-title/card-mobile-title 元素或 img alt、封面
+ * img、时长取 duration 元素）；详情 GET /watch?v=<id>（标题
+ * #shareBtn-title 或 og:title、封面 video poster 或 og:image）；
+ * 取流解析 watch 页 <source size>/data-url 的 mp4 多档、无档时
+ * 回落 /download?v=<id> 同法解析，取最高档。 */
+export function createHanime1Adapter(def: SourceDef): SourceAdapter {
+  const base = def.baseUrls[0].replace(/\/$/, "");
+  const cardTitle = (inner: string): string => {
+    const m = /class="[^"]*(?:home-rows-videos-title|card-mobile-title)[^"]*"[^>]*>([\s\S]*?)<\//i.exec(inner)
+      ?? /class="[^"]*\btitle\b[^"]*"[^>]*>([\s\S]*?)<\//i.exec(inner);
+    return m ? stripTags(m[1]) : "";
+  };
+  const parseCards = (html: string): SourceItem[] => {
+    const seen = new Set<string>();
+    const items: SourceItem[] = [];
+    for (const a of findAnchors(html)) {
+      const m = /watch\?v=(\d{1,8})/.exec(a.href);
+      if (!m || seen.has(m[1])) continue;
+      const title = cardTitle(a.inner) || imgAlt(a.inner);
+      const cover = firstImgSrc(a.inner);
+      if (!title || !cover) continue;
+      seen.add(m[1]);
+      const dur = /class="[^"]*(?:card-mobile-duration|duration)[^"]*"[^>]*>\s*([\d]+:[\d:]+)/i.exec(a.inner)?.[1];
+      items.push({ sourceId: def.id, externalId: m[1], title, cover: absUrl(base, cover), href: `${base}/watch?v=${m[1]}`, tags: [], duration: dur });
+    }
+    return items;
+  };
+  const parseSources = (html: string): { url: string; q: number }[] => {
+    const byQuality = new Map<number, string>();
+    const add = (raw: string, q: number) => {
+      if (!raw || !Number.isInteger(q) || q < 144 || q > 4320 || byQuality.has(q)) return;
+      const url = absUrl(base, raw.trim());
+      if (/^https:\/\//i.test(url) && /\.mp4(\?|$)/i.test(url)) byQuality.set(q, url);
+    };
+    for (const tag of html.match(/<source\b[^>]*>/gi) ?? []) {
+      const src = /\bsrc="([^"]+)"/i.exec(tag)?.[1] ?? "";
+      const q = Number(/\bsize="(\d+)"/i.exec(tag)?.[1] ?? /\-(\d{3,4})p\.mp4/i.exec(src)?.[1] ?? 0);
+      add(src, q);
+    }
+    for (const m of html.matchAll(/\bdata-url="([^"]+\.mp4[^"]*)"/gi)) {
+      add(m[1], Number(/\-(\d{3,4})p\.mp4/i.exec(m[1])?.[1] ?? 0));
+    }
+    return [...byQuality.entries()].map(([q, url]) => ({ url, q })).sort((a, b) => b.q - a.q);
+  };
+  const pageParam = (page: number) => (page > 1 ? `&page=${page}` : "");
+  return {
+    sourceId: def.id,
+    async list(page, size) {
+      const html = await fetchPage(`${base}/search?sort=${encodeURIComponent("最新上市")}${pageParam(page)}`);
+      const all = parseCards(html);
+      if (all.length === 0) throw new SourceParseEmptyError(def.id);
+      return { items: all.slice(0, size), pagination: pageOf(all.length, page, size) };
+    },
+    async detail(id) {
+      const html = await fetchPage(`${base}/watch?v=${id}`);
+      const title = stripTags(/id="shareBtn-title"[^>]*>([\s\S]*?)<\//i.exec(html)?.[1] ?? "")
+        || metaContent(html, "og:title").replace(/\s*-\s*Hanime1\.me\s*$/i, "");
+      if (!title) throw new Error("Hanime1 条目无效");
+      const cover = /<video\b[^>]*\bposter="([^"]+)"/i.exec(html)?.[1] ?? metaContent(html, "og:image");
+      return {
+        sourceId: def.id, externalId: id, title, cover: cover ? absUrl(base, cover) : "",
+        href: `${base}/watch?v=${id}`, tags: [], description: metaContent(html, "description"),
+        images: [], episodes: parseSources(html).length ? [{ label: "正片", externalId: id }] : [],
+      };
+    },
+    async resolve(id) {
+      let sources = parseSources(await fetchPage(`${base}/watch?v=${id}`));
+      if (sources.length === 0) {
+        try { sources = parseSources(await fetchPage(`${base}/download?v=${id}`)); } catch { /* 下载页不可达：以 watch 页结论为准（无流） */ }
+      }
+      return { streams: sources.length ? [{ url: sources[0].url, kind: "file" as const }] : [] };
+    },
+    async search(q, page, size) {
+      const html = await fetchPage(`${base}/search?query=${encodeURIComponent(q)}${pageParam(page)}`);
+      const all = parseCards(html);
+      return { items: all.slice(0, size), pagination: pageOf(all.length, page, size) };
+    },
+  };
+}
+
+/** (j) HentaiHaven 目录 API＋集页取流（Muse 2026-11-19 fix330
+ * 接通批）：结构据 Hentai-Park 公开插件 hentaihaven.js 的协议事实
+ * （只借协议/结构、代码原创）：列表 GET /api/manga/?trending_
+ * period=monthly&per_page&page → {data:[{slug,title:{rendered},
+ * meta:{vraven_remote_thumbnail}}]}，搜索同端点 search 参数；
+ * 封面拼 img.hentaihaven.xxx/<meta 路径>；详情 GET /watch/<slug>/
+ * （h1/og:image＋episode-<n> 分集链接）；取流取集页（无分集时
+ * watch 页）ld+json VideoObject 的 contentUrl（.m3u8）。 */
+export function createHentaihavenAdapter(def: SourceDef): SourceAdapter {
+  const base = def.baseUrls[0].replace(/\/$/, "");
+  interface HhRow { slug?: string; title?: { rendered?: string } | string; meta?: { vraven_remote_thumbnail?: string } }
+  const toItem = (r: HhRow): SourceItem | null => {
+    const slug = String(r?.slug ?? "");
+    if (!/^[a-z0-9-]{1,240}$/.test(slug)) return null;
+    const rawTitle = typeof r.title === "object" ? r.title?.rendered : r.title;
+    const title = stripTags(String(rawTitle ?? "")).trim();
+    if (!title) return null;
+    const thumb = String(r.meta?.vraven_remote_thumbnail ?? "").replace(/^\/+/, "");
+    return {
+      sourceId: def.id, externalId: slug, title,
+      cover: thumb ? `https://img.hentaihaven.xxx/${thumb}` : "",
+      href: `${base}/watch/${slug}/`, tags: [],
+    };
+  };
+  const apiList = async (params: string, page: number, size: number): Promise<SourceItem[]> => {
+    const d = JSON.parse(await fetchPage(`${base}/api/manga/?${params}&per_page=${size}&page=${page}`)) as { data?: HhRow[] };
+    const rows = Array.isArray(d?.data) ? d.data : [];
+    return rows.map(toItem).filter((x): x is SourceItem => x !== null);
+  };
+  const episodeNums = (html: string, slug: string): number[] => {
+    const seen = new Set<number>();
+    const re = new RegExp(`/watch/${slug}/episode-(\\d+)`, "gi");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null) seen.add(Number(m[1]));
+    return [...seen].sort((a, b) => a - b);
+  };
+  const extractHls = (html: string): string | null => {
+    const m = /"contentUrl"\s*:\s*"(https:[^"]+?\.m3u8[^"]*)"/i.exec(html.replace(/\\\//g, "/"));
+    return m ? m[1] : extractM3u8(html);
+  };
+  return {
+    sourceId: def.id,
+    async list(page, size) {
+      const items = await apiList("trending_period=monthly", page, size);
+      if (items.length === 0) throw new SourceParseEmptyError(def.id);
+      return { items, pagination: pageOf(items.length, page, size) };
+    },
+    async detail(id) {
+      const slug = id.split("/episode-")[0];
+      const html = await fetchPage(`${base}/watch/${slug}/`);
+      const title = stripTags(/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1] ?? "") || metaContent(html, "og:title") || slug;
+      const eps = episodeNums(html, slug);
+      return {
+        sourceId: def.id, externalId: slug, title, cover: metaContent(html, "og:image"),
+        href: `${base}/watch/${slug}/`, tags: [], description: metaContent(html, "description"),
+        images: [],
+        episodes: eps.length ? eps.map((n) => ({ label: `第 ${n} 集`, externalId: `${slug}/episode-${n}` })) : [{ label: "正片", externalId: slug }],
+      };
+    },
+    async resolve(id) {
+      const [slug, epPart] = id.split("/episode-");
+      const watchHtml = await fetchPage(`${base}/watch/${slug}/`);
+      const eps = episodeNums(watchHtml, slug);
+      const want = epPart ? Number(epPart) : eps[0];
+      let url: string | null = null;
+      if (want !== undefined && eps.includes(want)) {
+        url = extractHls(await fetchPage(`${base}/watch/${slug}/episode-${want}/`));
+      }
+      url ??= extractHls(watchHtml);
+      return { streams: url ? [{ url, kind: "hls" as const }] : [] };
+    },
+    async search(q, page, size) {
+      const items = await apiList(`search=${encodeURIComponent(q.slice(0, 100))}`, page, size);
       return { items, pagination: pageOf(items.length, page, size) };
     },
   };

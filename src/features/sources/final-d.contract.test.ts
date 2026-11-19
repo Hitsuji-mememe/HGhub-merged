@@ -91,9 +91,19 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
   /* 断言适配（Muse 2026-11-19 fix321-F2）：肉视频参数已按真站校准
    * 为 /home + /v/<id>，通用骨架数据流改用参数同形态的 FC2 def。
    * 再适配（fix321-F2b）：FC2 已按真站销量榜校准，通用骨架数据流
-   * 再移交参数同形态的目录源 hentaihaven def，断言内容不变。 */
-  const def = getBuiltinRegistry().find((s) => s.id === "hentaihaven")!;
-  assert.equal(def.adapter.template, "hls-site", "hentaihaven 模板为 hls-site（createAdapter 分发目标即下方工厂）");
+   * 再移交参数同形态的目录源 hentaihaven def，断言内容不变。
+   * 再适配（fix330 接通批）：hentaihaven 已改专用模板
+   * hentaihaven-api，通用骨架数据流改用与原目录条目功能字段逐字
+   * 一致的合成 def（id 仍 hentaihaven），断言内容不变；专用模板
+   * 的数据流由 fix330-new-adapters 契约承接。 */
+  const def = {
+    id: "hentaihaven", displayName: "HentaiHaven", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
+    baseUrls: ["https://hentaihaven.xxx/"], enabled: false, order: 105, maturity: "probe",
+    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    network: { mode: "probe-required" }, note: "历史目录条目参数（fix330 适配合成 def）",
+  } as unknown as Parameters<typeof createHlsSiteAdapter>[0];
+  assert.equal(def.adapter.template, "hls-site", "合成 def 模板为 hls-site（createAdapter 分发目标即下方工厂）");
   assert.ok(read("./adapters/index.ts").includes('case "hls-site": return createHlsSiteAdapter(def)'), "createAdapter 分发 hls-site → createHlsSiteAdapter");
   const adapter = createHlsSiteAdapter(def);
   const list = await adapter.list(1, 20);

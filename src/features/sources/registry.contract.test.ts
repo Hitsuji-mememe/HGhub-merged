@@ -15,10 +15,12 @@ import { TEMPLATE_IDS } from "./adapters/templates.ts";
 
 /* 2026-11-19 瘦身定版（3.2.2 集成批，契约变化适配）：命名源只保留
  * 12（黄果＋吃瓜三源＋图片三源＋里番五源中的命名部分），普通视频
- * 全部、myfans、FC2 与停用杂源已摘除，断言随之收口到保留集。 */
+ * 全部、myfans、FC2 与停用杂源已摘除，断言随之收口到保留集。
+ * 断言适配（fix330 接通批，2026-11-19）：HentaiHaven 自目录导入
+ * 毕业为命名源，命名源 12→13、CORE_IDS 随之加 hentaihaven。 */
 const CORE_IDS = [
   "huangguo", "hanime-tv", "rule34video", "51chigua", "feedheiliao", "meiridasai",
-  "xiuren", "pornpics", "cosplaytele", "danbooru", "hanime1", "iwara",
+  "xiuren", "pornpics", "cosplaytele", "danbooru", "hanime1", "iwara", "hentaihaven",
 ];
 
 /* ── 注册表完整性 ── */
@@ -26,7 +28,7 @@ const CORE_IDS = [
   const ids = new Set(BUILTIN_SOURCES.map((s) => s.id));
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
   for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
-  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 瘦身保留集 12");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 13（fix330 含毕业的 hentaihaven）");
   /* 瘦身负向不变量：被删源不得回流注册表（App 内不得出现）。 */
   for (const goneId of ["rouvideo", "91video", "pornhub", "xvideos", "swag", "fyptt", "redgifs", "fc2",
     "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91"]) {
@@ -80,9 +82,13 @@ const CORE_IDS = [
       }
     }
   }
-  for (const probeId of ["hanime1", "iwara"]) {
+  /* 断言适配（fix330 接通批）：hanime1/iwara 已写专用适配器并启用，
+   * 原「探测未过 enabled=false」事实被接通批取代；maturity 仍 probe
+   * （App 未真机验不上调）。hentaihaven 同批自目录毕业启用。 */
+  for (const probeId of ["hanime1", "iwara", "hentaihaven"]) {
     const s = BUILTIN_SOURCES.find((x) => x.id === probeId)!;
-    assert.equal(s.enabled, false, `${probeId} 探测未过 enabled=false`);
+    assert.equal(s.enabled, true, `${probeId} fix330 接通批已启用`);
+    assert.notEqual(s.adapter.template, "none", `${probeId} 已有专用适配器`);
     assert.equal(s.maturity, "probe");
   }
   assert.equal(getBuiltinRegistry()[0].id, "huangguo", "order 第一顺位为黄果");

@@ -13,7 +13,8 @@
  * 证据启用（probe），gelbooru/yandere/pixiv 维持未启用并在 note
  * 记实证/排除结论（证据 fix330/evidence/images.md）；HentaiHaven
  * 属里番线、本线未动。
- */
+ * 条目本体未手改）。fix330 接通批（2026-11-19）：HentaiHaven 已
+ * 毕业为命名源（见下方毕业注记），本表只剩图片类 5 源。 */
 import type { SourceDef } from "./types.ts";
 
 const NO_CAPS = { search: false, episodes: false, hevc: false, comments: false };
@@ -22,6 +23,9 @@ const PROBE_NET = { mode: "probe-required" } as const;
 /* 黑料网（feedheiliao）已于 fix321-F2b 自目录导入毕业为命名源
  * （registry.ts NAMED_SOURCES：三段结构证据齐＋住宅四级全通、启用），
  * 本表不再保留其条目，避免同 id 双注册。 */
+/* HentaiHaven 已于 fix330 接通批自目录导入毕业为命名源
+ * （registry.ts NAMED_SOURCES：专用适配器 hentaihaven-api＋解析
+ * 夹具实证、启用），本表不再保留其条目，避免同 id 双注册。 */
 export const CATALOG_SOURCES: SourceDef[] = [
   {
     id: "pixibb", displayName: "PixiBB", kind: "image", category: "image",
@@ -50,13 +54,6 @@ export const CATALOG_SOURCES: SourceDef[] = [
     baseUrls: ["https://gelbooru.com/"],
     enabled: false, order: 104, maturity: "probe",
     capabilities: NO_CAPS, network: PROBE_NET, note: "fix330 图片线定级（2026-11-19）：维持未启用——本机出口实抓：模板端点 /posts.json 404、站方 dapi（json/xml 两形态）匿名 401 需 API 凭证，无模板级真列表证据；住宅出口 HTML 两级筛查正常仅为页面级存档（source-verify-20261119 第二轮 B 组）、不构成 API 列表证据 → 不启用（证据 fix330/evidence/images.md）",
-  },
-  {
-    id: "hentaihaven", displayName: "HentaiHaven", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: {"listPath": "/?page={page}", "itemLinkPattern": "/video/", "detailPath": "/video/{id}"} },
-    baseUrls: ["https://hentaihaven.xxx/"],
-    enabled: false, order: 105, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "目录导入·未实测（Hentai-Park 目录，2026-11-19）：里番目录、搜索与 HLS 播放；模板参数为通用骨架、未按真站校准",
   },
   {
     id: "pixiv", displayName: "Pixiv", kind: "image", category: "image",

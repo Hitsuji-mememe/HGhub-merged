@@ -2,7 +2,8 @@
  * 内置源注册表（Muse 2026-11-19 根治包·多源线 条目2；2026-11-19
  * 用户新口径修订：保留＋全目录导入）。
  *
- * 构成：命名源 12＋目录导入源 6（catalog.ts）。
+ * 构成：命名源 13＋目录导入源 5（catalog.ts；fix330 接通批
+ * HentaiHaven 自目录毕业、Hanime1/Iwara 接通启用）。
  * 2026-11-19 20:22 用户产品瘦身定版（3.2.2 集成批执行）：定位收窄为
  * 短剧为主、吃瓜其次、图片顺带、视频只留里番——普通视频源全部、
  * myfans 预览专区与其余停用杂源已自注册表摘除（App 内不得出现；
@@ -20,8 +21,9 @@
  *   保留在切换列表可见、标「暂不可用」，点开为诚实提示页、不拉数据、
  *   不假数据；远程清单仍可 enabled=false 整体下线（熔断位不变）；
  * - 运行时取页通道（Rust 通用取页命令）已接入，见 adapters/fetchPage.ts；
- * - 探路保留 2（Hanime1/Iwara，里番）：探测降级、enabled=false、
- *   无适配器，待保留源接通批立项校准后启用。
+ * - 里番接通（fix330，2026-11-19）：Hanime1/Iwara/HentaiHaven 三源
+ *   已写专用适配器并启用（逐源依据见各条目 note 与
+ *   fix330/evidence/new-adapters.md），maturity 均 probe。
  */
 import type { SourceDef } from "./types.ts";
 import { CATALOG_SOURCES } from "./catalog.ts";
@@ -107,19 +109,27 @@ export const NAMED_SOURCES: SourceDef[] = [
     capabilities: { search: true, episodes: false, hevc: false, comments: false },
     network: PROBE_NET, note: "fix330 图片线翻案（2026-11-19）：旧 blocked 系本机机房出口 CF 假象——住宅出口四级验收全通在案（source-verify-20261119 第二轮）；本机出口复核仍 CF 拦截（/posts.json 403 challenge、另一次连接中断），两出口事实分开记录（证据 fix330/evidence/images.md）；danbooru-api 适配器就绪、住宅实证全通、App 侧未真机验 → probe。搜索与列表同端点（tags 参数）、随住宅实证列入、search 属实 true",
   },
-  /* ── 探路保留 2（里番）：探测降级，enabled=false、不写适配器 ── */
+  /* ── 里番接通批（fix330，2026-11-19）：Hanime1/Iwara 自探路保留
+   * 转专用适配器启用、HentaiHaven 自目录导入毕业（见 catalog.ts
+   * 毕业注记）；三源 maturity 均 probe（App 未真机验、口径同 F2b）。 */
   {
     id: "hanime1", displayName: "Hanime1", kind: "video", category: "video",
-    adapter: { template: "none", params: {} }, baseUrls: ["https://hanime1.me"],
-    enabled: false, order: 53, maturity: "probe", capabilities: NO_CAPS,
+    adapter: { template: "hanime1", params: {} }, baseUrls: ["https://hanime1.me"],
+    enabled: true, order: 53, maturity: "probe", capabilities: HLS_CAPS,
     network: { mode: "probe-required", needsNonJpExit: true },
-    note: "探路降级：封日本 IP 之外，代理（非日本）出口同样被 Cloudflare 403 拦截（tools/source-probe/results.md）",
+    note: "fix330 接通批启用：专用 HTML 适配器（/search 列表与搜索段、/watch 详情、watch/download 页 mp4 多档取流，结构据公开插件 hanime1.js 协议事实＋解析夹具实证）；住宅出口四级验收全通在案（source-verify-20261119，引存档）；本机机房出口为 CF 403（出口形态、非站点结论）；封日本 IP、needsNonJpExit 维持；App 侧未真机验 → probe",
   },
   {
     id: "iwara", displayName: "Iwara", kind: "video", category: "video",
-    adapter: { template: "none" }, baseUrls: ["https://www.iwara.tv"],
-    enabled: false, order: 54, maturity: "probe", capabilities: NO_CAPS, network: PROBE_NET,
-    note: "探路降级：代理出口 Cloudflare 403 / 传输中断（tools/source-probe/results.md）。fix321-F2b 据实更新（本批撤下施工、只记状态）：住宅出口四级验收全通（source-verify-20261119）——站点可用、旧 403 系机房/代理出口定性；本站有公开 API 形态（api.iwara.tv，插件 iwara.js 有结构证据），但本仓尚无适配器（template=none）、未启用，待单独立项校准",
+    adapter: { template: "iwara-api", params: {} }, baseUrls: ["https://www.iwara.tv", "https://api.iwara.tv"],
+    enabled: true, order: 54, maturity: "probe", capabilities: HLS_CAPS, network: PROBE_NET,
+    note: "fix330 接通批启用：专用 API 适配器（api.iwara.tv /videos 列表、/search 搜索段、/video/<id> 详情、fileUrl＋X-Version 签名取流，结构据公开插件 iwara.js 协议事实＋解析夹具实证）；住宅出口四级验收全通在案（source-verify-20261119，引存档）；本机机房出口为 CF 403（出口形态、非站点结论）；App 侧未真机验 → probe",
+  },
+  {
+    id: "hentaihaven", displayName: "HentaiHaven", kind: "video", category: "video",
+    adapter: { template: "hentaihaven-api", params: {} }, baseUrls: ["https://hentaihaven.xxx"],
+    enabled: true, order: 55, maturity: "probe", capabilities: HLS_CAPS, network: PROBE_NET,
+    note: "fix330 接通批自目录导入毕业为命名源并启用：专用适配器（/api/manga/ 目录与搜索段 JSON、/watch/<slug>/ 详情与分集、集页 ld+json 取 HLS，结构据公开插件 hentaihaven.js 协议事实＋解析夹具实证）；住宅出口两级筛查正常在案（①首页②列表，source-verify-20261119 第二轮 B 组）、③④级住宅未复核；本机机房出口为 CF 403（出口形态、非站点结论）；App 侧未真机验 → probe",
   },
 ];
 

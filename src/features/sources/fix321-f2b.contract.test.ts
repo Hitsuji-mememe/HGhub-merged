@@ -194,12 +194,13 @@ const def = (id: string) => {
   assert.ok(d.note?.includes("代码就绪未验证"), "Hanime note 标注 App 侧未真机验");
 }
 
-/* ── Iwara：本批撤下施工——站点住宅四级全通、缺适配器待立项，
- * 只更新 note，不动模板（template=none、enabled=false 不变）。 ── */
+/* ── Iwara：F2b 批撤下施工（仅 note）；fix330 接通批已立项落地
+ * ——断言适配（2026-11-19）：模板/启用事实按接通批新状态改判，
+ * 住宅验收事实断言不变（细节见 fix330-new-adapters 契约）。 ── */
 {
   const d = def("iwara");
-  assert.equal(d.adapter.template, "none", "Iwara 本批不动模板");
-  assert.equal(d.enabled, false, "Iwara 维持未启用（待立项）");
+  assert.equal(d.adapter.template, "iwara-api", "Iwara fix330 已写专用 API 适配器");
+  assert.equal(d.enabled, true, "Iwara fix330 已启用");
   assert.ok(d.note?.includes("四级验收全通"), "Iwara note 据实更新住宅验收结论");
 }
 
