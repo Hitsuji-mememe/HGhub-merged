@@ -12,6 +12,7 @@ import { SearchTags } from "./SearchTags";
 import { IBack, IChevR, IClose, IFilm, IFireF, IPlayF, IRefresh, ISearch, ITrophy } from "../../shared/ui/icons";
 import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
+import { AlbumViewer } from "../sources/AlbumViewer";
 import { getActiveRegistry } from "../sources/manifest";
 import { createAdapter } from "../sources/adapters/index.ts";
 import { sourceStableId } from "../sources/registryDiag";
@@ -571,21 +572,21 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
             if (merged.kind === "image") {
               const images = data.images ?? [];
               const idx = Math.min(imgIdx, Math.max(0, images.length - 1));
+              /* 同形态同治（Muse 2026-11-19 3.2.1修复F6线）：与
+               * SourceGallery 同病（写死 4/5 盒子＋上下张按钮行挤压
+               * 图片），共用 AlbumViewer 全屏形态——本页在详情页内
+               * h-full 填满剩余高度，数据源注记收进悬浮层底部，
+               * 返回走查看器悬浮层返回钮（与页头返回同落点）。 */
               return (
-                <div className="px-4 pt-2">
-                  {images.length > 0 && (
-                    <div className="relative w-full overflow-hidden rounded-[16px] bg-s2" style={{ aspectRatio: "4 / 5" }}>
-                      <Img src={images[idx]} alt={merged.title} eager />
-                    </div>
+                <div className="h-full">
+                  {images.length > 0 ? (
+                    <AlbumViewer title={merged.title} images={images} index={idx}
+                      onIndexChange={setImgIdx}
+                      onBack={() => setExtDetail(null)} backLabel="返回搜索结果"
+                      footerNote={`数据源：${data.active.sourceName}（经适配器实时取数）`} />
+                  ) : (
+                    <p className="px-4 pt-2 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>
                   )}
-                  {images.length > 1 && (
-                    <div className="mt-3 flex items-center justify-between">
-                      <Button aria-label="上一张" disabled={idx <= 0} onClick={() => setImgIdx(idx - 1)} className="ios-filter-pill disabled:opacity-40">上一张</Button>
-                      <span className="text-[12px] text-mut">{idx + 1} / {images.length}</span>
-                      <Button aria-label="下一张" disabled={idx >= images.length - 1} onClick={() => setImgIdx(idx + 1)} className="ios-filter-pill disabled:opacity-40">下一张</Button>
-                    </div>
-                  )}
-                  <p className="mt-3 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>
                 </div>
               );
             }

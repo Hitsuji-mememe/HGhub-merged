@@ -943,6 +943,34 @@
       ],
       "symbol": "resolvedKind === \"unknown\"",
       "min": 1
+    },
+    {
+      "id": "fix321-f6-shared-album-viewer",
+      "item": "3.2.1修复F6线 共用全屏图集查看器 AlbumViewer（SourceGallery 与 Search 图片详情同治接入）",
+      "symbol": "AlbumViewer",
+      "files": [
+        "src/features/sources/SourceGallery.tsx",
+        "src/features/search/Search.tsx"
+      ],
+      "each": true
+    },
+    {
+      "id": "fix321-f6-contain-stage",
+      "item": "3.2.1修复F6线 查看器图片 contain 贴边（AlbumViewer 舞台 Img 传 fit=contain，不再写死比例盒）",
+      "symbol": "fit=\"contain\"",
+      "files": [
+        "src/features/sources/AlbumViewer.tsx"
+      ],
+      "min": 1
+    },
+    {
+      "id": "fix321-f6-chrome-idle",
+      "item": "3.2.1修复F6线 悬浮层静止自动淡出计时 ALBUM_CHROME_IDLE_MS（定义＋淡出计时消费）",
+      "symbol": "ALBUM_CHROME_IDLE_MS",
+      "files": [
+        "src/features/sources/AlbumViewer.tsx"
+      ],
+      "min": 2
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",
