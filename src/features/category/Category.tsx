@@ -13,18 +13,23 @@ import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import { dedupedIncoming } from "../../shared/lib/dedup";
 import { traceFeed } from "../../shared/lib/feedTrace";
 import { Empty } from "../../shared/ui/ui";
-import { IAward, IBack, IChevR, IFilm, IFlame, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
+import { IAward, IBack, IChevR, IFilm, IFlame, IGrid, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
 import { firstEnabledSource, sourcesForCategory } from "../sources/registry";
 import { getActiveRegistry } from "../sources/manifest";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from "../sources/SourceSwitcher";
+import SourceBrowse from "../sources/SourceBrowse";
+import SourceGallery from "../sources/SourceGallery";
 
 /* 短剧三类合一（根治包多源线条目5）：原 AI成人短剧 / AI成人漫剧
  * （及原创内的短剧/漫剧子筛）合并为一个「短剧」入口，cate 取
- * ai-duanju 为代表走既有 category 接口；原创保留为独立频道，
- * 其内部子筛（ORIGINAL_CATES）是频道内筛选、不再算独立分类。 */
+ * ai-duanju 为代表走既有 category 接口。
+ * 分类修订（Muse 2026-11-19 最终版 D 线，①用户亲定条目7）：
+ * cate="original" 频道显示名改「视频」（cate id 不变、接口不变），
+ * 其频道页撤除 ai-manju/ai-duanju 子筛（与短剧频道同内容），只留
+ * 全部；短剧频道（ai-duanju）本身不动。 */
 export const CHANNELS = [
   { cate: "ai-duanju", name: "短剧", Icon: IFilm },
-  { cate: "original", name: "原创", Icon: IAward },
+  { cate: "original", name: "视频", Icon: IAward },
 ] as const;
 
 /* ================= 分类总览 ================= */
@@ -125,7 +130,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             </Button>
           )}
           <h1 className="ios-page-title text-on">分类</h1>
-          <span className="text-[12px] text-mut">{CHANNELS.length + 1} 个频道</span>
+          <span className="text-[12px] text-mut">{CHANNELS.length + 2} 个频道</span>
         </div>
       </div>
 
@@ -199,6 +204,39 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
           )}
         </section>
 
+        {/* 图片分区（Muse 2026-11-19 最终版 D 线，①用户亲定条目8）：
+            列 active 注册表 category="image" 的源——启用源经
+            sourcesForCategory 如实列出（maturity 徽标照 SourceSwitcher
+            口径），点开推既有 channel 栈页（cate="image:<源id>"）进
+            图集浏览页；目录导入的未启用图源单列如实呈现「未启用」，
+            不可点开、不假装可用（远程清单启用后自动转入上方列表）。 */}
+        <section aria-label="图片" className="mb-5 a-rise">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IGrid size={18} strokeWidth={1.9} /></span>
+            <span role="heading" aria-level={2} className="block text-[16px] font-bold text-on leading-tight">图片</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {sourcesForCategory("image", activeSources).map((s) => (
+              <Button key={s.id} onClick={() => push({ kind: "channel", cate: `image:${s.id}`, name: s.displayName })}
+                className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 text-left pressable">
+                <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
+                {s.maturity === "blocked"
+                  ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">暂不可用</span>
+                  : s.maturity === "probe"
+                    ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">未实测</span>
+                    : null}
+                <IChevR size={14} />
+              </Button>
+            ))}
+            {activeSources.filter((s) => s.category === "image" && !s.enabled).map((s) => (
+              <div key={s.id} className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 opacity-60">
+                <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
+                <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">未启用</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* 预览专区（条目5）：myfans 单列分组，条目一律标注「仅预览」，不入正式源 */}
         <section aria-label="预览专区" className="mb-5 a-rise">
           <div className="flex items-center gap-3 mb-3">
@@ -236,10 +274,11 @@ const CHANNEL_SORTS = [
   { value: "random", label: "精选推荐" },
 ] as const;
 
+/* 「视频」频道（cate="original"）子筛（Muse 2026-11-19 最终版
+ * D 线，①用户亲定条目7）：原 ai-manju（原创漫剧）/ai-duanju（原创
+ * 短剧）子筛与短剧频道同内容、已撤除，只留全部。 */
 const ORIGINAL_CATES = [
-  { value: "all", label: "全部原创" },
-  { value: "ai-manju", label: "原创漫剧" },
-  { value: "ai-duanju", label: "原创短剧" },
+  { value: "all", label: "全部" },
 ] as const;
 
 const originalSort = (cate: (typeof ORIGINAL_CATES)[number]["value"]) =>
@@ -332,15 +371,10 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
     void loadMore(true, value);
   };
 
-  const changeOriginalCate = (value: (typeof ORIGINAL_CATES)[number]["value"]) => {
-    if (value === originalCate) return;
-    if (scrollContainer.current) scrollContainer.current.scrollTop = 0;
-    setOriginalCate(value);
-    setErr(null);
-    void loadMore(true, originalSort(value), value);
-  };
-
   useEffect(() => {
+    /* 图片源页（cate="image:<id>"）不走黄果频道接口，数据由
+     * SourceGallery 经适配器供给，本 effect 直接跳过。 */
+    if (cate.startsWith("image:")) return;
     setPageItems([]); setPage(0); setPages(1);
     setServerSort("latest"); setOriginalCate("all"); setSearching(false);
     void loadMore(true, "latest", "all");
@@ -366,6 +400,40 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
   }, [page, pages, loading, err, replacing, filtering]);
 
   const ChannelGlyph = CHANNELS.find(c => c.cate === cate)?.Icon ?? IFilm;
+  /* 图片源页（Muse 2026-11-19 最终版 D 线，①用户亲定条目8）：
+   * cate="image:<源id>" 为分类页图片分区的入口约定（复用既有
+   * channel 栈页与 push/pop，不新增路由 kind）。blocked 源维持
+   * 既有诚实提示页、不拉数据；其余经 SourceGallery 走适配器。 */
+  const imageSourceId = cate.startsWith("image:") ? cate.slice("image:".length) : null;
+  const imageSource = imageSourceId
+    ? sourcesForCategory("image", getActiveRegistry().sources).find((s) => s.id === imageSourceId)
+    : undefined;
+  if (imageSourceId) {
+    return (
+      <div className="ios-page absolute inset-0 bg-bg flex flex-col">
+        <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
+          <div className="ios-subpage-bar">
+            <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
+              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">图片 · 数据源：{imageSource?.displayName ?? imageSourceId}</div>
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 scroll-y pb-8">
+          {!imageSource || imageSource.maturity === "blocked" ? (
+            <SourcePendingNotice displayName={imageSource?.displayName ?? name} maturity={imageSource?.maturity ?? "blocked"} note={imageSource?.note} />
+          ) : (
+            <SourceGallery def={imageSource} />
+          )}
+        </div>
+      </div>
+    );
+  }
+  /* 外部视频源（Muse 2026-11-19 最终版 D 线，①用户点名＋②实锤
+   * createAdapter 生产调用为 0）：blocked 维持既有诚实提示页；
+   * 其余（stable/probe）经 SourceBrowse 走适配器真取数，失败错误
+   * 态＋重试，不回落黄果数据冒充。 */
   if (channelSourceId !== "huangguo") {
     return (
       <div className="ios-page absolute inset-0 bg-bg flex flex-col">
@@ -379,7 +447,13 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
           </div>
           <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={channelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
         </div>
-        <div className="flex-1 scroll-y pb-8"><SourcePendingNotice displayName={channelSource?.displayName ?? channelSourceId} maturity={channelSource?.maturity} note={channelSource?.note} /></div>
+        <div className="flex-1 scroll-y pb-8">
+          {!channelSource || channelSource.maturity === "blocked" ? (
+            <SourcePendingNotice displayName={channelSource?.displayName ?? channelSourceId} maturity={channelSource?.maturity} note={channelSource?.note} />
+          ) : (
+            <SourceBrowse def={channelSource} />
+          )}
+        </div>
       </div>
     );
   }
@@ -393,16 +467,8 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
             <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
             <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">{replacing ? (loading ? "正在更新筛选结果…" : "筛选更新失败") : `已加载 ${items.length} 部 · ${page}/${Math.max(pages, 1)} 页`}</div>
           </div>
-          <Button onClick={() => setSearching(true)} aria-label={cate === "original" ? "搜索原创" : "搜索短剧"} className="ios-nav-btn"><ISearch size={18} /></Button>
+          <Button onClick={() => setSearching(true)} aria-label={cate === "original" ? "搜索视频" : "搜索短剧"} className="ios-nav-btn"><ISearch size={18} /></Button>
         </div>
-        {cate === "original" && (
-          <div className="pb-3 flex flex-wrap gap-2">
-            {ORIGINAL_CATES.map((s) => (
-              <Button aria-pressed={originalCate === s.value} key={s.value} onClick={() => changeOriginalCate(s.value)}
-                className="ios-filter-pill">{s.label}</Button>
-            ))}
-          </div>
-        )}
         {cate !== "original" && (
           <div className="pb-3 flex flex-wrap gap-2">
             {CHANNEL_SORTS.map((s) => (

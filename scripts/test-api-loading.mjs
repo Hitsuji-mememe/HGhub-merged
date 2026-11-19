@@ -48,13 +48,14 @@ try {
   assert.equal((await calls()).length, 0, "Hidden categories must not prefetch");
   await page.evaluate(() => window.apiLoadingFixture.setActive(true));
   /* 短剧三类合一（根治包）后激活只拉 3 路：短剧（ai-duanju 为代表）/
-   * 原创 / 吃瓜帖——旧夹具按合并前的双短剧频道期望 4 路，已适配。 */
+   * 视频（cate=original，2026-11-19 最终版 D 线改名，原名原创）/
+   * 吃瓜帖——旧夹具按合并前的双短剧频道期望 4 路，已适配。 */
   await page.waitForFunction(() => window.apiLoadingFixture.history.length === 3);
   await complete("api_category", "ai-duanju", "503");
   await visible(page.getByRole("button", { name: "重试短剧", exact: true }));
-  await visible(page.getByRole("region", { name: "原创", exact: true }).getByText("加载中…", { exact: true }));
+  await visible(page.getByRole("region", { name: "视频", exact: true }).getByText("加载中…", { exact: true }));
   await complete("api_original_videos", "all", "empty");
-  await visible(page.getByRole("region", { name: "原创", exact: true }).getByText("暂无内容", { exact: true }));
+  await visible(page.getByRole("region", { name: "视频", exact: true }).getByText("暂无内容", { exact: true }));
   await complete("api_post_category", "", "item");
   await visible(page.getByText("已加载api_post_category", { exact: true }));
   await page.getByRole("button", { name: "重试短剧", exact: true }).click();

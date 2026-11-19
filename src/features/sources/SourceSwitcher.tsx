@@ -57,8 +57,10 @@ export function SourceSwitcher({ options, value, onChange, ariaLabel }: {
 
 /** 非黄果源的诚实提示（按成熟度分化，用户保留口径）：
  * blocked＝站点实测不可达——保留在列表、点开只给证据与状态，不拉
- * 数据、不拿别源内容冒充；其余（probe/stable）＝适配器与受控取页
- * 通道已就绪，但外部源内容浏览页尚未接通，暂不展示内容。 */
+ * 数据、不拿别源内容冒充；其余（probe/stable）＝本分类的外部源
+ * 浏览页尚未接通时暂不展示内容（视频/图片分类已于 2026-11-19
+ * 最终版 D 线接通 SourceBrowse/SourceGallery，不再走本提示；
+ * 本提示现行用于 blocked 全部与吃瓜帖分类的非黄果源）。 */
 export function SourcePendingNotice({ displayName, maturity, note }: { displayName: string; maturity?: SourceMaturity; note?: string }) {
   if (maturity === "blocked") {
     return (
@@ -75,7 +77,7 @@ export function SourcePendingNotice({ displayName, maturity, note }: { displayNa
     <div role="status" className="mx-4 mt-6 rounded-[18px] bg-s2 px-4 py-5 text-center">
       <div className="text-[14px] font-semibold text-on">{displayName}</div>
       <p className="mt-1.5 text-[12.5px] leading-relaxed text-mut">
-        该源已注册、适配器与受控取页通道已就绪，但外部源的内容浏览页尚未接通，暂不展示内容，以免混入其他源数据。
+        该源已注册、适配器与受控取页通道已就绪，但本分类的外部源浏览页尚未接通，暂不展示内容，以免混入其他源数据。
         {maturity === "probe" ? "该源尚未完成真站验通，实际可用性以实测为准。" : ""}
       </p>
     </div>
