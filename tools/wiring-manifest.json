@@ -1339,6 +1339,64 @@
       ],
       "symbol": "hghubx_adapter_params_v1",
       "min": 1
+    },
+    {
+      "id": "fix330-hanime-api-adapter",
+      "item": "3.3.0接通批HanimeAPI线 hanime-api 模板适配器 createHanimeApiAdapter（定义＋工厂分发）",
+      "symbol": "createHanimeApiAdapter",
+      "files": [
+        "src/features/sources/adapters/hanimeApi.ts",
+        "src/features/sources/adapters/index.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix330-hanime-fetch-origins",
+      "item": "3.3.0接通批HanimeAPI线 模板取页 origin 声明 HANIME_GUEST_ORIGIN（fetchOrigins 声明＋hanimeApi 共用常数）",
+      "symbol": "HANIME_GUEST_ORIGIN",
+      "files": [
+        "src/features/sources/adapters/fetchOrigins.ts",
+        "src/features/sources/adapters/hanimeApi.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix330-hanime-fetchpost-seam",
+      "item": "3.3.0接通批HanimeAPI线 定向 POST 接缝 setFetchPost（fetchPost 定义＋main.tsx 启动注入）",
+      "symbol": "setFetchPost",
+      "files": [
+        "src/features/sources/adapters/fetchPost.ts",
+        "src/main.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix330-hanime-rust-post-scoped",
+      "item": "3.3.0接通批HanimeAPI线 Rust source_post 对 auth.hanime.tv 定向放行 HANIME_AUTH_ORIGIN（定义＋过滤消费）",
+      "symbol": "HANIME_AUTH_ORIGIN",
+      "files": [
+        "src-tauri/src/api/source.rs"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix330-hanime-rust-command",
+      "item": "3.3.0接通批HanimeAPI线 Rust source_post 命令接线（api/source 定义＋lib.rs generate_handler 注册）",
+      "symbol": "source_post",
+      "files": [
+        "src-tauri/src/api/source.rs",
+        "src-tauri/src/lib.rs"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix330-hanime-fanout-search",
+      "item": "3.3.0接通批HanimeAPI线 扇出搜索结构门登记 hanime-api 模板（multiSourceSearch SEARCH_TEMPLATES）",
+      "symbol": "hanime-api",
+      "files": [
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 1
     }
   ]
 }

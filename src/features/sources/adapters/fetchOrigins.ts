@@ -12,6 +12,9 @@
  *   常数 SWAG_API_ORIGIN 取页——该 origin 必须靠声明入白名单。
  *   封面 public.swag.live 只拼图片 URL、不经 source_fetch，不入。
  * - redgifs-api：令牌/search/detail 只请求 API 基址，同理。
+ * - hanime-api（fix330）：取页跨三域——guest 目录 API、ct CSRF、
+ *   auth 握手 POST（经 fetchPost 定向接缝、同一白名单把关），
+ *   三 origin 全是模板写死常数，必须靠声明入白名单。
  * - chigua/wp-rest/hls-site/danbooru-api：全部取页都以
  *   baseUrls[0] 为基址拼相对路径，无额外 origin，声明为空。
  *   （wp-rest resolve 跟进正文 iframe 的绝对地址属内容派生、非
@@ -26,6 +29,17 @@ export const SWAG_API_ORIGIN = "https://api.swag.live";
  * 与此同值、各自守界，见 src-tauri/src/api/source.rs）。 */
 export const REDGIFS_API_ORIGIN = "https://api.redgifs.com";
 
+/** Hanime guest 目录 API 基址（hanimeApi.ts 与本声明共用同一常数；
+ * fix330-hanime-api）：列表/搜索/详情走此域的 /api/v11/search_hvs
+ * 全量目录（无签名纯 GET）。 */
+export const HANIME_GUEST_ORIGIN = "https://guest.freeanimehentai.net";
+/** Hanime CSRF 令牌域（hanimeApi.ts 握手第一步 GET /csrf-token）。 */
+export const HANIME_CT_ORIGIN = "https://ct.hanime.tv";
+/** Hanime 握手 POST 域（hanimeApi.ts 与本声明共用同一常数；
+ * Rust 侧定向放行的 HANIME_AUTH_ORIGIN 与此同值、各自守界，
+ * 见 src-tauri/src/api/source.rs）。 */
+export const HANIME_AUTH_ORIGIN = "https://auth.hanime.tv";
+
 /** 模板 → baseUrls 之外的取页 origin 全集（规范化 origin 串）。 */
 export const TEMPLATE_FETCH_ORIGINS: Readonly<Record<string, readonly string[]>> = {
   "native-huangguo": [],
@@ -35,6 +49,7 @@ export const TEMPLATE_FETCH_ORIGINS: Readonly<Record<string, readonly string[]>>
   "danbooru-api": [],
   "swag-api": [SWAG_API_ORIGIN],
   "redgifs-api": [REDGIFS_API_ORIGIN],
+  "hanime-api": [HANIME_GUEST_ORIGIN, HANIME_CT_ORIGIN, HANIME_AUTH_ORIGIN],
   "preview-only": [],
   "none": [],
 };
@@ -43,7 +58,7 @@ export const TEMPLATE_FETCH_ORIGINS: Readonly<Record<string, readonly string[]>>
  * 这些模板的源——native 走仓内既有通道、preview-only/none 不取页，
  * 其 baseUrls 不进 source_fetch 白名单。 */
 export const FETCH_PAGE_TEMPLATES: readonly string[] = [
-  "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api",
+  "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api",
 ];
 
 export function templateFetchOrigins(template: string): string[] {
