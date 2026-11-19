@@ -151,12 +151,13 @@
     },
     {
       "files": [
-        "src/features/playback/VideoSurface.tsx"
+        "src/features/playback/usePlaybackKernel.ts"
       ],
       "id": "p1-throughput-line-key",
       "item": "P1 吞吐回写按当前线路 base 记账（前端）",
       "min": 1,
-      "symbol": "currentLineOrigin"
+      "symbol": "currentLineOrigin",
+      "note": "最终版 A 线收敛后调用点随内核迁入 usePlaybackKernel（beginSource＋lineEpoch effect），条目改指内核文件，接线语义不变。"
     },
     {
       "files": [
@@ -186,7 +187,8 @@
       ],
       "id": "p1-player-playing-facts",
       "item": "P1 全局播放状态双播放面接入（VideoSurface＋Player）",
-      "symbol": "notePlaybackPlaying"
+      "symbol": "notePlaying",
+      "note": "最终版 A 线收敛：两面改经内核 notePlaying 置位（内核内直调 notePlaybackPlaying，见 fin-a-kernel-playing-facts），双面接入语义不变。"
     },
     {
       "files": [
@@ -218,12 +220,13 @@
     {
       "each": true,
       "files": [
-        "src/features/playback/VideoSurface.tsx",
-        "src/features/playback/Player.tsx"
+        "src/features/playback/usePlaybackKernel.ts"
       ],
       "id": "p1-bpp-same-rendition",
       "item": "P1 判档 bpp 分子分母同 rendition（双播放面）",
-      "symbol": "playingLevelRef"
+      "symbol": "setPlayingLevel",
+      "min": 2,
+      "note": "最终版 A 线收敛：playing level 维护迁入内核（LEVEL_SWITCHED→core.setPlayingLevel，ingest 只认该 level），两面共用一份，条目改指内核文件。"
     },
     {
       "files": [
