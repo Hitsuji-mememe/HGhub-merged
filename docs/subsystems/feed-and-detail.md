@@ -196,7 +196,15 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   api.redgifs.com，与适配器回落常数共用同一出处）——远程清单整组
   替换 baseUrls 只写根域时，模板声明 origin 不被削掉；未启用/blocked
   源的 origin 不放行（契约 `fix321-f2c.contract.test.ts`，证据
-  `~/workspace/hghub/fix321/evidence/f2c/`）。
+  `~/workspace/hghub/fix321/evidence/f2c/`）。验收缺口文件
+  `fix321-f2-accept-gaps.contract.test.ts` 已改绑本派生（初版在测试
+  内复刻旧 main.tsx 内联拼装、生产迁移后永久假红，fix321-G1 线
+  2026-11-19 修订）：以仓外真实清单 v1/v2 两落定实跑两源适配器、
+  断言请求 origin ⊆ 生产白名单，G1 全绿；该文件余下红为 G2 部署
+  面（已部署 v1 的 51吃瓜域名/黑料网启用态与内置口径不一致），
+  待清单 v2 上架闭合、非代码面。清单 v2 的 swag/redgifs 条目数据
+  侧补齐（baseUrls 补 API origin）见
+  `~/workspace/hghub/fix321/evidence/g1/manifest-v2-patch.md`。
 - 吃瓜详情排版（最终版 D2 线，2026-11-19，用户实报）：`PostDetail`
   先文后视频——标题/元信息/标签/动作行/介绍正文在前，播放器区
   （`data-post-media`）移到正文之后；仍是点了才播（分段只解析备好、
