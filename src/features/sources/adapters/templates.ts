@@ -11,6 +11,7 @@
 import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
+import { REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
 import { allImgSrcs, extractIframeSrc, extractM3u8, extractMp4, findAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
 
 export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "preview-only", "none"] as const;
@@ -238,7 +239,7 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
  * X-Client-ID/X-Session-ID 会话头向 API 换取并重写清单）——超
  * 本仓播放栈，resolve 诚实返回空、源维持 probe。 */
 export function createSwagAdapter(def: SourceDef): SourceAdapter {
-  const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? "https://api.swag.live";
+  const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? SWAG_API_ORIGIN;
   const publicBase = "https://public.swag.live";
   const headers = { Referer: `${def.baseUrls[0]}/`, "Accept-Language": "zh-TW" };
   interface SwagAsset { id?: string; "content-type"?: string; url?: string; aes?: boolean }
@@ -307,7 +308,7 @@ export function createSwagAdapter(def: SourceDef): SourceAdapter {
  * /v2/gifs/<id>，流取 urls.hd 优先的 mp4 直链。令牌进程内缓存，
  * 失效（取数抛错）时刷新一次重试。 */
 export function createRedgifsAdapter(def: SourceDef): SourceAdapter {
-  const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? "https://api.redgifs.com";
+  const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? REDGIFS_API_ORIGIN;
   interface RgGif {
     id?: string; title?: string; width?: number; height?: number; duration?: number;
     urls?: { thumbnail?: string; sd?: string; hd?: string };

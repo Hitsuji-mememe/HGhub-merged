@@ -187,6 +187,16 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   兜底 x-bg-loader-url/z-image-loader-url。全部源 App 侧未真机验，
   状态最高「代码就绪未验证」（契约 `fix321-f2b.contract.test.ts`，
   证据 `~/workspace/hghub/fix321/evidence/f2b/`）。
+- 取页白名单派生（3.2.1 fix321-F2c，验收 D 缺口 G1 根治）：Rust
+  `source_fetch` 的 origin 白名单全仓只在 `features/sources/allowlist.ts`
+  的 `sourceFetchAllowlistOrigins` 一处派生，`main.tsx` 推送时只消费
+  派生结果。派生集合＝已启用 ∧ 非 blocked ∧ 经 fetchPage 取页的源，
+  每源贡献 active baseUrls ∪ 模板声明 origin（`adapters/fetchOrigins.ts`
+  的 `TEMPLATE_FETCH_ORIGINS`：swag-api→api.swag.live、redgifs-api→
+  api.redgifs.com，与适配器回落常数共用同一出处）——远程清单整组
+  替换 baseUrls 只写根域时，模板声明 origin 不被削掉；未启用/blocked
+  源的 origin 不放行（契约 `fix321-f2c.contract.test.ts`，证据
+  `~/workspace/hghub/fix321/evidence/f2c/`）。
 - 吃瓜详情排版（最终版 D2 线，2026-11-19，用户实报）：`PostDetail`
   先文后视频——标题/元信息/标签/动作行/介绍正文在前，播放器区
   （`data-post-media`）移到正文之后；仍是点了才播（分段只解析备好、
