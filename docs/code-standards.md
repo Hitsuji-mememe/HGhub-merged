@@ -30,26 +30,27 @@
 读取、解析、同步失败意味着“未知”，不能写成空数组、空对象、`false` 或“没有”。未知状态要有
 独立字段和 UI，不能靠 `length === 0` 推断。
 
-例：`src/shared/model/accountData.ts` 的 `favoritesKnown` 只有在 `api_me` 返回
-`interactions.favorite_video_ids` 数组时才置 true；失败或缺字段保持 false。
-`src/features/account/Profile.tsx` 用 `favoriteStateUnknown` 显示“收藏状态未知”，绝不显示“还没有收藏”。
-回归是 `scripts/test-account-sync-empty-state.mjs` 的五个场景。
+例（3.3.0 更新）：账号同步的 `favoritesKnown` 曾是本条的典型实例，已随账号体系拆除
+（本地资料库无远端来源，收藏空数组即空，不再有未知态）。本条在现行代码的落点是
+存储层：`readStorage()` 失败返回 `null` 让调用方用默认值，不把失败写成空值落盘。
+回归是 `scripts/test-storage-migration.mjs` 的读/写/删失败场景。
 
 检查：新增状态时问“失败和成功空结果是否可区分”；测试必须覆盖失败、缺字段、同步中和真正空。
 
 ## 4. 作用域和代次进入 key
 
-任何异步读取、缓存、动作和标签判断的 key 至少包含 `accountScope` 和 `lineEpoch`；播放器还要有
+任何异步读取、缓存、动作和标签判断的 key 至少包含 `scope` 和 `lineEpoch`；播放器还要有
 `playKey`/`permissionKey`，账号请求还要带 `expectedUserId`/`expectedOrigin`。返回时重新比较，
-旧作用域的成功响应也必须丢弃。
+旧作用域的成功响应也必须丢弃。`scope` 在 3.3.0 账号拆除后恒为 `LOCAL_SCOPE` 常量
+（原 `accountScope` 的账号维度已消失），键式保留该成分使代次判别与旧版同构。
 
 例：`src/features/feed/useFeedDetails.ts` 的 single-flight key 是
-`` `${accountScope}:${lineEpoch}:${id}` ``；`Feed.tsx` 的 `actionContext` 比较
-`accountScope/lineEpoch/id/ep/kind`；`src-tauri/src/api/mod.rs` 的 `account_request()` 在请求后
+`` `${scope}:${lineEpoch}:${id}` ``；`Feed.tsx` 的 `actionContext` 比较
+`scope/lineEpoch/id/ep/kind`；`src-tauri/src/api/mod.rs` 的 `account_request()` 在请求后
 再检查 `base()` 和 `SessionStore::is_current()`。`dc74ff0` 修的就是 `lineEpoch` 已存在却没被
 请求 key 使用，导致切线路后失败数据不重拉。
 
-检查：新增缓存先写 key 组成；模拟“请求进行中切换账号/线路”，旧结果不能落地。
+检查：新增缓存先写 key 组成；模拟“请求进行中切换线路”，旧结果不能落地。
 
 ## 5. 读取失败保留旧数据
 
@@ -58,7 +59,8 @@
 
 例：`src/shared/storage/storage.ts` 的 `readStorage()` 只有新键写入并回读一致后才删除旧键；写/删失败时旧键
 仍在，下次启动继续读。`src/shared/model/contentPreferences.ts` 写入失败仍更新内存快照并设置
-`storageError`；`src/shared/model/accountData.ts` 的 `syncAccount()` 失败不会把 `favs` 清空。
+`storageError`；`src/shared/model/localLibrary.ts` 的旧分桶吸收写失败保留旧分桶键、
+下次启动重吸收，不丢已合并数据。
 
 检查：用配额不足、`SecurityError`、损坏 JSON 三种 fixture 复现；刷新后旧数据仍在。
 
@@ -68,7 +70,8 @@
 如果旧代码也能过，这个测试没有证明力。
 
 例：`73c6610` 修“seek 后无条件续播”，回归在 `tests/player-seek.tsx` 断言原本暂停时 seek 后仍
-暂停；`scripts/test-account-sync-empty-state.mjs` 先验证同步中/失败不能显示“还没有收藏”。
+暂停；`scripts/test-storage-migration.mjs` 的 3.3.0 吸收场景在旧码上必红（分桶数据
+无吸收即孤儿化），新码合并后逐项对得上。
 提交/PR 描述写清“没有这个改动时哪条断言失败、失败信息是什么”。
 
 检查：在临时 stash/旧 commit 上跑新测试应失败；恢复修复后应通过。不要把“跑过测试”当成
@@ -144,8 +147,8 @@ Range 截断；`src-tauri/tauri.conf.json` 的 CSP 只允许本地 scheme 和 IP
 重构不改契约则只修失效链接/命令。真实回归在 `docs/lessons.md` 加一行，并指向实际测试或代码
 路径。
 
-例：改 HLS 恢复上限要更新 `playback.md`；改 `favoritesKnown` 语义要更新
-`storage-and-preferences.md` 和 `feed-and-detail.md`；改 CI/版本字段要更新 `build-release.md`。
+例：改 HLS 恢复上限要更新 `playback.md`；改资料库字段/吸收语义要更新
+`storage-and-preferences.md`；改 CI/版本字段要更新 `build-release.md`。
 文档只写当前行为，提案留在 issue/PR，不混进子系统页。
 
 检查：PR 是否包含 owning page 的 diff；`grep` 是否还有指向已移动文件的旧链接；新命令是否

@@ -121,13 +121,12 @@ try {
     await dialog.getByRole("button", { name: "保存镜像" }).click();
     await page.waitForFunction(() => window.networkSettingsFixture?.custom && window.lineSelectionSnapshot?.lineEpoch > 0);
     assert.equal(await page.evaluate(() => window.lineSelectionControls.autoLineEnabled()), false);
-    assert.equal(await page.evaluate(() => window.lineSelectionSnapshot.user), null);
     assert.equal(await input.inputValue(), "https://custom.fixture.invalid");
     await dialog.getByRole("button", { name: "恢复主站" }).click();
     await page.waitForFunction(() => window.networkSettingsFixture?.base === "https://main.fixture.invalid");
     assert.equal(await input.inputValue(), "");
     assert.equal((await calls(page, "line_reset")).length, 1);
-    report.passed.push("Custom HTTPS validation, saved line reflected, manual mode persists, cross-origin user cleared, reset restores main; existing published rows retained");
+    report.passed.push("Custom HTTPS validation, saved line reflected, manual mode persists, reset restores main; existing published rows retained");
     assert.deepEqual(await page.evaluate(() => window.networkSettingsFixture.unknown), []);
     await context.close();
   }
@@ -143,13 +142,11 @@ try {
     await page.waitForFunction(() => document.querySelector("#custom-line-address")?.value === "https://custom.fixture.invalid");
     await dialog.getByRole("button", { name: "保存镜像" }).click();
     await page.waitForFunction(() => window.networkSettingsFixture?.lineChanges === 1);
-    await page.waitForFunction(() => window.lineSelectionSnapshot?.user?.id === 9);
-    assert.equal(await page.evaluate(() => window.lineSelectionSnapshot.user?.id), 9);
     await dialog.getByRole("button", { name: "关闭", exact: true }).click();
     await row(page, "播放源").click();
     await page.waitForFunction(() => document.querySelector("#custom-line-address")?.value === "https://custom.fixture.invalid");
     assert.equal(await input.inputValue(), "https://custom.fixture.invalid");
-    report.passed.push("Saved custom address fills the form after reopen; saving unchanged origin preserves login");
+    report.passed.push("Saved custom address fills the form after reopen; saving unchanged origin keeps the line");
     assert.deepEqual(await page.evaluate(() => window.networkSettingsFixture.unknown), []);
     await context.close();
   }
@@ -189,9 +186,7 @@ try {
     assert.equal(await page.evaluate(() => window.networkSettingsFixture.proxyChanges), 1);
     assert.equal(await page.evaluate(() => window.networkSettingsFixture.lineChanges), 0);
     await page.waitForFunction(() => window.lineSelectionSnapshot?.lineEpoch > 0);
-    await page.waitForFunction(() => window.lineSelectionSnapshot?.user?.id === 9);
-    assert.equal(await page.evaluate(() => window.lineSelectionSnapshot.user?.id), 9);
-    report.passed.push("Proxy load failure blocks actions; retry works; address concealed; test blocks edits/save; edits clear stale result; failed save retains draft; successful save emits proxy-only event and preserves user");
+    report.passed.push("Proxy load failure blocks actions; retry works; address concealed; test blocks edits/save; edits clear stale result; failed save retains draft; successful save emits proxy-only event");
     await row(page, "代理访问").click();
     await dialog.getByLabel("代理地址", { exact: true }).fill("invalid draft");
     await dialog.getByRole("button", { name: "直连", exact: true }).click();

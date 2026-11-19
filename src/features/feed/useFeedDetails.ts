@@ -7,7 +7,7 @@ type Args = {
   videoIds: number[];
   mode: "home" | "context";
   kind: "video" | "post";
-  accountScope: string;
+  scope: string;
   lineEpoch: number;
   originEpoch?: number;
   filtering: boolean;
@@ -24,7 +24,7 @@ type Args = {
  * previous login or line can never be published into the current one.
  */
 export function useFeedDetails({
-  videoIds, mode, kind, accountScope, lineEpoch, originEpoch = 0, filtering, revision,
+  videoIds, mode, kind, scope, lineEpoch, originEpoch = 0, filtering, revision,
   blockReason, checked, tagErrors,
 }: Args) {
   const [detailsRaw, setDetailsRaw] = useState<Record<number, Detail>>({});
@@ -44,7 +44,7 @@ export function useFeedDetails({
   const detailRequests = useRef(new Map<string, Promise<Detail>>());
   /* 重置作用域含线路代次（audit6 P1-3 附带项）：Feed 现把 lineEpoch 经
    * originEpoch 传入——切线即整表重置，不再只随账号变化。 */
-  const cacheScope = `${accountScope}:${originEpoch}`;
+  const cacheScope = `${scope}:${originEpoch}`;
   const prevScopeRef = useRef(cacheScope);
   if (prevScopeRef.current !== cacheScope) {
     prevScopeRef.current = cacheScope;
@@ -54,7 +54,7 @@ export function useFeedDetails({
   }
 
   const requestDetail = useCallback((id: number) => {
-    const key = `${accountScope}:${lineEpoch}:${id}`;
+    const key = `${scope}:${lineEpoch}:${id}`;
     let request = detailRequests.current.get(key);
     if (!request) {
       request = api.video(id).finally(() => {
@@ -66,16 +66,16 @@ export function useFeedDetails({
       }
     }
     return request;
-  }, [accountScope, lineEpoch]);
+  }, [scope, lineEpoch]);
 
   const effectiveVideoIds = useMemo(
     () => mode === "context" && filtering ? videoIds.filter(id => {
-      const key = `${accountScope}:${lineEpoch}:${kind}:${id}`;
+      const key = `${scope}:${lineEpoch}:${kind}:${id}`;
       if (!checked[key]) return true;
       if (tagErrors[key]) return true;
       return !blockReason(kind === "post" ? posts[id]?.tags : details[id]?.tags);
     }) : videoIds,
-    [mode, filtering, revision, videoIds, accountScope, lineEpoch, kind, checked, tagErrors, posts, details, blockReason],
+    [mode, filtering, revision, videoIds, scope, lineEpoch, kind, checked, tagErrors, posts, details, blockReason],
   );
 
   return {

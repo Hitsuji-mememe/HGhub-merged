@@ -11,7 +11,7 @@ import { InplaceSearch } from "../search/InplaceSearch";
 import { Avatar, Empty } from "../../shared/ui/ui";
 import { IBack, IChevronDown, IGrid, IHeart, ISearch, IUser } from "../../shared/ui/icons";
 
-/** Keep pagination local to the scrolling page and reject responses from an old account/author. */
+/** Keep pagination local to the scrolling page and reject responses from an old author. */
 function useUserVideos(enabled: boolean, resetKey: string | number, request: (page: number) => Promise<Paged<VideoCard>>) {
   return usePaginatedList<VideoCard>({
     enabled,
@@ -40,28 +40,26 @@ function PaginationFeedback({ state }: { state: VideoState }) {
 const countLabel = ({ items, total }: VideoState) => `已加载 ${items.length}${total === null ? "" : ` / ${total}`} 部`;
 
 export function UserPage({ id, name, onBack, wide }: { id: number; name?: string; onBack: () => void; wide: boolean }) {
-  const { accountScope, lineEpoch } = useStore();
-  return <UserContent key={`${accountScope}:${lineEpoch}:${id}`} id={id} name={name} onBack={onBack} wide={wide} />;
+  const { lineEpoch } = useStore();
+  return <UserContent key={`${lineEpoch}:${id}`} id={id} name={name} onBack={onBack} wide={wide} />;
 }
 
 function UserContent({ id, name, onBack, wide }: { id: number; name?: string; onBack: () => void; wide: boolean }) {
-  const { push, accountScope } = useStore();
+  const { push } = useStore();
   const [searching, setSearching] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [stats, setStats] = useState<Awaited<ReturnType<typeof api.userStats>> | null>(null);
   const [infoError, setInfoError] = useState("");
   const [infoLoading, setInfoLoading] = useState(true);
   const [infoReload, setInfoReload] = useState(0);
-  const context = useRef({ id, accountScope });
-  context.current = { id, accountScope };
   const mounted = useRef(false);
   const request = useCallback((page: number) => api.userVideos(id, page, 20), [id]);
-  const state = useUserVideos(true, `${accountScope}:${id}`, request);
+  const state = useUserVideos(true, `${id}`, request);
 
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
-  }, [id, accountScope]);
+  }, [id]);
   useEffect(() => { setProfile(null); setStats(null); }, [id]);
   useEffect(() => {
     let alive = true;

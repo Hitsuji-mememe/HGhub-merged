@@ -309,7 +309,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
         <div className="p-5">
           <div className="text-[15px] font-bold text-on">清理缓存</div>
           <p className="text-[13px] text-mut leading-relaxed mt-2">
-            清除封面、播放列表、Key/分片缓存；Linux 桌面版还会选择性清理 WebKit HTTP/媒体磁盘缓存。登录、收藏、观看记录与本地设置都会保留。
+            清除封面、播放列表、Key/分片缓存；Linux 桌面版还会选择性清理 WebKit HTTP/媒体磁盘缓存。收藏、观看记录与本地设置都会保留。
           </p>
           {clearError && <p role="alert" className="text-[13px] text-danger mt-3">{clearError}</p>}
           <div className="flex gap-2 mt-5">

@@ -141,10 +141,7 @@ export default function LinePicker({ open, onClose }: { open: boolean; onClose: 
       tracePlayback("line.manual", { line: hostOf(next.base), prev: hostOf(state?.base ?? ""), custom: next.custom, ok: true });
       setState((s) => (s ? { ...s, ...next } : s));
       if (key === "custom" || key === "reset") setCustom(next.custom ? next.base : "");
-      // 可信线路间后端保留会话；任一端为自定义站点时后端清会话，boot 会正常登出。
-      toast(next.custom || state?.custom
-        ? `线路已切换到 ${hostOf(next.base)}，自定义站点需重新登录`
-        : `线路已切换到 ${hostOf(next.base)}，登录状态已保留`, "ok");
+      toast(`线路已切换到 ${hostOf(next.base)}`, "ok");
       // 走的是新域名了，列表页得重新拉一遍，否则还是旧线路的内容
       window.dispatchEvent(new Event("hg:line-changed"));
     } catch (e) {
@@ -204,7 +201,7 @@ export default function LinePicker({ open, onClose }: { open: boolean; onClose: 
               placeholder="https://mirror.example.com" aria-invalid={!!customError}
               aria-describedby={`custom-line-hint${customError ? " custom-line-error" : ""}`}
               onChange={event => { setCustom(event.target.value); setCustomError(""); }} />
-            <p id="custom-line-hint" className="text-[12px] text-mut leading-relaxed mt-2">填写你信任的 HTTPS 站点。登录请求会发送到该站点；切换到其他站点后需重新登录。</p>
+            <p id="custom-line-hint" className="text-[12px] text-mut leading-relaxed mt-2">填写你信任的 HTTPS 站点。内容请求会发送到该站点。</p>
             {customError && <p id="custom-line-error" role="alert" className="text-[13px] text-danger break-words mt-2">{customError}</p>}
             <div className="flex gap-2 mt-3">
               <Button variant="secondary" disabled={busyAll} onClick={() => { void applyLine("reset", api.lineReset); }} className="min-h-12 px-3 flex-1">{switching === "reset" ? "恢复中…" : "恢复主站"}</Button>

@@ -8,7 +8,7 @@ import type { FragStats, VideoHandle } from "../playback";
  * 真的切线后清本集地址缓存重解析并接回位置。护栏：全局间隔 ≥90s、同集 ≤2 次、手动暂停不触发。
  *
  * 键口径改版（整改 B1，Hark G1 P0-1）：pending/计数/接回登记此前以
- * 作用域 playKey（accountScope:lineEpoch:id:ep）为键——自愈触发切线
+ * 作用域 playKey（scope:lineEpoch:id:ep）为键——自愈触发切线
  * 后 epoch 必变，事件时以旧键写入的接回登记与新 playKey 永不相等，
  * 位置接回必然失效。现全部改 epoch 无关的内容键 id:ep；强制重解析
  * 不再直接清作用域键，改经 invalidatePlay 把内容键登记进缓存层的

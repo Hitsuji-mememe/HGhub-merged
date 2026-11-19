@@ -9,6 +9,7 @@ import {
 } from "../../shared/lib/contentKind";
 import type { Post, VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
+import { LOCAL_SCOPE } from "../../shared/model/localLibrary";
 
 type SearchKind = "video" | "post";
 type Result = {
@@ -22,7 +23,7 @@ const CACHE_ITEMS = 200;
 
 /** Keep query identity together with its cards so pending searches never relabel old content. */
 export function useSearchResults(scope?: "original") {
-  const { lineEpoch, accountScope } = useStore();
+  const { lineEpoch } = useStore();
   const [rawResult, setRawResult] = useState<Result | null>(null);
   const [request, setRequest] = useState<Request | null>(null);
   const [loading, setLoading] = useState(false);
@@ -33,7 +34,7 @@ export function useSearchResults(scope?: "original") {
   const sequence = useRef(0);
   const cache = useRef(new Map<string, { result: Result; at: number }>());
   useEffect(() => () => { sequence.current++; }, []);
-  const envKey = `${accountScope}:${lineEpoch}`;
+  const envKey = `${LOCAL_SCOPE}:${lineEpoch}`;
   const prevEnvRef = useRef(envKey);
   /* F4c 补判规范信号（与全局搜索 Search.tsx 同接缝/同口径）：key=
    * `${envKey}:${id}`，值经 kindSignalOfDetail 存 Detail 的剧集结构

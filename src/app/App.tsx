@@ -8,7 +8,6 @@ import { runBack } from "../shared/lib/back";
 import { runDetailNext } from "../shared/lib/detailNext";
 import { exitDocumentFullscreen, getFullscreenElement } from "../shared/lib/fullscreen";
 import Home from "../features/feed/Home";
-import LoginModal from "../features/account/LoginModal";
 import { ToastHost } from "../shared/ui/ui";
 import { tracePlayback } from "../shared/diagnostics/playbackDiagnostics";
 import { classifyChainStart, decideChainSwipe, type ChainAncestor } from "./gestureChain";
@@ -70,21 +69,21 @@ function StackPage(props: Parameters<typeof StackPageContent>[0]) {
   return <Suspense fallback={<PageLoading />}><StackPageContent {...props} /></Suspense>;
 }
 
-function StackPageContent({ page, onBack, wide, top, bottomInset, loginOpen }: {
-  page: Page; onBack: () => void; wide: boolean; top: boolean; bottomInset: number; loginOpen: boolean;
+function StackPageContent({ page, onBack, wide, top, bottomInset }: {
+  page: Page; onBack: () => void; wide: boolean; top: boolean; bottomInset: number;
 }) {
   if (page.kind === "feed") {
     return (
       <Feed videoIds={page.videoIds} startIndex={page.index} title={page.title} kind={page.feedKind || "video"}
         startEp={page.startEp} startTime={page.startTime}
-        mode="context" active={top && !loginOpen} bottomInset={bottomInset} onBack={onBack} />
+        mode="context" active={top} bottomInset={bottomInset} onBack={onBack} />
     );
   }
   if (page.kind === "channel") return <ChannelPage cate={page.cate} name={page.name} onBack={onBack} wide={wide} />;
   if (page.kind === "ranks") return <RankPage onBack={onBack} wide={wide} />;
   if (page.kind === "settings") return <SettingsPage onBack={onBack} wide={wide} initialSection={page.section} />;
   if (page.kind === "posts") return <PostsPage onBack={onBack} wide={wide} />;
-  if (page.kind === "post") return <PostDetail id={page.id} onBack={onBack} active={top && !loginOpen} />;
+  if (page.kind === "post") return <PostDetail id={page.id} onBack={onBack} active={top} />;
   if (page.kind === "topics") return <TopicsPage onBack={onBack} wide={wide} />;
   if (page.kind === "topic") return <TopicPage slug={page.slug} name={page.name} onBack={onBack} wide={wide} />;
   if (page.kind === "tags") return <TagsPage onBack={onBack} wide={wide} />;
@@ -113,7 +112,7 @@ function MainTabs({ wide, pageActive, covered, bottomInset }: { wide: boolean; p
 }
 
 function AppBody() {
-  const { platform, tab, setTab, stack, pop, push, loginOpen, setLoginOpen, fs, setFs, clean, setClean } = useStore();
+  const { platform, tab, setTab, stack, pop, push, fs, setFs, clean, setClean } = useStore();
   const mainRef = useRef<HTMLDivElement>(null);
   /* 链式手势 pop 冷却（fix2.1 批四#12）：手势连发/触摸抖动时 300ms
    * 内只许退一层，防一次滑退两页。用 ref 而非手势 effect 内变量——
@@ -138,7 +137,6 @@ function AppBody() {
         if (e.key === "Escape") t.blur();
         return;
       }
-      if (loginOpen) { if (e.key === "Escape") setLoginOpen(false); return; }
       if (e.key === "Escape") { if (runBack()) return; if (fs) { setFs(false); return; } if (getFullscreenElement()) { void exitDocumentFullscreen().catch(() => {}); return; } if (stack.length) pop(); return; }
       if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
       if (e.key === "/") { e.preventDefault(); setTab("search"); return; }
@@ -148,7 +146,7 @@ function AppBody() {
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-  }, [stack.length, pop, setTab, loginOpen, setLoginOpen, fs, setFs]);
+  }, [stack.length, pop, setTab, fs, setFs]);
 
   /* ── 横向链式手势导航（收官批 E 项，用户裁定）──
      链序 = 底部页签序：首页（播放器）→ 搜索 → 分类 → 我的 →（齿轮）设置。
@@ -205,7 +203,9 @@ function AppBody() {
         });
       }
       const c = classifyChainStart(ancestors, {
-        fs, loginOpen, tab, stackDepth: stack.length,
+        /* 登录弹窗已随账号体系拆除（3.3.0）：loginOpen 恒 false，
+         * gestureChain 的字段保留待 UI 线后续收敛（见 account 线报告）。 */
+        fs, loginOpen: false, tab, stackDepth: stack.length,
         topKind: stack[stack.length - 1]?.kind, clientX: t.clientX,
       });
       start = { x: t.clientX, y: t.clientY, ...c };
@@ -240,7 +240,7 @@ function AppBody() {
       el.removeEventListener("touchstart", onStart);
       el.removeEventListener("touchend", onEnd);
     };
-  }, [tab, stack, fs, loginOpen, setTab, pop, push]);
+  }, [tab, stack, fs, setTab, pop, push]);
 
   /* clean 是播放器沉浸态、只属于 home（Muse 2026-11-18 真机 bug）：
      沉浸态下链式手势可直接离 home（手势不要求先唤醒控件），clean 不清
@@ -250,7 +250,7 @@ function AppBody() {
      与进/退全屏的「恢复入口优先」一致。 */
   useEffect(() => { if (tab !== "home" && clean) setClean(false); }, [tab, clean, setClean]);
 
-  const pageActive = stack.length === 0 && !loginOpen;
+  const pageActive = stack.length === 0;
   /* 播放器即首页（蓝图 P0，Muse 2026-11-18）：home 页签就是播放面，
      不显示页签栏、底部不留页签栏高度；搜索/分类/我的作为播放器之外的
      浏览页存在，经控制层返回/搜索到达，那些页上页签栏照常显示。 */
@@ -266,8 +266,8 @@ function AppBody() {
         <MainTabs wide={wide} pageActive={pageActive} covered={stack.length > 0} bottomInset={bottomInset} />
 
         {stack.map((p, i) => (
-          <div key={p.key} inert={i !== stack.length - 1} aria-hidden={i !== stack.length - 1 || loginOpen} className="absolute inset-0 z-30 bg-bg a-page-in" style={{ boxShadow: "-18px 0 40px rgba(0,0,0,.5)" }}>
-            <StackPage page={p} onBack={pop} wide={wide} top={i === stack.length - 1} bottomInset={stackInset} loginOpen={loginOpen} />
+          <div key={p.key} inert={i !== stack.length - 1} aria-hidden={i !== stack.length - 1} className="absolute inset-0 z-30 bg-bg a-page-in" style={{ boxShadow: "-18px 0 40px rgba(0,0,0,.5)" }}>
+            <StackPage page={p} onBack={pop} wide={wide} top={i === stack.length - 1} bottomInset={stackInset} />
           </div>
         ))}
 
@@ -308,10 +308,10 @@ function MobileShell() {
 
 /* ============ 入口 ============ */
 export default function App() {
-  const { platform, loginOpen, setLoginOpen, tab, setTab, stack, pop, fs, setFs } = useStore();
+  const { platform, tab, setTab, stack, pop, fs, setFs } = useStore();
   useEffect(() => {
-    tracePlayback("navigation.change", { tab, stack: stack.map(p => ({ page: p.kind, key: p.key })), login_open: loginOpen });
-  }, [tab, stack, loginOpen]);
+    tracePlayback("navigation.change", { tab, stack: stack.map(p => ({ page: p.kind, key: p.key })) });
+  }, [tab, stack]);
 
   /* iOS keeps player gestures free of selection handles while inputs and reading text
      retain native selection/copy. Pointer targeting also handles non-focusable articles. */
@@ -342,14 +342,13 @@ export default function App() {
   }, [platform]);
 
   /* —— 安卓硬件返回键 ——
-     层级：面板/弹层 → 全屏 → 登录框 → 页面栈 → 回首页 → 退出应用。
+     层级：面板/弹层 → 全屏 → 页面栈 → 回首页 → 退出应用。
      不注册这个监听，Tauri 会直接 webView.goBack() 或退出，表现就是「任意页面返回都回桌面」。 */
   const backRef = useRef<() => void>(() => {});
   backRef.current = () => {
     if (runBack()) return;                                  // 最上层弹窗/播放器面板
     if (fs) { setFs(false); return; }                        // 沉浸全屏
     if (getFullscreenElement()) { void exitDocumentFullscreen().catch(() => {}); return; }
-    if (loginOpen) { setLoginOpen(false); return; }
     if (stack.length) { pop(); return; }
     if (tab !== "home") { setTab("home"); return; }
     invoke("plugin:app|exit", { code: 0 }).catch(() => {});
@@ -385,7 +384,6 @@ export default function App() {
   return (
     <>
       <MobileShell />
-      <LoginModal />
       <ToastHost />
     </>
   );

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, fmt } from "../../shared/api/api";
 import type { Post, VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
+import { LOCAL_SCOPE } from "../../shared/model/localLibrary";
 import { MediaCard, Masonry, RowCard } from "../../shared/ui/cards";
 import { FilteredContent } from "../../shared/ui/FilteredContent";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
@@ -18,6 +19,9 @@ import {
   type EpisodeStructureSignal,
 } from "../../shared/lib/contentKind";
 import { traceFeed } from "../../shared/lib/feedTrace";
+
+/* 资料库作用域（账号体系拆除后恒定）：代次键的前缀成分。 */
+const scope = LOCAL_SCOPE;
 import { Empty } from "../../shared/ui/ui";
 import { IAward, IBack, IChevR, IFilm, IFlame, IGrid, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
 import { firstEnabledSource, sourcesForCategory, sourcesForChannel } from "../sources/registry";
@@ -42,7 +46,7 @@ export const CHANNELS = [
 
 /* ── 归类补判（fix322 标记线，浏览面接缝）：性质未决定的条目按 ID
  * 查 Detail 规范信号（kindSignalOfDetail 单点构造：集数结构＋
- * tracking 品类标记）。key=`${accountScope}:${lineEpoch}:${id}`
+ * tracking 品类标记）。key=`${scope}:${lineEpoch}:${id}`
  * （作用域/线路代次进 key，同搜索面口径，仓库不变量 2）；请求登
  * 记先行、成败都不重复查同一 ID；并发 4；单查 15s 超时兜底、失
  * 败静默——条目保持 unknown 暂扣（不进任何呈现组），信号到达后
@@ -78,8 +82,8 @@ function useCanonicalKindSignals(envKey: string) {
 
 /* ================= 分类总览 ================= */
 export default function Category({ wide, active }: { wide: boolean; active: boolean }) {
-  const { push, lineEpoch, accountScope, setTab } = useStore();
-  const kindSignals = useCanonicalKindSignals(`${accountScope}:${lineEpoch}`);
+  const { push, lineEpoch, setTab } = useStore();
+  const kindSignals = useCanonicalKindSignals(`${scope}:${lineEpoch}`);
   const [rows, setRows] = useState<Record<string, VideoCard[]>>({});
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -340,8 +344,8 @@ const originalSort = (cate: (typeof ORIGINAL_CATES)[number]["value"]) =>
   cate === "all" ? "new" : "latest";
 
 export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: string; onBack: () => void; wide: boolean }) {
-  const { push, lineEpoch, accountScope } = useStore();
-  const kindSignals = useCanonicalKindSignals(`${accountScope}:${lineEpoch}`);
+  const { push, lineEpoch } = useStore();
+  const kindSignals = useCanonicalKindSignals(`${scope}:${lineEpoch}`);
   const { preferences } = useContentPreferences();
   const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
   const [searching, setSearching] = useState(false);

@@ -6,6 +6,7 @@ import { useFsOrientation } from "../playback/useFsOrientation";
 import { api, cover, fmt, fmtTime, isMobile, logLine, playlist } from "../../shared/api/api";
 import type { Detail, Episode, PlayInfo, Post, VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
+import { LOCAL_SCOPE } from "../../shared/model/localLibrary";
 import { Img, Sheet } from "../../shared/ui/ui";
 import { ArticlePanel, EpisodesPanel } from "./Panels";
 import { useSocialCounts } from "./ActionRail";
@@ -58,7 +59,10 @@ const stripHtml = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, "
 
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, onBlocked, startEp, startTime }: Props) {
   const store = useStore();
-  const { isLiked, isFav, setLiked, setCollected, setFollowing, actionPending, accountScope, muted, setMuted, volume, setVolume, rate, setRate, toast, addHistory, user, setLoginOpen, preferHevc, setPreferHevc } = store;
+  const { isFav, setCollected, actionPending, muted, setMuted, volume, setVolume, rate, setRate, toast, addHistory, preferHevc, setPreferHevc } = store;
+  /* 资料库作用域恒定（账号体系拆除后身份不再变化）：代次键的前缀
+   * 成分保留，使缓存/守卫键式与旧版同构（不变量 2 的 scope 成分）。 */
+  const scope = LOCAL_SCOPE;
   const isDesktop = !isMobile;
   const contentPreferences = useContentPreferences();
   const { preferences, revision, blockReason } = contentPreferences;
@@ -68,7 +72,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [tagErrors, setTagErrors] = useState<Record<string, string>>({});
   const playRequests = useRef(new Map<string, Promise<PlayInfo>>());
   const requestPlay = useCallback((id: number, episode: number) => {
-    const key = `${accountScope}:${store.lineEpoch}:${id}:${episode}`;
+    const key = `${scope}:${store.lineEpoch}:${id}:${episode}`;
     let request = playRequests.current.get(key);
     if (!request) {
       request = api.play(id, episode).finally(() => {
@@ -78,9 +82,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       if (playRequests.current.size > 12) playRequests.current.delete(playRequests.current.keys().next().value!);
     }
     return request;
-  }, [accountScope, store.lineEpoch]);
+  }, [scope, store.lineEpoch]);
   const { details, setDetails, detailsRef, posts, setPosts, requestDetail, effectiveVideoIds } = useFeedDetails({
-    videoIds, mode, kind, accountScope, lineEpoch: store.lineEpoch, originEpoch: store.lineEpoch, filtering, revision,
+    videoIds, mode, kind, scope, lineEpoch: store.lineEpoch, originEpoch: store.lineEpoch, filtering, revision,
     blockReason, checked, tagErrors,
   });
 
@@ -117,7 +121,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      playSkipRef 是自愈强制重解析的内容键集（在 skip 集内不迁移）。 */
   const currentEntryRef = useRef({ id: 0, ep: 1 });
   const playSkipRef = useRef(new Set<string>());
-  const playCache = usePlayUrlCache(accountScope, store.lineEpoch, currentEntryRef, playSkipRef);
+  const playCache = usePlayUrlCache(scope, store.lineEpoch, currentEntryRef, playSkipRef);
   const [playingKey, setPlayingKey] = useState("");
   const [proxyRetry, setProxyRetry] = useState(0);
   const [relatedByVideo, setRelatedByVideo] = useState<Record<string, VideoCard[]>>({});
@@ -145,7 +149,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     startTime && startTime > 1 ? { key: `${videoIds[startIndex]}:${startEp || 1}`, t: startTime } : null,
   );
   /* 观看进度：onTime 里节流写回 store，卸载时再兜一次 */
-  const liveRef = useRef({ id: 0, ep: 1, dur: 0, t: 0, permissionKey: "", accountScope: "" });
+  const liveRef = useRef({ id: 0, ep: 1, dur: 0, t: 0, permissionKey: "", scope: "" });
   /* 切线连续性（整改 B1）：按内容键 id:ep 记最后已知播放位置（作用域
      变化时登记接回）＋上一 playKey/内容键（判定是否仅作用域变化）。 */
   const lastPosRef = useRef(new Map<string, number>());
@@ -278,7 +282,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const relatedKey = `${store.lineEpoch}:${curId}`;
   const related = relatedByVideo[relatedKey] || [];
   const detail = details[curId];
-  const tagKey = `${accountScope}:${store.lineEpoch}:${kind}:${curId}`;
+  const tagKey = `${scope}:${store.lineEpoch}:${kind}:${curId}`;
   const permissionKey = `${tagKey}:${revision}`;
   const currentTags = kind === "post" ? posts[curId]?.tags : detail?.tags;
   const tagsReady = !!checked[tagKey];
@@ -288,7 +292,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const openPreferences = () => { closePanels(); store.push({ kind: "settings", section: "内容偏好" }); };
   const openTagMenu = openPreferences;
   const openTag = (tag: string) => { closePanels(); store.push({ kind: "tag", tag, name: tag }); };
-  useEffect(() => { setTagMenu(false); setPanel(null); }, [curId, store.lineEpoch, accountScope]);
+  useEffect(() => { setTagMenu(false); setPanel(null); }, [curId, store.lineEpoch, scope]);
   useEffect(() => { if (blocked && mode === "home" && active) onBlocked?.(curId); }, [blocked, mode, active, curId, onBlocked]);
   useEffect(() => { if (!allowed) { setPanel(null); setTagMenu(false); } }, [allowed]);
   const curEp = epMap[curId] || 1;
@@ -296,20 +300,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const collected = isFav(curId, kind);
   const collectActionKey = `collect:${kind}:${curId}`;
   const collectPending = actionPending(collectActionKey);
-  const actionContext = useRef({ accountScope, lineEpoch: store.lineEpoch, id: curId, ep: curEp, kind });
-  actionContext.current = { accountScope, lineEpoch: store.lineEpoch, id: curId, ep: curEp, kind };
-  const progressScope = useRef(accountScope);
-  useLayoutEffect(() => {
-    if (progressScope.current === accountScope) return;
-    progressScope.current = accountScope;
-    resumeRef.current = null;
-    lastSaveRef.current = 0;
-    liveRef.current = { id: 0, ep: 1, dur: 0, t: 0, permissionKey: "", accountScope };
-  }, [accountScope]);
+  const actionContext = useRef({ scope, lineEpoch: store.lineEpoch, id: curId, ep: curEp, kind });
+  actionContext.current = { scope, lineEpoch: store.lineEpoch, id: curId, ep: curEp, kind };
+  /* 旧实现在此有「账号作用域变化 → 清续播进度」的重置 effect：
+   * scope 恒定后永不触发，已删除（切线重置由 lineEpoch 键式承担）。 */
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const pendingActions = useRef(new Set<string>());
-  /* 播放键作用域化（audit6 P1-3）：accountScope:lineEpoch:id:ep，与请求层键式统一 */
+  /* 播放键作用域化（audit6 P1-3）：scope:lineEpoch:id:ep，与请求层键式统一 */
   const playKey = playCache.keyFor(curId, curEp);
   /* 内容键（整改 B1）：epoch 无关的条目标识，切线连续性全链以它对账 */
   const contentKey = `${curId}:${curEp}`;
@@ -331,7 +329,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     active, isDesktop, playKey, curId, curEp, videoRef, paused,
     invalidatePlay: (ck: string) => { playSkipRef.current.add(ck); }, setErr, setProxyRetry,
   });
-  const measurementKey = JSON.stringify([accountScope, store.lineEpoch, permissionKey, playKey, playUrl]);
+  const measurementKey = JSON.stringify([scope, store.lineEpoch, permissionKey, playKey, playUrl]);
   const videoSize = vsize.key === measurementKey ? vsize : { key: measurementKey, w: 0, h: 0 };
   // 等播放画面就绪再提示，启动动画/协议、加载失败和其他面板不叠加教程。
   /* Muse 2026-11-18 (2.2.0 合并): 长按引导浮层按 2.1.1 定版移除，恒 false */
@@ -357,7 +355,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (!isCurrentPlayback()) return;
     // Keep the writer from this observation; a later clear must invalidate old cleanup data.
     if (active) historyWriter.current = addHistory;
-    liveRef.current = { id: curId, ep: curEp, dur: duration, t, permissionKey, accountScope };
+    liveRef.current = { id: curId, ep: curEp, dur: duration, t, permissionKey, scope };
     lastPosRef.current.set(contentKey, t);
     playbackClock.publish(t);
     const now = Date.now();
@@ -371,7 +369,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const onDurationTick = (d: number) => {
     if (!isCurrentPlayback()) return;
     setDuration(d);
-    liveRef.current = { id: curId, ep: curEp, dur: d, t: historyWriter.current === addHistory && liveRef.current.id === curId && liveRef.current.ep === curEp && liveRef.current.accountScope === accountScope ? liveRef.current.t : 0, permissionKey, accountScope };
+    liveRef.current = { id: curId, ep: curEp, dur: d, t: historyWriter.current === addHistory && liveRef.current.id === curId && liveRef.current.ep === curEp && liveRef.current.scope === scope ? liveRef.current.t : 0, permissionKey, scope };
     /* 接回登记消费（整改 B1）：按内容键命中——自愈重解析与切线保位
      * 共用此口径，epoch 变不再影响命中；只消费一次。 */
     const healT = consumeHealResume(healResumeRef.current, curId, curEp);
@@ -523,11 +521,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       : [effectiveVideoIds[index]];
     const need = candidates.filter((id): id is number => id !== undefined);
     need.forEach(id => {
-      const key = `${accountScope}:${epoch}:${kind}:${id}`;
+      const key = `${scope}:${epoch}:${kind}:${id}`;
       if (checked[key] || tagErrors[key]) return;
       const request = kind === "post" ? api.post(id) : requestDetail(id);
       request.then(value => {
-        if (!mounted.current || actionContext.current.accountScope !== accountScope || actionContext.current.lineEpoch !== epoch) return;
+        if (!mounted.current || actionContext.current.scope !== scope || actionContext.current.lineEpoch !== epoch) return;
         if (!value) {
           setTagErrors(previous => ({ ...previous, [key]: "标签暂不可用，请重试" }));
           return;
@@ -537,13 +535,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         setTagErrors(previous => { const next = { ...previous }; delete next[key]; return next; });
         setChecked(previous => ({ ...previous, [key]: true }));
       }).catch(error => {
-        if (mounted.current && actionContext.current.accountScope === accountScope && actionContext.current.lineEpoch === epoch) {
+        if (mounted.current && actionContext.current.scope === scope && actionContext.current.lineEpoch === epoch) {
           setTagErrors(previous => ({ ...previous, [key]: error instanceof Error ? error.message : "标签暂不可用，请重试" }));
         }
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, kind, index, effectiveVideoIds, proxyRetry, store.lineEpoch, accountScope, checked, tagErrors, requestDetail, filtering]);
+  }, [active, kind, index, effectiveVideoIds, proxyRetry, store.lineEpoch, scope, checked, tagErrors, requestDetail, filtering]);
 
   /* 相关推荐只在用户打开详情时拉取，避免和首播抢占网络。 */
   useEffect(() => {
@@ -629,7 +627,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         if (!stillRelevant()) return;
         if (!detailsRef.current[nextId]) {
           setDetails(previous => ({ ...previous, [nextId]: nextDetail }));
-          setChecked(previous => ({ ...previous, [`${accountScope}:${store.lineEpoch}:${kind}:${nextId}`]: true }));
+          setChecked(previous => ({ ...previous, [`${scope}:${store.lineEpoch}:${kind}:${nextId}`]: true }));
         }
         if (filtering && blockReason(nextDetail.tags)) {
           if (mode === "home") onBlocked?.(nextId);
@@ -645,12 +643,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       }
     })();
     return () => { alive = false; };
-  }, [active, curId, index, nextVideoId, kind, mode, allowed, playingKey, playKey, playCache.version, permissionKey, accountScope, store.lineEpoch, filtering, blockReason, onBlocked, requestDetail, requestPlay]);
+  }, [active, curId, index, nextVideoId, kind, mode, allowed, playingKey, playKey, playCache.version, permissionKey, scope, store.lineEpoch, filtering, blockReason, onBlocked, requestDetail, requestPlay]);
 
   /* 首分片预热调度（当前条目即时预热＋下一条出画后预热＋失败重试）：
      实现在 useFeedPrewarm（Feed 尺寸预算外移），本体见 prewarm.ts */
   useFeedPrewarm({
-    active, kind, accountScope, lineEpoch: store.lineEpoch, playKey, playingKey,
+    active, kind, scope, lineEpoch: store.lineEpoch, playKey, playingKey,
     curId, curEp, nextVideoId, episodes, cacheVersion: playCache.version,
     keyFor: playCache.keyFor, getMain: playCache.getMain,
   });
@@ -713,7 +711,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, allowed, controlsLocked, showHoldGuide, panel, index, stepDir, accountScope, curEp, kind, collected, collectPending]);
+  }, [active, allowed, controlsLocked, showHoldGuide, panel, index, stepDir, scope, curEp, kind, collected, collectPending]);
 
   /* 安卓返回键：面板打开时先关面板 */
   useEffect(() => {
@@ -1159,12 +1157,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const onBarClick = (e: React.MouseEvent) => { if (barClickSwallow.current) { barClickSwallow.current = false; e.stopPropagation(); } };
 
 
-  const actionIsCurrent = () => mounted.current && actionContext.current.accountScope === accountScope && actionContext.current.lineEpoch === store.lineEpoch
+  const actionIsCurrent = () => mounted.current && actionContext.current.scope === scope && actionContext.current.lineEpoch === store.lineEpoch
     && actionContext.current.id === curId && actionContext.current.ep === curEp && actionContext.current.kind === kind;
 
 
   const onFav = async () => {
-    const pendingKey = `${accountScope}:${collectActionKey}`;
+    const pendingKey = `${scope}:${collectActionKey}`;
     if (!curId || collectPending || pendingActions.current.has(pendingKey)) return;
     pendingActions.current.add(pendingKey);
     const on = !collected;
@@ -1260,7 +1258,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           if (Math.abs(i - index) > 1 && Math.abs(i - renderIndex) > 1) {
             return <section key={vid} className={sectionClass} aria-hidden="true" />;
           }
-          if (filtering && !isActive && (!checked[`${accountScope}:${store.lineEpoch}:${kind}:${vid}`] || tagErrors[`${accountScope}:${store.lineEpoch}:${kind}:${vid}`] || blockReason(kind === "post" ? posts[vid]?.tags : details[vid]?.tags))) {
+          if (filtering && !isActive && (!checked[`${scope}:${store.lineEpoch}:${kind}:${vid}`] || tagErrors[`${scope}:${store.lineEpoch}:${kind}:${vid}`] || blockReason(kind === "post" ? posts[vid]?.tags : details[vid]?.tags))) {
             return <section key={vid} className={sectionClass} aria-hidden="true" />;
           }
           return (
@@ -1305,7 +1303,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 </div>
               ) : (
                 <div className="absolute inset-0">
-                  {(!filtering || checked[`${accountScope}:${store.lineEpoch}:${kind}:${vid}`]) &&
+                  {(!filtering || checked[`${scope}:${store.lineEpoch}:${kind}:${vid}`]) &&
                     <Img src={details[vid]?.cover || posts[vid]?.cover || ""} eager={Math.abs(i - index) <= 1} />}
                   <div className="absolute inset-0" style={{ background: "rgba(0,0,0,.25)" }} />
                 </div>
