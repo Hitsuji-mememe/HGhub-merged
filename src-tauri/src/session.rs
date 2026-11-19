@@ -206,6 +206,56 @@ mod tests {
         assert!(store.stored_origin().is_none());
     }
 
+    #[test]
+    fn bind_restores_session_and_notes_restore_ok() {
+        // 整改 C9：冷启动恢复成功必须 note restore-ok，报告不再对已
+        // 恢复会话印「未记录」。persist_status 是进程级静态、与并行
+        // 测试共享，故 bind（每次都重新 note）＋断言循环收窄竞态窗。
+        let dir = std::env::temp_dir().join(format!(
+            "hghubx-session-restore-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("session.json"),
+            r#"{"origin":"https://huangguoai.com","token":"secret-token","user":{"id":1}}"#,
+        )
+        .unwrap();
+        let store = SessionStore::new();
+        let mut stage = String::new();
+        for _ in 0..50 {
+            store.bind(dir.clone());
+            stage = persist_status()["stage"].as_str().unwrap_or("").to_string();
+            if stage == "restore-ok" {
+                break;
+            }
+        }
+        assert_eq!(stage, "restore-ok");
+        assert_eq!(store.token("https://huangguoai.com").as_deref(), Some("secret-token"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn unbound_persist_does_not_report_ok() {
+        // 整改 C9 附带口子：未 bind 文件时 persist 不许记 ok。
+        let store = SessionStore::new();
+        store.set("https://example.com", "tok".into(), json!({"id": 1}));
+        let mut stage = String::new();
+        let mut ok = true;
+        for _ in 0..50 {
+            let _ = store.persist();
+            let status = persist_status();
+            stage = status["stage"].as_str().unwrap_or("").to_string();
+            ok = status["ok"].as_bool().unwrap_or(true);
+            if stage == "unbound" {
+                break;
+            }
+        }
+        assert_eq!(stage, "unbound");
+        assert!(!ok, "unbound 不许记 ok");
+    }
+
     #[tokio::test]
     async fn boot_reconcile_verifies_stored_mirror_even_when_current_line_is_fixed() {
         let store = SessionStore::new();
@@ -250,10 +300,22 @@ impl SessionStore {
     pub fn bind(&self, dir: PathBuf) {
         let mut path = dir;
         path.push("session.json");
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            if let Ok(sess) = serde_json::from_str::<Session>(&text) {
-                *self.current.lock().unwrap() = sess;
+        // 启动恢复补记（Muse 2026-11-19 整改 C9，diag-audit #2）：旧
+        // 实现恢复路径不记 persist 状态，冷启动恢复成功后报告恒显
+        // 「未记录」（未观测冒充未发生）。现恢复成功/失败各 note 一
+        // 次；文件不存在＝从未落盘，不 note（「未记录」此时属实）。
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match serde_json::from_str::<Session>(&text) {
+                Ok(sess) => {
+                    *self.current.lock().unwrap() = sess;
+                    note_persist_status(true, "restore-ok");
+                }
+                Err(_) => note_persist_status(false, "restore-fail"),
+            },
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                note_persist_status(false, "restore-fail");
             }
+            Err(_) => { /* 无会话文件：从未落盘，不记 */ }
         }
         *self.file.lock().unwrap() = Some(path);
     }
@@ -455,6 +517,14 @@ impl SessionStore {
     /// 段读取。调用方仍可忽略返回值（落盘失败不该打崩会话），
     /// 但失败从此有痕。
     fn persist(&self) -> Result<(), String> {
+        // 未 bind 文件（测试/未初始化）时不许假报 ok（整改 C9 附带
+        // 口子）：旧实现 persist_snapshot 未 bind 返回 Ok 并照常记
+        // ok。现明确记 stage="unbound"（ok=false），返回值仍 Ok
+        // （与旧行为一致、不打崩会话路径）。
+        if self.file.lock().unwrap().is_none() {
+            note_persist_status(false, "unbound");
+            return Ok(());
+        }
         // Keep state locked through the write so a slower earlier writer cannot persist over a new login.
         let snapshot = self.current.lock().unwrap();
         let result = self.persist_snapshot(&snapshot);
