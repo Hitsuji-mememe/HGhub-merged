@@ -1392,6 +1392,9 @@ import { useSeekInput } from "../src/features/playback/useSeekInput";
       out.error = e instanceof Error ? e.message : String(e);
     }
     Object.assign(window, { __seekArb: out });
+  })();
+}
+
 /* ── A 播放内核核心探针（最终版 A 线，①用户点名架构债收敛）：
  * usePlaybackKernel 的纯核心（createPlaybackKernelCore）＋facts 组装
  * （buildPlaybackFacts）经动态 import 观测——基线无此模块时 loaded
