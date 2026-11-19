@@ -57,6 +57,19 @@
    `useSeekInput`/进度条手势。指针移动只预览，松手提交一次；
    `VideoSurface.seek` 把目标夹到 `duration - 0.15`（避免 iOS 片尾卡死），
    通知 hls `startLoad(target)`，写入 `currentTime`，原本在播放才续播。
+   seek 手势仲裁（最终版 B2 线追加，用户实报「拖进度条极易误触别的
+   界面」）：三处 seek 输入的有效触控高度一律 ≥28px（Feed 两处 scrub
+   区、桌面 `.desktop-seek`、帖子 `.hg-range`；视觉轨道不变）。共享层
+   `useSeekInput` 出仲裁：指针位移过 3px（moved 阈值）即 scrub 成立，
+   经 `onInteraction` 发 `scrubstart/scrubend(drag)` 并以 `scrubbing`
+   态对外，两宿主消费同一份；拖动结束后 500ms 内的 click 由共享层
+   吞掉（无位移点击不吞），不许冒泡触发宿主显隐/播放切换。Feed 移动
+   进度条（阈值 8px）起手即取消挂起的单击显隐判定（250ms 窗），区内
+   capture＋stopPropagation＋touchAction:none 使竖向超阈也不转交切
+   作品/滚动；拖动后的尾随 click 由区自身吞掉。仲裁全程静默：独占锁
+   不产生任何可见提示（`is-scrubbing` 只作宿主状态钩子）。Feed 主手
+   势面阈值不变：横拖定位 |dx|>14 且占优、竖滑 |dy|>14 进 pan／抬手
+   |dy|>56 切作品、长按 380ms。
 6. 播放时钟是外部 store：`onTime` 只 `publish` 时钟，进度组件
    `PlaybackProgress`/`PlaybackTime` 用 `useSyncExternalStore` 重绘，避免整个 Feed
    每 250ms 重渲染。Feed 每 5 秒把观看进度通过 `addHistory` 落盘，卸载时再补一次。
@@ -73,7 +86,16 @@
 - 页面失活：`active=false` → 暂停 + `stopLoad()`；被标签门/教程覆盖也走同一条
   active 边界，不启动后台恢复。
 - 页面恢复：只有 `wanted=true` 才恢复；原生控件造成的暂停也要被记住，不能凭
-  “之前自动播放过”强行继续。
+  “之前自动播放过”强行继续。原生暂停的写回由活动层 pause 事件监听承担
+  （最终版 B 线 P1-02）：我方 pause 先计数、监听按数消费，未被消费的
+  pause 事件（PiP/系统控件/iOS 原生全屏）一律写回 wanted=false＋
+  pauseKind=user（trace `pause.request` source=native_controls）；换源
+  拆除型暂停（currentSrc 空/readyState=0）不表态。回归见
+  playback-engines FIN-B1 组。
+- 松手剖面（最终版 B 线）：ratechange 退出 ≥2x 域起，Feed 剖面器
+  （holdJank.createHoldReleaseProfiler）收齐首帧呈现与 SR 重接管
+  时刻后落 `hold.release_profile` 分段耗时；WebGPU 画布松手首帧
+  让行一帧 SR 处理（releaseSkip），效果以真机剖面判读为准。
 - seek：preview → commit → `seeking` → `seeked`/`playing`；拖动取消、
   页面失活或换源不会提交旧目标。
 - 控件闲置隐藏（`src/features/feed/fsIdle.ts`）：桌面 2.8s（键盘聚焦控件时不隐藏）；

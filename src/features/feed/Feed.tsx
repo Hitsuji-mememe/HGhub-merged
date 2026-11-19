@@ -32,7 +32,7 @@ import { isScopeOnlyChange, usePlayUrlCache } from "./usePlayUrlCache";
 import { useFsKeepAlive } from "./useFsKeepAlive";
 import { capStringRecordByFifo } from "./cacheMap";
 import { holdState } from "./holdState";
-import { createHoldJankSampler } from "./holdJank";
+import { createHoldJankSampler, createHoldReleaseProfiler, setActiveHoldReleaseProfiler } from "./holdJank";
 import { HoldBadge } from "./HoldBadge";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText,
@@ -175,6 +175,51 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     jankSamplerRef.current = createHoldJankSampler((event, data) => videoRef.current?.trace(event, data));
   }
   const startHoldJank = () => jankSamplerRef.current?.start();
+  /* 松手剖面（最终版 B 线任务 3，实现在 holdJank.ts）：ratechange
+   * 退出 ≥2x 域即松手零点；SR 段时刻由 WebGPU 画布经总线上报、
+   * 首帧呈现走 rVFC。剖面行与 hold.jank 同 trace 通道进诊断账本。 */
+  const releaseProfilerRef = useRef<ReturnType<typeof createHoldReleaseProfiler> | null>(null);
+  if (!releaseProfilerRef.current) {
+    releaseProfilerRef.current = createHoldReleaseProfiler((event, data) => videoRef.current?.trace(event, data));
+  }
+  useEffect(() => {
+    const profiler = releaseProfilerRef.current;
+    if (!profiler || !active) return undefined;
+    setActiveHoldReleaseProfiler(profiler);
+    let el: HTMLVideoElement | null = null;
+    let prevRate = 0;
+    let poll = 0;
+    const onRateChange = () => {
+      if (!el) return;
+      const now = el.playbackRate;
+      if (prevRate >= 2 && now < 2) {
+        profiler.release(performance.now());
+        const vv = el as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number };
+        if (typeof vv.requestVideoFrameCallback === "function") {
+          vv.requestVideoFrameCallback(() => profiler.firstFrame(performance.now()));
+        } else {
+          requestAnimationFrame(() => profiler.firstFrame(performance.now()));
+        }
+      }
+      prevRate = now;
+    };
+    const attach = () => {
+      el = videoRef.current?.el() ?? null;
+      if (!el) return false;
+      prevRate = el.playbackRate;
+      el.addEventListener("ratechange", onRateChange);
+      return true;
+    };
+    if (!attach()) {
+      poll = window.setInterval(() => { if (attach()) window.clearInterval(poll); }, 500);
+    }
+    return () => {
+      window.clearInterval(poll);
+      el?.removeEventListener("ratechange", onRateChange);
+      setActiveHoldReleaseProfiler(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
   const [scrub, setScrub] = useState<{ pct: number; target: number } | null>(null);
   const scrubTarget = useRef<number | null>(null);
   /* scrub 退出不变量：任何退出路径都经此清 scrub+scrubTarget；restorePlay
@@ -185,6 +230,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const barRef = useRef<HTMLDivElement>(null);
   const barScrub = useRef(false);
   const barDrag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  /* 拖动结束后的尾随 click 吞咽标记（B2 追加，与共享层同口径）。 */
+  const barClickSwallow = useRef(false);
   const [barPct, setBarPct] = useState<number | null>(null);
   const gesture = useRef<{
     x: number; y: number; startY: number; t: number; timer: number | null;
@@ -217,6 +264,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      immersedKeyRef：开场默认沉浸（蓝图 P0）守卫——每集首次真正起播时收起控件
      一次（默认态只有视频），同一集内 seek/缓冲恢复不重复收起 */
   const tapJudgeRef = useRef<{ timer: number; clean: boolean; idle: boolean } | null>(null); const immersedKeyRef = useRef<string>("");
+  /* 待判定单击的统一取消口（B2 追加）：页面失活清理与进度条 scrub 起手
+   * 共用——scrub 独占期内绝不许挂起的单击判定到期翻显隐。 */
+  const cancelPendingTapJudge = () => { if (tapJudgeRef.current) { window.clearTimeout(tapJudgeRef.current.timer); tapJudgeRef.current = null; } };
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchRef = useRef<{ d0: number; mx0: number; my0: number; s0: number; x0: number; y0: number } | null>(null);
 
@@ -909,7 +959,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       pointersRef.current.clear();
       pinchRef.current = null;
       /* 待判定的单击不许跨页/跨锁执行（与上游 lastTapRef 清理同位） */
-      if (tapJudgeRef.current) { window.clearTimeout(tapJudgeRef.current.timer); tapJudgeRef.current = null; }
+      cancelPendingTapJudge();
     }
     // Cancel pending gestures when the page is hidden or controls are locked.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1085,6 +1135,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
    * 松手才落点 seek；无位移抬手什么都不发生。 */
   const onBarDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
+    /* scrub 独占（B2 追加）：进度条起手即取消挂起的单击显隐判定——
+     * 判定窗（250ms）内开始拖条，旧实现到期照样翻显隐、拖一半控件
+     * 跳变；自此 scrub 期间显隐/切集/滚动全部让位于 scrub 锁（区内
+     * pointer capture＋stopPropagation＋touchAction:none 已挡其余）。 */
+    cancelPendingTapJudge();
     videoRef.current?.trace("seek.input.down", { input: "mobile_bar" });
     barScrub.current = true;
     barDrag.current = { x: e.clientX, y: e.clientY, moved: false };
@@ -1105,6 +1160,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     e.stopPropagation();
     /* pointercancel 只清拖动态、不提交 seek（整改 B9，与主手势面 onUp(true) 口径一致） */
     const pct = !cancelled && barDrag.current?.moved ? barPctAt(e.clientX, e.clientY) : null;
+    if (barDrag.current?.moved) barClickSwallow.current = true;
     barDrag.current = null;
     if (pct != null && duration) {
       const target = pct * duration;
@@ -1114,6 +1170,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
     setBarPct(null);
   };
+  /* click-after-drag 吞咽（B2 追加）：拖动后的 click 只许落在 scrub 区
+   * 本身，不许冒泡触发任何宿主 click 语义；无位移的抬手不吞。 */
+  const onBarClick = (e: React.MouseEvent) => { if (barClickSwallow.current) { barClickSwallow.current = false; e.stopPropagation(); } };
 
   const togglePip = async () => {
     try {
@@ -1474,8 +1533,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                       )}
                     </div>
                     )}
-                    <div data-feed-scrub-zone="true" ref={barRef} className="mx-4 mt-2 relative" style={{ height: 14, touchAction: "none" }}
-                      onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={(e) => onBarUp(e, true)}>
+                    {/* 热区 ≥28px（B2 追加，用户实报误触）：旧高 14px，起手稍偏即落进手势面被判 tap/pan */}
+                    <div data-feed-scrub-zone="true" ref={barRef} className="mx-4 mt-2 relative" style={{ height: 28, touchAction: "none" }}
+                      onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={(e) => onBarUp(e, true)} onClick={onBarClick}>
                       {/* 轨道：几乎看不见，只暗示可拖动 */}
                       <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full" style={{ background: "rgba(255,255,255,.1)" }}>
                         <PlaybackProgress clock={playbackClock} duration={duration} preview={barPct} className="h-full rounded-full"
@@ -1640,9 +1700,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             <span className="shrink-0 text-[11px] font-medium text-[#A1A5AD] tabular-nums">赞 {fmt(likeCount)} · 藏 {fmt(collectCount)} · 评 {fmt(meta.comment)}</span>
             <span className="shrink-0 ml-auto text-[11px] font-semibold text-[#A1A5AD] tabular-nums"><PlaybackTime clock={playbackClock} /> / {fmtTime(duration)}</span>
           </div>
-          <div className="px-4" style={{ height: 22 }}>
+          {/* 热区 ≥28px（B2 追加，同信息区 scrub 区口径）：旧包裹高 22px */}
+          <div className="px-4" style={{ height: 28 }}>
             <div data-feed-scrub-zone="true" ref={barRef} className="relative h-full" style={{ touchAction: "none" }}
-              onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={(e) => onBarUp(e, true)}>
+              onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={(e) => onBarUp(e, true)} onClick={onBarClick}>
               <div className="absolute inset-x-0 bottom-[8px] h-[2.5px] rounded-full" style={{ background: "rgba(255,255,255,.3)" }}>
                 <PlaybackProgress clock={playbackClock} duration={duration} preview={barPct} className="h-full rounded-full bg-white" />
               </div>

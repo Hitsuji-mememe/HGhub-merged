@@ -17,6 +17,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { SuperResMode } from "../../shared/model/store";
 import { createSrProductionPublisher, getSrProbeResult } from "../../shared/diagnostics/gpuProbe";
+import { noteHoldSrAttempt, noteHoldSrPresent } from "../feed/holdJank";
 import { srContentRect, srDemote } from "./SuperResCanvas";
 import { WebGpuSrEngine, srFrameBudgetMs, srPresentModeFor } from "./webgpuSr";
 
@@ -114,6 +115,20 @@ export default function WebGpuSrCanvas({
      * 本组件只提供引擎 stats。 */
     let publishStatsFn: ((force?: boolean) => void) | null = null;
     let statsTimer = 0;
+    /* 松手解耦（最终版 B 线任务 3）：倍速退出 ≥2x 域后的第一个帧
+     * 周期不跑 SR 处理——processFrame 的同步 GPU ingest/编码与 1x
+     * 首帧呈现在主线程上串行竞争，让开一帧使视频本体先稳定呈现，
+     * 画布保留上一帧 SR 结果不闪；第二帧起恢复逐帧处理。效果由
+     * hold.release_profile 剖面在真机判读（本地不可复现 WebGPU
+     * 时序，代码就绪未验证）。 */
+    let releaseSkip = false;
+    let prevRate = video.playbackRate;
+    const onRateChange = () => {
+      const now = video.playbackRate;
+      if (prevRate >= 2 && now < 2) releaseSkip = true;
+      prevRate = now;
+    };
+    video.addEventListener("ratechange", onRateChange);
     setPresented(false);
     presentedRef.current = false;
     setDegrade(0);
@@ -172,7 +187,11 @@ export default function WebGpuSrCanvas({
           return;
         }
         const pausedStill = video.paused && Math.abs(video.currentTime - lastMediaTime) < 0.001;
-        if (activeRef.current && readyRef.current && video.videoWidth > 0 && !pausedStill) {
+        if (releaseSkip) {
+          /* 松手首帧让行：本周期不处理（见上方 releaseSkip 注释），
+           * 帧循环照常续排，下一帧恢复 SR 处理并记剖面 attempt。 */
+          releaseSkip = false;
+        } else if (activeRef.current && readyRef.current && video.videoWidth > 0 && !pausedStill) {
           const cw = canvas.width;
           const ch = canvas.height;
           let dst: [number, number, number, number] = [0, 0, 1, 1];
@@ -193,9 +212,12 @@ export default function WebGpuSrCanvas({
           }
           /* 帧预算按倍速核销（fin-e2 条目 2）：srFrameBudgetMs 把
            * playbackRate 纳入预算，1.25x/1.5x 不再被旧 1000/fps 误判
-           * 超标；呈现档 mode 同步入引擎（fin-e2 条目 3 两档差异）。 */
+           * 超标；呈现档 mode 同步入引擎（fin-e2 条目 3 两档差异）。
+           * 松手剖面（B 线）：attempt/present 时刻经 holdJank 总线入账。 */
           const intervalMs = srFrameBudgetMs(fps, video.playbackRate);
+          noteHoldSrAttempt(performance.now());
           const did = eng.processFrame(video, intervalMs, { dst, src, mode: srPresentModeFor(modeRef.current) });
+          if (did) noteHoldSrPresent(performance.now());
           if (did) lastMediaTime = video.currentTime;
           if (did && !presentedRef.current) {
             /* 首帧呈现：只置 presented＋记 trace；呈现档回报收敛到
@@ -232,6 +254,7 @@ export default function WebGpuSrCanvas({
 
     return () => {
       cancelled = true;
+      video.removeEventListener("ratechange", onRateChange);
       if (rafId) cancelAnimationFrame(rafId);
       if (idleTimer) window.clearTimeout(idleTimer);
       if (wakeOnPlay) video.removeEventListener("play", wakeOnPlay);

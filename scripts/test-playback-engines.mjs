@@ -243,6 +243,47 @@ try {
   check("W9 deadline predicate rescue (append window)", r.w9_predicate_rescue, []);
   check("W9 handed-off second arm escalates", r.w9_handoff_retry, ["append_stall"]);
 
+  // FB — 两臂等价（最终版 B 线任务 2，先证伪：同脚本结局元组必须一致）
+  check("FB append arm gate->suspend->resume->stall tuple", r.fb_append_arm, { gatedStalls: 0, suspended: true, beforeDeadline: 0, afterResume: 1 });
+  check("FB play arm gate->suspend->resume->stall tuple", r.fb_play_arm, { gatedStalls: 0, suspended: true, beforeDeadline: 0, afterResume: 1 });
+  check("FB two arms semantically equivalent", r.fb_arms_equivalent, true);
+
+  // HP — 松手剖面（最终版 B 线任务 3：模拟 SR 接管时序的分段断言）
+  check("HP release profiler exists", r.hp_profiler_exists, true);
+  check("HP no emit before sr present completes the set", r.hp_no_emit_before_sr_present, 0);
+  check("HP emits exactly one profile", r.hp_emit_count, 1);
+  check("HP profile event name", r.hp_event, "hold.release_profile");
+  check("HP profile segments", r.hp_segments, { release_to_first_frame_ms: 33, release_to_sr_attempt_ms: 12, sr_attempt_to_present_ms: 28, release_to_sr_present_ms: 40 });
+  check("HP no-SR profile waits for tail", r.hp_nosr_no_emit_before_tail, 0);
+  check("HP no-SR profile emits at tail", r.hp_nosr_emit_count, 1);
+  check("HP no-SR segments carry null SR fields", r.hp_nosr_segments, { release_to_first_frame_ms: 16, release_to_sr_attempt_ms: null, sr_attempt_to_present_ms: null, release_to_sr_present_ms: null });
+  check("HP silent release (no frames) dropped", r.hp_silent_release_dropped, 0);
+
+  await page.waitForFunction(() => (window).__seekArb !== undefined, null, { timeout: 20000 });
+  const sa = await page.evaluate(() => (window).__seekArb);
+  check("SA scrubstart fired once on drag", sa.scrubStarts, 1);
+  check("SA scrubend fired once on release", sa.scrubEnds, 1);
+  check("SA scrubbing true during drag", sa.scrubbingDuring, "true");
+  check("SA scrubbing false after release", sa.scrubbingAfter, "false");
+  check("SA click after drag swallowed by shared layer", sa.clicksAfterDrag, 0);
+  check("SA plain click not swallowed", sa.clicksAfterTap, 1);
+  check("SA drag commits exactly one seek", sa.dragSeeks, ["drag"]);
+
+  await page.waitForFunction(() => (window).__finB1 !== undefined, null, { timeout: 20000 });
+  const fb1 = await page.evaluate(() => (window).__finB1);
+  check("FIN-B1 native case started playing", fb1.native_started, true);
+  check("FIN-B1 native pause writes wanted=false", fb1.native_wanted, false);
+  check("FIN-B1 native pause state is paused_by_user", fb1.native_state, "paused_by_user");
+  check("FIN-B1 automatic play blocked after native pause", fb1.native_autoplay_blocked, true);
+  check("FIN-B1 suspend case started playing", fb1.suspend_started, true);
+  check("FIN-B1 page suspend keeps wanted=true", fb1.suspend_wanted, true);
+  check("FIN-B1 page suspend state is paused_by_system", fb1.suspend_state, "paused_by_system");
+  check("FIN-B1 page reactivation resumes", fb1.suspend_resumed, true);
+  check("FIN-B1 proxy_restore wanted=false", fb1.proxy_wanted, false);
+  check("FIN-B1 proxy_restore state is paused_by_system", fb1.proxy_state, "paused_by_system");
+  check("FIN-B1 own toggle pause wanted=false", fb1.own_wanted, false);
+  check("FIN-B1 own toggle pause state is paused_by_user", fb1.own_state, "paused_by_user");
+
   await page.waitForFunction(() => (window).__keepAlive !== undefined, null, { timeout: 15000 });
   const ka = await page.evaluate(() => (window).__keepAlive);
   check("KA user pause during transition: zero keepAlive plays in 1.2s window", ka.pausedPlays, 0);
