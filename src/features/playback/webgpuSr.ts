@@ -30,7 +30,7 @@
  * 管线永不同时呈现（不叠加）。
  */
 
-import { RESTORE_PASSES, UPSCALE_PASSES, type SrPass } from "./anime4kWeights";
+import { RESTORE_PASSES, UPSCALE_PASSES, type SrPass } from "./anime4kWeights.ts";
 
 /* 本仓未引入 @webgpu/types：按 API 现状取最小结构子集（同 gpuProbe 口径）。 */
 type GpuTextureLike = {
@@ -358,14 +358,19 @@ export class WebGpuSrEngine {
   private stats = { frames: 0, droppedStale: 0, costs: [] as number[], degrade: 0 as 0 | 1 | 2 };
   private degradeGate = createSrDegradeGate();
   private onDegrade: ((degrade: 0 | 1 | 2) => void) | null;
+  /* 帧完成回调（fix322/sr）：每次提交的 GPU 工作落定（onSubmittedWorkDone
+   * resolve、可被合成呈现）时以（提交时刻, 完成时刻）回调一次。上层据此
+   * 把呈现时刻记在落定点而非提交点——提交≠呈现，口径见 fix322 契约。 */
+  private onFrameDone: ((submittedAtMs: number, doneAtMs: number) => void) | null;
 
-  private constructor(device: GpuDeviceLike, ctx: GpuCanvasContextLike, format: string, path: SrIngestPath, onLost: () => void, onDegrade?: (degrade: 0 | 1 | 2) => void) {
+  private constructor(device: GpuDeviceLike, ctx: GpuCanvasContextLike, format: string, path: SrIngestPath, onLost: () => void, onDegrade?: (degrade: 0 | 1 | 2) => void, onFrameDone?: (submittedAtMs: number, doneAtMs: number) => void) {
     this.device = device;
     this.ctx = ctx;
     this.canvasFormat = format;
     this.path = path;
     this.onLost = onLost;
     this.onDegrade = onDegrade ?? null;
+    this.onFrameDone = onFrameDone ?? null;
     this.sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
     /* 呈现 uniform：4×vec4（dst/src/RCAS 参数/gateHi），UNIFORM=0x40 | COPY_DST=0x08。 */
     this.presentUniform = device.createBuffer({ size: 64, usage: 0x40 | 0x08 });
@@ -404,7 +409,7 @@ export class WebGpuSrEngine {
     try { this.onLost(); } catch { /* 上层回调异常不外溢 */ }
   }
 
-  static async create(canvas: HTMLCanvasElement, opts: { path: SrIngestPath; onLost: () => void; onDegrade?: (degrade: 0 | 1 | 2) => void }): Promise<WebGpuSrEngine | null> {
+  static async create(canvas: HTMLCanvasElement, opts: { path: SrIngestPath; onLost: () => void; onDegrade?: (degrade: 0 | 1 | 2) => void; onFrameDone?: (submittedAtMs: number, doneAtMs: number) => void }): Promise<WebGpuSrEngine | null> {
     /* device 一旦建成，后续任何失败（ctx 为 null、configure/构造/
      * buildPipelines 抛错）都必须先 destroy 再返回 null（fix2.1
      * 批二#7）：旧实现两条早退路径漏销毁，失败重试会漏出 GPU 设备。 */
@@ -422,7 +427,7 @@ export class WebGpuSrEngine {
       }
       const format = gpu.getPreferredCanvasFormat();
       ctx.configure({ device, format, alphaMode: "opaque" });
-      const engine = new WebGpuSrEngine(device, ctx, format, opts.path, opts.onLost, opts.onDegrade);
+      const engine = new WebGpuSrEngine(device, ctx, format, opts.path, opts.onLost, opts.onDegrade, opts.onFrameDone);
       engine.buildPipelines();
       return engine;
     } catch {
@@ -644,6 +649,9 @@ export class WebGpuSrEngine {
             this.failFatally("帧成本持续超预算，引擎停用");
           }
         }
+        /* 帧完成回调（fix322/sr）：本帧至此才真正可被合成呈现，
+         * 呈现时刻口径以此为准。回调异常不外溢（同 onDegrade 纪律）。 */
+        try { this.onFrameDone?.(t0, performance.now()); } catch { /* 上层回调异常不外溢 */ }
       }).catch(() => { this.inFlight = false; });
       return true;
     } catch (error) {

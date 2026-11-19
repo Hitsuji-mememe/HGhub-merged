@@ -102,8 +102,18 @@
   playback-engines FIN-B1 组。
 - 松手剖面（最终版 B 线）：ratechange 退出 ≥2x 域起，Feed 剖面器
   （holdJank.createHoldReleaseProfiler）收齐首帧呈现与 SR 重接管
-  时刻后落 `hold.release_profile` 分段耗时；WebGPU 画布松手首帧
-  让行一帧 SR 处理（releaseSkip），效果以真机剖面判读为准。
+  时刻后落 `hold.release_profile` 分段耗时。松手帧口径（fix322/sr
+  线，2026-11-19）：B 线的 releaseSkip（松手首帧让行一帧 SR 处理）
+  已移除——WebGPU 画布是不透明覆盖层，视频本体在画布之下不可见，
+  让行只把画布更新推迟一个 rVFC 周期、且与速率切换后帧队列重定时
+  的延迟在松手帧上叠加；现行松手不跳帧、首个 1x 帧照常处理。
+  SR 呈现时刻口径同步改正：旧实现在 processFrame 同步返回（＝命令
+  提交）时即记 present，GPU 侧停顿对剖面不可见；现由引擎完成回调
+  `onFrameDone`（onSubmittedWorkDone 落定）在工作完成时以 doneAt
+  记 present（提交归属按在飞帧的提交时刻与最近松手时刻比对）。
+  报告长按松手分组节除桶计数外印最近 3 条剖面分段值与两桶尾窗
+  最大帧间隔（post_max_gap_ms），判读不依赖账本尾段导出。回归见
+  `fix322-sr-release.contract.test.ts`。
   判别力与补字段（最终版 B3 线）：剖面行与 `hold.jank` 行必带
   `sr_engaged` 显式布尔＋`pipeline`（SrCanvas 在管线切换点经
   noteHoldPipelineState 登记；用户侧无手动引擎开关、做不了 A/B，

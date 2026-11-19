@@ -62,9 +62,13 @@ const ledgerEvents = [
   const sectionStart = report.indexOf("长按松手分组（SR 接管 vs 判档直通）");
   assert.ok(sectionStart >= 0, "报告含长按松手分组节标题行");
   const section = report.slice(Math.max(0, sectionStart - 1500), sectionStart + 800);
+  /* 断言适配（fix322/sr）：汇总节改以同一份账本快照变量 holdEvents
+   * 同时供桶计数与松手剖面分段判读，调用形态由直传快照改为变量；
+   * 契约口径不变且更严——数据源仍须是 ledgerSnapshot().events，
+   * 且计数与分段同源一份快照。 */
   assert.ok(
-    section.includes("summarizeHoldEvents(ledgerSnapshot().events)"),
-    "汇总节吃事件账本快照（summarizeHoldEvents(ledgerSnapshot().events)）",
+    section.includes("const holdEvents = ledgerSnapshot().events") && section.includes("summarizeHoldEvents(holdEvents)"),
+    "汇总节吃事件账本快照（holdEvents = ledgerSnapshot().events → summarizeHoldEvents(holdEvents)）",
   );
   assert.ok(
     !/summarizeHoldEvents\(\s*session\b/.test(section),

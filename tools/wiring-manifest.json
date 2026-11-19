@@ -647,8 +647,8 @@
     },
     {
       "id": "fix321-f3-hold-summary-ledger-source",
-      "item": "3.2.1修复F3线：长按松手分组汇总数据源＝事件账本快照（不许改喂播放日志 entries，日志落盘名带 web. 前缀与聚合器精确匹配对不上、恒 0）",
-      "symbol": "summarizeHoldEvents(ledgerSnapshot().events)",
+      "item": "3.2.1修复F3线：长按松手分组汇总数据源＝事件账本快照（不许改喂播放日志 entries，日志落盘名带 web. 前缀与聚合器精确匹配对不上、恒 0）；fix322 起经同一快照变量 holdEvents 供计数与分段判读，符号随之适配",
+      "symbol": "summarizeHoldEvents(holdEvents)",
       "files": [
         "src/shared/diagnostics/diagnosticReport.ts"
       ],
@@ -1171,6 +1171,16 @@
       "item": "吃瓜详情加载判读埋点 post_detail.load（注释口径＋trace 调用）",
       "min": 2,
       "symbol": "post_detail.load"
+    },
+    {
+      "files": [
+        "src/features/playback/webgpuSr.ts",
+        "src/features/playback/WebGpuSrCanvas.tsx"
+      ],
+      "id": "fix322-sr-release-present-on-completion",
+      "item": "fix322/sr 线：松手不跳帧＋SR 呈现时刻走引擎完成回调 onFrameDone（引擎落定调用＋画布消费为 noteHoldSrPresent(doneAt)，不许退回提交时刻记 present）",
+      "min": 3,
+      "symbol": "onFrameDone"
     }
   ]
 }
