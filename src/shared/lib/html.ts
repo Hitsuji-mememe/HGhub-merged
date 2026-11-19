@@ -89,28 +89,38 @@ function abs(raw: string, strict = isStrictSecurity(), base: string = SITE): str
   } catch { return ""; }
 }
 
+/** 正文单图地址解析（Muse 2026-11-19 fix330/post-images 候选链，
+ * fix330/reader 起与提取式阅读层共用同一出处）：按候选链取真实地址
+ * （懒加载图真实地址常在 data-× 与 loader 载体上、src 只是占位垫底），
+ * 过 abs() 的安全门与基址补全，返回走本地协议的最终 src；地址不可
+ * 用（占位/非法/被安全门拒绝）返回空串。两条正文路径（整页清洗与
+ * 提取重构）共用本函数，图片地址集合恒一致，不许在别处复刻候选链。 */
+export function articleImageSrc(img: Element, base?: string, strict = isStrictSecurity()): string {
+  let candidate = "";
+  for (const attr of IMG_SRC_CANDIDATES) {
+    const v = img.getAttribute(attr);
+    if (v && v.trim()) { candidate = v; break; }
+  }
+  let raw = candidate.trim();
+  const imgPrefix = `${LOCAL}/img?u=`;
+  if (raw.startsWith(imgPrefix)) {
+    try { raw = decodeURIComponent(raw.slice(imgPrefix.length)); } catch { raw = ""; }
+  }
+  const src = abs(raw, strict, pageBase(base));
+  return src ? `${imgPrefix}${encodeURIComponent(src)}` : "";
+}
+
 /** 把正文里的图片换成走本地协议（带 Referer / 解密能力） */
 function proxyImages(html: string, strict = isStrictSecurity(), base: string = SITE): string {
   if (!html) return "";
   const doc = new DOMParser().parseFromString(html, "text/html");
-  const imgPrefix = `${LOCAL}/img?u=`;
   doc.querySelectorAll("img").forEach((img) => {
-    // 懒加载图：真实地址常在 data-*/loader 载体上，src 只是占位（垫底）
-    let candidate = "";
-    for (const attr of IMG_SRC_CANDIDATES) {
-      const v = img.getAttribute(attr);
-      if (v && v.trim()) { candidate = v; break; }
-    }
-    let raw = candidate.trim();
-    if (raw.startsWith(imgPrefix)) {
-      try { raw = decodeURIComponent(raw.slice(imgPrefix.length)); } catch { raw = ""; }
-    }
-    const src = abs(raw, strict, base);
-    if (!src) {
+    const proxied = articleImageSrc(img, base, strict);
+    if (!proxied) {
       img.remove();
       return;
     }
-    img.setAttribute("src", `${imgPrefix}${encodeURIComponent(src)}`);
+    img.setAttribute("src", proxied);
     img.removeAttribute("srcset");
     for (const attr of IMG_SRC_CANDIDATES) {
       if (attr !== "src") img.removeAttribute(attr);
