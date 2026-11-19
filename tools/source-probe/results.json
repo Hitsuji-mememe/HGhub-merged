@@ -1,0 +1,221 @@
+{
+  "generatedAt": "2026-11-19T03:42:02.240Z",
+  "proxyEnvPresent": true,
+  "sites": [
+    {
+      "id": "jabletv",
+      "name": "JableTV",
+      "listUrl": "https://jable.tv/",
+      "conclusion": "降级",
+      "reasons": [
+        "不可达(status=403, 链路失败)",
+        "墙: cloudflare-challenge,js-wall"
+      ],
+      "bestRound": "proxy",
+      "direct": {
+        "reachable": false,
+        "status": 0,
+        "error": "connection-failed (curl status 000)",
+        "finalUrl": "https://jable.tv/",
+        "walls": [],
+        "parse": {
+          "walls": [],
+          "linkCount": 0,
+          "itemCount": 0,
+          "sampleItems": [],
+          "hasM3u8InList": false,
+          "bytes": 0
+        },
+        "hls": null
+      },
+      "proxy": {
+        "reachable": false,
+        "status": 403,
+        "finalUrl": "https://jable.tv/",
+        "walls": [
+          "cloudflare-challenge",
+          "js-wall"
+        ],
+        "parse": {
+          "walls": [
+            "cloudflare-challenge",
+            "js-wall"
+          ],
+          "linkCount": 0,
+          "itemCount": 0,
+          "sampleItems": [],
+          "hasM3u8InList": false,
+          "bytes": 3623
+        },
+        "hls": null
+      }
+    },
+    {
+      "id": "missav",
+      "name": "MissAV",
+      "listUrl": "https://missav.ws/",
+      "conclusion": "降级",
+      "reasons": [
+        "不可达(status=0, connection-failed (curl status 000))"
+      ],
+      "bestRound": "proxy",
+      "direct": {
+        "reachable": false,
+        "status": 0,
+        "error": "connection-failed (curl status 000)",
+        "finalUrl": "https://missav.ws/",
+        "walls": [],
+        "parse": {
+          "walls": [],
+          "linkCount": 0,
+          "itemCount": 0,
+          "sampleItems": [],
+          "hasM3u8InList": false,
+          "bytes": 0
+        },
+        "hls": null
+      },
+      "proxy": {
+        "reachable": false,
+        "status": 0,
+        "error": "connection-failed (curl status 000)",
+        "finalUrl": "https://missav.ws/",
+        "walls": [],
+        "parse": {
+          "walls": [],
+          "linkCount": 0,
+          "itemCount": 0,
+          "sampleItems": [],
+          "hasM3u8InList": false,
+          "bytes": 0
+        },
+        "hls": null
+      }
+    },
+    {
+      "id": "tikporn",
+      "name": "Tik.porn",
+      "listUrl": "https://tik.porn/",
+      "conclusion": "降级",
+      "reasons": [
+        "不可达(status=403, 链路失败)"
+      ],
+      "bestRound": "proxy",
+      "direct": {
+        "reachable": false,
+        "status": 0,
+        "error": "connection-failed (curl status 000)",
+        "finalUrl": "https://tik.porn/",
+        "walls": [],
+        "parse": {
+          "walls": [],
+          "linkCount": 0,
+          "itemCount": 0,
+          "sampleItems": [],
+          "hasM3u8InList": false,
+          "bytes": 0
+        },
+        "hls": null
+      },
+      "proxy": {
+        "reachable": false,
+        "status": 403,
+        "finalUrl": "https://tik.porn/",
+        "walls": [],
+        "parse": {
+          "walls": [],
+          "linkCount": 3,
+          "itemCount": 0,
+          "sampleItems": [],
+          "hasM3u8InList": false,
+          "bytes": 4554
+        },
+        "hls": null
+      }
+    },
+    {
+      "id": "hanime1",
+      "name": "Hanime1",
+      "listUrl": "https://hanime1.me/",
+      "conclusion": "降级",
+      "reasons": [
+        "不可达(status=0, connection-failed (curl status 000))"
+      ],
+      "bestRound": "proxy",
+      "direct": {
+        "reachable": false,
+        "status": 0,
+        "error": "connection-failed (curl status 000)",
+        "finalUrl": "https://hanime1.me/",
+        "walls": [],
+        "parse": {
+          "walls": [],
+          "linkCount": 0,
+          "itemCount": 0,
+          "sampleItems": [],
+          "hasM3u8InList": false,
+          "bytes": 0
+        },
+        "hls": null
+      },
+      "proxy": {
+        "reachable": false,
+        "status": 0,
+        "error": "connection-failed (curl status 000)",
+        "finalUrl": "https://hanime1.me/",
+        "walls": [],
+        "parse": {
+          "walls": [],
+          "linkCount": 0,
+          "itemCount": 0,
+          "sampleItems": [],
+          "hasM3u8InList": false,
+          "bytes": 0
+        },
+        "hls": null
+      }
+    },
+    {
+      "id": "iwara",
+      "name": "Iwara",
+      "listUrl": "https://www.iwara.tv/videos",
+      "conclusion": "降级",
+      "reasons": [
+        "不可达(status=0, connection-failed (curl status 000))"
+      ],
+      "bestRound": "proxy",
+      "direct": {
+        "reachable": false,
+        "status": 0,
+        "error": "connection-failed (curl status 000)",
+        "finalUrl": "https://www.iwara.tv/videos",
+        "walls": [],
+        "parse": {
+          "walls": [],
+          "linkCount": 0,
+          "itemCount": 0,
+          "sampleItems": [],
+          "hasM3u8InList": false,
+          "bytes": 0
+        },
+        "hls": null
+      },
+      "proxy": {
+        "reachable": false,
+        "status": 0,
+        "error": "connection-failed (curl status 000)",
+        "finalUrl": "https://www.iwara.tv/videos",
+        "walls": [],
+        "parse": {
+          "walls": [],
+          "linkCount": 0,
+          "itemCount": 0,
+          "sampleItems": [],
+          "hasM3u8InList": false,
+          "bytes": 0
+        },
+        "hls": null
+      }
+    }
+  ]
+}
