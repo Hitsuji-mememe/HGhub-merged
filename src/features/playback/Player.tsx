@@ -121,7 +121,7 @@ export default function Player({
     let disconnectNative: (() => void) | undefined;
     let stallWatchdog: AppendStallWatchdog | undefined;
     let detachWatchdog: (() => void) | undefined;
-    trace("source.load", { engine: source.engine, auto_play: autoPlay, resource: mediaResource(src), host: mediaHost(src) });
+    trace("source.load", { engine: source.engine, auto_play: activity.isPlayWanted(), resource: mediaResource(src), host: mediaHost(src) });
 
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
@@ -170,7 +170,7 @@ export default function Player({
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         lockHighestStartLevel(hls);
         if (activity.isActive()) hls.startLoad(resume?.time ?? -1);
-        if (autoPlay && !resume) activity.play("manifest_autoplay", true);
+        if (activity.isPlayWanted() && !resume) activity.play("manifest_autoplay", true);
       });
       detachWatchdog = wireStallWatchdogSignals({
         hls, video, watchdog: stallWatchdog,

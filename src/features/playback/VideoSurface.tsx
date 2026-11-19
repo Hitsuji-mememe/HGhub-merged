@@ -208,7 +208,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     let disconnectNative: (() => void) | undefined;
     let stallWatchdog: AppendStallWatchdog | undefined;
     let detachWatchdog: (() => void) | undefined;
-    trace("source.load", { engine: source.engine, auto_play: autoPlay, resource: mediaResource(src), host: mediaHost(src) });
+    /* auto_play 记活状态快照（audit5 条 3）：旧实现记 effect 捕获的旧
+     * prop 值，诊断会失真；触发判据与记录口径统一读 activity 活状态。 */
+    trace("source.load", { engine: source.engine, auto_play: activity.isPlayWanted(), resource: mediaResource(src), host: mediaHost(src) });
 
     /* 换源时先把音量/倍速套回去：hls 重新 attach 后浏览器会把它们重置成默认值 */
     const applySettings = () => {
@@ -293,7 +295,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         /* 起播锁最高档（P0-A 第 1 层）：必须在 startLoad 之前落位。 */
         lockHighestStartLevel(hls);
         if (activity.isActive()) hls.startLoad(resume?.time ?? -1);
-        if (autoPlay && !resume) activity.play("manifest_autoplay", true);
+        if (activity.isPlayWanted() && !resume) activity.play("manifest_autoplay", true);
       });
       hls.on(Hls.Events.ERROR, (_e, data) => recovery.error(data));
     } else {
@@ -307,12 +309,28 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     /* 首帧呈现信号（复审批 §6.2）：playing 只是「能播」不等于已出画；
      * requestVideoFrameCallback 可用时记一次真实首帧，报告起播口径以它
      * 为准、无此信号回落 playing（代理判定）。每源注册一次、回调自解。 */
-    const vfc = (video as unknown as { requestVideoFrameCallback?: (cb: () => void) => number }).requestVideoFrameCallback;
-    if (typeof vfc === "function") {
-      try { vfc.call(video, () => trace("media.first_frame")); } catch { /* 不可用则静默回落 */ }
+    /* VFC 三件套（audit5 条 6）：存句柄＋cleanup 取消＋回调首行验代次。
+     * 旧实现句柄直接丢弃、从不取消、回调不验 attachedSource——换源后
+     * 旧回调会在新源首帧上触发，把旧源迟到帧记成新源首帧、污染起播
+     * 口径且重复记一条。 */
+    const vfcTarget = video as unknown as {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+      cancelVideoFrameCallback?: (id: number) => void;
+    };
+    let vfcId: number | null = null;
+    if (typeof vfcTarget.requestVideoFrameCallback === "function") {
+      try {
+        vfcId = vfcTarget.requestVideoFrameCallback.call(video, () => {
+          if (attachedSource.current !== src) return;
+          trace("media.first_frame");
+        });
+      } catch { /* 不可用则静默回落 */ }
     }
 
     return () => {
+      if (vfcId != null && typeof vfcTarget.cancelVideoFrameCallback === "function") {
+        try { vfcTarget.cancelVideoFrameCallback.call(video, vfcId); } catch { /* 忽略 */ }
+      }
       attachedSource.current = null;
       notePlaybackPlaying(false);
       disconnectNative?.();
@@ -398,7 +416,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
           setFirstRendition(`原生实际 ${v.videoWidth}x${v.videoHeight}（档位不可控）`);
         }
       }}
-      onPlay={() => { if (activity.isActive()) { notePlaybackPlaying(true); onPlaying?.(); } }}
+      onPlay={() => { if (activity.isActive()) notePlaybackPlaying(true); }}
       onPause={() => { if (activity.isActive()) notePlaybackPlaying(false); onPause?.(); }}
       onWaiting={() => onWaiting?.()}
       onSeeked={() => onSeeked?.()}
