@@ -32,7 +32,7 @@ import { isScopeOnlyChange, usePlayUrlCache } from "./usePlayUrlCache";
 import { useFsKeepAlive } from "./useFsKeepAlive";
 import { capStringRecordByFifo } from "./cacheMap";
 import { holdState } from "./holdState";
-import { createHoldJankSampler, createHoldReleaseProfiler, setActiveHoldReleaseProfiler } from "./holdJank";
+import { createHoldJankSampler, createHoldReleaseProfiler, noteHoldSurfaceMount, noteHoldSurfaceUnmount, setActiveHoldReleaseProfiler } from "./holdJank";
 import { HoldBadge } from "./HoldBadge";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText,
@@ -186,6 +186,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const profiler = releaseProfilerRef.current;
     if (!profiler || !active) return undefined;
     setActiveHoldReleaseProfiler(profiler);
+    /* 播放面生命周期登记（B3 任务 2）：剖面行以此算面龄，区分冷/热面松手 */
+    noteHoldSurfaceMount("feed", performance.now());
     let el: HTMLVideoElement | null = null;
     let prevRate = 0;
     let poll = 0;
@@ -194,9 +196,18 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       const now = el.playbackRate;
       if (prevRate >= 2 && now < 2) {
         profiler.release(performance.now());
-        const vv = el as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number };
+        const vv = el as HTMLVideoElement & {
+          requestVideoFrameCallback?: (
+            cb: (now: number, metadata: { mediaTime: number; presentedFrames: number; expectedDisplayTime: number }) => void,
+          ) => number;
+        };
         if (typeof vv.requestVideoFrameCallback === "function") {
-          vv.requestVideoFrameCallback(() => profiler.firstFrame(performance.now()));
+          /* rVFC metadata 一并入剖面（B3 任务 2）：呈现帧序/预期呈现时刻 */
+          vv.requestVideoFrameCallback((_now, metadata) => profiler.firstFrame(performance.now(), {
+            mediaTime: metadata.mediaTime,
+            presentedFrames: metadata.presentedFrames,
+            expectedDisplayTime: metadata.expectedDisplayTime,
+          }));
         } else {
           requestAnimationFrame(() => profiler.firstFrame(performance.now()));
         }
@@ -217,6 +228,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       window.clearInterval(poll);
       el?.removeEventListener("ratechange", onRateChange);
       setActiveHoldReleaseProfiler(null);
+      noteHoldSurfaceUnmount("feed", performance.now());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);

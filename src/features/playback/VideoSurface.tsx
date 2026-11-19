@@ -9,6 +9,7 @@ import { mediaHost, mediaResource, observeHls, registerHlsVersion, usePlayerDiag
 import { notePlaybackPlaying, publishPlaybackFacts } from "../../shared/diagnostics/playbackFacts";
 import { usePlaybackActivity } from "./usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "./useProxyPlaybackRecovery";
+import { noteHoldHlsAttach } from "../feed/holdJank";
 import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
 import { useStore, type SuperResMode } from "../../shared/model/store";
 import { effectiveSrMode, getSvgFilterUrl, presentationPipeline, srVideoFilterMode, SuperResSvgDefs } from "./SuperResCanvas";
@@ -325,6 +326,8 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       observeFirstRendition(hls, Hls.Events, r => setFirstRendition(formatFirstRendition(r)));
       hls.loadSource(source.url);
       hls.attachMedia(video);
+      /* HLS 实例登记（最终版 B3 线任务 2，纯诊断）：松手剖面据此区分重建前后的实例 */
+      noteHoldHlsAttach();
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         /* 起播锁最高档（P0-A 第 1 层）：必须在 startLoad 之前落位。 */
         lockHighestStartLevel(hls);

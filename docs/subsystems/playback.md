@@ -96,6 +96,22 @@
   （holdJank.createHoldReleaseProfiler）收齐首帧呈现与 SR 重接管
   时刻后落 `hold.release_profile` 分段耗时；WebGPU 画布松手首帧
   让行一帧 SR 处理（releaseSkip），效果以真机剖面判读为准。
+  判别力与补字段（最终版 B3 线）：剖面行与 `hold.jank` 行必带
+  `sr_engaged` 显式布尔＋`pipeline`（SrCanvas 在管线切换点经
+  noteHoldPipelineState 登记；用户侧无手动引擎开关、做不了 A/B，
+  判读只认显式字段不靠 SR 段 null 推断）；剖面行另带 rVFC
+  metadata（rvfc_media_time/presented_frames/expected_display_time）、
+  主线程长任务聚合（longtask_*，不支持记 null）、Feed/SR 组件面龄
+  与窗口内重挂/卸载、HLS 实例 ID 与窗口内重建标志。聚合口径＝
+  holdJank.summarizeHoldEvents（engaged/bypass 两桶，无显式布尔
+  不入桶）。回归见 playback-engines HP/HP2 组。
+- 代理恢复落点（最终版 B3 线，裁定条目 4）：useProxyPlaybackRecovery
+  的 pending 快照在存续期间跟随用户 seek——元素 seeking 事件把
+  快照 time 更新为最新 seek 目标，restore 落点以用户最新位置为
+  准、快照只作无 seek 时兜底（trace `proxy.snapshot_seek`）；暂停
+  意愿仍由 restore 读活状态（Hark P0 口径不变）。HLS 恢复
+  （hlsRecovery）执行时读活时钟、无位置快照，不在此列。回归见
+  playback-engines FIN-B3 组。
 - seek：preview → commit → `seeking` → `seeked`/`playing`；拖动取消、
   页面失活或换源不会提交旧目标。
 - 控件闲置隐藏（`src/features/feed/fsIdle.ts`）：桌面 2.8s（键盘聚焦控件时不隐藏）；

@@ -848,6 +848,93 @@ function run() {
     }
   }
 
+  /* ── HP2 松手剖面补字段＋判别力（最终版 B3 线任务 2/3）：同一
+   * hold.release_profile 事件必须自带——sr_engaged 显式布尔＋pipeline
+   * 名（不许靠 SR 段 null 推断）、rVFC metadata（mediaTime/
+   * presentedFrames/expectedDisplayTime）、主线程长任务聚合、Feed/SR
+   * 组件生命周期年龄、HLS 实例 ID。全部经 opts 注入假源断言；旧
+   * profiler 忽略新 opts、只落旧四段 → 本组必红。 ── */
+  {
+    type ProfilerV2 = {
+      release: (t: number) => void; srAttempt: (t: number) => void; srPresent: (t: number) => void;
+      firstFrame: (t: number, meta?: { mediaTime?: number; presentedFrames?: number; expectedDisplayTime?: number }) => void;
+    };
+    const create = (holdJankModule as Record<string, unknown>).createHoldReleaseProfiler as
+      | ((trace: (e: string, d?: Record<string, unknown>) => void, opts: Record<string, unknown>) => ProfilerV2)
+      | undefined;
+    const mkV2 = (over: Record<string, unknown>) => {
+      const lines: { event: string; data?: Record<string, unknown> }[] = [];
+      const timers: { fn: () => void }[] = [];
+      if (!create) return { lines, profiler: null as ProfilerV2 | null, flushTimers: () => {} };
+      const profiler = create((event, data) => lines.push({ event, data }), {
+        setTimeoutFn: (fn: () => void) => { timers.push({ fn }); },
+        ...over,
+      });
+      return { lines, profiler, flushTimers: () => { for (const t of timers.splice(0)) t.fn(); } };
+    };
+    /* 接管场景：webgpu 接管、长任务两条、SR 画布窗口内重挂载、HLS 未重建 */
+    let lc = { feedMountedAt: 400 as number | null, srMountedAt: 900 as number | null, srUnmountedAt: null as number | null };
+    let hlsId: string | null = "hls-7";
+    const a = mkV2({
+      context: () => ({ srEngaged: true, pipeline: "webgpu" }),
+      startLongtask: (note: (s: number, d: number) => void) => { note(1010, 80); note(1030, 120); return () => {}; },
+      lifecycle: () => lc,
+      hlsInstanceId: () => hlsId,
+    });
+    results.hp2_profiler_exists = !!a.profiler;
+    if (a.profiler) {
+      a.profiler.release(1000);
+      lc = { feedMountedAt: 400, srMountedAt: 1050, srUnmountedAt: null }; // 窗口内 SR 重挂载
+      a.profiler.srAttempt(1012);
+      a.profiler.firstFrame(1033, { mediaTime: 12.5, presentedFrames: 42, expectedDisplayTime: 5000 });
+      a.profiler.srPresent(1040);
+      results.hp2_engaged_line = a.lines[0]?.data ?? null;
+      /* 直通场景：无 SR 接管、无 rVFC metadata（rAF 回落）、长任务不可用 */
+      const b = mkV2({
+        context: () => ({ srEngaged: false, pipeline: "none" }),
+        startLongtask: () => null,
+        lifecycle: () => ({ feedMountedAt: 400, srMountedAt: null, srUnmountedAt: null }),
+        hlsInstanceId: () => "hls-9",
+      });
+      b.profiler!.release(2000);
+      b.profiler!.firstFrame(2016);
+      b.flushTimers();
+      results.hp2_bypass_line = b.lines[0]?.data ?? null;
+      /* HLS 窗口内重建：release 时 hls-1、落行时 hls-2 → rebuilt=true */
+      let hlsC: string | null = "hls-1";
+      const c2 = mkV2({
+        context: () => ({ srEngaged: true, pipeline: "webgpu" }),
+        startLongtask: () => () => {},
+        lifecycle: () => ({ feedMountedAt: 0, srMountedAt: 0, srUnmountedAt: null }),
+        hlsInstanceId: () => hlsC,
+      });
+      c2.profiler!.release(3000);
+      hlsC = "hls-2";
+      c2.profiler!.firstFrame(3010);
+      c2.profiler!.srAttempt(3011);
+      c2.profiler!.srPresent(3012);
+      results.hp2_hls_rebuilt = c2.lines[0]?.data?.hls_rebuilt_during_window ?? null;
+      results.hp2_hls_id = c2.lines[0]?.data?.hls_instance_id ?? null;
+    }
+    /* AGG 判别力聚合器（任务 3）：事件序列 → engaged/bypass 两桶计数；
+     * 无 sr_engaged 显式布尔的事件不入桶（不许推断），他类事件忽略。 */
+    const agg = (holdJankModule as Record<string, unknown>).summarizeHoldEvents as
+      | ((events: { name?: string; event?: string; data?: Record<string, unknown> }[]) => unknown)
+      | undefined;
+    results.hp2_agg_exists = typeof agg === "function";
+    if (agg) {
+      results.hp2_agg_counts = agg([
+        { name: "hold.release_profile", data: { sr_engaged: true } },
+        { name: "hold.jank", data: { sr_engaged: true } },
+        { name: "hold.jank", data: { sr_engaged: true } },
+        { event: "hold.release_profile", data: { sr_engaged: false } },
+        { name: "hold.jank", data: { sr_engaged: false } },
+        { name: "hold.jank", data: {} },
+        { name: "media.first_frame", data: { sr_engaged: true } },
+      ]);
+    }
+  }
+
   return results;
 }
 
@@ -948,6 +1035,82 @@ import * as stallHealModule from "../src/features/feed/stallHeal";
     state.kind = "paused_by_system"; state.want = false;
     const systemUnwanted = await run(3);
     Object.assign(window, { __b7: { systemWanted, userPaused, systemUnwanted } });
+    root.unmount();
+  })();
+}
+
+/* ── FIN-B3 恢复期 seek 探针（最终版 B3 线任务 1，裁定条目 4）：
+ * 真实 useProxyPlaybackRecovery hook + 假 video（currentTime 背存）。
+ * 判别用例：retry 在 80s 落快照 → 恢复进行中用户暂停＋seek 到 130
+ * （currentTime=130＋seeking 事件）→ loadedmetadata 触发 restore，
+ * 落点必须是 130 不是快照旧值 80，且暂停意愿保持（pause 被调、
+ * play 不被调）。对照：无用户 seek 时落点仍为快照 80；二次 seek
+ * 以最后一次为准（200）。旧实现 restore 无条件写快照 time → 正向
+ * 组必红（落点 80）。 ── */
+{
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  void (async () => {
+    const out: Record<string, unknown> = {};
+    let backing = 0;
+    const video = document.createElement("video");
+    Object.defineProperty(video, "currentTime", {
+      get: () => backing,
+      set: (v: number) => { backing = v; },
+      configurable: true,
+    });
+    Object.defineProperty(video, "readyState", { value: 4, configurable: true });
+    Object.defineProperty(video, "duration", { value: 600, configurable: true });
+    Object.defineProperty(video, "paused", { value: true, configurable: true });
+    const videoRef = { current: video as HTMLVideoElement | null };
+    const calls = { pause: [] as string[], play: 0 };
+    const traces: { event: string; data?: Record<string, unknown> }[] = [];
+    let want = false;
+    const activity = {
+      isActive: () => true,
+      isPlayWanted: () => want,
+      play: () => { calls.play += 1; },
+      pause: (source?: string) => { calls.pause.push(source ?? ""); },
+      setPlayWanted: (on: boolean) => { want = on; },
+      pauseState: () => "paused_by_user" as const,
+    };
+    let retryFn: ((source?: string, playWanted?: boolean) => void) | null = null;
+    let resumeFn: (() => { time: number } | null) | null = null;
+    function Probe() {
+      const rec = useProxyPlaybackRecovery(videoRef, "https://media.example/x.m3u8", activity, (e, d) => traces.push({ event: e, data: d }));
+      retryFn = rec.retry;
+      resumeFn = rec.resume as () => { time: number } | null;
+      return null;
+    }
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    /* 句柄调用收进独立闭包：runCase 内重置=null 的控制流收窄会把
+     * 后续 retryFn?.() 判成 never（TS2349），闭包按声明类型读。 */
+    const callRetry = () => retryFn?.("probe");
+    const callResume = () => resumeFn?.() ?? null;
+    const runCase = async (key: number, seeks: number[]) => {
+      calls.pause = []; calls.play = 0; traces.length = 0; want = false;
+      retryFn = null; resumeFn = null;
+      root.render(<Probe key={key} />);
+      /* 首挂载含模块编译，固定 sleep 不够：等 hook 句柄就绪再动手 */
+      for (let i = 0; i < 100 && !retryFn; i++) await sleep(50);
+      await sleep(20);
+      backing = 80;
+      callRetry();
+      for (const t of seeks) {
+        backing = t;
+        video.dispatchEvent(new Event("seeking"));
+      }
+      const snapshotTime = callResume()?.time ?? null;
+      video.dispatchEvent(new Event("loadedmetadata"));
+      await sleep(20);
+      const restored = traces.filter(t => t.event === "proxy.restored").map(t => t.data?.time ?? null);
+      return { snapshotTime, landed: backing, restored, pauses: [...calls.pause], plays: calls.play };
+    };
+    out.case_seek = await runCase(1, [130]);
+    out.case_control = await runCase(2, []);
+    out.case_reseek = await runCase(3, [130, 200]);
+    Object.assign(window, { __finB3: out });
     root.unmount();
   })();
 }

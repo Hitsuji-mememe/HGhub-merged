@@ -12,6 +12,7 @@ import { mediaHost, mediaResource, observeHls, usePlayerDiagnostics } from "../.
 import { notePlaybackPlaying } from "../../shared/diagnostics/playbackFacts";
 import { usePlaybackActivity } from "./usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "./useProxyPlaybackRecovery";
+import { noteHoldHlsAttach } from "../feed/holdJank";
 import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
 import { useSeekInput } from "./useSeekInput";
 import { useInlinePlayerFullscreen } from "./useInlinePlayerFullscreen";
@@ -176,6 +177,8 @@ export default function Player({
       hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => { playingLevelRef.current = data.level; });
       hls.loadSource(source.url);
       hls.attachMedia(video);
+      /* HLS 实例登记（最终版 B3 线任务 2，纯诊断）：与 VideoSurface 同口径 */
+      noteHoldHlsAttach();
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         lockHighestStartLevel(hls);
         if (activity.isActive()) hls.startLoad(resume?.time ?? -1);
