@@ -150,6 +150,12 @@ try {
   check("K prewarm failure after 30s due once", r.k_prewarm_retry_due, true);
   check("K prewarm retry exhausted", r.k_prewarm_retry_exhausted, false);
 
+  check("T throughput quiet before 5 frags", r.t_quiet_before_5, 0);
+  check("T throughput flushes median at 5 frags", r.t_flush_at_5, [["https://line.example", 8_000_000]]);
+  check("T throughput flush sends remainder", r.t_flush_remainder, 2);
+  check("T origin parsed from play URL", r.t_origin_parse, "https://line.example");
+  check("T origin empty on bad URL", r.t_origin_bad, "");
+
   // W — wiring-level stall escalation matrix (fix2 B1)
   check("W1 first stall retries in place", r.w1_first_stall_retry, ["append_stall"]);
   check("W1 attempt incremented", r.w1_attempt_after, 1);

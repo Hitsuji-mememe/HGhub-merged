@@ -96,6 +96,19 @@ export type PickRound = {
 let lastRound: PickRound | null = null;
 export const lastPickRound = (): PickRound | null => lastRound;
 
+/* 线路热身（Muse 2026-11-19 根治包，audit6 P0-B 起播⑥）：仓内此前无
+ * warmup 机制。线路确定（每轮选线落定且 base 变化）后，用生产客户端
+ * 对当前 origin 做一次健康请求——line_health 走 Rust 生产栈（DNS 固定
+ * ＋TLS），把冷连接成本付在选线时而非用户首点时。每 base 只热一次。 */
+let lastWarmedBase = "";
+function warmupCurrentLine(base: string): void {
+  if (!base || base === lastWarmedBase) return;
+  lastWarmedBase = base;
+  void api.lineHealth()
+    .then(() => tracePlayback("line.warmup", { line: hostOf(base) }))
+    .catch(() => { /* 热身失败静默：正式请求路径自有重试 */ });
+}
+
 /* pending 槽（Muse 2026-11-19 根治包，audit6 P2-01 残项）：picking 中
  * 到达的手动选线旧实现静默丢弃。现置位 pendingManual，在飞轮次 finally
  * 消费、立即补跑一轮 force pick（仍受熔断/两轮确认约束，不新增旁路）；
@@ -139,6 +152,7 @@ export async function pickLine(reason: string, force = false, urgent = false): P
       logLine(`[line] auto(${reason}) breaker-blocked keep ${hostOf(result.base)}`);
       tracePlayback("line.breakerBlocked", { reason, line: hostOf(result.base) });
     }
+    warmupCurrentLine(result.base);
     const candidates = result.pick.candidates
       .map((candidate) => `${candidate.tier}:${candidate.kbps != null ? `${candidate.kbps}kbps` : candidate.ok ? "ok" : candidate.reachable ? "reachable" : "down"}/${candidate.ms}ms`)
       .join(",");

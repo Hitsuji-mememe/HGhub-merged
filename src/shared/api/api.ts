@@ -209,6 +209,9 @@ export const api = {
    * 不再有独立回切权，回主站只经 line_auto 的 main-return 一轮。 */
   /* 线路体检：探一次 /api/videos，和自动选线同一判据 */
   lineHealth: () => call<LineHealth>("line_health"),
+  /* 真实播放吞吐回写账本（audit6 P0-B ⑤）：Rust 命令 line_record_playback
+   * 由 Rust 线同批提供；命令缺失时调用方 catch 静默（旁路记账）。 */
+  lineRecordPlayback: (origin: string, bps: number) => call<void>("line_record_playback", { origin, bps }),
 
   /* 应用内代理：只影响本应用的上游网络请求。 */
   proxyState: () => call<ProxyState>("proxy_state"),

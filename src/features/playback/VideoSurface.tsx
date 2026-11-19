@@ -15,6 +15,8 @@ import { effectiveSrMode, getSvgFilterUrl, presentationPipeline, srVideoFilterMo
 import SrCanvas from "./SrCanvas";
 import { createHlsPlayerConfig, currentLineSeedBps, formatFirstRendition, lockHighestStartLevel, observeFirstRendition } from "./hlsConfig";
 import { useSrDensity } from "./useSrDensity";
+import { createFragThroughputReporter, originOf } from "./playbackThroughput";
+import { api } from "../../shared/api/api";
 
 export type FragStats = { bytes: number; loadMs: number; fragDuration: number; bitrate: number };
 
@@ -80,6 +82,13 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const hlsRef = useRef<Hls | null>(null);
   const fragStatsCbRef = useRef(onFragStats);
   fragStatsCbRef.current = onFragStats;
+  /* 真实播放吞吐回写账本（P0-B ⑤）：每 5 片中位数 bps 节流回写。 */
+  const throughputRef = useRef<ReturnType<typeof createFragThroughputReporter> | null>(null);
+  if (!throughputRef.current) {
+    throughputRef.current = createFragThroughputReporter((origin, bps) => {
+      void api.lineRecordPlayback(origin, bps).catch(() => { /* 命令缺失/失败静默 */ });
+    });
+  }
   const recoveryRef = useRef<HlsRecovery | null>(null);
   /* append 卡死自愈计数（F 项）：同一源第一次判死重建、第二次判死触发
    * 会话级原生降级；换源清零（重建走 revision  bump、src 不变，不清）。 */
@@ -205,6 +214,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
 
     const source = playbackSource(src, Hls.isSupported());
     engineRef.current = source.engine;
+    throughputRef.current?.setOrigin(originOf(src));
     let disconnectNative: (() => void) | undefined;
     let stallWatchdog: AppendStallWatchdog | undefined;
     let detachWatchdog: (() => void) | undefined;
@@ -280,6 +290,11 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         const st = data.frag.stats;
         /* 超分密度：共享采样器（前 3 片中位数＋fps/codec，换 level 重采） */
         ingestSrFrag({ loaded: st.loaded, duration: data.frag.duration, level: data.frag.level }, hls.levels[data.frag.level]);
+        /* 真实播放吞吐入账（P0-B ⑤）：与下方消费者上报共用同一 loadMs 口径 */
+        {
+          const loadMs = st.loading.end > 0 && st.loading.end >= st.loading.start ? st.loading.end - st.loading.start : 0;
+          if (loadMs > 0) throughputRef.current?.push(st.loaded, loadMs);
+        }
         const cb = fragStatsCbRef.current;
         if (!cb) return;
         const loadMs = st.loading.end > 0 && st.loading.end >= st.loading.start ? st.loading.end - st.loading.start : 0;
@@ -328,6 +343,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     }
 
     return () => {
+      throughputRef.current?.flush();
       if (vfcId != null && typeof vfcTarget.cancelVideoFrameCallback === "function") {
         try { vfcTarget.cancelVideoFrameCallback.call(video, vfcId); } catch { /* 忽略 */ }
       }

@@ -12,6 +12,7 @@ import { createSrDensitySampler } from "../src/features/playback/useSrDensity";
 import { evaluateSrGatesV2 } from "../src/shared/diagnostics/gpuProbe";
 import { capRecordByFifo, scopedPlayKey, setCapped } from "../src/features/feed/cacheMap";
 import { prewarmRetryDue } from "../src/features/feed/prewarm";
+import { createFragThroughputReporter, originOf } from "../src/features/playback/playbackThroughput";
 import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, lockHighestStartLevel, resolveAbrSeedBps } from "../src/features/playback/hlsConfig";
 
 class FakeClock implements StallClock {
@@ -372,6 +373,22 @@ function run() {
   results.k_prewarm_too_soon = prewarmRetryDue({ at: 90_000, ok: false, retries: 0 }, 100_000);
   results.k_prewarm_retry_due = prewarmRetryDue({ at: 60_000, ok: false, retries: 0 }, 100_000);
   results.k_prewarm_retry_exhausted = prewarmRetryDue({ at: 0, ok: false, retries: 1 }, 100_000);
+
+  /* ── T 真实播放吞吐回写（audit6 P0-B ⑤）：5 片节流、中位数、flush 兜底 ── */
+  {
+    const sent: [string, number][] = [];
+    const rep = createFragThroughputReporter((o, b) => sent.push([o, b]));
+    rep.setOrigin("https://line.example");
+    for (let i = 0; i < 4; i++) rep.push(100_000, 100); // 8Mbps each
+    results.t_quiet_before_5 = sent.length;
+    rep.push(300_000, 100); // 24Mbps → 中位数仍 8Mbps
+    results.t_flush_at_5 = [...sent];
+    rep.push(100_000, 100);
+    rep.flush(); // 暂停/结束兜底
+    results.t_flush_remainder = sent.length;
+    results.t_origin_parse = originOf("https://line.example/path/x.m3u8");
+    results.t_origin_bad = originOf("not a url");
+  }
 
   /* ── W 接线级矩阵（fix2 B1）：createStallWatchdog 的真实升级链——
    * 判死→重建→再判死→会话降级→名额用尽报错，及三道门控（旧实例 /
