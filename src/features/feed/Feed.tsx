@@ -26,9 +26,9 @@ import { stageXY, HOLD_DELAY_MS } from "./mobileHold";
 import { useFsIdle } from "./fsIdle";
 import { RateMenu } from "./RateMenu";
 import { useFeedPrewarm } from "./useFeedPrewarm";
-import { useStallHeal } from "./stallHeal";
+import { consumeHealResume, recordHealResume, useStallHeal } from "./stallHeal";
 import { useFeedDetails } from "./useFeedDetails";
-import { usePlayUrlCache } from "./usePlayUrlCache";
+import { isScopeOnlyChange, usePlayUrlCache } from "./usePlayUrlCache";
 import { useFsKeepAlive } from "./useFsKeepAlive";
 import { capStringRecordByFifo } from "./cacheMap";
 import { holdState } from "./holdState";
@@ -113,8 +113,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   }, []);
   const [renderIndex, setRenderIndex] = useState(startIndex);
   const [epMap, setEpMap] = useState<Record<number, number>>(() => (startEp ? { [videoIds[startIndex]]: startEp } : {}));
-  /* 播放 URL 缓存（audit6 P1-3/P2-08）：作用域键＋200 条 FIFO，见 usePlayUrlCache */
-  const playCache = usePlayUrlCache(accountScope, store.lineEpoch);
+  /* 播放 URL 缓存（audit6 P1-3/P2-08）：作用域键＋200 条 FIFO，见 usePlayUrlCache。
+     整改 B1：currentEntryRef 告知缓存层当前条目（作用域变化时键迁移保位）；
+     playSkipRef 是自愈强制重解析的内容键集（在 skip 集内不迁移）。 */
+  const currentEntryRef = useRef({ id: 0, ep: 1 });
+  const playSkipRef = useRef(new Set<string>());
+  const playCache = usePlayUrlCache(accountScope, store.lineEpoch, currentEntryRef, playSkipRef);
   const [playingKey, setPlayingKey] = useState("");
   const [proxyRetry, setProxyRetry] = useState(0);
   const [relatedByVideo, setRelatedByVideo] = useState<Record<string, VideoCard[]>>({});
@@ -141,6 +145,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   );
   /* 观看进度：onTime 里节流写回 store，卸载时再兜一次 */
   const liveRef = useRef({ id: 0, ep: 1, dur: 0, t: 0, permissionKey: "", accountScope: "" });
+  /* 切线连续性（整改 B1）：按内容键 id:ep 记最后已知播放位置（作用域
+     变化时登记接回）＋上一 playKey/内容键（判定是否仅作用域变化）。 */
+  const lastPosRef = useRef(new Map<string, number>());
+  const prevPlayRef = useRef({ playKey: "", contentKey: "" });
   const historyWriter = useRef(addHistory);
   const lastSaveRef = useRef(0);
   const theater = store.theater;
@@ -229,6 +237,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   useEffect(() => { if (blocked && mode === "home" && active) onBlocked?.(curId); }, [blocked, mode, active, curId, onBlocked]);
   useEffect(() => { if (!allowed) { setPanel(null); setTagMenu(false); } }, [allowed]);
   const curEp = epMap[curId] || 1;
+  currentEntryRef.current = { id: curId, ep: curEp };
   const liked = isLiked(curId, curEp, kind);
   const collected = isFav(curId, kind);
   const likeActionKey = `like:${kind}:${curId}:${curEp}`;
@@ -252,6 +261,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const pendingActions = useRef(new Set<string>());
   /* 播放键作用域化（audit6 P1-3）：accountScope:lineEpoch:id:ep，与请求层键式统一 */
   const playKey = playCache.keyFor(curId, curEp);
+  /* 内容键（整改 B1）：epoch 无关的条目标识，切线连续性全链以它对账 */
+  const contentKey = `${curId}:${curEp}`;
   const playGuard = useRef({ allowed, id: curId, permissionKey, playKey });
   playGuard.current = { allowed, id: curId, permissionKey, playKey };
   const isCurrentPlayback = () => playGuard.current.allowed && playGuard.current.id === curId
@@ -268,7 +279,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 卡顿自愈（2.0.5）：逻辑在 ./stallHeal，Feed 只接线 */
   const { lastStallAtRef, healResumeRef, onFragStats, resetHealWindow } = useStallHeal({
     active, isDesktop, playKey, curId, curEp, videoRef, paused,
-    clearPlayUrl: playCache.clearKey, setErr, setProxyRetry,
+    invalidatePlay: (ck: string) => { playSkipRef.current.add(ck); }, setErr, setProxyRetry,
   });
   const measurementKey = JSON.stringify([accountScope, store.lineEpoch, permissionKey, playKey, playUrl]);
   const videoSize = vsize.key === measurementKey ? vsize : { key: measurementKey, w: 0, h: 0 };
@@ -297,6 +308,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     // Keep the writer from this observation; a later clear must invalidate old cleanup data.
     if (active) historyWriter.current = addHistory;
     liveRef.current = { id: curId, ep: curEp, dur: duration, t, permissionKey, accountScope };
+    lastPosRef.current.set(contentKey, t);
     playbackClock.publish(t);
     const now = Date.now();
     if (duration > 0 && now - lastSaveRef.current > 5000) {
@@ -310,12 +322,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (!isCurrentPlayback()) return;
     setDuration(d);
     liveRef.current = { id: curId, ep: curEp, dur: d, t: historyWriter.current === addHistory && liveRef.current.id === curId && liveRef.current.ep === curEp && liveRef.current.accountScope === accountScope ? liveRef.current.t : 0, permissionKey, accountScope };
-    /* 卡顿自愈重解析后的新源：把触发前的位置接回去 */
-    const hr = healResumeRef.current;
-    if (hr && hr.key === playKey && hr.t > 1 && (!d || hr.t < d - 3)) {
-      healResumeRef.current = null;
-      videoRef.current?.seek(hr.t, "stall_heal");
-      playbackClock.publish(hr.t);
+    /* 接回登记消费（整改 B1）：按内容键命中——自愈重解析与切线保位
+     * 共用此口径，epoch 变不再影响命中；只消费一次。 */
+    const healT = consumeHealResume(healResumeRef.current, curId, curEp);
+    if (healT !== null && healT > 1 && (!d || healT < d - 3)) {
+      videoRef.current?.seek(healT, "stall_heal");
+      playbackClock.publish(healT);
     }
     const r = resumeRef.current;
     if (r && r.key === playKey && r.t > 1 && (!d || r.t < d - 3)) {
@@ -595,8 +607,20 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const flushProgressRef = useProgressFlush({ kind, paused, liveRef, playGuard, actionContext, historyWriter });
 
   /* 切换条目/集数时重置播放状态（重置前尝试刷上一集位置：守卫仍对账
-     旧 playKey 时才写，选集路径已在 pickEp 同步刷过，此处兜底滑动切条目） */
+     旧 playKey 时才写，选集路径已在 pickEp 同步刷过，此处兜底滑动切条目）。
+     整改 B1：同 id:ep 仅作用域变化（切线/换代理）不算切换——不重置
+     暂停意图、不 publish(0)；切换前最后已知位置登记接回，新面时长
+     就绪时由 onDurationTick 接回（与自愈共用登记表）。 */
   useEffect(() => {
+    const prev = prevPlayRef.current;
+    const scopeOnly = isScopeOnlyChange(prev.playKey, playKey, prev.contentKey, contentKey);
+    prevPlayRef.current = { playKey, contentKey };
+    if (scopeOnly) {
+      const t = lastPosRef.current.get(contentKey) || 0;
+      if (t > 1) recordHealResume(healResumeRef.current, curId, curEp, t);
+      setPlayingKey(playKey);
+      return;
+    }
     flushProgressRef.current();
     setDuration(0); setErr(""); setWaiting(true); setPaused(false);
     setPlayingKey("");

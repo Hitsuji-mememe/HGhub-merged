@@ -321,6 +321,28 @@ function run() {
     results.b13_first_rendition_main_recorded = [...seen];
   }
 
+  /* ── B1 切线连续性·登记口径（整改 B1）：stallHeal 接回登记与作用域
+   * 判定 helper——登记键为 epoch 无关的 id:ep，epoch 变前写入、变后
+   * 按同键必须命中且只消费一次；作用域判定：同 id:ep 仅作用域变 →
+   * scopeOnly。两 helper 均为本项新增导出，经命名空间读取，旧代码
+   * 缺导出时结果为 "missing"（红）。 ── */
+  {
+    const sh = stallHealModule as unknown as {
+      recordHealResume?: (m: Map<string, number>, id: number, ep: number, t: number) => void;
+      consumeHealResume?: (m: Map<string, number>, id: number, ep: number) => number | null;
+    };
+    const reg = new Map<string, number>();
+    sh.recordHealResume?.(reg, 42, 2, 42);
+    results.b1_heal_resume_hits_after_epoch_change = sh.consumeHealResume ? sh.consumeHealResume(reg, 42, 2) : "missing";
+    results.b1_heal_resume_consumed_once = sh.consumeHealResume ? sh.consumeHealResume(reg, 42, 2) : "missing";
+    const pc = playUrlCacheModule as unknown as {
+      isScopeOnlyChange?: (prevKey: string, nextKey: string, prevContent: string, nextContent: string) => boolean;
+    };
+    results.b1_scope_only_same_content = pc.isScopeOnlyChange ? pc.isScopeOnlyChange("a:7:42:2", "a:8:42:2", "42:2", "42:2") : "missing";
+    results.b1_scope_only_diff_content = pc.isScopeOnlyChange ? pc.isScopeOnlyChange("a:7:42:2", "a:8:43:1", "42:2", "43:1") : "missing";
+    results.b1_scope_only_first_key = pc.isScopeOnlyChange ? pc.isScopeOnlyChange("", "a:8:42:2", "42:2", "42:2") : "missing";
+  }
+
   /* ── C 超分判档（模拟源参数 + 真实采样锚点） ── */
   results.c_1080p_high_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 12_000_000, fps: 30 });
   results.c_1080p_low_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 2_500_000, fps: 30 });
@@ -732,6 +754,9 @@ import { useFsKeepAlive } from "../src/features/feed/useFsKeepAlive";
  * pauseState=paused_by_system）→ retry 快照 playing 必须是 true：
  * 系统暂停不得被推导成「不想播」。旧推导走 !video.paused → false。 ── */
 import { useProxyPlaybackRecovery } from "../src/features/playback/useProxyPlaybackRecovery";
+import * as playUrlCacheModule from "../src/features/feed/usePlayUrlCache";
+import { usePlayUrlCache } from "../src/features/feed/usePlayUrlCache";
+import * as stallHealModule from "../src/features/feed/stallHeal";
 {
   const state = { want: true, kind: "paused_by_system" as "playing" | "paused_by_user" | "paused_by_system", wantSet: null as boolean | null };
   let retryFn: ((source?: string, playWanted?: boolean) => void) | null = null;
@@ -773,6 +798,49 @@ import { useProxyPlaybackRecovery } from "../src/features/playback/useProxyPlayb
     state.kind = "paused_by_system"; state.want = false;
     const systemUnwanted = await run(3);
     Object.assign(window, { __b7: { systemWanted, userPaused, systemUnwanted } });
+    root.unmount();
+  })();
+}
+
+/* ── B1 播放 URL 缓存真实 hook 探针（整改 B1）：当前条目播放中 →
+ * lineEpoch 自增 → 当前条目 URL 必须在新作用域键下仍可取（迁移、
+ * 不卸载），其余条目照旧整表失效；自愈 skip 集内的条目不迁移
+ * （强制重解析）；clearKey 必须两表都删（旧实现 main 删除成功
+ * 短路、hevc 残留）。旧 hook 无迁移且 clearKey 短路，本探针必红。 ── */
+{
+  const entryRef = { current: { id: 42, ep: 2 } };
+  const skipRef = { current: new Set<string>() };
+  let api: ReturnType<typeof usePlayUrlCache> | null = null;
+  function CacheProbe({ epoch }: { epoch: number }) {
+    api = usePlayUrlCache("acct", epoch, entryRef, skipRef);
+    return null;
+  }
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  void (async () => {
+    const waitApi = async () => { for (let i = 0; i < 60 && !api; i++) await sleep(50); return api!; };
+    root.render(<CacheProbe epoch={7} />);
+    const a = await waitApi();
+    a.setUrls(a.keyFor(42, 2), "https://m/main.m3u8", "https://m/hevc.m3u8");
+    a.setUrls(a.keyFor(9, 1), "https://m/other.m3u8");
+    root.render(<CacheProbe epoch={8} />);
+    await sleep(120);
+    const migratedMain = api!.getMain(api!.keyFor(42, 2)) ?? null;
+    const migratedHevc = api!.getHevc(api!.keyFor(42, 2)) ?? null;
+    const otherGone = api!.getMain(api!.keyFor(9, 1)) === undefined;
+    // 自愈失效集：当前条目在 skip 集内 → 不迁移、强制重解析
+    api!.setUrls(api!.keyFor(42, 2), "https://m/main2.m3u8", "https://m/hevc2.m3u8");
+    skipRef.current.add("42:2");
+    root.render(<CacheProbe epoch={9} />);
+    await sleep(120);
+    const skipBlocksMigration = api!.getMain(api!.keyFor(42, 2)) === undefined;
+    // clearKey 两表都删
+    api!.setUrls(api!.keyFor(5, 1), "https://m/m5.m3u8", "https://m/h5.m3u8");
+    api!.clearKey(api!.keyFor(5, 1));
+    const clearRemovesBoth = api!.getMain(api!.keyFor(5, 1)) === undefined && api!.getHevc(api!.keyFor(5, 1)) === undefined;
+    Object.assign(window, { __b1: { migratedMain, migratedHevc, otherGone, skipBlocksMigration, clearRemovesBoth } });
     root.unmount();
   })();
 }
