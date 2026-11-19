@@ -9,6 +9,14 @@
  * - 点按消歧：中央 1/3 点按只切悬浮层显隐，左右各 1/3 点按翻页；
  *   横滑（|dx|≥48 且横向主导）翻页为主手势。悬浮层自身控件点按
  *   stopPropagation，不穿透到舞台手势。
+ * - 手势归属（Muse 2026-11-19 fix322/gallery 线，用户实报 146 张
+ *   图集缩略图条划不动）：悬浮层的 touchstart/move/end 同样
+ *   stopPropagation——只拦 click 时，条上横拖的 touchend 冒泡到舞台
+ *   被认成横滑翻页，idx 一变跟随滚动又把条拉回当前张，条永远停
+ *   不住、定不了位。触摸起源于悬浮层即与舞台手势完全隔离；条
+ *   本体 touchAction: pan-x 交浏览器原生横滚（带惯性快速定位），
+ *   缩略图点选跳张不变。舞台另补 touchcancel 清起点，防浏览器
+ *   接管滚动后残留起点污染下一次手势。
  * - 契约不变：index 完全受控于调用方（计数/跳张同步一份状态）、
  *   缩略图点选跳张且当前张高亮并滚动定位、返回/关闭由调用方注入。
  */
@@ -63,6 +71,9 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
   };
 
   const chromeCls = `transition-opacity duration-300 ${chrome ? "opacity-100" : "opacity-0 pointer-events-none"}`;
+  /* 悬浮层手势隔离：click 与全部 touch 事件都不冒泡到舞台——条上
+   * 横滚、顶栏拖动一律不触发舞台横滑/点按判定（fix322/gallery）。 */
+  const stopTouch = (e: React.TouchEvent) => e.stopPropagation();
 
   return (
     <div data-ui="album-viewer-stage" className="relative h-full w-full overflow-hidden bg-black select-none"
@@ -79,11 +90,13 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
         const dx = t.clientX - start.x;
         const dy = t.clientY - start.y;
         if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy)) { go(dx < 0 ? idx + 1 : idx - 1); setChrome(true); }
-      }}>
+      }}
+      onTouchCancel={() => { touchRef.current = null; }}>
       <Img src={images[idx]} alt={title} eager fit="contain" />
       {/* 顶部悬浮层：返回 + 标题 + 计数 + 关闭 */}
       <div data-album-chrome="top" className={`absolute inset-x-0 top-0 z-10 ${chromeCls}`}
-        onClick={(e) => e.stopPropagation()}>
+        onClick={(e) => e.stopPropagation()}
+        onTouchStart={stopTouch} onTouchMove={stopTouch} onTouchEnd={stopTouch}>
         <div className="flex items-center gap-2 px-3 pt-3 pb-6 bg-gradient-to-b from-black/60 to-transparent">
           <Button aria-label={backLabel} onClick={onBack}
             className="grid place-items-center w-11 h-11 shrink-0 rounded-full bg-black/40 text-white"><IBack size={20} /></Button>
@@ -97,11 +110,13 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
       </div>
       {/* 底部悬浮层：来源注记 + 缩略图条（默认隐藏，随悬浮层呼出才在场） */}
       <div data-album-chrome="bottom" className={`absolute inset-x-0 bottom-0 z-10 ${chromeCls}`}
-        onClick={(e) => e.stopPropagation()}>
+        onClick={(e) => e.stopPropagation()}
+        onTouchStart={stopTouch} onTouchMove={stopTouch} onTouchEnd={stopTouch}>
         <div className="px-3 pt-6 pb-3 bg-gradient-to-t from-black/60 to-transparent">
           {footerNote && <p className="mb-2 text-[12px] text-white/75">{footerNote}</p>}
           {images.length > 1 && (
-            <div ref={stripRef} className="scroll-x flex gap-2" role="group" aria-label="相册图片缩略图">
+            <div ref={stripRef} className="scroll-x flex gap-2" role="group" aria-label="相册图片缩略图"
+              style={{ touchAction: "pan-x" }}>
               {images.map((src, i) => (
                 <Button key={`${src}-${i}`} data-thumb-index={i} aria-label={`第 ${i + 1} 张`} aria-pressed={i === idx}
                   onClick={() => onIndexChange(i)}

@@ -580,8 +580,126 @@ try {
     }
   }
 
+  /* ── 图集缩略图条手势 (Muse 2026-11-19 fix322/gallery 线) ──
+   * 真机实报: 146 张图集里底部缩略图条划不动、定不了位。根因在
+   * 手势归属: 舞台 touchstart/touchend 不区分触摸起点, 悬浮层只拦了
+   * click 没拦 touch——条上横拖松手被舞台当横滑翻页, idx 一变跟随
+   * 滚动又把条强行拉回当前张居中, 用户永远停不住条。不变量:
+   * ①条上横拖 (合成事件冒泡, 与既有舞台横滑同口径) 只滚条不翻页
+   *   ——旧码在此红 (计数被翻到 2/146);
+   * ②真实触摸快划条可大位移滚动且计数不变 (快速定位能力);
+   * ③点尾部缩略图跳张+高亮; ④主图翻页后当前张缩略图在条内可见。 */
+  async function runGalleryStripCase() {
+    const name = "gallery-strip-146";
+    const result = { name, viewport: [393, 852], status: "running" };
+    report.cases.push(result);
+    const context = await browser.newContext({ userAgent: IPHONE_UA, hasTouch: true, viewport: { width: 393, height: 852 } });
+    const page = await context.newPage();
+    page.setDefaultTimeout(15000);
+    await context.route("**/*", route => {
+      const url = new URL(route.request().url());
+      if (url.origin === ui) return route.continue();
+      return route.abort("blockedbyclient");
+    });
+    try {
+      await page.goto(`${ui}/tests/gallery-viewer.html?n=146`);
+      const stage = page.locator('[data-ui="album-viewer-stage"]');
+      await stage.waitFor({ state: "visible" });
+      const strip = page.getByRole("group", { name: "相册图片缩略图", exact: true });
+      await strip.waitFor({ state: "visible" });
+      const countText = async () => page.evaluate(() => document.querySelector('[data-ui="album-viewer-count"]')?.textContent?.trim() || "");
+      const chromeOpacity = async () => page.evaluate(() => {
+        const el = document.querySelector('[data-album-chrome="top"]');
+        return el ? Number(getComputedStyle(el).opacity) : -1;
+      });
+      const ensureChrome = async () => {
+        if (await chromeOpacity() > 0.5) return;
+        const box = await stage.boundingBox();
+        await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+        await page.waitForTimeout(250);
+      };
+      assert.equal(await countText(), "1 / 146", `${name}: count must start at 1 / 146`);
+      // ① 条上横拖: 合成 touchstart/touchend 派发在条元素上 (冒泡),
+      //    舞台不得把起源于悬浮层的触摸认成横滑翻页。
+      await ensureChrome();
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-album-chrome="bottom"] .scroll-x');
+        const r = el.getBoundingClientRect();
+        const y = r.top + r.height / 2;
+        const mk = (type, x) => {
+          const t = new Touch({ identifier: 7, target: el, clientX: x, clientY: y });
+          el.dispatchEvent(new TouchEvent(type, { touches: type === "touchend" ? [] : [t], changedTouches: [t], bubbles: true, cancelable: true }));
+        };
+        mk("touchstart", r.left + r.width * 0.8);
+        mk("touchend", r.left + r.width * 0.8 - 120);
+      });
+      await page.waitForTimeout(200);
+      assert.equal(await countText(), "1 / 146", `${name}: strip drag must not flip the page`);
+      // ② 真实触摸快划: 条大位移滚动 (可快速掠过几十张), 计数不变。
+      await ensureChrome();
+      const stripBox = await strip.boundingBox();
+      assert(stripBox, `${name}: strip box missing`);
+      const cdp = await context.newCDPSession(page);
+      const midY = stripBox.y + stripBox.height / 2;
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: stripBox.x + stripBox.width * 0.85, y: midY, id: 1 }] });
+      for (let i = 1; i <= 4; i++) {
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: stripBox.x + stripBox.width * (0.85 - 0.7 * i / 4), y: midY, id: 1 }] });
+        await page.waitForTimeout(16);
+      }
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await page.waitForTimeout(700);
+      const scrolled = await strip.evaluate(el => el.scrollLeft);
+      assert(scrolled > 120, `${name}: strip flick must scroll far, scrollLeft=${scrolled}`);
+      assert.equal(await countText(), "1 / 146", `${name}: strip flick must not flip the page`);
+      result.stripScrollLeft = Math.round(scrolled);
+      // ③ 条滚到尾部后点最后一张: 跳张+高亮。
+      await strip.evaluate(el => { el.scrollLeft = el.scrollWidth; });
+      await page.waitForTimeout(250);
+      const thumbLast = page.getByRole("button", { name: "第 146 张", exact: true });
+      await thumbLast.click();
+      await page.waitForTimeout(250);
+      assert.equal(await countText(), "146 / 146", `${name}: last thumbnail tap must jump to 146 / 146`);
+      assert.equal(await thumbLast.getAttribute("aria-pressed"), "true", `${name}: last thumbnail must be highlighted`);
+      // ④ 回跳第 100 张后舞台横滑翻页: 当前张 (101) 缩略图须在条内可见且高亮。
+      await page.getByRole("button", { name: "第 100 张", exact: true }).click();
+      await page.waitForTimeout(250);
+      assert.equal(await countText(), "100 / 146", `${name}: thumbnail tap must jump to 100 / 146`);
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-ui="album-viewer-stage"]');
+        const r = el.getBoundingClientRect();
+        const mk = (type, x) => {
+          const t = new Touch({ identifier: 3, target: el, clientX: x, clientY: r.top + r.height / 2 });
+          el.dispatchEvent(new TouchEvent(type, { touches: type === "touchend" ? [] : [t], changedTouches: [t], bubbles: true, cancelable: true }));
+        };
+        mk("touchstart", r.left + r.width * 0.7);
+        mk("touchend", r.left + r.width * 0.7 - 80);
+      });
+      await page.waitForTimeout(350);
+      assert.equal(await countText(), "101 / 146", `${name}: stage swipe must still flip one page`);
+      const follow = await page.evaluate(() => {
+        const stripEl = document.querySelector('[data-album-chrome="bottom"] .scroll-x');
+        const thumb = stripEl.querySelector('[data-thumb-index="100"]');
+        const sr = stripEl.getBoundingClientRect();
+        const tr = thumb.getBoundingClientRect();
+        return { inside: tr.left >= sr.left - 1 && tr.right <= sr.right + 1, pressed: thumb.getAttribute("aria-pressed") };
+      });
+      assert(follow.inside, `${name}: current thumbnail must stay visible in strip after page turn`);
+      assert.equal(follow.pressed, "true", `${name}: current thumbnail must be highlighted after page turn`);
+      result.status = "passed";
+      console.log(`PASS ${name}`);
+    } catch (error) {
+      result.status = "failed"; result.error = error.message;
+      console.error(`FAIL ${name}: ${error.message}`);
+      await page.screenshot({ path: join(output, `${name.replace(/[^\w-]+/g, "_")}.png`) }).catch(() => {});
+    } finally {
+      await context.close();
+      await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+    }
+  }
+
   await runGalleryCase([393, 852]);
   await runGalleryCase([360, 780]);
+  await runGalleryStripCase();
   if (process.env.LAYOUT_ONLY === "gallery") {
     console.log("LAYOUT_ONLY=gallery: player cases skipped");
   } else {
