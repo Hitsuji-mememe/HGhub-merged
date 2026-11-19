@@ -15,7 +15,7 @@ import { effectiveSrMode, getSvgFilterUrl, presentationPipeline, srVideoFilterMo
 import SrCanvas from "./SrCanvas";
 import { createHlsPlayerConfig, currentLineSeedBps, formatFirstRendition, lockHighestStartLevel, observeFirstRendition } from "./hlsConfig";
 import { useSrDensity } from "./useSrDensity";
-import { createFragThroughputReporter, originOf } from "./playbackThroughput";
+import { createFragThroughputReporter, currentLineOrigin } from "./playbackThroughput";
 import { api } from "../../shared/api/api";
 
 export type FragStats = { bytes: number; loadMs: number; fragDuration: number; bitrate: number };
@@ -220,7 +220,8 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     const source = playbackSource(src, Hls.isSupported());
     engineRef.current = source.engine;
     playingLevelRef.current = -1;
-    throughputRef.current?.setOrigin(originOf(src));
+    /* 吞吐回写按当前线路 base 记账（整改 B3）：不再用媒体地址 origin。 */
+    throughputRef.current?.setOrigin(currentLineOrigin());
     let disconnectNative: (() => void) | undefined;
     let stallWatchdog: AppendStallWatchdog | undefined;
     let detachWatchdog: (() => void) | undefined;
@@ -375,6 +376,10 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   }, [src, proxyRecovery.revision]);
 
   useLayoutEffect(() => { recoveryRef.current?.activityChanged(); }, [active]);
+
+  /* 线路切换后吞吐账本键跟随新线路 base（整改 B3）：lineEpoch 变化即
+   * 刷新（hg:line-changed 时 lastPickRound 已先行更新，见 autoLine）。 */
+  useEffect(() => { throughputRef.current?.setOrigin(currentLineOrigin()); }, [store?.lineEpoch]);
 
   // iOS 内联播放：部分 WKWebView 只认 HTML 属性
   useEffect(() => {

@@ -36,3 +36,19 @@ export function createFragThroughputReporter(send: (origin: string, bps: number)
 export function originOf(raw: string): string {
   try { return new URL(raw).origin; } catch { return ""; }
 }
+
+import { lastPickRound } from "../../shared/network/autoLine";
+
+/** 吞吐账本键 = 当前线路 base 的 origin（整改 B3）：选线账本按线路
+ * base 查账，回写若用媒体地址 origin（VideoSurface 旧实现），LOCAL
+ * 包装时必成 hg://localhost、异域媒体域名时永远查不到。round 缺失
+ * 时才回落 fallbackSrc 的 origin（调用方默认不传，避免污染）。 */
+export function lineOriginFor(round: { base: string } | null, fallbackSrc = ""): string {
+  if (round?.base) return originOf(round.base);
+  return fallbackSrc ? originOf(fallbackSrc) : "";
+}
+
+/** 当前线路的账本 origin（前端同步可得：autoLine 最近轮次的 base）。 */
+export function currentLineOrigin(fallbackSrc = ""): string {
+  try { return lineOriginFor(lastPickRound(), fallbackSrc); } catch { return fallbackSrc ? originOf(fallbackSrc) : ""; }
+}

@@ -13,6 +13,7 @@ import { evaluateSrGatesV2 } from "../src/shared/diagnostics/gpuProbe";
 import { capRecordByFifo, scopedPlayKey, setCapped } from "../src/features/feed/cacheMap";
 import { prewarmRetryDue } from "../src/features/feed/prewarm";
 import { createFragThroughputReporter, originOf } from "../src/features/playback/playbackThroughput";
+import * as throughputModule from "../src/features/playback/playbackThroughput";
 import { recordIfCurrent, registerPlayerInstance, snapshot as ledgerSnapshot, unregisterPlayerInstance, validateLedgerIntegrity } from "../src/shared/diagnostics/eventLedger";
 import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, lockHighestStartLevel, resolveAbrSeedBps } from "../src/features/playback/hlsConfig";
 import { isPlaybackPlaying, notePlaybackPlaying } from "../src/shared/diagnostics/playbackFacts";
@@ -514,6 +515,26 @@ function run() {
     results.t_flush_remainder = sent.length;
     results.t_origin_parse = originOf("https://line.example/path/x.m3u8");
     results.t_origin_bad = originOf("not a url");
+  }
+
+  /* ── B3 吞吐回写按当前线路 base 记账（整改 B3）：账本键必须是线路
+   * base 的 origin，不是媒体地址 origin（LOCAL 包装时媒体 origin 是
+   * hg://localhost，必错）。lineOriginFor 为本项新增导出，经模块命名
+   * 空间读取——旧代码无此导出时结果为 "missing"，即红。 ── */
+  {
+    const lineOriginFor = (throughputModule as unknown as {
+      lineOriginFor?: (round: { base: string } | null, fallbackSrc?: string) => string;
+    }).lineOriginFor;
+    results.b3_line_origin_from_base = typeof lineOriginFor === "function"
+      ? lineOriginFor({ base: "https://line-b.example" }, "hg://localhost/hls?u=zzz") : "missing";
+    results.b3_line_origin_no_round = typeof lineOriginFor === "function" ? lineOriginFor(null) : "missing";
+    const sent: [string, number][] = [];
+    const rep = createFragThroughputReporter((o, b) => sent.push([o, b]));
+    rep.setOrigin(typeof lineOriginFor === "function"
+      ? lineOriginFor({ base: "https://line-b.example" }, "https://media.example/x.m3u8")
+      : originOf("https://media.example/x.m3u8"));
+    for (let i = 0; i < 5; i++) rep.push(100_000, 100);
+    results.b3_reporter_keyed_by_line = [...sent];
   }
 
   /* ── L 事件账本接线（audit6 诊断一级模块）：注销后迟到丢弃且不入窗口、
