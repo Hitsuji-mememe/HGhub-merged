@@ -152,8 +152,8 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
             <div className="px-4 mx-auto max-w-[800px] select-text">
               <h1 className="text-[17px] font-bold text-on leading-snug">{detail.detail.title || detail.item.title}</h1>
               {detail.detail.contentHtml ? (
-                <div className="article-body mt-3.5" onClick={(e) => handleArticleClick(e, openSafeLink)}
-                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(detail.detail.contentHtml) }} />
+                <div className="article-body mt-3.5" onClick={(e) => handleArticleClick(e, openSafeLink, detail.detail.href)}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(detail.detail.contentHtml, detail.detail.href) }} />
               ) : detail.detail.description ? (
                 <p className="mt-3.5 text-[14px] leading-relaxed text-on/80 whitespace-pre-wrap">{detail.detail.description}</p>
               ) : null}

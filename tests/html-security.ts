@@ -54,6 +54,41 @@ await test("formatting and lazy image survive", () => {
   assert(img?.alt === "封面" && !img.hasAttribute("data-src"), "image attributes incorrect");
 });
 
+/* fix330/post-images（3.3.0 真机首验：吃瓜三源正文图全破图）：真站
+ * 正文图的真实地址不在 src/经典懒加载属性上——source-003 内容图只有
+ * z-image-loader-url（无 src）、横幅是相对占位 src＋x-image-loader-url，
+ * source-004 是相对占位 src＋z-image-loader-url，source-005 内容图是
+ * 相对占位 src＋data-xkrkllgl（站插件固定名）。旧清洗链一律不识别：
+ * 地址先被 DOMPurify 白名单删、幸存的相对占位 src 再按黄果站补全错源。 */
+await test("post body loader-url images are proxied from their real address", () => {
+  fixture.innerHTML = sanitizeHtml('<p>文</p><img z-image-loader-url="https://img.example.com/body1.jpg" alt="正文图">');
+  const img1 = fixture.querySelector("img");
+  assert(img1, "z-image-loader-url image dropped");
+  assert(img1!.getAttribute("src")?.includes("/img?u="), "z-image-loader-url image not proxied");
+  assert(decodeURIComponent(img1!.getAttribute("src")!).endsWith("https://img.example.com/body1.jpg"), "z-image-loader-url not used as image source");
+
+  fixture.innerHTML = sanitizeHtml('<img src="/static/pc/img/placeholder.png" z-image-loader-url="https://img.example.com/body2.jpg" alt="素材">', "https://src004.example.com/archives/1/");
+  const img2 = fixture.querySelector("img");
+  assert(img2 && decodeURIComponent(img2!.getAttribute("src")!).endsWith("https://img.example.com/body2.jpg"), "placeholder src shadowed z-image-loader-url");
+
+  fixture.innerHTML = sanitizeHtml('<img src="/usr/plugins/tbxw/zw.png" data-xkrkllgl="https://img.example.com/body3.jpg" alt="相关图片">', "https://src005.example.com/archives/2/");
+  const img3 = fixture.querySelector("img");
+  assert(img3 && decodeURIComponent(img3!.getAttribute("src")!).endsWith("https://img.example.com/body3.jpg"), "data-xkrkllgl not used as image source");
+
+  fixture.innerHTML = sanitizeHtml('<img src="/usr/themes/images/banner.png" x-image-loader-url="https://img.example.com/body4.gif" alt="横幅">', "https://src003.example.com/archives/3/");
+  const img4 = fixture.querySelector("img");
+  assert(img4 && decodeURIComponent(img4!.getAttribute("src")!).endsWith("https://img.example.com/body4.gif"), "x-image-loader-url not used as image source");
+});
+
+await test("relative body images resolve against the given page base; default stays native", () => {
+  fixture.innerHTML = sanitizeHtml('<img src="/uploads/rel.jpg" alt="相对图">', "https://src004.example.com/archives/2/");
+  const img = fixture.querySelector("img");
+  assert(img && decodeURIComponent(img.getAttribute("src")!).endsWith("https://src004.example.com/uploads/rel.jpg"), "relative image not resolved against given base");
+  fixture.innerHTML = sanitizeHtml('<img src="/uploads/rel.jpg" alt="相对图">');
+  const img2 = fixture.querySelector("img");
+  assert(img2 && decodeURIComponent(img2.getAttribute("src")!).endsWith("https://huangguoai.com/uploads/rel.jpg"), "default base changed");
+});
+
 await test("reserved IPv4 literal links are rejected before opening", () => {
   for (const host of ["192.0.0.1", "192.0.2.1", "192.88.99.1", "198.51.100.1", "203.0.113.1"]) {
     fixture.innerHTML = sanitizeHtml(`<a href="https://${host}/">link</a>`);
