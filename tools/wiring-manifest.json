@@ -1,308 +1,6 @@
 {
+  "version": 1,
   "entries": [
-    {
-      "files": [
-        "src/main.tsx"
-      ],
-      "id": "p0-3-resolve-registry",
-      "item": "P0-3 远程清单启动调用",
-      "min": 1,
-      "symbol": "resolveRegistry"
-    },
-    {
-      "each": true,
-      "files": [
-        "src/features/sources/SourceSwitcher.tsx",
-        "src/features/category/Category.tsx",
-        "src/features/posts/Posts.tsx"
-      ],
-      "id": "p0-3-active-registry-ui",
-      "item": "P0-3 UI 改读 active 注册表",
-      "symbol": "getActiveRegistry"
-    },
-    {
-      "files": [
-        "src/features/sources/manifest.ts"
-      ],
-      "id": "p0-3-registry-applied",
-      "item": "P0-3 清单落定埋点 registry.applied",
-      "min": 2,
-      "symbol": "traceRegistryApplied"
-    },
-    {
-      "files": [
-        "src/main.tsx"
-      ],
-      "id": "p0-3-allowlist-push",
-      "item": "P0-3/P1 注册表 origins 推送 Rust 白名单",
-      "min": 2,
-      "symbol": "pushSourceAllowlist"
-    },
-    {
-      "each": true,
-      "files": [
-        "src/main.tsx",
-        "src-tauri/src/lib.rs"
-      ],
-      "id": "p1-source-allowlist-cmd",
-      "item": "P1 source_fetch origin 白名单命令（前端调用＋Rust 注册）",
-      "symbol": "source_allowlist_set"
-    },
-    {
-      "files": [
-        "src-tauri/src/api/source.rs"
-      ],
-      "id": "p1-source-header-filter",
-      "item": "P1 source_fetch 请求头白名单",
-      "min": 2,
-      "symbol": "filter_source_headers"
-    },
-    {
-      "files": [
-        "src/shared/network/autoLine.ts"
-      ],
-      "id": "p0-2-confirm-timer",
-      "item": "P0-2 两轮确认计时器独立句柄",
-      "min": 2,
-      "symbol": "laterConfirm"
-    },
-    {
-      "each": true,
-      "files": [
-        "src/features/feed/stallHeal.ts",
-        "src/features/feed/Feed.tsx"
-      ],
-      "id": "p0-1-heal-key-record",
-      "item": "P0-1 stallHeal 接回登记改 id:ep 内容键",
-      "symbol": "recordHealResume"
-    },
-    {
-      "files": [
-        "src/features/feed/Feed.tsx"
-      ],
-      "id": "p0-1-heal-consume",
-      "item": "P0-1 stallHeal 接回消费端（Feed）",
-      "min": 1,
-      "symbol": "consumeHealResume"
-    },
-    {
-      "files": [
-        "src/features/feed/Feed.tsx"
-      ],
-      "id": "p0-1-scope-only-guard",
-      "item": "P0-1 playKey 仅作用域变化时保位保暂停",
-      "min": 2,
-      "symbol": "isScopeOnlyChange"
-    },
-    {
-      "files": [
-        "src/features/feed/usePlayUrlCache.ts"
-      ],
-      "id": "p0-1-cache-migration",
-      "item": "P0-1 当前条目跨作用域键迁移",
-      "min": 2,
-      "symbol": "snapshotEntry"
-    },
-    {
-      "files": [
-        "src-tauri/src/api/lines.rs"
-      ],
-      "id": "p1-breaker-urgent",
-      "item": "P1 熔断 urgent 豁免（选线调用点传 urgent）",
-      "min": 1,
-      "symbol": "auto_switch_allowed",
-      "note": "符号基线已存在，本条守调用点不被删；urgent 豁免语义由 A2 Rust 单测保证。"
-    },
-    {
-      "files": [
-        "src-tauri/src/api/lines.rs"
-      ],
-      "id": "p1-throughput-origin-check",
-      "item": "P1 吞吐回写命令侧 origin 校验",
-      "min": 2,
-      "symbol": "known_playback_origin"
-    },
-    {
-      "files": [
-        "src-tauri/src/lines/probe.rs"
-      ],
-      "id": "p1-probe-mode-capture",
-      "item": "P1/G2P2-1 账本按测量时 proxyMode 记账",
-      "min": 1,
-      "symbol": "record_throughput_with_mode"
-    },
-    {
-      "files": [
-        "src-tauri/src/line_rank.rs"
-      ],
-      "id": "p1-timeout-cap",
-      "item": "P1/G2P1-3 测速超时候选生效吞吐封顶",
-      "min": 2,
-      "symbol": "cap_timed_out_measure"
-    },
-    {
-      "files": [
-        "src-tauri/src/api/lines.rs"
-      ],
-      "id": "p1-try-main-readonly",
-      "item": "P2/G2P2-4 line_try_main 只读不递增代次",
-      "min": 2,
-      "symbol": "current_line_selection"
-    },
-    {
-      "files": [
-        "src/features/playback/usePlaybackKernel.ts"
-      ],
-      "id": "p1-throughput-line-key",
-      "item": "P1 吞吐回写按当前线路 base 记账（前端）",
-      "min": 1,
-      "symbol": "currentLineOrigin",
-      "note": "最终版 A 线收敛后调用点随内核迁入 usePlaybackKernel（beginSource＋lineEpoch effect），条目改指内核文件，接线语义不变。"
-    },
-    {
-      "files": [
-        "src/features/feed/useFsKeepAlive.ts"
-      ],
-      "id": "p1-keepalive-tristate",
-      "item": "P1 keepAlive 改用 pauseState 三态信号",
-      "min": 1,
-      "symbol": "pauseState"
-    },
-    {
-      "files": [
-        "src/features/playback/appendStallWatchdog.ts",
-        "src/features/playback/stallWatchdogWiring.ts"
-      ],
-      "id": "p1-append-watchdog-gate",
-      "item": "P1 append 看门狗意愿门（判死前先过 shouldEscalate）",
-      "symbol": "shouldEscalate",
-      "min": 9,
-      "note": "基线 7 处（仅出画臂），整改后 9 处（append 臂补齐）；总数门槛即判别点。"
-    },
-    {
-      "each": true,
-      "files": [
-        "src/features/playback/VideoSurface.tsx",
-        "src/features/playback/Player.tsx"
-      ],
-      "id": "p1-player-playing-facts",
-      "item": "P1 全局播放状态双播放面接入（VideoSurface＋Player）",
-      "symbol": "notePlaying",
-      "note": "最终版 A 线收敛：两面改经内核 notePlaying 置位（内核内直调 notePlaybackPlaying，见 fin-a-kernel-playing-facts），双面接入语义不变。"
-    },
-    {
-      "files": [
-        "src/shared/diagnostics/playbackDiagnostics.ts"
-      ],
-      "id": "p1-ledger-binding",
-      "item": "P1 账本迟到语义（绑定三态被播放诊断消费）",
-      "min": 1,
-      "symbol": "createLedgerBinding"
-    },
-    {
-      "files": [
-        "src/shared/diagnostics/eventLedger.ts"
-      ],
-      "id": "p1-ledger-late-count",
-      "item": "P1 droppedLate 真实计数入口被绑定调用",
-      "min": 2,
-      "symbol": "noteDroppedLate"
-    },
-    {
-      "files": [
-        "src/shared/diagnostics/diagnosticReport.ts"
-      ],
-      "id": "p1-stage-mono",
-      "item": "P1 起播阶段计时改用事件 mono_ms",
-      "min": 2,
-      "symbol": "offOf"
-    },
-    {
-      "each": true,
-      "files": [
-        "src/features/playback/usePlaybackKernel.ts"
-      ],
-      "id": "p1-bpp-same-rendition",
-      "item": "P1 判档 bpp 分子分母同 rendition（双播放面）",
-      "symbol": "setPlayingLevel",
-      "min": 2,
-      "note": "最终版 A 线收敛：playing level 维护迁入内核（LEVEL_SWITCHED→core.setPlayingLevel，ingest 只认该 level），两面共用一份，条目改指内核文件。"
-    },
-    {
-      "files": [
-        "src/features/playback/useProxyPlaybackRecovery.ts"
-      ],
-      "id": "p1-retry-derive",
-      "item": "P1/Gemini retry() 意愿推导收紧",
-      "min": 2,
-      "symbol": "derivePlaying"
-    },
-    {
-      "files": [
-        "src/features/playback/SrCanvas.tsx"
-      ],
-      "id": "sr-default-on",
-      "item": "SR 模型超分默认开（开关定义＋消费）",
-      "min": 2,
-      "symbol": "SR_MODEL_DEFAULT_ENABLED",
-      "note": "本条守定义＋消费存在；取值 true 由 B17-5 commit 与集成复核 grep 保证（SR_MODEL_DEFAULT_ENABLED = true）。"
-    },
-    {
-      "each": true,
-      "files": [
-        "src/features/playback/SrCanvas.tsx",
-        "src/shared/diagnostics/gpuProbe.ts"
-      ],
-      "id": "sr-takeover",
-      "item": "SR 探针完成后已挂载面补接管（SrCanvas 自调＋调度器）",
-      "symbol": "runSrProbe"
-    },
-    {
-      "each": true,
-      "files": [
-        "src/features/playback/webgpuSr.ts",
-        "src/features/playback/WebGpuSrCanvas.tsx"
-      ],
-      "id": "sr-degrade-report",
-      "item": "SR WebGPU 降级档位回报（引擎回调＋组件消费）",
-      "symbol": "onDegrade"
-    },
-    {
-      "files": [
-        "src/features/playback/SrCanvas.tsx"
-      ],
-      "id": "sr-death-latch",
-      "item": "SR WebGPU 死亡闩锁全局通知",
-      "min": 2,
-      "symbol": "noteWebgpuSessionDeath"
-    },
-    {
-      "files": [
-        "src/features/playback/webgpuSr.ts"
-      ],
-      "id": "sr-fast-domain-gate",
-      "item": "SR WebGPU 降级判定排除 ≥2x 快速域",
-      "min": 2,
-      "symbol": "createSrDegradeGate"
-    },
-    {
-      "files": [
-        "src/shared/diagnostics/diagnosticReport.ts"
-      ],
-      "id": "report-id-scrub",
-      "item": "报告导出 host→稳定编号替换",
-      "min": 2,
-      "symbol": "redactExportText"
-    },
-    {
-      "files": [
-        "src/features/sources/registryDiag.ts"
-      ],
-      "id": "report-source-layers",
-      "item": "报告源健康分层（导出专用）",
-      "min": 2,
-      "symbol": "sourceHealthLines"
-    },
     {
       "files": [
         "src-tauri/src/speed_probe.rs"
@@ -311,15 +9,6 @@
       "item": "诊断 B 路 DNS 固定（解析后 IP 校验）",
       "min": 2,
       "symbol": "ensure_addresses_public"
-    },
-    {
-      "files": [
-        "src-tauri/src/session.rs"
-      ],
-      "id": "diag-session-restore",
-      "item": "session 启动恢复状态补记",
-      "min": 1,
-      "symbol": "restore-ok"
     },
     {
       "each": true,
@@ -332,11 +21,205 @@
       "symbol": "recovery.outcome"
     },
     {
-      "id": "p1-breaker-decay",
-      "item": "P1 熔断总上限时间衰减常数",
-      "symbol": "AUTO_SWITCH_TOTAL_WINDOW",
       "files": [
-        "src-tauri/src/lines/ledger.rs"
+        "src-tauri/src/session.rs"
+      ],
+      "id": "diag-session-restore",
+      "item": "session 启动恢复状态补记",
+      "min": 1,
+      "symbol": "restore-ok"
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/playbackDiagnostics.ts",
+        "src/features/playback/usePlaybackKernel.ts"
+      ],
+      "id": "fin-a-capture-trace",
+      "item": "最终版A线 P2-08 代次捕获 trace（诊断侧定义＋内核 attachHls 登记时捕获）",
+      "symbol": "captureTrace",
+      "min": 2
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/VideoSurface.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "id": "fin-a-facts-publish",
+      "item": "最终版A线 facts 发布双面接入（P2-09：Player 由此获得 publishPlaybackFacts 发布，经内核 publishFacts）",
+      "symbol": "publishFacts"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/VideoSurface.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "id": "fin-a-kernel-consumed",
+      "item": "最终版A线 共用播放内核双面消费（VideoSurface＋Player 同走 usePlaybackKernel）",
+      "symbol": "usePlaybackKernel"
+    },
+    {
+      "files": [
+        "src/features/playback/usePlaybackKernel.ts"
+      ],
+      "id": "fin-a-kernel-ingest",
+      "item": "最终版A线 内核分片 ingest（密度＋吞吐一份实现）",
+      "symbol": "ingestFrag",
+      "min": 2
+    },
+    {
+      "files": [
+        "src/features/playback/usePlaybackKernel.ts"
+      ],
+      "id": "fin-a-kernel-playing-facts",
+      "item": "最终版A线 内核内 notePlaybackPlaying 实际置位点（双面 notePlaying 的落点）",
+      "symbol": "notePlaybackPlaying",
+      "min": 2
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/VideoSurface.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "id": "fin-a-throughput-wire",
+      "item": "最终版A线 吞吐回写双面接入（P2-09：Player 由此获得分片吞吐回写，经内核 wireSignals→ingestFrag）",
+      "symbol": "wireSignals"
+    },
+    {
+      "id": "fin-b-hold-release-profile",
+      "item": "最终版B线任务3：松手剖面事件 hold.release_profile（holdJank 剖面器）",
+      "files": [
+        "src/features/feed/holdJank.ts"
+      ],
+      "symbol": "hold.release_profile",
+      "min": 1
+    },
+    {
+      "id": "fin-b-native-pause-writeback",
+      "item": "最终版B线 P1-02：原生暂停意愿写回（pause 事件监听，source=native_controls）",
+      "files": [
+        "src/features/playback/usePlaybackActivity.ts"
+      ],
+      "symbol": "native_controls",
+      "min": 1
+    },
+    {
+      "id": "fin-b-release-profiler-feed",
+      "item": "最终版B线任务3：Feed 接松手剖面器（ratechange 零点＋rVFC 首帧）",
+      "files": [
+        "src/features/feed/Feed.tsx"
+      ],
+      "symbol": "createHoldReleaseProfiler",
+      "min": 1
+    },
+    {
+      "id": "fin-b-sr-release-marks",
+      "item": "最终版B线任务3：WebGPU SR 画布上报剖面 SR 段时刻＋松手首帧让行",
+      "files": [
+        "src/features/playback/WebGpuSrCanvas.tsx"
+      ],
+      "symbol": "noteHoldSrPresent",
+      "min": 1
+    },
+    {
+      "id": "fin-b2-controls-scrub-state",
+      "item": "最终版B2线追加（用户实报）：PlayerControls 消费共享 scrubbing 态（is-scrubbing 状态钩子，无视觉提示）",
+      "files": [
+        "src/features/playback/PlayerControls.tsx"
+      ],
+      "symbol": "is-scrubbing",
+      "min": 1
+    },
+    {
+      "id": "fin-b2-feed-bar-judge-cancel",
+      "item": "最终版B2线追加（用户实报）：Feed 进度条起手取消挂起单击判定（cancelPendingTapJudge 接 onBarDown）",
+      "files": [
+        "src/features/feed/Feed.tsx"
+      ],
+      "symbol": "cancelPendingTapJudge",
+      "min": 2
+    },
+    {
+      "id": "fin-b2-seek-click-swallow",
+      "item": "最终版B2线追加（用户实报）：useSeekInput 拖动后 click 吞咽（lastDragAt 窗口）",
+      "files": [
+        "src/features/playback/useSeekInput.ts"
+      ],
+      "symbol": "lastDragAt",
+      "min": 2
+    },
+    {
+      "id": "fin-b2-seek-scrub-phases",
+      "item": "最终版B2线追加（用户实报）：useSeekInput scrub 仲裁相位 scrubstart/scrubend（两宿主共用）",
+      "files": [
+        "src/features/playback/useSeekInput.ts"
+      ],
+      "symbol": "scrubstart",
+      "min": 1
+    },
+    {
+      "id": "fin-b3-hls-instance-bus",
+      "item": "最终版B3线任务2：HLS attach 时登记实例 ID（VideoSurface/Player 两宿主同口径）",
+      "files": [
+        "src/features/playback/VideoSurface.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "symbol": "noteHoldHlsAttach",
+      "min": 2
+    },
+    {
+      "id": "fin-b3-pipeline-state-bus",
+      "item": "最终版B3线任务3：SrCanvas 在管线切换点登记 noteHoldPipelineState（接管/webgl/none）",
+      "files": [
+        "src/features/playback/SrCanvas.tsx"
+      ],
+      "symbol": "noteHoldPipelineState",
+      "min": 2
+    },
+    {
+      "id": "fin-b3-profile-aggregator",
+      "item": "最终版B3线任务3：holdJank 纯函数聚合器 summarizeHoldEvents（engaged/bypass 两桶）",
+      "files": [
+        "src/features/feed/holdJank.ts"
+      ],
+      "symbol": "summarizeHoldEvents",
+      "min": 1
+    },
+    {
+      "id": "fin-b3-profile-sr-engaged",
+      "item": "最终版B3线任务3：hold.release_profile 自带 sr_engaged 显式布尔＋pipeline（判别力，不靠 SR 段 null 推断）",
+      "files": [
+        "src/features/feed/holdJank.ts"
+      ],
+      "symbol": "sr_engaged",
+      "min": 2
+    },
+    {
+      "id": "fin-b3-recovery-seek-follow",
+      "item": "最终版B3线任务1：代理恢复 pending 快照跟随恢复期 seeking（落点以用户最新 seek 为准）",
+      "files": [
+        "src/features/playback/useProxyPlaybackRecovery.ts"
+      ],
+      "symbol": "onSeeking",
+      "min": 2
+    },
+    {
+      "id": "fin-b3-rvfc-metadata",
+      "item": "最终版B3线任务2：Feed rVFC 回调把 metadata（mediaTime/presentedFrames）透传剖面 firstFrame",
+      "files": [
+        "src/features/feed/Feed.tsx"
+      ],
+      "symbol": "presentedFrames",
+      "min": 2
+    },
+    {
+      "id": "fin-c-confirm-gate-captured",
+      "item": "P1-05 confirm_gate_captured 代次校验（定义＋auto_pick 生产调用）",
+      "symbol": "confirm_gate_captured",
+      "files": [
+        "src-tauri/src/lines/probe.rs"
       ],
       "min": 2
     },
@@ -350,13 +233,13 @@
       "min": 2
     },
     {
-      "id": "fin-c-confirm-gate-captured",
-      "item": "P1-05 confirm_gate_captured 代次校验（定义＋auto_pick 生产调用）",
-      "symbol": "confirm_gate_captured",
+      "id": "fin-c-piece-etag-shared",
+      "item": "P2-03 ETag 一致性 piece_etag_consistent（定义＋小分片/并行两路共用）",
+      "symbol": "piece_etag_consistent",
       "files": [
-        "src-tauri/src/lines/probe.rs"
+        "src-tauri/src/range_fetch.rs"
       ],
-      "min": 2
+      "min": 3
     },
     {
       "id": "fin-c-small-rest-ok",
@@ -368,38 +251,132 @@
       "min": 2
     },
     {
-      "id": "fin-c-piece-etag-shared",
-      "item": "P2-03 ETag 一致性 piece_etag_consistent（定义＋小分片/并行两路共用）",
-      "symbol": "piece_etag_consistent",
+      "id": "fin-coord-hold-summary",
+      "item": "协调接线：诊断报告长按松手分组汇总（summarizeHoldEvents 消费点）",
+      "symbol": "summarizeHoldEvents",
       "files": [
-        "src-tauri/src/range_fetch.rs"
-      ],
-      "min": 3
-    },
-    {
-      "id": "fin-e-probe-failure-ttl",
-      "item": "E线 SR 探针失败短 TTL 常量（定义＋读回判读点）",
-      "symbol": "SR_PROBE_FAILURE_MAX_AGE_MS",
-      "files": [
-        "src/shared/diagnostics/gpuProbe.ts"
+        "src/shared/diagnostics/diagnosticReport.ts"
       ],
       "min": 2
     },
     {
-      "id": "fin-e-probe-failure-gate",
-      "item": "E线 SR 探针失败判据（定义＋读回 TTL 分流＋落盘拦截）",
-      "symbol": "srProbeIsFailure",
+      "id": "fin-d-create-adapter-browse",
+      "item": "最终版D线 外部视频源浏览页生产调用 createAdapter",
       "files": [
-        "src/shared/diagnostics/gpuProbe.ts"
+        "src/features/sources/SourceBrowse.tsx"
       ],
-      "min": 3
+      "symbol": "createAdapter",
+      "min": 2
     },
     {
-      "id": "fin-e-density-tiering-gate",
-      "item": "E线 provisional 密度判档收口（定义＋hook 发布点）",
-      "symbol": "srDensityForTiering",
+      "id": "fin-d-create-adapter-gallery",
+      "item": "最终版D线 图片图集页生产调用 createAdapter",
       "files": [
-        "src/features/playback/useSrDensity.ts"
+        "src/features/sources/SourceGallery.tsx"
+      ],
+      "symbol": "createAdapter",
+      "min": 2
+    },
+    {
+      "id": "fin-d-image-category",
+      "item": "最终版D线 条目8 图片分区经 sourcesForCategory(image) 列源",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "sourcesForCategory(\"image\"",
+      "min": 1
+    },
+    {
+      "id": "fin-d-manifest-url",
+      "item": "最终版D线 条目6 清单改址常量（manifest.ts 定义＋registry 解析消费）",
+      "files": [
+        "src/features/sources/manifest.ts"
+      ],
+      "symbol": "REMOTE_MANIFEST_URL",
+      "min": 2
+    },
+    {
+      "id": "fin-d-source-browse-mounted",
+      "item": "最终版D线 ChannelPage 非黄果视频分支挂载 SourceBrowse",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "SourceBrowse",
+      "min": 2
+    },
+    {
+      "id": "fin-d-source-gallery-mounted",
+      "item": "最终版D线 ChannelPage 图片分支挂载 SourceGallery",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "SourceGallery",
+      "min": 2
+    },
+    {
+      "id": "fin-d2-cover-radius-fix",
+      "item": "最终版D2线 封面圆罩修复：播放 Button rounded-none 断胶囊圆角继承链",
+      "files": [
+        "src/features/posts/Posts.tsx"
+      ],
+      "symbol": "inset-0 rounded-none",
+      "min": 1
+    },
+    {
+      "id": "fin-d2-post-media-hook",
+      "item": "最终版D2线 吃瓜详情播放器区钩子 data-post-media（顺序/圆角回归脚本锚点）",
+      "files": [
+        "src/features/posts/Posts.tsx"
+      ],
+      "symbol": "data-post-media",
+      "min": 1
+    },
+    {
+      "id": "fin-d3-aggregate",
+      "item": "最终版D3线 Search 经 aggregateHits 跨源合并混排",
+      "symbol": "aggregateHits",
+      "files": [
+        "src/features/search/Search.tsx",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-d3-copy-fallback",
+      "item": "最终版D3线 副本失败静默顺延（Search 详情调用＋纯逻辑定义）",
+      "symbol": "loadWithFallback",
+      "files": [
+        "src/features/search/Search.tsx",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-d3-create-adapter-search",
+      "item": "最终版D3线 Search 经 createAdapter 调外部源 search/detail/resolve",
+      "symbol": "createAdapter",
+      "files": [
+        "src/features/search/Search.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-d3-fanout-search",
+      "item": "最终版D3线 全局搜索多源扇出（Search 生产调用＋纯逻辑定义）",
+      "symbol": "fanoutSearch",
+      "files": [
+        "src/features/search/Search.tsx",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-d3-four-tabs",
+      "item": "最终版D3线 搜索页签四类封顶常量（定义＋消费）",
+      "symbol": "GLOBAL_SEARCH_TABS",
+      "files": [
+        "src/features/search/Search.tsx",
+        "src/features/search/multiSourceSearch.ts"
       ],
       "min": 2
     },
@@ -413,11 +390,29 @@
       "min": 2
     },
     {
-      "id": "fin-e-report-recovery-semantics",
-      "item": "E线 报告账本 recovery 语义标注（注释＋账本行）",
-      "symbol": "切线决策已提交",
+      "id": "fin-e-density-tiering-gate",
+      "item": "E线 provisional 密度判档收口（定义＋hook 发布点）",
+      "symbol": "srDensityForTiering",
       "files": [
-        "src/shared/diagnostics/diagnosticReport.ts"
+        "src/features/playback/useSrDensity.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e-probe-failure-gate",
+      "item": "E线 SR 探针失败判据（定义＋读回 TTL 分流＋落盘拦截）",
+      "symbol": "srProbeIsFailure",
+      "files": [
+        "src/shared/diagnostics/gpuProbe.ts"
+      ],
+      "min": 3
+    },
+    {
+      "id": "fin-e-probe-failure-ttl",
+      "item": "E线 SR 探针失败短 TTL 常量（定义＋读回判读点）",
+      "symbol": "SR_PROBE_FAILURE_MAX_AGE_MS",
+      "files": [
+        "src/shared/diagnostics/gpuProbe.ts"
       ],
       "min": 2
     },
@@ -427,6 +422,25 @@
       "symbol": "多存储拼装",
       "files": [
         "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e-report-recovery-semantics",
+      "item": "E线 报告账本 recovery 语义标注（注释＋账本行）",
+      "symbol": "切线决策已提交",
+      "files": [
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e2-present-mode-pass",
+      "item": "E2线 呈现档入引擎（模式归一定义＋画布传参）",
+      "symbol": "srPresentModeFor",
+      "files": [
+        "src/features/playback/webgpuSr.ts",
+        "src/features/playback/WebGpuSrCanvas.tsx"
       ],
       "min": 2
     },
@@ -461,381 +475,11 @@
       "min": 2
     },
     {
-      "id": "fin-e2-present-mode-pass",
-      "item": "E2线 呈现档入引擎（模式归一定义＋画布传参）",
-      "symbol": "srPresentModeFor",
-      "files": [
-        "src/features/playback/webgpuSr.ts",
-        "src/features/playback/WebGpuSrCanvas.tsx"
-      ],
-      "min": 2
-    },
-    {
       "id": "fin-e2-sharpen-params",
       "item": "E2线 两档 RCAS 参数表（定义＋processFrame 消费）",
       "symbol": "SR_PRESENT_SHARPEN",
       "files": [
         "src/features/playback/webgpuSr.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fin-b-native-pause-writeback",
-      "item": "最终版B线 P1-02：原生暂停意愿写回（pause 事件监听，source=native_controls）",
-      "files": [
-        "src/features/playback/usePlaybackActivity.ts"
-      ],
-      "symbol": "native_controls",
-      "min": 1
-    },
-    {
-      "id": "fin-b-hold-release-profile",
-      "item": "最终版B线任务3：松手剖面事件 hold.release_profile（holdJank 剖面器）",
-      "files": [
-        "src/features/feed/holdJank.ts"
-      ],
-      "symbol": "hold.release_profile",
-      "min": 1
-    },
-    {
-      "id": "fin-b-release-profiler-feed",
-      "item": "最终版B线任务3：Feed 接松手剖面器（ratechange 零点＋rVFC 首帧）",
-      "files": [
-        "src/features/feed/Feed.tsx"
-      ],
-      "symbol": "createHoldReleaseProfiler",
-      "min": 1
-    },
-    {
-      "id": "fin-b-sr-release-marks",
-      "item": "最终版B线任务3：WebGPU SR 画布上报剖面 SR 段时刻＋松手首帧让行",
-      "files": [
-        "src/features/playback/WebGpuSrCanvas.tsx"
-      ],
-      "symbol": "noteHoldSrPresent",
-      "min": 1
-    },
-    {
-      "id": "fin-b2-seek-scrub-phases",
-      "item": "最终版B2线追加（用户实报）：useSeekInput scrub 仲裁相位 scrubstart/scrubend（两宿主共用）",
-      "files": [
-        "src/features/playback/useSeekInput.ts"
-      ],
-      "symbol": "scrubstart",
-      "min": 1
-    },
-    {
-      "id": "fin-b2-seek-click-swallow",
-      "item": "最终版B2线追加（用户实报）：useSeekInput 拖动后 click 吞咽（lastDragAt 窗口）",
-      "files": [
-        "src/features/playback/useSeekInput.ts"
-      ],
-      "symbol": "lastDragAt",
-      "min": 2
-    },
-    {
-      "id": "fin-b2-feed-bar-judge-cancel",
-      "item": "最终版B2线追加（用户实报）：Feed 进度条起手取消挂起单击判定（cancelPendingTapJudge 接 onBarDown）",
-      "files": [
-        "src/features/feed/Feed.tsx"
-      ],
-      "symbol": "cancelPendingTapJudge",
-      "min": 2
-    },
-    {
-      "id": "fin-b2-controls-scrub-state",
-      "item": "最终版B2线追加（用户实报）：PlayerControls 消费共享 scrubbing 态（is-scrubbing 状态钩子，无视觉提示）",
-      "files": [
-        "src/features/playback/PlayerControls.tsx"
-      ],
-      "symbol": "is-scrubbing",
-      "min": 1
-    },
-    {
-      "each": true,
-      "files": [
-        "src/features/playback/VideoSurface.tsx",
-        "src/features/playback/Player.tsx"
-      ],
-      "id": "fin-a-kernel-consumed",
-      "item": "最终版A线 共用播放内核双面消费（VideoSurface＋Player 同走 usePlaybackKernel）",
-      "symbol": "usePlaybackKernel"
-    },
-    {
-      "each": true,
-      "files": [
-        "src/features/playback/VideoSurface.tsx",
-        "src/features/playback/Player.tsx"
-      ],
-      "id": "fin-a-facts-publish",
-      "item": "最终版A线 facts 发布双面接入（P2-09：Player 由此获得 publishPlaybackFacts 发布，经内核 publishFacts）",
-      "symbol": "publishFacts"
-    },
-    {
-      "each": true,
-      "files": [
-        "src/features/playback/VideoSurface.tsx",
-        "src/features/playback/Player.tsx"
-      ],
-      "id": "fin-a-throughput-wire",
-      "item": "最终版A线 吞吐回写双面接入（P2-09：Player 由此获得分片吞吐回写，经内核 wireSignals→ingestFrag）",
-      "symbol": "wireSignals"
-    },
-    {
-      "files": [
-        "src/features/playback/usePlaybackKernel.ts"
-      ],
-      "id": "fin-a-kernel-playing-facts",
-      "item": "最终版A线 内核内 notePlaybackPlaying 实际置位点（双面 notePlaying 的落点）",
-      "symbol": "notePlaybackPlaying",
-      "min": 2
-    },
-    {
-      "files": [
-        "src/features/playback/usePlaybackKernel.ts"
-      ],
-      "id": "fin-a-kernel-ingest",
-      "item": "最终版A线 内核分片 ingest（密度＋吞吐一份实现）",
-      "symbol": "ingestFrag",
-      "min": 2
-    },
-    {
-      "files": [
-        "src/shared/diagnostics/playbackDiagnostics.ts",
-        "src/features/playback/usePlaybackKernel.ts"
-      ],
-      "id": "fin-a-capture-trace",
-      "item": "最终版A线 P2-08 代次捕获 trace（诊断侧定义＋内核 attachHls 登记时捕获）",
-      "symbol": "captureTrace",
-      "min": 2
-    },
-    {
-      "id": "fin-d-manifest-url",
-      "item": "最终版D线 条目6 清单改址常量（manifest.ts 定义＋registry 解析消费）",
-      "files": [
-        "src/features/sources/manifest.ts"
-      ],
-      "symbol": "REMOTE_MANIFEST_URL",
-      "min": 2
-    },
-    {
-      "id": "fin-d-create-adapter-browse",
-      "item": "最终版D线 外部视频源浏览页生产调用 createAdapter",
-      "files": [
-        "src/features/sources/SourceBrowse.tsx"
-      ],
-      "symbol": "createAdapter",
-      "min": 2
-    },
-    {
-      "id": "fin-d-create-adapter-gallery",
-      "item": "最终版D线 图片图集页生产调用 createAdapter",
-      "files": [
-        "src/features/sources/SourceGallery.tsx"
-      ],
-      "symbol": "createAdapter",
-      "min": 2
-    },
-    {
-      "id": "fin-d-source-browse-mounted",
-      "item": "最终版D线 ChannelPage 非黄果视频分支挂载 SourceBrowse",
-      "files": [
-        "src/features/category/Category.tsx"
-      ],
-      "symbol": "SourceBrowse",
-      "min": 2
-    },
-    {
-      "id": "fin-d-source-gallery-mounted",
-      "item": "最终版D线 ChannelPage 图片分支挂载 SourceGallery",
-      "files": [
-        "src/features/category/Category.tsx"
-      ],
-      "symbol": "SourceGallery",
-      "min": 2
-    },
-    {
-      "id": "fin-d-image-category",
-      "item": "最终版D线 条目8 图片分区经 sourcesForCategory(image) 列源",
-      "files": [
-        "src/features/category/Category.tsx"
-      ],
-      "symbol": "sourcesForCategory(\"image\"",
-      "min": 1
-    },
-    {
-      "id": "fin-d2-post-media-hook",
-      "item": "最终版D2线 吃瓜详情播放器区钩子 data-post-media（顺序/圆角回归脚本锚点）",
-      "files": [
-        "src/features/posts/Posts.tsx"
-      ],
-      "symbol": "data-post-media",
-      "min": 1
-    },
-    {
-      "id": "fin-d2-cover-radius-fix",
-      "item": "最终版D2线 封面圆罩修复：播放 Button rounded-none 断胶囊圆角继承链",
-      "files": [
-        "src/features/posts/Posts.tsx"
-      ],
-      "symbol": "inset-0 rounded-none",
-      "min": 1
-    },
-    {
-      "id": "fin-b3-recovery-seek-follow",
-      "item": "最终版B3线任务1：代理恢复 pending 快照跟随恢复期 seeking（落点以用户最新 seek 为准）",
-      "files": [
-        "src/features/playback/useProxyPlaybackRecovery.ts"
-      ],
-      "symbol": "onSeeking",
-      "min": 2
-    },
-    {
-      "id": "fin-b3-profile-sr-engaged",
-      "item": "最终版B3线任务3：hold.release_profile 自带 sr_engaged 显式布尔＋pipeline（判别力，不靠 SR 段 null 推断）",
-      "files": [
-        "src/features/feed/holdJank.ts"
-      ],
-      "symbol": "sr_engaged",
-      "min": 2
-    },
-    {
-      "id": "fin-b3-profile-aggregator",
-      "item": "最终版B3线任务3：holdJank 纯函数聚合器 summarizeHoldEvents（engaged/bypass 两桶）",
-      "files": [
-        "src/features/feed/holdJank.ts"
-      ],
-      "symbol": "summarizeHoldEvents",
-      "min": 1
-    },
-    {
-      "id": "fin-b3-pipeline-state-bus",
-      "item": "最终版B3线任务3：SrCanvas 在管线切换点登记 noteHoldPipelineState（接管/webgl/none）",
-      "files": [
-        "src/features/playback/SrCanvas.tsx"
-      ],
-      "symbol": "noteHoldPipelineState",
-      "min": 2
-    },
-    {
-      "id": "fin-b3-hls-instance-bus",
-      "item": "最终版B3线任务2：HLS attach 时登记实例 ID（VideoSurface/Player 两宿主同口径）",
-      "files": [
-        "src/features/playback/VideoSurface.tsx",
-        "src/features/playback/Player.tsx"
-      ],
-      "symbol": "noteHoldHlsAttach",
-      "min": 2
-    },
-    {
-      "id": "fin-b3-rvfc-metadata",
-      "item": "最终版B3线任务2：Feed rVFC 回调把 metadata（mediaTime/presentedFrames）透传剖面 firstFrame",
-      "files": [
-        "src/features/feed/Feed.tsx"
-      ],
-      "symbol": "presentedFrames",
-      "min": 2
-    },
-    {
-      "id": "fin-d3-fanout-search",
-      "item": "最终版D3线 全局搜索多源扇出（Search 生产调用＋纯逻辑定义）",
-      "symbol": "fanoutSearch",
-      "files": [
-        "src/features/search/Search.tsx",
-        "src/features/search/multiSourceSearch.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fin-d3-create-adapter-search",
-      "item": "最终版D3线 Search 经 createAdapter 调外部源 search/detail/resolve",
-      "symbol": "createAdapter",
-      "files": [
-        "src/features/search/Search.tsx"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fin-d3-four-tabs",
-      "item": "最终版D3线 搜索页签四类封顶常量（定义＋消费）",
-      "symbol": "GLOBAL_SEARCH_TABS",
-      "files": [
-        "src/features/search/Search.tsx",
-        "src/features/search/multiSourceSearch.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fin-d3-aggregate",
-      "item": "最终版D3线 Search 经 aggregateHits 跨源合并混排",
-      "symbol": "aggregateHits",
-      "files": [
-        "src/features/search/Search.tsx",
-        "src/features/search/multiSourceSearch.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fin-d3-copy-fallback",
-      "item": "最终版D3线 副本失败静默顺延（Search 详情调用＋纯逻辑定义）",
-      "symbol": "loadWithFallback",
-      "files": [
-        "src/features/search/Search.tsx",
-        "src/features/search/multiSourceSearch.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix321-f5-chain-gate",
-      "item": "3.2.1 F5线 三段齐全门判定 missingSearchSegments（定义＋searchPolicyFor 消费）",
-      "symbol": "missingSearchSegments",
-      "files": [
-        "src/features/search/multiSourceSearch.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix321-f5-override-gated",
-      "item": "3.2.1 F5线 INCLUDE_OVERRIDE 只在三段门后生效（常量定义＋searchPolicyFor 门后消费）",
-      "symbol": "INCLUDE_OVERRIDE",
-      "files": [
-        "src/features/search/multiSourceSearch.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix321-f5-policy-in-fanout",
-      "item": "3.2.1 F5线 扇出经 searchPolicyFor 资格过滤（定义＋fanoutSearch 过滤＋命中权重消费）",
-      "symbol": "searchPolicyFor",
-      "files": [
-        "src/features/search/multiSourceSearch.ts"
-      ],
-      "min": 3
-    },
-    {
-      "id": "fin-coord-hold-summary",
-      "item": "协调接线：诊断报告长按松手分组汇总（summarizeHoldEvents 消费点）",
-      "symbol": "summarizeHoldEvents",
-      "files": [
-        "src/shared/diagnostics/diagnosticReport.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix321-f3-hold-summary-ledger-source",
-      "item": "3.2.1修复F3线：长按松手分组汇总数据源＝事件账本快照（不许改喂播放日志 entries，日志落盘名带 web. 前缀与聚合器精确匹配对不上、恒 0）",
-      "symbol": "summarizeHoldEvents(ledgerSnapshot().events)",
-      "files": [
-        "src/shared/diagnostics/diagnosticReport.ts"
-      ],
-      "min": 1
-    },
-    {
-      "id": "fix321-f1-same-source-merge",
-      "item": "3.2.1 F1 同源重复判据（同 ID/同题同封面）在 mergeHits 生产合并路径被调用",
-      "symbol": "sameSourceDuplicateKind",
-      "files": [
-        "src/features/search/multiSourceSearch.ts"
       ],
       "min": 2
     },
@@ -858,33 +502,13 @@
       "min": 2
     },
     {
-      "id": "fix321-f4-shared-kind",
-      "item": "3.2.1修复F4线 黄果性质判定唯一出处 shared/lib/contentKind（定义＋搜索层 re-export 同源）",
-      "symbol": "kindForHuangguoVideo",
+      "id": "fix321-f1-same-source-merge",
+      "item": "3.2.1 F1 同源重复判据（同 ID/同题同封面）在 mergeHits 生产合并路径被调用",
+      "symbol": "sameSourceDuplicateKind",
       "files": [
-        "src/shared/lib/contentKind.ts",
         "src/features/search/multiSourceSearch.ts"
       ],
       "min": 2
-    },
-    {
-      "id": "fix321-f4-browse-partition",
-      "item": "3.2.1修复F4线 分类浏览面共用 partitionCardsByKind 按性质分组（定义＋Category 消费）",
-      "symbol": "partitionCardsByKind",
-      "files": [
-        "src/shared/lib/contentKind.ts",
-        "src/features/category/Category.tsx"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix321-f4-channel-kind-filter",
-      "item": "3.2.1修复F4线 视频频道分页 incoming 按性质剔除剧集组再入列表",
-      "symbol": "partitionCardsByKind(rawItems).video",
-      "files": [
-        "src/features/category/Category.tsx"
-      ],
-      "min": 1
     },
     {
       "id": "fix321-f2-channel-mapping",
@@ -917,60 +541,71 @@
       "each": true
     },
     {
-      "id": "fix321-f4b-search-kind-resolver",
-      "item": "3.2.1修复F4b线 搜索专用归类 searchKindForHuangguoVideo（shared 唯一出处定义＋Search 生产消费）",
+      "id": "fix321-f2b-51cg-domain",
+      "item": "3.2.1修复F2b线 51吃瓜现行域名 51cg1.com（registry baseUrls＋note）",
+      "symbol": "51cg1.com",
       "files": [
-        "src/shared/lib/contentKind.ts",
-        "src/features/search/Search.tsx"
+        "src/features/sources/registry.ts"
       ],
-      "symbol": "searchKindForHuangguoVideo",
       "min": 2
     },
     {
-      "id": "fix321-f4b-canonical-lookup",
-      "item": "3.2.1修复F4b线 信号缺失条目以 Detail 规范信号补判 hgCanonicalSignals（Search 补判 effect 写入＋groups 消费）",
+      "id": "fix321-f2b-heiliao-named",
+      "item": "3.2.1修复F2b线 黑料网 feedheiliao 自目录导入毕业为命名源（registry 命名条目＋catalog 毕业注记）",
+      "symbol": "feedheiliao",
       "files": [
-        "src/features/search/Search.tsx"
+        "src/features/sources/registry.ts",
+        "src/features/sources/catalog.ts"
       ],
-      "symbol": "hgCanonicalSignals",
       "min": 2
     },
     {
-      "id": "fix321-f4b-unknown-holdout",
-      "item": "3.2.1修复F4b线 安全侧暂扣：resolvedKind 为 unknown 的条目不生成页签命中（Search groups）",
+      "id": "fix321-f2b-redgifs-api-adapter",
+      "item": "3.2.1修复F2b线 RedGifs 官方 API 令牌链适配器 createRedgifsAdapter（模板定义＋工厂分发）",
+      "symbol": "createRedgifsAdapter",
       "files": [
-        "src/features/search/Search.tsx"
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/adapters/index.ts"
       ],
-      "symbol": "resolvedKind === \"unknown\"",
+      "min": 2
+    },
+    {
+      "id": "fix321-f2b-redgifs-auth-scoped",
+      "item": "3.2.1修复F2b线 Rust source_fetch 对 Authorization 仅 api.redgifs.com 定向放行 AUTHORIZATION_SCOPED_ORIGIN（定义＋过滤消费）",
+      "symbol": "AUTHORIZATION_SCOPED_ORIGIN",
+      "files": [
+        "src-tauri/src/api/source.rs"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f2b-stream-url-template",
+      "item": "3.2.1修复F2b线 肉视频站内流端点模板 streamUrlTemplate（templates 消费＋registry 肉视频参数）",
+      "symbol": "streamUrlTemplate",
+      "files": [
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/registry.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f2b-swag-api-adapter",
+      "item": "3.2.1修复F2b线 SWAG 免登录 API 适配器 createSwagAdapter（模板定义＋工厂分发）",
+      "symbol": "createSwagAdapter",
+      "files": [
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/adapters/index.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f3-hold-summary-ledger-source",
+      "item": "3.2.1修复F3线：长按松手分组汇总数据源＝事件账本快照（不许改喂播放日志 entries，日志落盘名带 web. 前缀与聚合器精确匹配对不上、恒 0）",
+      "symbol": "summarizeHoldEvents(ledgerSnapshot().events)",
+      "files": [
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
       "min": 1
-    },
-    {
-      "id": "fix321-f6-shared-album-viewer",
-      "item": "3.2.1修复F6线 共用全屏图集查看器 AlbumViewer（SourceGallery 与 Search 图片详情同治接入）",
-      "symbol": "AlbumViewer",
-      "files": [
-        "src/features/sources/SourceGallery.tsx",
-        "src/features/search/Search.tsx"
-      ],
-      "each": true
-    },
-    {
-      "id": "fix321-f6-contain-stage",
-      "item": "3.2.1修复F6线 查看器图片 contain 贴边（AlbumViewer 舞台 Img 传 fit=contain，不再写死比例盒）",
-      "symbol": "fit=\"contain\"",
-      "files": [
-        "src/features/sources/AlbumViewer.tsx"
-      ],
-      "min": 1
-    },
-    {
-      "id": "fix321-f6-chrome-idle",
-      "item": "3.2.1修复F6线 悬浮层静止自动淡出计时 ALBUM_CHROME_IDLE_MS（定义＋淡出计时消费）",
-      "symbol": "ALBUM_CHROME_IDLE_MS",
-      "files": [
-        "src/features/sources/AlbumViewer.tsx"
-      ],
-      "min": 2
     },
     {
       "id": "fix321-f3b-flow-segment-fallback",
@@ -1010,8 +645,430 @@
       ],
       "symbol": "countFetchStates",
       "min": 3
+    },
+    {
+      "id": "fix321-f4-browse-partition",
+      "item": "3.2.1修复F4线 分类浏览面共用 partitionCardsByKind 按性质分组（定义＋Category 消费）",
+      "symbol": "partitionCardsByKind",
+      "files": [
+        "src/shared/lib/contentKind.ts",
+        "src/features/category/Category.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f4-channel-kind-filter",
+      "item": "3.2.1修复F4线 视频频道分页 incoming 按性质剔除剧集组再入列表",
+      "symbol": "partitionCardsByKind(rawItems).video",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "min": 1
+    },
+    {
+      "id": "fix321-f4-shared-kind",
+      "item": "3.2.1修复F4线 黄果性质判定唯一出处 shared/lib/contentKind（定义＋搜索层 re-export 同源）",
+      "symbol": "kindForHuangguoVideo",
+      "files": [
+        "src/shared/lib/contentKind.ts",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f4b-canonical-lookup",
+      "item": "3.2.1修复F4b线 信号缺失条目以 Detail 规范信号补判 hgCanonicalSignals（Search 补判 effect 写入＋groups 消费）",
+      "files": [
+        "src/features/search/Search.tsx"
+      ],
+      "symbol": "hgCanonicalSignals",
+      "min": 2
+    },
+    {
+      "id": "fix321-f4b-search-kind-resolver",
+      "item": "3.2.1修复F4b线 搜索专用归类 searchKindForHuangguoVideo（shared 唯一出处定义＋Search 生产消费）",
+      "files": [
+        "src/shared/lib/contentKind.ts",
+        "src/features/search/Search.tsx"
+      ],
+      "symbol": "searchKindForHuangguoVideo",
+      "min": 2
+    },
+    {
+      "id": "fix321-f4b-unknown-holdout",
+      "item": "3.2.1修复F4b线 安全侧暂扣：resolvedKind 为 unknown 的条目不生成页签命中（Search groups）",
+      "files": [
+        "src/features/search/Search.tsx"
+      ],
+      "symbol": "resolvedKind === \"unknown\"",
+      "min": 1
+    },
+    {
+      "id": "fix321-f5-chain-gate",
+      "item": "3.2.1 F5线 三段齐全门判定 missingSearchSegments（定义＋searchPolicyFor 消费）",
+      "symbol": "missingSearchSegments",
+      "files": [
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f5-override-gated",
+      "item": "3.2.1 F5线 INCLUDE_OVERRIDE 只在三段门后生效（常量定义＋searchPolicyFor 门后消费）",
+      "symbol": "INCLUDE_OVERRIDE",
+      "files": [
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f5-policy-in-fanout",
+      "item": "3.2.1 F5线 扇出经 searchPolicyFor 资格过滤（定义＋fanoutSearch 过滤＋命中权重消费）",
+      "symbol": "searchPolicyFor",
+      "files": [
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 3
+    },
+    {
+      "id": "fix321-f6-chrome-idle",
+      "item": "3.2.1修复F6线 悬浮层静止自动淡出计时 ALBUM_CHROME_IDLE_MS（定义＋淡出计时消费）",
+      "symbol": "ALBUM_CHROME_IDLE_MS",
+      "files": [
+        "src/features/sources/AlbumViewer.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f6-contain-stage",
+      "item": "3.2.1修复F6线 查看器图片 contain 贴边（AlbumViewer 舞台 Img 传 fit=contain，不再写死比例盒）",
+      "symbol": "fit=\"contain\"",
+      "files": [
+        "src/features/sources/AlbumViewer.tsx"
+      ],
+      "min": 1
+    },
+    {
+      "id": "fix321-f6-shared-album-viewer",
+      "item": "3.2.1修复F6线 共用全屏图集查看器 AlbumViewer（SourceGallery 与 Search 图片详情同治接入）",
+      "symbol": "AlbumViewer",
+      "files": [
+        "src/features/sources/SourceGallery.tsx",
+        "src/features/search/Search.tsx"
+      ],
+      "each": true
+    },
+    {
+      "files": [
+        "src/features/feed/usePlayUrlCache.ts"
+      ],
+      "id": "p0-1-cache-migration",
+      "item": "P0-1 当前条目跨作用域键迁移",
+      "min": 2,
+      "symbol": "snapshotEntry"
+    },
+    {
+      "files": [
+        "src/features/feed/Feed.tsx"
+      ],
+      "id": "p0-1-heal-consume",
+      "item": "P0-1 stallHeal 接回消费端（Feed）",
+      "min": 1,
+      "symbol": "consumeHealResume"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/feed/stallHeal.ts",
+        "src/features/feed/Feed.tsx"
+      ],
+      "id": "p0-1-heal-key-record",
+      "item": "P0-1 stallHeal 接回登记改 id:ep 内容键",
+      "symbol": "recordHealResume"
+    },
+    {
+      "files": [
+        "src/features/feed/Feed.tsx"
+      ],
+      "id": "p0-1-scope-only-guard",
+      "item": "P0-1 playKey 仅作用域变化时保位保暂停",
+      "min": 2,
+      "symbol": "isScopeOnlyChange"
+    },
+    {
+      "files": [
+        "src/shared/network/autoLine.ts"
+      ],
+      "id": "p0-2-confirm-timer",
+      "item": "P0-2 两轮确认计时器独立句柄",
+      "min": 2,
+      "symbol": "laterConfirm"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/sources/SourceSwitcher.tsx",
+        "src/features/category/Category.tsx",
+        "src/features/posts/Posts.tsx"
+      ],
+      "id": "p0-3-active-registry-ui",
+      "item": "P0-3 UI 改读 active 注册表",
+      "symbol": "getActiveRegistry"
+    },
+    {
+      "files": [
+        "src/main.tsx"
+      ],
+      "id": "p0-3-allowlist-push",
+      "item": "P0-3/P1 注册表 origins 推送 Rust 白名单",
+      "min": 2,
+      "symbol": "pushSourceAllowlist"
+    },
+    {
+      "files": [
+        "src/features/sources/manifest.ts"
+      ],
+      "id": "p0-3-registry-applied",
+      "item": "P0-3 清单落定埋点 registry.applied",
+      "min": 2,
+      "symbol": "traceRegistryApplied"
+    },
+    {
+      "files": [
+        "src/main.tsx"
+      ],
+      "id": "p0-3-resolve-registry",
+      "item": "P0-3 远程清单启动调用",
+      "min": 1,
+      "symbol": "resolveRegistry"
+    },
+    {
+      "files": [
+        "src/features/playback/appendStallWatchdog.ts",
+        "src/features/playback/stallWatchdogWiring.ts"
+      ],
+      "id": "p1-append-watchdog-gate",
+      "item": "P1 append 看门狗意愿门（判死前先过 shouldEscalate）",
+      "symbol": "shouldEscalate",
+      "min": 9,
+      "note": "基线 7 处（仅出画臂），整改后 9 处（append 臂补齐）；总数门槛即判别点。"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/usePlaybackKernel.ts"
+      ],
+      "id": "p1-bpp-same-rendition",
+      "item": "P1 判档 bpp 分子分母同 rendition（双播放面）",
+      "symbol": "setPlayingLevel",
+      "min": 2,
+      "note": "最终版 A 线收敛：playing level 维护迁入内核（LEVEL_SWITCHED→core.setPlayingLevel，ingest 只认该 level），两面共用一份，条目改指内核文件。"
+    },
+    {
+      "id": "p1-breaker-decay",
+      "item": "P1 熔断总上限时间衰减常数",
+      "symbol": "AUTO_SWITCH_TOTAL_WINDOW",
+      "files": [
+        "src-tauri/src/lines/ledger.rs"
+      ],
+      "min": 2
+    },
+    {
+      "files": [
+        "src-tauri/src/api/lines.rs"
+      ],
+      "id": "p1-breaker-urgent",
+      "item": "P1 熔断 urgent 豁免（选线调用点传 urgent）",
+      "min": 1,
+      "symbol": "auto_switch_allowed",
+      "note": "符号基线已存在，本条守调用点不被删；urgent 豁免语义由 A2 Rust 单测保证。"
+    },
+    {
+      "files": [
+        "src/features/feed/useFsKeepAlive.ts"
+      ],
+      "id": "p1-keepalive-tristate",
+      "item": "P1 keepAlive 改用 pauseState 三态信号",
+      "min": 1,
+      "symbol": "pauseState"
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/playbackDiagnostics.ts"
+      ],
+      "id": "p1-ledger-binding",
+      "item": "P1 账本迟到语义（绑定三态被播放诊断消费）",
+      "min": 1,
+      "symbol": "createLedgerBinding"
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/eventLedger.ts"
+      ],
+      "id": "p1-ledger-late-count",
+      "item": "P1 droppedLate 真实计数入口被绑定调用",
+      "min": 2,
+      "symbol": "noteDroppedLate"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/VideoSurface.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "id": "p1-player-playing-facts",
+      "item": "P1 全局播放状态双播放面接入（VideoSurface＋Player）",
+      "symbol": "notePlaying",
+      "note": "最终版 A 线收敛：两面改经内核 notePlaying 置位（内核内直调 notePlaybackPlaying，见 fin-a-kernel-playing-facts），双面接入语义不变。"
+    },
+    {
+      "files": [
+        "src-tauri/src/lines/probe.rs"
+      ],
+      "id": "p1-probe-mode-capture",
+      "item": "P1/G2P2-1 账本按测量时 proxyMode 记账",
+      "min": 1,
+      "symbol": "record_throughput_with_mode"
+    },
+    {
+      "files": [
+        "src/features/playback/useProxyPlaybackRecovery.ts"
+      ],
+      "id": "p1-retry-derive",
+      "item": "P1/Gemini retry() 意愿推导收紧",
+      "min": 2,
+      "symbol": "derivePlaying"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/main.tsx",
+        "src-tauri/src/lib.rs"
+      ],
+      "id": "p1-source-allowlist-cmd",
+      "item": "P1 source_fetch origin 白名单命令（前端调用＋Rust 注册）",
+      "symbol": "source_allowlist_set"
+    },
+    {
+      "files": [
+        "src-tauri/src/api/source.rs"
+      ],
+      "id": "p1-source-header-filter",
+      "item": "P1 source_fetch 请求头白名单",
+      "min": 2,
+      "symbol": "filter_source_headers"
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "id": "p1-stage-mono",
+      "item": "P1 起播阶段计时改用事件 mono_ms",
+      "min": 2,
+      "symbol": "offOf"
+    },
+    {
+      "files": [
+        "src/features/playback/usePlaybackKernel.ts"
+      ],
+      "id": "p1-throughput-line-key",
+      "item": "P1 吞吐回写按当前线路 base 记账（前端）",
+      "min": 1,
+      "symbol": "currentLineOrigin",
+      "note": "最终版 A 线收敛后调用点随内核迁入 usePlaybackKernel（beginSource＋lineEpoch effect），条目改指内核文件，接线语义不变。"
+    },
+    {
+      "files": [
+        "src-tauri/src/api/lines.rs"
+      ],
+      "id": "p1-throughput-origin-check",
+      "item": "P1 吞吐回写命令侧 origin 校验",
+      "min": 2,
+      "symbol": "known_playback_origin"
+    },
+    {
+      "files": [
+        "src-tauri/src/line_rank.rs"
+      ],
+      "id": "p1-timeout-cap",
+      "item": "P1/G2P1-3 测速超时候选生效吞吐封顶",
+      "min": 2,
+      "symbol": "cap_timed_out_measure"
+    },
+    {
+      "files": [
+        "src-tauri/src/api/lines.rs"
+      ],
+      "id": "p1-try-main-readonly",
+      "item": "P2/G2P2-4 line_try_main 只读不递增代次",
+      "min": 2,
+      "symbol": "current_line_selection"
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "id": "report-id-scrub",
+      "item": "报告导出 host→稳定编号替换",
+      "min": 2,
+      "symbol": "redactExportText"
+    },
+    {
+      "files": [
+        "src/features/sources/registryDiag.ts"
+      ],
+      "id": "report-source-layers",
+      "item": "报告源健康分层（导出专用）",
+      "min": 2,
+      "symbol": "sourceHealthLines"
+    },
+    {
+      "files": [
+        "src/features/playback/SrCanvas.tsx"
+      ],
+      "id": "sr-death-latch",
+      "item": "SR WebGPU 死亡闩锁全局通知",
+      "min": 2,
+      "symbol": "noteWebgpuSessionDeath"
+    },
+    {
+      "files": [
+        "src/features/playback/SrCanvas.tsx"
+      ],
+      "id": "sr-default-on",
+      "item": "SR 模型超分默认开（开关定义＋消费）",
+      "min": 2,
+      "symbol": "SR_MODEL_DEFAULT_ENABLED",
+      "note": "本条守定义＋消费存在；取值 true 由 B17-5 commit 与集成复核 grep 保证（SR_MODEL_DEFAULT_ENABLED = true）。"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/webgpuSr.ts",
+        "src/features/playback/WebGpuSrCanvas.tsx"
+      ],
+      "id": "sr-degrade-report",
+      "item": "SR WebGPU 降级档位回报（引擎回调＋组件消费）",
+      "symbol": "onDegrade"
+    },
+    {
+      "files": [
+        "src/features/playback/webgpuSr.ts"
+      ],
+      "id": "sr-fast-domain-gate",
+      "item": "SR WebGPU 降级判定排除 ≥2x 快速域",
+      "min": 2,
+      "symbol": "createSrDegradeGate"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/SrCanvas.tsx",
+        "src/shared/diagnostics/gpuProbe.ts"
+      ],
+      "id": "sr-takeover",
+      "item": "SR 探针完成后已挂载面补接管（SrCanvas 自调＋调度器）",
+      "symbol": "runSrProbe"
     }
-  ],
-  "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",
-  "version": 1
+  ]
 }

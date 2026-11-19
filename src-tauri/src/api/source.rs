@@ -12,15 +12,23 @@ use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 
 /// 请求头白名单（Muse 2026-11-19 整改 D6.1，G5 P1-3）：适配器取页
-/// 只需要这四类头；Cookie/Authorization/Origin 等其余头一律丢弃，
+/// 只需要这四类头；Cookie/Origin 等其余头一律丢弃，
 /// 不让 WebView 侧脚本把 source_fetch 用成任意头取页口。Host 与
 /// Content-Length 沿用原有禁令（报错，不静默放行也不静默丢弃——
 /// 与 net::edge 的既有契约一致）。
 pub const ALLOWED_SOURCE_HEADERS: [&str; 4] =
     ["referer", "user-agent", "accept", "accept-language"];
 
+/// Authorization 定向放行（Muse 2026-11-19 fix321-F2b，RedGifs
+/// 官方 API 令牌链）：仅当目标 origin 恰为 api.redgifs.com 时保留
+/// Authorization——该站公开 API 以匿名临时令牌（/v2/auth/temporary
+/// 免凭据发放、短期失效）为唯一访问方式，令牌非用户凭据；其余
+/// origin 一律丢弃，不构成通用 Authorization 通道。
+pub const AUTHORIZATION_SCOPED_ORIGIN: &str = "https://api.redgifs.com";
+
 pub fn filter_source_headers(
     headers: Vec<(String, String)>,
+    target_origin: Option<&str>,
 ) -> Result<Vec<(String, String)>, String> {
     let mut out = Vec::new();
     for (name, value) in headers {
@@ -29,6 +37,8 @@ pub fn filter_source_headers(
             return Err(format!("请求头不许覆盖：{name}"));
         }
         if ALLOWED_SOURCE_HEADERS.contains(&lower.as_str()) {
+            out.push((name, value));
+        } else if lower == "authorization" && target_origin == Some(AUTHORIZATION_SCOPED_ORIGIN) {
             out.push((name, value));
         }
     }
@@ -92,7 +102,8 @@ pub async fn source_fetch(
         .unwrap_or_default()
         .into_iter()
         .collect();
-    let headers = filter_source_headers(headers)?;
+    let target_origin = normalize_origin(&url);
+    let headers = filter_source_headers(headers, target_origin.as_deref())?;
     crate::net::fetch_page_text_with_headers(&url, &headers).await
 }
 
@@ -105,9 +116,11 @@ mod tests {
         v.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()
     }
 
-    /* D6.1 头白名单：Cookie/Authorization 等敏感头一律丢弃，
+    /* D6.1 头白名单：Cookie 等敏感头一律丢弃，
      * Referer/User-Agent/Accept/Accept-Language 保留（大小写不敏感）；
-     * Host/Content-Length 沿用原有禁令（报错，不静默放行）。 */
+     * Host/Content-Length 沿用原有禁令（报错，不静默放行）。
+     * Authorization 仅 fix321-F2b 定向例外：目标 origin 非
+     * api.redgifs.com 时同样丢弃（本用例 origin=None 即丢弃）。 */
     #[test]
     fn header_allowlist_drops_sensitive_keeps_referer() {
         let out = filter_source_headers(pairs(&[
@@ -119,17 +132,31 @@ mod tests {
             ("ACCEPT", "text/html"),
             ("Accept-Language", "zh-CN"),
             ("X-Custom", "1"),
-        ]))
+        ]), None)
         .expect("白名单内头应通过");
         let names: Vec<&str> = out.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["Referer", "user-agent", "ACCEPT", "Accept-Language"]);
         assert!(out.iter().all(|(n, _)| n.to_lowercase() != "cookie" && n.to_lowercase() != "authorization"));
     }
 
+    /* fix321-F2b：Authorization 定向放行只对 api.redgifs.com 生效，
+     * 其他 origin（含 www.redgifs.com 与仿冒子域）一律丢弃。 */
+    #[test]
+    fn header_authorization_scoped_to_redgifs_api_origin() {
+        let kept = filter_source_headers(pairs(&[("Authorization", "Bearer temp")]), Some("https://api.redgifs.com"))
+            .expect("定向 origin 应放行");
+        assert_eq!(kept.len(), 1, "api.redgifs.com 保留 Authorization");
+        for origin in [Some("https://www.redgifs.com"), Some("https://api.redgifs.com.evil.example"), None] {
+            let dropped = filter_source_headers(pairs(&[("Authorization", "Bearer temp")]), origin)
+                .expect("非定向 origin 不报错、只丢弃");
+            assert!(dropped.is_empty(), "非 api.redgifs.com origin 必须丢弃 Authorization");
+        }
+    }
+
     #[test]
     fn header_allowlist_keeps_host_content_length_ban() {
-        assert!(filter_source_headers(pairs(&[("Host", "evil.example")])).is_err());
-        assert!(filter_source_headers(pairs(&[("content-length", "5")])).is_err());
+        assert!(filter_source_headers(pairs(&[("Host", "evil.example")]), None).is_err());
+        assert!(filter_source_headers(pairs(&[("content-length", "5")]), None).is_err());
     }
 
     /* D6.2 origin 白名单：名单未设置 → 拒绝（启动竞态最小风险语义）；

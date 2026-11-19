@@ -41,6 +41,26 @@ export function imgAlt(fragment: string): string {
   return m ? decodeEntities(m[2]) : "";
 }
 
+/** 卡片标题语义元素（Muse 2026-11-19 fix321-F2b）：真站卡片普遍把
+ * 标题放在 h2/h3 里（肉视频 h3、FC2 榜单 h3、51吃瓜 h2、黑料网
+ * h3.title），整卡 stripTags 会把排名/作者/评分一并拼进标题；
+ * 锚点标题优先取首个 h2/h3 文本。 */
+export function headingText(fragment: string): string {
+  const m = /<h[23]\b[^>]*>([\s\S]*?)<\/h[23]>/i.exec(fragment);
+  return m ? stripTags(m[1]) : "";
+}
+
+/** 封面兜底（fix321-F2b）：部分真站卡片不用 <img> 承封面——51吃瓜
+ * post-card 背景在 div 的 x-bg-loader-url、黑料网 video-item 封面在
+ * img 的 z-image-loader-url（无 src）；img 系属性取不到时按这两种
+ * 懒加载属性兜底。 */
+export function firstCoverSrc(fragment: string): string {
+  const img = firstImgSrc(fragment);
+  if (img) return img;
+  const m = /\b(?:x-bg-loader-url|z-image-loader-url)=(["'])([^"']+)\1/i.exec(fragment);
+  return m ? decodeEntities(m[2]) : "";
+}
+
 export function allImgSrcs(html: string): string[] {
   const out: string[] = [];
   const re = /<img\b[^>]*\b(?:data-src|data-original|src)=(["'])([^"']+)\1/gi;

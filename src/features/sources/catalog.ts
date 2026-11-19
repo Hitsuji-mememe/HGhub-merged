@@ -11,14 +11,10 @@ import type { SourceDef } from "./types.ts";
 const NO_CAPS = { search: false, episodes: false, hevc: false, comments: false };
 const PROBE_NET = { mode: "probe-required" } as const;
 
+/* 黑料网（feedheiliao）已于 fix321-F2b 自目录导入毕业为命名源
+ * （registry.ts NAMED_SOURCES：三段结构证据齐＋住宅四级全通、启用），
+ * 本表不再保留其条目，避免同 id 双注册。 */
 export const CATALOG_SOURCES: SourceDef[] = [
-  {
-    id: "feedheiliao", displayName: "黑料网", kind: "post", category: "posts",
-    adapter: { template: "chigua", params: {"listPath": "/?page={page}", "itemLinkPattern": "/archives/", "detailPath": "/archives/{id}"} },
-    baseUrls: ["https://heiliao.com"],
-    enabled: false, order: 100, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "目录导入·未实测（Hentai-Park 目录，2026-11-19）：吃瓜图文，支持分类、标签、搜索与视频；模板参数为通用骨架、未按真站校准",
-  },
   {
     id: "pixibb", displayName: "PixiBB", kind: "image", category: "image",
     adapter: { template: "wp-rest", params: {"restBase": "/wp-json/wp/v2", "listPath": "/posts"} },
