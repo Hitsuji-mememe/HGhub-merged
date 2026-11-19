@@ -21,7 +21,18 @@ function resolveUri(u: string, base: string): string {
   try { return new URL(u, base).href; } catch { return u; }
 }
 
-export async function prewarmFirstSegment(videoId: number, rawUrl: string, signal: AbortSignal): Promise<void> {
+/* 预热重试口径（Muse 2026-11-19 根治包，audit6 P2-07）：旧实现 key 在
+ * 尝试之前就进 Set，失败后本会话永不重试、预热收益全丢。现记失败
+ * 时间戳，30s 后可重试一次（仅一次，防失败风暴）。 */
+export type PrewarmMark = { at: number; ok: boolean; retries: number };
+export function prewarmRetryDue(mark: PrewarmMark | undefined, now: number): boolean {
+  if (!mark) return true;
+  if (mark.ok) return false;
+  return mark.retries < 1 && now - mark.at >= 30_000;
+}
+
+/** 返回是否热到首分片（segment 阶段达成）；失败/取消为 false。 */
+export async function prewarmFirstSegment(videoId: number, rawUrl: string, signal: AbortSignal): Promise<boolean> {
   const t0 = performance.now();
   const ms = () => Math.round(performance.now() - t0);
   try {
@@ -29,16 +40,16 @@ export async function prewarmFirstSegment(videoId: number, rawUrl: string, signa
     const r = await fetch(plUrl, { signal });
     if (!r.ok) {
       tracePlayback("feed.prewarm", { video_id: videoId, stage: "playlist_fail", status: r.status, ms: ms() });
-      return;
+      return false;
     }
     let text = await r.text();
     tracePlayback("feed.prewarm", { video_id: videoId, stage: "playlist", ms: ms() });
     /* 主清单（多码率）：第一条 URI 行是子清单，它经 /seg 返回时会被二次改写，照拉一遍 */
     if (text.includes("#EXT-X-STREAM-INF")) {
       const variant = firstUriLine(text);
-      if (!variant) return;
+      if (!variant) return false;
       const vr = await fetch(resolveUri(variant, plUrl), { signal });
-      if (!vr.ok) return;
+      if (!vr.ok) return false;
       text = await vr.text();
     }
     /* init 段（fMP4 的 EXT-X-MAP）先热，再热首个媒体分片；
@@ -47,14 +58,15 @@ export async function prewarmFirstSegment(videoId: number, rawUrl: string, signa
     if (mapUri) {
       const mr = await fetch(resolveUri(mapUri, plUrl), { signal });
       await mr.arrayBuffer();
-      if (signal.aborted) return;
+      if (signal.aborted) return false;
       tracePlayback("feed.prewarm", { video_id: videoId, stage: "map", ms: ms() });
     }
     const seg = firstUriLine(text);
-    if (!seg) return;
+    if (!seg) return false;
     const sr = await fetch(resolveUri(seg, plUrl), { signal });
-    if (!sr.ok) return;
+    if (!sr.ok) return false;
     const buf = await sr.arrayBuffer();
     tracePlayback("feed.prewarm", { video_id: videoId, stage: "segment", ms: ms(), bytes: buf.byteLength });
-  } catch { /* 取消或失败一律静默：预热只是加速，失败不影响正常播放路径 */ }
+    return !signal.aborted;
+  } catch { /* 取消或失败一律静默：预热只是加速，失败不影响正常播放路径 */ return false; }
 }

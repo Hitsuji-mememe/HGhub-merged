@@ -92,6 +92,8 @@ try {
               return { previous, base: previous, switched: false, cancelled: true, pick: { base: MIRROR, tier: "mirror", ms: 34, reason: "mirror-fallback", candidates: [] } };
             }
             if (mode === "all-down") return { previous, base: previous, switched: false, cancelled: false, pick: { base: previous, tier: "none", ms: 0, reason: "all-down", candidates: [] } };
+            if (mode === "confirm-pending") return { previous, base: previous, switched: false, cancelled: false, pick: { base: previous, tier: "mirror", ms: 34, reason: "confirm-pending", pendingWinner: MIRROR, candidates: [{ tier: "mirror", url: MIRROR, ok: true, reachable: true, ms: 34, status: 200 }] } };
+            if (mode === "breaker") return { previous, base: previous, switched: false, cancelled: false, breakerBlocked: true, pick: { base: previous, tier: "mirror", ms: 34, reason: "mirror-fallback", candidates: [{ tier: "mirror", url: MIRROR, ok: true, reachable: true, ms: 34, status: 200 }] } };
             fixture.base = MIRROR;
             // MAIN and MIRROR are both credential-trusted: auto switch rebases, keeps login.
             return { previous, base: MIRROR, switched: previous !== MIRROR, cancelled: false, pick: { base: MIRROR, tier: "mirror", ms: 34, reason: "mirror-fallback", candidates: [{ tier: "mirror", url: MIRROR, ok: true, reachable: true, ms: 34, status: 200 }] } };
@@ -265,6 +267,41 @@ try {
     await context.close();
   }
 
+
+  {
+    /* audit5 条 2 + audit6 条 5/P2-01：confirm 计时器注册表 + epoch、
+     * tryMain 收编、breakerBlocked 消费（Muse 2026-11-19 根治包） */
+    const { context, page } = await open({ [NEW_KEY]: "on" });
+    await page.waitForFunction(() => window.lineSelectionSnapshot?.ready);
+    await page.evaluate(() => {
+      window.lineSelectionFixture.autoMode = "confirm-pending";
+      window.lineSelectionControls.setConfirmDelayForTests(300);
+    });
+    const beforeConfirm = (await calls(page, "line_auto")).length;
+    await page.evaluate(() => window.lineSelectionControls.pickLine("fixture-confirm", true));
+    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 1);
+    /* 关闭→重开：旧 confirm 计时器必须被清 + epoch 过期，重开的手动轮后不得再多发 */
+    await page.evaluate(async () => {
+      await window.lineSelectionControls.setAutoLine(false);
+      window.lineSelectionFixture.autoMode = "success";
+      await window.lineSelectionControls.setAutoLine(true);
+    });
+    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 2);
+    await new Promise(r => setTimeout(r, 800));
+    assert.equal((await calls(page, "line_auto")).length, beforeConfirm + 2, "stale confirm timer must not fire an extra line_auto");
+    assert.equal((await calls(page, "line_try_main")).length, 0, "line_try_main wrapper removed");
+    /* breakerBlocked：被熔断拦截的一轮要进 lastPickRound 供诊断/设置页明示 */
+    await page.evaluate(() => { window.lineSelectionFixture.autoMode = "breaker"; });
+    await page.evaluate(() => window.lineSelectionControls.pickLine("fixture-breaker", true));
+    const blocked = await page.evaluate(async () => {
+      const mod = await import("/src/shared/network/autoLine.ts");
+      return mod.lastPickRound()?.breakerBlocked ?? null;
+    });
+    assert.equal(blocked, true, "breakerBlocked consumed into lastPickRound");
+    report.passed.push("Confirm timer dies on disable (registry+epoch), tryMain removed, breakerBlocked consumed into lastPickRound");
+    await context.close();
+  }
+
   assert.deepEqual(errors, []);
   assert.deepEqual(report.external, []);
   console.log(JSON.stringify(report, null, 2));
@@ -273,6 +310,7 @@ try {
   await page?.screenshot({ path: join(output, "failure.png"), fullPage: true }).catch(() => {});
   console.error(report.error);
   process.exitCode = 1;
+
 } finally {
   await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2));
   await browser?.close();

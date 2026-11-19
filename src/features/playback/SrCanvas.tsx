@@ -29,6 +29,8 @@ type Props = {
   fps?: number;
   onFallbackChange?: (useSvgFallback: boolean) => void;
   onActiveModeChange?: (mode: SuperResMode) => void;
+  /** 实际管线是否为 WebGPU（audit6 P0-A 第 2 层呈现管线标识用）。 */
+  onPipelineChange?: (webgpuEngaged: boolean) => void;
   onTrace?: (event: string, data?: Record<string, unknown>) => void;
 };
 
@@ -40,6 +42,10 @@ type Props = {
  * 保留（探针照常测量与报告），锐化档仍为默认。翻转此开关即启用
  * 「探针门全过才呈现」的条件式默认，翻转依据应为真机同帧对比。 */
 export const SR_MODEL_DEFAULT_ENABLED = false;
+
+/** 超分引擎版本（Muse 2026-11-19 根治包，audit6 P0-A 第 3 层）：探针
+ * 持久化键的组成部分——引擎代码变更时手动 +1，旧探针结果自动失效。 */
+export const SR_ENGINE_VERSION = 1;
 
 /* 会话级闩锁：WebGPU 引擎死过一次，本会话所有播放面都不再试。 */
 let webgpuSessionDead = false;
@@ -71,6 +77,8 @@ export default function SrCanvas(props: Props) {
     probe?.gatesPass === true &&
     !!probe.recommendedPath &&
     (props.mode === "natural" || props.mode === "crisp");
+
+  useEffect(() => { props.onPipelineChange?.(engaged); }, [engaged, props]);
 
   if (engaged) {
     return (

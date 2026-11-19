@@ -18,11 +18,13 @@
  *   - 读取：getSessionId()。
  *
  * playerInstanceId（播放器实例）：
- *   - 注册：播放器实例创建时由其所有者调用 registerPlayerInstance()
- *     （未来接线点：VideoSurface / Player 的挂载路径），拿到唯一 id。
+ *   - 注册：播放器实例创建时由其所有者调用 registerPlayerInstance()，
+ *     拿到唯一 id。
  *   - 注销：实例销毁/卸载时由同一所有者调用 unregisterPlayerInstance(id)；
  *     注销后该 id 永久失效、不复用（计数器单调递增）。
- *   - 本批只提供注册表本身，不改任何现有播放器调用点。
+ *   - 接线（Muse 2026-11-19 根治包，诊断一级模块）：usePlayerDiagnostics
+ *     首次镜像时惰性注册、卸载时注销，其 trace/emit 全量经
+ *     recordIfCurrent 镜像入账，键＝(instanceId, data.generation)。
  *
  * record / recordIfCurrent（写账）：
  *   - record(name, data?)：会话级事件（无实例归属），恒记。
@@ -63,6 +65,9 @@ export type LedgerSnapshot = {
   droppedLate: number;
   /** 当前仍活跃的播放器实例数。 */
   activeInstances: number;
+  /** 快照时刻仍活跃的实例 id 列表：完整性校验改纯函数后由快照自带，
+   * 校验只读快照、同一快照永远同一结论（Muse 2026-11-19 根治包）。 */
+  activeInstanceIds: string[];
   /** 保留窗口内的最近事件（最多 MAX_RETAINED 条，旧→新）。 */
   events: LedgerEvent[];
 };
@@ -183,14 +188,19 @@ export type LedgerIntegrity = {
   instanceLinked: number;
   /** 会话级事件数（instanceId 为 null）。 */
   sessionLevel: number;
-  /** 归属实例已注销的事件数：迟到事件在写账前已被 isCurrent 拦下，
-   * 窗口内出现这类只可能是实例正常销毁后的历史事件（信息项，
-   * 非损坏指标；真正的迟到丢弃看 droppedLate）。 */
-  orphanedInstance: number;
+  /** 归属实例已注销的事件数（原名 orphanedInstance，Muse 2026-11-19
+   * 根治包改名 retiredInstanceEvents 并移出「完整性」语义）：迟到事件
+   * 在写账前已被 isCurrent 拦下，窗口内出现这类只可能是实例正常销毁
+   * 后的历史事件——是接线观测值、非损坏指标（真正的迟到丢弃看
+   * droppedLate）；报告与自检不得再把它当完整性判据。 */
+  retiredInstanceEvents: number;
 };
 
-/** 账本完整性验证（Muse 2026-11-19 fix2 B2）：对快照做结构核对，
- * 供诊断报告自证流水未被污染。纯函数、无副作用。 */
+/** 账本完整性验证（Muse 2026-11-19 fix2 B2；2026-11-19 根治包改真
+ * 纯函数）：旧实现对 retiredInstanceEvents 读模块级 live `active`
+ * 集合，快照与校验不在同一时刻、同一快照两次校验可得不同结论；现
+ * 改为只读快照自带的 activeInstanceIds。对快照做结构核对，供诊断
+ * 报告自证流水未被污染。纯函数、无副作用。 */
 export function validateLedgerIntegrity(snap: LedgerSnapshot): LedgerIntegrity {
   const evs = snap.events;
   let seqGaps = 0;
@@ -214,7 +224,7 @@ export function validateLedgerIntegrity(snap: LedgerSnapshot): LedgerIntegrity {
     truncated: Math.max(0, snap.recorded - evs.length),
     instanceLinked: evs.filter(e => e.instanceId != null).length,
     sessionLevel: evs.filter(e => e.instanceId == null).length,
-    orphanedInstance: evs.filter(e => e.instanceId != null && !active.has(e.instanceId)).length,
+    retiredInstanceEvents: evs.filter(e => e.instanceId != null && !snap.activeInstanceIds.includes(e.instanceId)).length,
   };
 }
 
@@ -226,9 +236,10 @@ export function snapshot(): LedgerSnapshot {
       recorded: totalRecorded,
       droppedLate,
       activeInstances: active.size,
+      activeInstanceIds: [...active],
       events: retained.slice(),
     };
   } catch {
-    return { sessionId, recorded: 0, droppedLate: 0, activeInstances: 0, events: [] };
+    return { sessionId, recorded: 0, droppedLate: 0, activeInstances: 0, activeInstanceIds: [], events: [] };
   }
 }

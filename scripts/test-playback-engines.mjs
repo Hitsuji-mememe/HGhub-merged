@@ -47,7 +47,8 @@ try {
   check("F2 stall fires exactly once", r.f_stays_once, 1);
   check("F3 slow network (no FragLoaded) never stalls", r.f_slow_network, 0);
   check("F4 playing clears the watchdog", r.f_playing_clears, 0);
-  check("F5 hasBuffered predicate rescues at deadline", r.f_predicate_rescue, 0);
+  check("F5 hasBuffered predicate rescues at append deadline", r.f_predicate_rescue, 0);
+  check("F5 handed-off second arm still judges buffered-no-play", r.f_predicate_handoff_stall, 1);
   check("F6 engine starts as hls.js", r.f_engine_before, "hls.js");
   check("F6 first stall retries in place", r.f_first_stall_action, "retry");
   check("F6 second stall falls back", r.f_second_stall_fell_back, true);
@@ -66,6 +67,13 @@ try {
   check("F9 buffered-no-play fires exactly once", r.f_buffered_no_play_once, 1);
   check("F10 will gate blocks second arm", r.f_will_gate_blocks, 0);
   check("F11 playing clears second arm", r.f_playing_clears_second_arm, 0);
+  check("F12 gate suspends without stalling", r.f_gate_suspends_no_stall, 0);
+  check("F12 gate leaves watchdog suspended", r.f_gate_suspended, true);
+  check("F12 resumed watchdog quiet before deadline", r.f_resumed_before_deadline, 0);
+  check("F12 resumed watchdog stalls on renewed freeze", r.f_resumed_stall_fires, 1);
+  check("F13 append deadline hands off without stalling", r.f_transfer_no_stall_yet, 0);
+  check("F13 handed-off second arm stalls", r.f_transfer_stall_fires, 1);
+  check("F13 handed-off state label", r.f_transfer_state, "buffered-no-play");
 
   // C — density-based SR tiering
   check("C high-density 1080p -> off", r.c_1080p_high_density, "off");
@@ -97,11 +105,65 @@ try {
   check("U1 streak restarts after neutral", r.u_promote_streak_restarts, "none");
   check("U1 three consecutive good windows promote", r.u_promote_after_3_good, "promote");
   check("U1 demote capped at floor", r.u_demote_at_floor, [2, "none"]);
-  check("U1 floor is natural when auto-off", r.u_filter_auto_off, "natural");
+  check("U1 auto-off without reason defaults to judged (true off)", r.u_filter_auto_off, null);
   check("U1 no floor when user explicitly off", r.u_filter_pref_off, null);
   check("U1 no filter while WebGL presenting", r.u_filter_webgl_presenting, null);
   check("U1 floor engages when perf-demoted to off", r.u_filter_demoted_off, "natural");
   check("U1 svg fallback keeps mode filter", r.u_filter_svg_fallback, "cinema");
+
+  check("U2 judged off is true off (no filter)", r.u2_judged_true_off, null);
+  check("U2 demoted off keeps SVG floor", r.u2_demoted_floor, "natural");
+  check("U2 unavailable off keeps SVG floor", r.u2_unavailable_floor, "natural");
+  check("U2 pipeline names SVG floor honestly", r.u2_pipeline_svg, "svg-natural");
+  check("U2 pipeline none when judged off", r.u2_pipeline_none, "none");
+  check("U2 pipeline webgl-crisp", r.u2_pipeline_webgl, "webgl-crisp");
+  check("U2 pipeline webgpu wins over webgl", r.u2_pipeline_webgpu, "webgpu");
+  check("S sampler median of first 3 frags", r.s_median, 800_000);
+  check("S sampler carries fps+codec", r.s_fps_codec, [30, "avc1.640028"]);
+  check("S sampler resamples on level switch", r.s_level_switch_resamples, 2_000_000);
+  check("S sampler reset clears density", r.s_reset_clears, null);
+  check("H seed takes max measured kbps as bps", r.h_seed_from_round, 4_500_000);
+  check("H seed null without round", r.h_seed_empty, null);
+  check("H config uses seeded estimate", r.h_config_seeded, 4_500_000);
+  check("H config falls back to default estimate", r.h_config_fallback, 500_000);
+  check("H default estimate is hls.js 500kbps", r.h_default_estimate, 500_000);
+  check("H start level locks highest", r.h_lock_highest, [3, 3]);
+  check("H first rendition format", r.h_first_rendition, "第 4/4 档 · 1920x1080 · 8000kbps");
+
+  check("G gates v2 all pass", r.g_all_pass, true);
+  check("G gates v2 720p P90 blocks", r.g_p90_720_blocks, false);
+  check("G gates v2 1080p avg blocks", r.g_1080_avg_blocks, false);
+  check("G gates v2 deviceLost blocks", r.g_device_lost_blocks, false);
+  check("G gates v2 dropped rate blocks", r.g_dropped_blocks, false);
+  check("G gates v2 tail ratio blocks", r.g_tail_blocks, false);
+  check("G gates v2 no path blocks", r.g_no_path_blocks, false);
+
+  check("K scoped play key format", r.k_scoped_key, "acct:3:7:42:2");
+  check("K scoped key changes with line epoch", r.k_scoped_key_changes_with_epoch, true);
+  check("K scoped key changes with account", r.k_scoped_key_changes_with_account, true);
+  check("K FIFO evicts oldest beyond capacity", r.k_fifo_evicts_oldest, ["k2", "k3", "k4"]);
+  check("K FIFO update does not evict", r.k_fifo_update_keeps, ["k2", "k3", "k4"]);
+  check("K record capped to capacity", r.k_record_capped, 2);
+  check("K prewarm first attempt due", r.k_prewarm_first_attempt, true);
+  check("K prewarm success never retries", r.k_prewarm_ok_never, false);
+  check("K prewarm failure within 30s not due", r.k_prewarm_too_soon, false);
+  check("K prewarm failure after 30s due once", r.k_prewarm_retry_due, true);
+  check("K prewarm retry exhausted", r.k_prewarm_retry_exhausted, false);
+
+  check("T throughput quiet before 5 frags", r.t_quiet_before_5, 0);
+  check("T throughput flushes median at 5 frags", r.t_flush_at_5, [["https://line.example", 8_000_000]]);
+  check("T throughput flush sends remainder", r.t_flush_remainder, 2);
+  check("T origin parsed from play URL", r.t_origin_parse, "https://line.example");
+  check("T origin empty on bad URL", r.t_origin_bad, "");
+
+  check("L ledger records while instance active", r.l_record_while_active, true);
+  check("L ledger rejects late event after unregister", r.l_late_rejected, false);
+  check("L droppedLate increments on late event", r.l_dropped_late_delta, 1);
+  check("L window contains in-life event", r.l_window_has_load, true);
+  check("L window excludes late event", r.l_window_has_late, false);
+  check("L integrity validation is pure (same snapshot, same result)", r.l_validate_pure, true);
+  check("L retired instance events counted under new name", r.l_retired_counted, true);
+  check("L orphanedInstance field removed", r.l_no_orphan_field, true);
 
   // W — wiring-level stall escalation matrix (fix2 B1)
   check("W1 first stall retries in place", r.w1_first_stall_retry, ["append_stall"]);
@@ -121,7 +183,14 @@ try {
   check("W7 paused_by_system still escalates", r.w7_system_pause_retry, ["append_stall"]);
   check("W8 buffered-no-play escalates", r.w8_buffered_no_play_retry, ["append_stall"]);
   check("W8 buffered-no-play state label", r.w8_buffered_no_play_state, ["buffered-no-play"]);
-  check("W9 deadline predicate rescue", r.w9_predicate_rescue, []);
+  check("W9 deadline predicate rescue (append window)", r.w9_predicate_rescue, []);
+  check("W9 handed-off second arm escalates", r.w9_handoff_retry, ["append_stall"]);
+
+  await page.waitForFunction(() => (window).__keepAlive !== undefined, null, { timeout: 15000 });
+  const ka = await page.evaluate(() => (window).__keepAlive);
+  check("KA user pause during transition: zero keepAlive plays in 1.2s window", ka.pausedPlays, 0);
+  try { assert.ok(ka.resumedPlays >= 3, `want >=3, got ${ka.resumedPlays}`); report.passed.push("KA unpaused transition still resumes playback"); }
+  catch { report.failed.push(`KA unpaused transition still resumes playback: got ${ka.resumedPlays}, want >=3`); }
 
   await writeFile(join(output, "report.json"), JSON.stringify({ report, results: r }, null, 2));
   if (report.failed.length) {

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../shared/api/api";
 import type { Detail, Post } from "../../shared/api/types";
+import { capRecordByFifo, DETAIL_CACHE_CAPACITY } from "./cacheMap";
 
 type Args = {
   videoIds: number[];
@@ -26,18 +27,30 @@ export function useFeedDetails({
   videoIds, mode, kind, accountScope, lineEpoch, originEpoch = 0, filtering, revision,
   blockReason, checked, tagErrors,
 }: Args) {
-  const [details, setDetails] = useState<Record<number, Detail>>({});
-  const detailsRef = useRef(details);
-  detailsRef.current = details;
-  const [posts, setPosts] = useState<Record<number, Post>>({});
+  const [detailsRaw, setDetailsRaw] = useState<Record<number, Detail>>({});
+  const detailsRef = useRef(detailsRaw);
+  detailsRef.current = detailsRaw;
+  const [postsRaw, setPostsRaw] = useState<Record<number, Post>>({});
+  /* 容量上限（audit6 P2-08）：details/posts 各 100 条 FIFO 裁剪，写入面
+   * 收敛在本 hook 的 setter 包装里，调用方签名不变。 */
+  const setDetails: typeof setDetailsRaw = (updater) => {
+    setDetailsRaw(prev => capRecordByFifo(typeof updater === "function" ? (updater as (p: Record<number, Detail>) => Record<number, Detail>)(prev) : updater, DETAIL_CACHE_CAPACITY));
+  };
+  const setPosts: typeof setPostsRaw = (updater) => {
+    setPostsRaw(prev => capRecordByFifo(typeof updater === "function" ? (updater as (p: Record<number, Post>) => Record<number, Post>)(prev) : updater, DETAIL_CACHE_CAPACITY));
+  };
+  const details = detailsRaw;
+  const posts = postsRaw;
   const detailRequests = useRef(new Map<string, Promise<Detail>>());
+  /* 重置作用域含线路代次（audit6 P1-3 附带项）：Feed 现把 lineEpoch 经
+   * originEpoch 传入——切线即整表重置，不再只随账号变化。 */
   const cacheScope = `${accountScope}:${originEpoch}`;
   const prevScopeRef = useRef(cacheScope);
   if (prevScopeRef.current !== cacheScope) {
     prevScopeRef.current = cacheScope;
     detailsRef.current = {};
-    setDetails({});
-    setPosts({});
+    setDetailsRaw({});
+    setPostsRaw({});
   }
 
   const requestDetail = useCallback((id: number) => {

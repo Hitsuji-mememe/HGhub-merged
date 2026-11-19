@@ -25,9 +25,12 @@ import { PreferenceStorageNotice } from "../../shared/ui/PreferenceStorageNotice
 import { stageXY, HOLD_DELAY_MS } from "./mobileHold";
 import { useFsIdle } from "./fsIdle";
 import { RateMenu } from "./RateMenu";
-import { prewarmFirstSegment } from "./prewarm";
+import { useFeedPrewarm } from "./useFeedPrewarm";
 import { useStallHeal } from "./stallHeal";
 import { useFeedDetails } from "./useFeedDetails";
+import { usePlayUrlCache } from "./usePlayUrlCache";
+import { useFsKeepAlive } from "./useFsKeepAlive";
+import { capStringRecordByFifo } from "./cacheMap";
 import { holdState } from "./holdState";
 import { createHoldJankSampler } from "./holdJank";
 import { HoldBadge } from "./HoldBadge";
@@ -78,7 +81,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     return request;
   }, [accountScope, store.lineEpoch]);
   const { details, setDetails, detailsRef, posts, setPosts, requestDetail, effectiveVideoIds } = useFeedDetails({
-    videoIds, mode, kind, accountScope, lineEpoch: store.lineEpoch, filtering, revision,
+    videoIds, mode, kind, accountScope, lineEpoch: store.lineEpoch, originEpoch: store.lineEpoch, filtering, revision,
     blockReason, checked, tagErrors,
   });
 
@@ -110,8 +113,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   }, []);
   const [renderIndex, setRenderIndex] = useState(startIndex);
   const [epMap, setEpMap] = useState<Record<number, number>>(() => (startEp ? { [videoIds[startIndex]]: startEp } : {}));
-  const [playUrls, setPlayUrls] = useState<Record<string, string>>({});
-  const [hevcUrls, setHevcUrls] = useState<Record<string, string>>({});
+  /* 播放 URL 缓存（audit6 P1-3/P2-08）：作用域键＋200 条 FIFO，见 usePlayUrlCache */
+  const playCache = usePlayUrlCache(accountScope, store.lineEpoch);
   const [playingKey, setPlayingKey] = useState("");
   const [proxyRetry, setProxyRetry] = useState(0);
   const [relatedByVideo, setRelatedByVideo] = useState<Record<string, VideoCard[]>>({});
@@ -134,7 +137,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      入口已随右栏撤销）、内容恒落详情，三入口互不重复。 */
   /* 续播：拿到时长后再 seek 一次（只对进入时那一条生效） */
   const resumeRef = useRef<{ key: string; t: number } | null>(
-    startTime && startTime > 1 ? { key: `${videoIds[startIndex]}:${startEp || 1}`, t: startTime } : null,
+    startTime && startTime > 1 ? { key: `${accountScope}:${store.lineEpoch}:${videoIds[startIndex]}:${startEp || 1}`, t: startTime } : null,
   );
   /* 观看进度：onTime 里节流写回 store，卸载时再兜一次 */
   const liveRef = useRef({ id: 0, ep: 1, dur: 0, t: 0, permissionKey: "", accountScope: "" });
@@ -185,8 +188,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [vpLandscape, setVpLandscape] = useState(
     () => typeof window !== "undefined" && window.innerWidth > window.innerHeight,
   );
-  /* 进出全屏过渡期多次续播，防止 iOS 把播放打断 */
-  const keepAliveTimers = useRef<number[]>([]);
   /* 双指缩放：scale 1~4，平移跟手指 */
   const [zoom, setZoom] = useState({ s: 1, x: 0, y: 0, g: false });
   /* 横屏：fit 恒 contain 不裁切（原 portraitFit 铺满切换随蓝图回退，缩放
@@ -249,13 +250,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const pendingActions = useRef(new Set<string>());
-  const playKey = `${curId}:${curEp}`;
+  /* 播放键作用域化（audit6 P1-3）：accountScope:lineEpoch:id:ep，与请求层键式统一 */
+  const playKey = playCache.keyFor(curId, curEp);
   const playGuard = useRef({ allowed, id: curId, permissionKey, playKey });
   playGuard.current = { allowed, id: curId, permissionKey, playKey };
   const isCurrentPlayback = () => playGuard.current.allowed && playGuard.current.id === curId
     && playGuard.current.permissionKey === permissionKey && playGuard.current.playKey === playKey;
-  const mainUrl = playUrls[playKey] || "";
-  const hevcUrl = hevcUrls[playKey] || "";
+  const mainUrl = playCache.getMain(playKey) || "";
+  const hevcUrl = playCache.getHevc(playKey) || "";
   /* Muse 2026-11-18 (2.2.0 合并, 移植 2.1.4): HEVC 回退按集锁定——解码/格式类失败只锁当前集，
      切集后新集重新优先高清；网络类失败不锁。
      审计修订（同日）: 单值锁会被后一集覆盖、切回已锁集时重试+重复弹提示 → 改 Set 保全历史；
@@ -266,7 +268,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 卡顿自愈（2.0.5）：逻辑在 ./stallHeal，Feed 只接线 */
   const { lastStallAtRef, healResumeRef, onFragStats, resetHealWindow } = useStallHeal({
     active, isDesktop, playKey, curId, curEp, videoRef, paused,
-    setPlayUrls, setHevcUrls, setErr, setProxyRetry,
+    clearPlayUrl: playCache.clearKey, setErr, setProxyRetry,
   });
   const measurementKey = JSON.stringify([accountScope, store.lineEpoch, permissionKey, playKey, playUrl]);
   const videoSize = vsize.key === measurementKey ? vsize : { key: measurementKey, w: 0, h: 0 };
@@ -484,7 +486,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (!active || !curId || kind !== "video" || !allowed || panel !== "detail" || relatedByVideo[relatedKey]) return;
     const id = curId;
     api.related(id).then((r) => {
-      if (mounted.current) setRelatedByVideo(previous => ({ ...previous, [relatedKey]: r?.items || [] }));
+      if (mounted.current) setRelatedByVideo(previous => capStringRecordByFifo({ ...previous, [relatedKey]: r?.items || [] }, 100));
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, curId, kind, allowed, panel, relatedKey, relatedByVideo]);
@@ -492,7 +494,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 拉播放地址 */
   useEffect(() => {
     if (!active || !curId || !allowed) return;
-    if (playUrls[playKey]) return;
+    if (playCache.getMain(playKey)) return;
     let alive = true;
     requestPlay(curId, curEp)
       .then((info) => {
@@ -517,8 +519,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           status: raw.status ?? null, msg: String(raw.msg ?? "") || null,
         });
         if (!streamUrl) throw new Error("暂无播放地址");
-        setPlayUrls((m) => ({ ...m, [playKey]: streamUrl }));
-        if (hevcStream) setHevcUrls((m) => ({ ...m, [playKey]: hevcStream }));
+        playCache.setUrls(playKey, streamUrl, hevcStream || undefined);
         if (kind === "video") addHistory(curId, curEp);
       })
       .catch((e) => { if (alive) setErr((e as Error).message || "取播放地址失败"); });
@@ -533,15 +534,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const ep = epMap[curId] || 1;
     const nextEpisode = ep + 1;
     if (nextEpisode > episodes.length) return;
-    const key = `${curId}:${nextEpisode}`;
-    if (playUrls[key]) return;
+    const key = playCache.keyFor(curId, nextEpisode);
+    if (playCache.getMain(key)) return;
     requestPlay(curId, nextEpisode)
       .then((info) => {
         if (!alive || !playGuard.current.allowed || playGuard.current.permissionKey !== permissionKey) return;
         const u = info?.streams?.main || info?.video_url;
         const h = info?.streams?.hevc || info?.video_url_hevc || "";
-        if (u) setPlayUrls((m) => ({ ...m, [key]: u }));
-        if (h) setHevcUrls((m) => ({ ...m, [key]: h }));
+        if (u) playCache.setUrls(key, u, h || undefined);
       })
       .catch(() => { /* 预热失败不影响当前播放 */ });
     return () => { alive = false; };
@@ -555,8 +555,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     let alive = true;
     const currentId = curId;
     const currentPermission = permissionKey;
-    const nextKey = `${nextId}:1`;
-    if (playUrls[nextKey]) return;
+    const nextKey = playCache.keyFor(nextId, 1);
+    if (playCache.getMain(nextKey)) return;
     const stillRelevant = () => alive && mounted.current && playGuard.current.id === currentId
       && playGuard.current.permissionKey === currentPermission && idsRef.current[index + 1] === nextId;
     void (async () => {
@@ -575,34 +575,21 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         if (!stillRelevant()) return;
         const url = info?.streams?.main || info?.video_url;
         const hevc = info?.streams?.hevc || info?.video_url_hevc || "";
-        if (url) setPlayUrls(previous => ({ ...previous, [nextKey]: url }));
-        if (hevc) setHevcUrls(previous => ({ ...previous, [nextKey]: hevc }));
+        if (url) playCache.setUrls(nextKey, url, hevc || undefined);
       } catch {
         // The next item resolves normally when selected.
       }
     })();
     return () => { alive = false; };
-  }, [active, curId, index, nextVideoId, kind, mode, allowed, playingKey, playKey, playUrls[`${nextVideoId}:1`], permissionKey, accountScope, store.lineEpoch, filtering, blockReason, onBlocked, requestDetail, requestPlay]);
+  }, [active, curId, index, nextVideoId, kind, mode, allowed, playingKey, playKey, playCache.version, permissionKey, accountScope, store.lineEpoch, filtering, blockReason, onBlocked, requestDetail, requestPlay]);
 
-  /* 首分片预热（2.0.6，Muse 2026-11-18 移植）：下一条地址就绪后，用与播放器逐字相同的
-     本地代理 URL 把清单 + 首分片先拉一遍，填 Rust PL_CACHE/SEG_CACHE；切过去时直接命中。
-     每 key 只热一次，失败静默。 */
-  const prewarmedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!active || kind !== "video" || playingKey !== playKey) return;
-    const targets: { id: number; key: string }[] = [];
-    if (nextVideoId) targets.push({ id: nextVideoId, key: `${nextVideoId}:1` });
-    const nextEp = episodes.find((e) => e.ep_num === curEp + 1);
-    if (nextEp) targets.push({ id: curId, key: `${curId}:${nextEp.ep_num}` });
-    const ctrl = new AbortController();
-    for (const t of targets) {
-      const raw = playUrls[t.key];
-      if (!raw || prewarmedRef.current.has(t.key)) continue;
-      prewarmedRef.current.add(t.key);
-      void prewarmFirstSegment(t.id, raw, ctrl.signal);
-    }
-    return () => ctrl.abort();
-  }, [active, kind, playingKey, playKey, nextVideoId, curEp, episodes, playUrls]);
+  /* 首分片预热调度（当前条目即时预热＋下一条出画后预热＋失败重试）：
+     实现在 useFeedPrewarm（Feed 尺寸预算外移），本体见 prewarm.ts */
+  useFeedPrewarm({
+    active, kind, accountScope, lineEpoch: store.lineEpoch, playKey, playingKey,
+    curId, curEp, nextVideoId, episodes, cacheVersion: playCache.version,
+    keyFor: playCache.keyFor, getMain: playCache.getMain,
+  });
 
   /* 续播多点保存（蓝图 P4）：暂停/切后台/离开即时刷盘，守卫见 useProgressFlush */
   const flushProgressRef = useProgressFlush({ kind, paused, liveRef, playGuard, actionContext, historyWriter });
@@ -912,17 +899,19 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     clearScrub(false);
   }, [playKey]);
 
-  /* 进出全屏：iOS 会在这时把播放打断，过渡期多补几次 play() */
-  const keepAlive = useCallback(() => {
-    for (const t of keepAliveTimers.current) window.clearTimeout(t);
-    keepAliveTimers.current = [];
-    for (const delay of [50, 150, 300, 500, 800, 1200]) {
-      keepAliveTimers.current.push(window.setTimeout(() => {
-        const v = videoRef.current?.el();
-        if (v && v.paused) videoRef.current?.play();
-      }, delay) as unknown as number);
-    }
-  }, []);
+  /* 进出全屏：iOS 会在这时把播放打断，过渡期多次续播（audit6 P1-4：
+     实现收敛到 useFsKeepAlive——三查＋意愿门＋暂停/切条即清定时器） */
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const playKeyRef = useRef(playKey);
+  playKeyRef.current = playKey;
+  const keepAlive = useFsKeepAlive({
+    paused, playKey,
+    isUserPaused: () => pausedRef.current,
+    currentPlayKey: () => playKeyRef.current,
+    isVideoPaused: () => videoRef.current?.el()?.paused === true,
+    play: () => videoRef.current?.play("fs_keepalive", true),
+  });
 
   const enterFs = useCallback((landscape: boolean) => {
     /* 先把当前可见项锁定下来，再收起滚动容器：
@@ -1038,12 +1027,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       window.clearTimeout(t2);
     };
   }, [fs, vpLandscape, index]);
-
-  useEffect(() => () => {
-    for (const t of keepAliveTimers.current) window.clearTimeout(t);
-    keepAliveTimers.current = [];
-  }, []);
-
 
   /* 长按倍速期间禁止原生滚动，否则上滑会被列表吃掉、锁不住倍速 */
   useEffect(() => {

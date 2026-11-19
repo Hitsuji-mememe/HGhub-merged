@@ -19,9 +19,10 @@ import { api, APP_VERSION, BUILD_STAMP, hostOf, platform} from "../api/api";
 import { autoLineEnabled, lastPickRound} from "../network/autoLine";
 import { nativeFallbackState} from "../../features/playback/mediaTransport";
 import { playbackLogApi} from "./playbackDiagnostics";
-import { readPlaybackFacts} from "./playbackFacts";
+import { readPlaybackFacts, type PlaybackFacts } from "./playbackFacts";
 import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot, validateLedgerIntegrity} from "./eventLedger";
+import { sourceRegistryVersion } from "./sourceRegistry";
 import { formatGpuProbeLines, formatSrProbeLines, getCachedGpuProbe, getSrProbeResult } from "./gpuProbe";
 import { feedTraceSnapshot, feedTraceSummary} from "../lib/feedTrace";
 
@@ -104,6 +105,14 @@ plays: PlayOutcome[];
 medianStartupMs: number | null;
 /** 最慢的干净出画及其播放序号；无样本时 null。 */
 slowest: { index: number; startupMs: number } | null;
+/** 本会话全部逐次起播（有 startupMs 者）的 P50/P90（audit6 诊断节）。 */
+startupP50: number | null;
+startupP90: number | null;
+/** 最近一段已达阶段的偏移序列（STAGES 序、仅已达者）：口径自检的
+ * 单调性判据数据源。 */
+stageOffsets: number[];
+/** 最近一段相邻已达阶段的增量串（慢环定位）。 */
+stageIncrements: string;
 };
 
 /** 一次播放（一个 source.load 起）的最终结局。
@@ -131,7 +140,9 @@ const sessionEntries = lastPid == null? entries: entries.filter(e => e.pid === l
 const loadIdxsAll: number[] = [];
 sessionEntries.forEach((e, i) => { if (e.event === "web.source.load") loadIdxsAll.push(i); });
 if (!loadIdxsAll.length) return null;
-const tail = sessionEntries.slice(loadIdxsAll[loadIdxsAll.length - 1]);
+const tailAll = sessionEntries.slice(loadIdxsAll[loadIdxsAll.length - 1]);
+const tailPlayer = str(tailAll[0].data.player);
+const tail = tailPlayer? tailAll.filter(e => { const pl = str(e.data.player); return pl == null || pl === tailPlayer; }): tailAll;
 const t0 = tail[0].ts;
 const stallEvents = sessionEntries.filter(e => e.event === "web.hls.append_stall");
 const stalledThisSession = stallEvents.length > 0;
@@ -153,7 +164,12 @@ const plays: PlayOutcome[] = [];
 {
 const loadIdxs = loadIdxsAll;
 loadIdxs.forEach((li, k) => {
-const seg = sessionEntries.slice(li, k + 1 < loadIdxs.length? loadIdxs[k + 1]: undefined);
+/* (playerInstanceId) 隔离（Muse 2026-11-19 根治包，audit6 诊断节）：
+ * pid 隔离之外再按日志 data.player 过滤本段——双播放器并发时另一
+ * 实例的事件不混入本段结局判定；无 player 的系统事件保留。 */
+const segAll = sessionEntries.slice(li, k + 1 < loadIdxs.length? loadIdxs[k + 1]: undefined);
+const segPlayer = str(segAll[0].data.player);
+const seg = segPlayer? segAll.filter(e => { const pl = str(e.data.player); return pl == null || pl === segPlayer; }): segAll;
 const playingEv = seg.find(e => e.event === "web.media.playing");
 const frameEv = seg.find(e => e.event === "web.media.first_frame");
 const stalls = seg.filter(e => e.event === "web.hls.append_stall").length;
@@ -216,7 +232,11 @@ verdict = "最近播放卡在 append（分片已下载、未入缓冲——appen
 } else {
 verdict = `最近播放卡在 ${furthest.label} 阶段`;
 }
-return { table: parts.join(" · "), verdict, startupMs, startupBasis, stalledThisSession, fallbackThisSession, stallCount, rebuildCount, fallbackCount, lastStallState, demoteCount, lineSwitchCount, confirmPendingCount, plays, medianStartupMs, slowest };
+const allStarts = plays.map(p => p.startupMs).filter((v): v is number => v!= null).sort((a, b) => a - b);
+const pctile = (q: number) => allStarts.length? allStarts[Math.min(allStarts.length - 1, Math.floor(q * allStarts.length))]: null;
+const reachedOffs = reached.filter(r => r.at!= null).map(r => ({ label: r.label, off: Math.max(0, (r.at as number) - t0) }));
+const stageIncrements = reachedOffs.map((r, i) => i === 0? `${r.label} +${r.off}ms`: `${r.label} +${r.off - reachedOffs[i - 1].off}ms`).join(" · ");
+return { table: parts.join(" · "), verdict, startupMs, startupBasis, stalledThisSession, fallbackThisSession, stallCount, rebuildCount, fallbackCount, lastStallState, demoteCount, lineSwitchCount, confirmPendingCount, plays, medianStartupMs, slowest, startupP50: pctile(0.5), startupP90: pctile(0.9), stageOffsets: reachedOffs.map(r => r.off), stageIncrements };
 }
 
 /* 看门狗四状态的人话标签：报告读者要一眼知道 append 死在哪一段。 */
@@ -226,6 +246,54 @@ const STALL_STATE_LABEL: Record<string, string> = {
 "appended-no-buffer": "append 已结束但缓冲为空",
 "buffered-no-play": "缓冲已增长但未出画",
 };
+
+/* ── 口径自检（Muse 2026-11-19 根治包，audit6 诊断节）──
+ * 报告生成时先跑自洽断言：不过则在报告顶部印「口径自检未过：X」，
+ * 防止口径漂移的报告被当成事实发出去。检查项：①起播阶段时间戳单调；
+ * ②超分判档与实际管线成对出现；③有播放事实但账本零实例事件＝接线
+ * 缺失；④账本序号缺口/重复为零。 */
+export function diagnosticSelfChecks(facts: PlaybackFacts | null, flow: FlowResult | null): string[] {
+  const fails: string[] = [];
+  if (flow) {
+    const offs = flow.stageOffsets;
+    for (let i = 1; i < offs.length; i++) {
+      if (offs[i] < offs[i - 1]) { fails.push("最近播放起播阶段时间戳非单调"); break; }
+    }
+  }
+  if (facts?.srMode && !facts.pipeline) fails.push("超分判档与实际管线未成对出现");
+  const snap = ledgerSnapshot();
+  const linked = validateLedgerIntegrity(snap).instanceLinked;
+  if (facts && linked === 0 && snap.droppedLate === 0) fails.push("事件账本未见播放器实例事件（接线缺失）");
+  const integ = validateLedgerIntegrity(snap);
+  if (integ.seqGaps > 0) fails.push(`事件账本序号缺口 ${integ.seqGaps}`);
+  if (integ.seqDuplicates > 0) fails.push(`事件账本序号重复 ${integ.seqDuplicates}`);
+  return fails;
+}
+
+/* ── 一键导出补全（audit6 诊断节）：报告＋日志尾＋探针结果＋源注册表
+ * 版本。Settings 的诊断入口生成与复制都走这里（既有契约：复制内容
+ * 与预览全文一致，故生成即全量、预览即全文）。 */
+export async function buildFullDiagnosticExport(): Promise<string> {
+  const report = await buildDiagnosticReport();
+  let logTail = "（日志读取失败）";
+  try {
+    const raw = await playbackLogApi.read();
+    logTail = raw ? raw.slice(-8000) : "（暂无日志）";
+  } catch { /* 保持失败文案 */ }
+  const probe = getSrProbeResult();
+  const parts = [
+    report,
+    "",
+    `源注册表版本：${sourceRegistryVersion()}`,
+    "",
+    "══ 探针结果（JSON） ══",
+    probe ? JSON.stringify(probe, null, 2) : "（无探针结果）",
+    "",
+    "══ 播放日志（尾 8000 字符） ══",
+    logTail,
+  ];
+  return parts.join("\n");
+}
 
 export async function buildDiagnosticReport(): Promise<string> {
 const [diagR, lineStateR, logR] = await Promise.allSettled([
@@ -305,6 +373,11 @@ lines.push(`会话：${snap.sessionId} · 账本 已记 ${snap.recorded} · 迟�
 } catch {
 lines.push("会话：未知（事件账本不可用）");
 }
+/* 口径自检置顶（不过先印）：读者第一眼就知道这份口径可不可信。 */
+{
+const scFails = diagnosticSelfChecks(facts, flow);
+if (scFails.length) lines.push(`口径自检未过：${scFails.join("；")}`);
+}
 lines.push("");
 lines.push("── 结论 ──────────────────────────");
 lines.push(`网络：${diagR.status === "fulfilled"? shortVerdict(diag): "诊断失败（net_diag 不可用）"}`);
@@ -327,7 +400,8 @@ if (n("recovered") > 0) bits.push(`卡死后出画 ${n("recovered")}`);
 if (n("failed") > 0) bits.push(`未能出画 ${n("failed")}`);
 if (n("unknown") > 0) bits.push(`未定性中断 ${n("unknown")}`);
 if (n("current") > 0) bits.push("进行中 1");
-if (flow.medianStartupMs!= null) bits.push(`起播中位 ${(flow.medianStartupMs / 1000).toFixed(1)}s`);
+if (flow.startupP50!= null) bits.push(`起播 P50 ${(flow.startupP50 / 1000).toFixed(1)}s · P90 ${((flow.startupP90?? 0) / 1000).toFixed(1)}s`);
+if (flow.medianStartupMs!= null) bits.push(`干净起播中位 ${(flow.medianStartupMs / 1000).toFixed(1)}s`);
 if (flow.slowest) bits.push(`最慢 ${(flow.slowest.startupMs / 1000).toFixed(1)}s（#${flow.slowest.index}）`);
 lines.push(`本会话播放：${bits.join(" · ")}`);
 }
@@ -346,6 +420,7 @@ const measuredText = round.measured.length
 : "无";
 lines.push(`镜像覆盖（${Math.max(0, Math.round((Date.now() - round.at) / 1000))} 秒前选线轮次）：发布 ${round.published?? "?"} 条 · 探测 ${round.probed?? "?"} 条（可达 ${round.okCount?? "?"}） · 吞吐实测 ${round.measured.length} 条：${measuredText}`);
 }
+if (round?.breakerBlocked) lines.push("最近选线轮次：本轮被熔断拦截——自动选线保持当前线路，未执行切换（熔断冷却中）");
 lines.push("");
 lines.push("── 硬数据 ────────────────────────");
 const rt = obj(diag.runtime);
@@ -370,7 +445,10 @@ const codecText = facts.codec? ` · 编码 ${facts.codec.split(".")[0]}`: " · �
 /* 帧率单列（复审批 §5.4）：编码已知/fps 未知/两者皆未知是三种状态，
  * 帧成本预算与封顶判档都挂在 fps 上，不能塌缩进「编码未知」一格。 */
 const fpsText = facts.fps? ` · 帧率 ${facts.fps}fps`: " · 帧率 未知";
-lines.push(`当前集源：${facts.w}x${facts.h}${codecText}${fpsText}${kbps? ` · 码率 ${kbps} kbps`: " · 码率 未知"}${bpp? ` · 密度 bpp ${bpp}`: ""} · 超分档位 ${facts.srMode}${facts.engine? ` · 引擎 ${facts.engine}`: ""}`);
+lines.push(`当前集源：${facts.w}x${facts.h}${codecText}${fpsText}${kbps? ` · 码率 ${kbps} kbps`: " · 码率 未知"}${bpp? ` · 密度 bpp ${bpp}`: ""}${facts.engine? ` · 引擎 ${facts.engine}`: ""}`);
+/* 超分双行口径（audit6 P0-A 第 2 层）：判档是意图、实际管线是实况、
+ * 降档次数是稳定性——分开报，禁止用单个「超分档位」冒充实况。 */
+lines.push(`超分：判档 ${facts.srMode} · 实际管线 ${facts.pipeline?? "未知"} · 降档 ${facts.srDemoteCount?? flow?.demoteCount?? 0} 次${facts.firstRendition? ` · 首分片档位 ${facts.firstRendition}`: ""}`);
 } else {
 lines.push("当前集源：无（尚未播放）");
 }
@@ -379,6 +457,9 @@ lines.push(`选线现状：当前 ${currentHost}${round && Date.now() - round.at
 lines.push("");
 lines.push("── 最近一次播放流水 ──────────────");
 lines.push(flow? flow.table: logReadFailed? "（诊断日志读取失败——本次无法提供播放流水）": logEmpty? "（诊断日志为空——记录可能未成功开启）": "（无记录）");
+/* 起播阶段增量表（audit6 诊断节）：绝对偏移看不出哪段吃时间，
+ * 相邻增量一眼定位慢环。 */
+if (flow?.stageIncrements) lines.push(`阶段增量：${flow.stageIncrements}`);
 /* 此前异常摘要（复审批 §6.5）：只列出过事的播放（卡死后出画/未能
  * 出画），全顺时不占篇幅；诊断要找的是「哪一次出的事」，不是流水账。 */
 if (flow && flow.plays.length > 1) {

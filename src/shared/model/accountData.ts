@@ -16,7 +16,7 @@ export function pickGuestData(data: GuestData): GuestData {
   return { likes: data.likes, favs: data.favs, follows: data.follows, history: data.history,
     postLikes: data.postLikes, postFavs: data.postFavs, likeEpisodes: data.likeEpisodes, localHistory: data.localHistory };
 }
-type AccountData = GuestData & {
+export type AccountData = GuestData & {
   postLikes: number[]; postFavs: number[];
   likeEpisodes?: { video_id: number; ep: number }[];
   dirtyHistory: Record<number, { ep: number; at: number }>;
@@ -51,6 +51,41 @@ function applyInteractions(data: AccountData, incoming?: AccountInteractions): A
   }
   if (Array.isArray(incoming.like_video_episodes)) next.likeEpisodes = sanitize({ likeEpisodes: incoming.like_video_episodes }).likeEpisodes;
   return next;
+}
+
+/**
+ * 跨线路迁移合并（Muse 2026-11-19 根治包，audit6 P1-2）：同一账号切到
+ * 曾用过的线路时目标桶已存在——旧实现只在目标桶不存在时搬运、否则直接
+ * 删旧桶，未上传的 dirtyHistory 与纯本地 localHistory 随之永久丢失
+ * （服务端无从补齐：dirty 按定义未上传、local 纯本地）。现改为合并：
+ * history/dirtyHistory 逐行按时间戳仲裁（新者胜，与 syncAccount 的
+ * 合并口径一致），其余集合取并集（目标桶顺序优先）；合并完成才删旧桶。
+ */
+export function mergeMigratedAccountData(target: AccountData, previous: AccountData): AccountData {
+  const historyById = new Map<number, WatchProgress>();
+  for (const row of previous.history) historyById.set(row.id, row);
+  for (const row of target.history) {
+    const old = historyById.get(row.id);
+    if (!old || row.at >= old.at) historyById.set(row.id, row);
+  }
+  const dirtyHistory: AccountData["dirtyHistory"] = { ...previous.dirtyHistory };
+  for (const [key, row] of Object.entries(target.dirtyHistory)) {
+    const id = Number(key);
+    if (!dirtyHistory[id] || row.at >= dirtyHistory[id].at) dirtyHistory[id] = row;
+  }
+  const union = (head: number[], tail: number[]) => [...head, ...tail.filter(id => !head.includes(id))];
+  const episodeKeys = new Set((target.likeEpisodes ?? []).map(row => `${row.video_id}:${row.ep}`));
+  return sanitize({
+    likes: union(target.likes, previous.likes),
+    favs: union(target.favs, previous.favs),
+    follows: union(target.follows, previous.follows),
+    postLikes: union(target.postLikes, previous.postLikes),
+    postFavs: union(target.postFavs, previous.postFavs),
+    likeEpisodes: [...(target.likeEpisodes ?? []), ...(previous.likeEpisodes ?? []).filter(row => !episodeKeys.has(`${row.video_id}:${row.ep}`))],
+    history: [...historyById.values()].sort((a, b) => b.at - a.at),
+    dirtyHistory,
+    localHistory: union(target.localHistory, previous.localHistory),
+  });
 }
 
 /** Separate guest/account caches. Async responses may commit only to their initiating session. */
@@ -224,12 +259,17 @@ export function useAccountData(initialGuest: GuestData, saveGuest: (data: GuestD
     const nextOrigin = origin ?? s.origin;
     const next = user && Number.isSafeInteger(user.id) && user.id > 0 ? user : null;
     const key = next ? JSON.stringify([nextOrigin, next.id]) : "guest";
-    // 同一账号跨可信线路：后端 rebase 保留会话，本地桶跟着迁移，
-    // 未上传的 dirtyHistory/localHistory 不丢；不同账号或登出仍开新桶。
-    // 目标桶已存在（例如旧线路残留）时保留它，服务端同步会补齐一致状态。
+    // 同一账号跨可信线路：后端 rebase 保留会话，本地桶跟着迁移；
+    // 不同账号或登出仍开新桶。目标桶已存在（例如切回曾用线路）时与
+    // 旧桶合并（mergeMigratedAccountData：逐行时间戳仲裁、集合并集），
+    // 未上传的 dirtyHistory 与纯本地 localHistory 不丢；合并完成才删旧桶。
     if (next && s.user && s.user.id === next.id && s.key !== key && s.key !== "guest") {
       const previous = accounts.current[s.key];
-      if (previous && !accounts.current[key]) accounts.current[key] = previous;
+      if (previous) {
+        accounts.current[key] = accounts.current[key]
+          ? mergeMigratedAccountData(accounts.current[key], previous)
+          : previous;
+      }
       delete accounts.current[s.key];
       // 迁移后的桶要立刻落盘：同步完成前刷新/退出也不丢 dirtyHistory。
       try { localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ version: 1, accounts: accounts.current })); } catch { /* 后续 persist 会再报存储错误 */ }

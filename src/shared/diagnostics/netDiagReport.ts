@@ -155,7 +155,7 @@ export function formatNetDiag(raw: Json): string {
       if (str(sab.host)) lines.push(`${pad("分片主机")}${str(sab.host)}`);
       if (bytes != null) lines.push(`${pad("分片大小")}${(bytes / (1024 * 1024)).toFixed(1)} MB（${bytes} B）`);
       lines.push(`${pad("A 路")}${fmt(sa)} · App 生产客户端· ${ms(sab.a_ms)}`);
-      lines.push(`${pad("B 路")}${fmt(sb)} · 裸客户端（系统解析）· ${ms(sab.b_ms)}`);
+      lines.push(`${pad("B 路")}${fmt(sb)} · 裸客户端（系统解析，暴露真实出口 IP）· ${ms(sab.b_ms)}`);
       if (str(sab.c_error)) lines.push(`${pad("C 路")}失败 · ${str(sab.c_error)}`);
       else lines.push(`${pad("C 路")}${fmt(sc)} · WebView 直连 · ${ms(sab.c_ms)}`);
       if (cBytes != null && bytes != null && cBytes !== bytes) {

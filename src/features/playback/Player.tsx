@@ -19,6 +19,8 @@ import { ICompress, IExpand, IPauseF, IPlayF, IVol, IVolMute } from "../../share
 import { useStore, type SuperResMode } from "../../shared/model/store";
 import { effectiveSrMode, SuperResSvgDefs, getSvgFilterUrl, srVideoFilterMode } from "./SuperResCanvas";
 import SrCanvas from "./SrCanvas";
+import { createHlsPlayerConfig, currentLineSeedBps, lockHighestStartLevel } from "./hlsConfig";
+import { useSrDensity } from "./useSrDensity";
 
 type Props = {
   src: string;              // 原始 m3u8 地址
@@ -80,7 +82,9 @@ export default function Player({
   const setRate = store.setRate;
   /* 超分全自动（2026-11-18）：档位由 srPref + 本源分辨率推导，入口已撤 */
   const [srSize, setSrSize] = useState({ w: 0, h: 0 });
-  const [srDensity, setSrDensity] = useState<{ bitrateBps: number; fps?: number } | null>(null);
+  /* 密度采样与 VideoSurface 共用一份（audit6 P0-A 第 2 层）：旧实现用
+   * 首样本锁定、无 codec，判档口径与 Feed 不可比，现删除改走共享 hook。 */
+  const { density: srDensity, ingest: ingestSrFrag, reset: resetSrDensity } = useSrDensity(src, store?.lineEpoch ?? 0);
   const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h, srDensity ?? undefined);
   /* U1 保底回报补接（Muse 2026-11-19 fix2 B3 不对称答复：漏接）：
    * VideoSurface 早已接 onActiveModeChange 并据 srVideoFilterMode 在
@@ -89,7 +93,7 @@ export default function Player({
    * 时直接裸播无保底）。无任何设计理由区别对待，属漏接，现补齐，
    * 选档纯函数与 VideoSurface 共用一份。 */
   const [canvasSrMode, setCanvasSrMode] = useState<SuperResMode>(srMode);
-  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback });
+  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback, canvasOffReason: srMode === "off" ? "judged" : "demoted" });
   const seek = useSeekInput({ time, duration, enabled: active && !controlsLocked, resetKey: src,
     onInteraction: (phase, input, target, pointerTarget) => trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget }),
     onSeek: (target, input) => {
@@ -111,41 +115,23 @@ export default function Player({
     if (!video || !src) return;
     setErrMsg("");
     setWaiting(false);
-    setSrDensity(null);
+    resetSrDensity();
     const resume = proxyRecovery.resume();
     const source = playbackSource(src, Hls.isSupported());
     let disconnectNative: (() => void) | undefined;
     let stallWatchdog: AppendStallWatchdog | undefined;
     let detachWatchdog: (() => void) | undefined;
-    trace("source.load", { engine: source.engine, auto_play: autoPlay, resource: mediaResource(src), host: mediaHost(src) });
+    trace("source.load", { engine: source.engine, auto_play: activity.isPlayWanted(), resource: mediaResource(src), host: mediaHost(src) });
 
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     if (source.engine === "hls.js") {
-      const hls = new Hls({
-        // 禁用从插播/内容引导 JSON 派生直连 URL 的可选功能。
-        interstitialsController: undefined,
-        contentSteeringController: undefined,
-        enableInterstitialPlayback: false,
-        // WKWebView 里 hls.js 的 worker 不稳，iOS 关掉
-        enableWorker: platform !== "ios",
-        // Keep the same macOS seek workaround as the shared player.
-        preferManagedMediaSource: false,
-        autoStartLoad: false,
+      const hls = new Hls(createHlsPlayerConfig({
+        ios: platform === "ios",
         startPosition: resume?.time ?? -1,
+        seedBps: currentLineSeedBps(),
         lowLatencyMode: false,
-        maxBufferLength: 120,
-        maxMaxBufferLength: 240,
-        backBufferLength: 30,
-        maxBufferHole: 0.5,
-        nudgeOffset: 0.25,
-        nudgeMaxRetry: 6,
-        manifestLoadingTimeOut: 20000,
-        manifestLoadingMaxRetry: 4,
-        fragLoadingTimeOut: 25000,
-        fragLoadingMaxRetry: 6,
-        fragLoadingRetryDelay: 400,
-      });
+      }));
       hlsRef.current = hls;
       const recovery = createHlsRecovery({
         hls, video, url: source.url,
@@ -182,17 +168,15 @@ export default function Player({
       hls.loadSource(source.url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        lockHighestStartLevel(hls);
         if (activity.isActive()) hls.startLoad(resume?.time ?? -1);
-        if (autoPlay && !resume) activity.play("manifest_autoplay", true);
+        if (activity.isPlayWanted() && !resume) activity.play("manifest_autoplay", true);
       });
       detachWatchdog = wireStallWatchdogSignals({
         hls, video, watchdog: stallWatchdog,
-        /* 超分密度：首个完整分片实际码率（与 VideoSurface 同口径，收官批 C 项） */
+        /* 超分密度：共享采样器（与 VideoSurface 同口径，audit6 P0-A 第 2 层） */
         onFragLoaded: (data) => {
-          const st = data.frag.stats;
-          if (st.loaded <= 0 || !(data.frag.duration > 0)) return;
-          const fps = hls.levels[data.frag.level]?.frameRate;
-          setSrDensity(prev => prev ?? { bitrateBps: (st.loaded * 8) / data.frag.duration, fps: fps && fps > 0 ? fps : undefined });
+          ingestSrFrag({ loaded: data.frag.stats.loaded, duration: data.frag.duration, level: data.frag.level }, hls.levels[data.frag.level]);
         },
         onFragBuffered: () => { recovery.buffered(); setErrMsg(""); },
       });
@@ -294,6 +278,7 @@ export default function Player({
         ready={videoReady || playing || time > 0}
         fit="contain"
         srcKey={src}
+        fps={srDensity?.fps}
         onFallbackChange={setSvgFallback}
         onActiveModeChange={setCanvasSrMode}
         onTrace={trace}

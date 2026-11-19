@@ -7,7 +7,14 @@
 import { AppendStallWatchdog, type StallClock } from "../src/features/playback/appendStallWatchdog";
 import { nativeFallbackState, noteNativeFallback, playbackSource, resetNativeFallbackForTests } from "../src/features/playback/mediaTransport";
 import { createStallWatchdog } from "../src/features/playback/stallWatchdogWiring";
-import { effectiveSrMode, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
+import { effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
+import { createSrDensitySampler } from "../src/features/playback/useSrDensity";
+import { evaluateSrGatesV2 } from "../src/shared/diagnostics/gpuProbe";
+import { capRecordByFifo, scopedPlayKey, setCapped } from "../src/features/feed/cacheMap";
+import { prewarmRetryDue } from "../src/features/feed/prewarm";
+import { createFragThroughputReporter, originOf } from "../src/features/playback/playbackThroughput";
+import { recordIfCurrent, registerPlayerInstance, snapshot as ledgerSnapshot, unregisterPlayerInstance, validateLedgerIntegrity } from "../src/shared/diagnostics/eventLedger";
+import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, lockHighestStartLevel, resolveAbrSeedBps } from "../src/features/playback/hlsConfig";
 
 class FakeClock implements StallClock {
   now = 0;
@@ -92,8 +99,14 @@ function run() {
     const wd = new AppendStallWatchdog({ clock, hasBuffered: () => bufferedNow, isPlaying: () => false, onStall: () => stalls++ });
     wd.fragLoaded();
     bufferedNow = true; // 缓冲已有，但 buffered 事件漏报
-    clock.advance(10000);
+    clock.advance(4000);
+    /* 口径随 audit5 条 1 转交语义更新（Muse 2026-11-19 根治包）：
+     * append 窗到期不误判 append 卡死（原 F5 语义保留于此点）；但缓冲
+     * 已有却永不出画是第二臂的 buffered-no-play 签名，转交后照常判死
+     * （见 F13），旧「advance 10000 恒 0」与第二臂契约互斥、就此作废。 */
     results.f_predicate_rescue = stalls;
+    clock.advance(4000);
+    results.f_predicate_handoff_stall = stalls;
     wd.dispose();
   }
   /* ── F6 三段链：判死→重建→再判死→会话降级，后续视频直接 native ── */
@@ -197,6 +210,45 @@ function run() {
     wd.dispose();
   }
 
+  /* ── F12 F10 续集（audit5 条 1）：门控命中挂起 → 意愿返回 resume →
+   * 再卡死必须判死。旧实现门控命中即 cleared 永久退役，本例必红。 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    let wanted = false;
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => true, isPlaying: () => false, shouldEscalate: () => wanted, onStall: () => stalls++ });
+    wd.fragLoaded();
+    wd.buffered();
+    clock.advance(4000); // 出画守候到期：意愿不在 → 挂起，不判死不退役
+    results.f_gate_suspends_no_stall = stalls;
+    results.f_gate_suspended = wd.isSuspended;
+    wanted = true;
+    wd.resume(); // 意愿恢复：重新起守候窗
+    clock.advance(3999);
+    results.f_resumed_before_deadline = stalls;
+    clock.advance(1);
+    results.f_resumed_stall_fires = stalls;
+    wd.dispose();
+  }
+  /* ── F13 append 臂转交（audit5 条 1 旁路）：FRAG_BUFFERED 事件漏报、
+   * append 到点复查 hasBuffered 命中 → 转交出画守候臂而非退役，
+   * 出画窗内 playing 不来仍判死 buffered-no-play。旧实现必红。 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    let state: string | null = null;
+    let bufferedNow = false;
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => bufferedNow, isPlaying: () => false, onStall: s => { stalls++; state = s; } });
+    wd.fragLoaded();
+    bufferedNow = true; // 缓冲已有，但 buffered 事件漏报
+    clock.advance(4000); // append 臂到期：转交第二臂，不判死不退役
+    results.f_transfer_no_stall_yet = stalls;
+    clock.advance(4000); // 第二臂到期：仍不出画 → 判死
+    results.f_transfer_stall_fires = stalls;
+    results.f_transfer_state = state;
+    wd.dispose();
+  }
+
   /* ── C 超分判档（模拟源参数 + 真实采样锚点） ── */
   results.c_1080p_high_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 12_000_000, fps: 30 });
   results.c_1080p_low_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 2_500_000, fps: 30 });
@@ -245,6 +297,120 @@ function run() {
   results.u_filter_webgl_presenting = srVideoFilterMode({ srPref: "auto", srMode: "crisp", canvasMode: "crisp", svgFallback: false }) ?? null;
   results.u_filter_demoted_off = srVideoFilterMode({ srPref: "auto", srMode: "crisp", canvasMode: "off", svgFallback: false }) ?? null;
   results.u_filter_svg_fallback = srVideoFilterMode({ srPref: "auto", srMode: "cinema", canvasMode: "cinema", svgFallback: true }) ?? null;
+  /* ── U2 off 原因矩阵（audit6 P0-A 第 2 层）：judged 真 off、demoted/
+   * unavailable SVG 保底；呈现管线枚举与判档分离 ── */
+  results.u2_judged_true_off = srVideoFilterMode({ srPref: "auto", srMode: "off", canvasMode: "off", svgFallback: false, canvasOffReason: "judged" }) ?? null;
+  results.u2_demoted_floor = srVideoFilterMode({ srPref: "auto", srMode: "crisp", canvasMode: "off", svgFallback: false, canvasOffReason: "demoted" }) ?? null;
+  results.u2_unavailable_floor = srVideoFilterMode({ srPref: "auto", srMode: "natural", canvasMode: "off", svgFallback: false, canvasOffReason: "unavailable" }) ?? null;
+  results.u2_pipeline_svg = presentationPipeline({ webgpuEngaged: false, canvasMode: "off", filterMode: "natural" });
+  results.u2_pipeline_none = presentationPipeline({ webgpuEngaged: false, canvasMode: "off", filterMode: undefined });
+  results.u2_pipeline_webgl = presentationPipeline({ webgpuEngaged: false, canvasMode: "crisp", filterMode: undefined });
+  results.u2_pipeline_webgpu = presentationPipeline({ webgpuEngaged: true, canvasMode: "crisp", filterMode: undefined });
+
+  /* ── S 共享密度采样器（audit6 P0-A 第 2 层）：中位数口径、换 level
+   * 重采、显式重置（换源/换线共用同一 reset 面） ── */
+  {
+    const sampler = createSrDensitySampler();
+    const lvl = { frameRate: 30, videoCodec: "avc1.640028" };
+    sampler.ingest({ loaded: 100_000, duration: 2, level: 0 }, lvl); // 400kbps
+    sampler.ingest({ loaded: 300_000, duration: 2, level: 0 }, lvl); // 1.2Mbps
+    const third = sampler.ingest({ loaded: 200_000, duration: 2, level: 0 }, lvl); // 800kbps → 中位数 800k
+    results.s_median = third?.bitrateBps ?? null;
+    results.s_fps_codec = [third?.fps ?? null, third?.codec ?? null];
+    const switched = sampler.ingest({ loaded: 500_000, duration: 2, level: 1 }, { frameRate: 60, videoCodec: "hvc1.1.6" });
+    results.s_level_switch_resamples = switched?.bitrateBps ?? null; // 换 level 后单样本即新中位数 2Mbps
+    sampler.reset();
+    results.s_reset_clears = sampler.current();
+  }
+
+  /* ── H HLS 工厂（audit6 P0-A 第 1 层）：播种值、回退默认、锁最高档、
+   * 首分片档位格式 ── */
+  results.h_seed_from_round = resolveAbrSeedBps({ measured: [{ kbps: 1200 }, { kbps: 4500 }, { kbps: null }] });
+  results.h_seed_empty = resolveAbrSeedBps(null);
+  results.h_config_seeded = createHlsPlayerConfig({ ios: true, startPosition: -1, seedBps: 4_500_000 }).abrEwmaDefaultEstimate;
+  results.h_config_fallback = createHlsPlayerConfig({ ios: false, startPosition: -1, seedBps: null }).abrEwmaDefaultEstimate;
+  results.h_default_estimate = ABR_DEFAULT_ESTIMATE_BPS;
+  {
+    const fake = { levels: [{}, {}, {}, {}], startLevel: -1 } as unknown as Parameters<typeof lockHighestStartLevel>[0] & { startLevel: number };
+    const locked = lockHighestStartLevel(fake);
+    results.h_lock_highest = [locked, (fake as { startLevel: number }).startLevel];
+  }
+  results.h_first_rendition = formatFirstRendition({ index: 4, total: 4, width: 1920, height: 1080, bitrate: 8_000_000 });
+
+  /* ── G 门禁 v2（audit6 P0-A 第 3 层）：逐项否决——任一门不过全不过 ── */
+  {
+    const base = {
+      recommendedPath: "copy" as const,
+      chain720: { ok: true, msAvg: 11.3, msP90: 15 },
+      chain1080: { ok: true, msAvg: 16.1, msP90: 20 },
+      deviceLost: 0, droppedRate720: 0.01, tailRatio720: 1.05,
+    };
+    results.g_all_pass = evaluateSrGatesV2(base);
+    results.g_p90_720_blocks = evaluateSrGatesV2({ ...base, chain720: { ok: true, msAvg: 11, msP90: 40 } });
+    results.g_1080_avg_blocks = evaluateSrGatesV2({ ...base, chain1080: { ok: true, msAvg: 26, msP90: 20 } });
+    results.g_device_lost_blocks = evaluateSrGatesV2({ ...base, deviceLost: 1 });
+    results.g_dropped_blocks = evaluateSrGatesV2({ ...base, droppedRate720: 0.06 });
+    results.g_tail_blocks = evaluateSrGatesV2({ ...base, tailRatio720: 1.25 });
+    results.g_no_path_blocks = evaluateSrGatesV2({ ...base, recommendedPath: null });
+  }
+
+  /* ── K 缓存作用域与容量（audit6 P1-3/P2-07/P2-08） ── */
+  results.k_scoped_key = scopedPlayKey("acct:3", 7, 42, 2);
+  results.k_scoped_key_changes_with_epoch = scopedPlayKey("acct:3", 8, 42, 2) !== scopedPlayKey("acct:3", 7, 42, 2);
+  results.k_scoped_key_changes_with_account = scopedPlayKey("acct:4", 7, 42, 2) !== scopedPlayKey("acct:3", 7, 42, 2);
+  {
+    const m = new Map<string, number>();
+    for (let i = 0; i < 5; i++) setCapped(m, `k${i}`, i, 3);
+    results.k_fifo_evicts_oldest = [...m.keys()];
+    setCapped(m, "k4", 44, 3); // 更新已有键不淘汰
+    results.k_fifo_update_keeps = [...m.keys()];
+  }
+  {
+    const rec: Record<number, string> = { 1: "a", 2: "b", 3: "c", 4: "d" };
+    results.k_record_capped = Object.keys(capRecordByFifo(rec, 2)).length;
+  }
+  results.k_prewarm_first_attempt = prewarmRetryDue(undefined, 100_000);
+  results.k_prewarm_ok_never = prewarmRetryDue({ at: 0, ok: true, retries: 0 }, 100_000);
+  results.k_prewarm_too_soon = prewarmRetryDue({ at: 90_000, ok: false, retries: 0 }, 100_000);
+  results.k_prewarm_retry_due = prewarmRetryDue({ at: 60_000, ok: false, retries: 0 }, 100_000);
+  results.k_prewarm_retry_exhausted = prewarmRetryDue({ at: 0, ok: false, retries: 1 }, 100_000);
+
+  /* ── T 真实播放吞吐回写（audit6 P0-B ⑤）：5 片节流、中位数、flush 兜底 ── */
+  {
+    const sent: [string, number][] = [];
+    const rep = createFragThroughputReporter((o, b) => sent.push([o, b]));
+    rep.setOrigin("https://line.example");
+    for (let i = 0; i < 4; i++) rep.push(100_000, 100); // 8Mbps each
+    results.t_quiet_before_5 = sent.length;
+    rep.push(300_000, 100); // 24Mbps → 中位数仍 8Mbps
+    results.t_flush_at_5 = [...sent];
+    rep.push(100_000, 100);
+    rep.flush(); // 暂停/结束兜底
+    results.t_flush_remainder = sent.length;
+    results.t_origin_parse = originOf("https://line.example/path/x.m3u8");
+    results.t_origin_bad = originOf("not a url");
+  }
+
+  /* ── L 事件账本接线（audit6 诊断一级模块）：注销后迟到丢弃且不入窗口、
+   * 完整性校验纯函数（同快照同结论）、retired 改名口径 ── */
+  {
+    const id = registerPlayerInstance();
+    const before = ledgerSnapshot();
+    const okIn = recordIfCurrent(id, "source.load", { generation: 0 });
+    unregisterPlayerInstance(id);
+    const lateOk = recordIfCurrent(id, "media.first_frame", { generation: 0 });
+    const after = ledgerSnapshot();
+    results.l_record_while_active = okIn;
+    results.l_late_rejected = lateOk;
+    results.l_dropped_late_delta = after.droppedLate - before.droppedLate;
+    results.l_window_has_load = after.events.some(e => e.name === "source.load" && e.instanceId === id);
+    results.l_window_has_late = after.events.some(e => e.name === "media.first_frame" && e.instanceId === id);
+    const i1 = validateLedgerIntegrity(after);
+    const i2 = validateLedgerIntegrity(after);
+    results.l_validate_pure = JSON.stringify(i1) === JSON.stringify(i2);
+    results.l_retired_counted = i1.retiredInstanceEvents >= 1;
+    results.l_no_orphan_field = !("orphanedInstance" in i1);
+  }
 
   /* ── W 接线级矩阵（fix2 B1）：createStallWatchdog 的真实升级链——
    * 判死→重建→再判死→会话降级→名额用尽报错，及三道门控（旧实例 /
@@ -353,8 +519,12 @@ function run() {
     {
       const h = harness({ bufferedLen: 1 });
       h.wd.fragLoaded();
-      h.clock.advance(8000);
-      results.w9_predicate_rescue = h.calls.retry;
+      h.clock.advance(4000);
+      /* 同 F5 口径更新：append 窗不升级（原 W9 语义保留于此点），
+       * 转交第二臂后 buffered-no-play 照常升级（W8 同链）。 */
+      results.w9_predicate_rescue = [...h.calls.retry];
+      h.clock.advance(4000);
+      results.w9_handoff_retry = [...h.calls.retry];
       h.wd.dispose();
     }
     resetNativeFallbackForTests();
@@ -364,3 +534,48 @@ function run() {
 }
 
 Object.assign(window, { __engines: run() });
+
+/* ── KA keepAlive 渲染探针（audit6 P1-4）：真实 hook + 真实定时器 ──
+ * A：过渡中用户暂停（paused 翻 true，effect 清定时器＋回调三查）→
+ * 1.2s 窗内零 play；B：未暂停 → 过渡打断后仍续播（play 被调用）。 */
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { useFsKeepAlive } from "../src/features/feed/useFsKeepAlive";
+{
+  const state = { paused: false, pausedNow: false, keyNow: "k1", plays: 0 };
+  let trigger: (() => void) | null = null;
+  function Probe({ paused }: { paused: boolean }) {
+    const keepAlive = useFsKeepAlive({
+      paused, playKey: "k1",
+      isUserPaused: () => state.pausedNow,
+      currentPlayKey: () => state.keyNow,
+      isVideoPaused: () => true,
+      play: () => { state.plays += 1; },
+    });
+    trigger = keepAlive;
+    return null;
+  }
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  void (async () => {
+    root.render(<Probe paused={false} />);
+    await sleep(30);
+    trigger?.(); // 进全屏：调度六发（首发在 +50ms）
+    await sleep(15);
+    state.pausedNow = true; // 用户在首发落地前暂停：六发必须全灭
+    root.render(<Probe paused />); // paused 变化 → 清定时器
+    await sleep(1400);
+    const pausedPlays = state.plays;
+    // B：恢复未暂停态，重新调度 → 应续播
+    state.pausedNow = false;
+    state.plays = 0;
+    root.render(<Probe paused={false} />);
+    await sleep(30);
+    trigger?.();
+    await sleep(1400);
+    Object.assign(window, { __keepAlive: { pausedPlays, resumedPlays: state.plays } });
+    root.unmount();
+  })();
+}

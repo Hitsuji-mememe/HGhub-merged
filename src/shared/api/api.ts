@@ -205,10 +205,13 @@ export const api = {
   lineProbe: (urls: string[]) => call<LineProbe[]>("line_probe", { urls }),
   /* urgent=true 为故障路径（当前线连挂/卡顿自愈）：绕过两轮确认立即切 */
   lineAuto: (urgent = false) => call<LineAuto>("line_auto", { urgent }),
-  /* 当前是镜像时敲一次主站，通了就切回（不清会话） */
-  lineTryMain: () => call<LineTryMain>("line_try_main"),
+  /* line_try_main 已收编（Muse 2026-11-19 根治包，audit6 条 5）：前端
+   * 不再有独立回切权，回主站只经 line_auto 的 main-return 一轮。 */
   /* 线路体检：探一次 /api/videos，和自动选线同一判据 */
   lineHealth: () => call<LineHealth>("line_health"),
+  /* 真实播放吞吐回写账本（audit6 P0-B ⑤）：Rust 命令 line_record_playback
+   * 由 Rust 线同批提供；命令缺失时调用方 catch 静默（旁路记账）。 */
+  lineRecordPlayback: (origin: string, bps: number) => call<void>("line_record_playback", { origin, bps }),
 
   /* 应用内代理：只影响本应用的上游网络请求。 */
   proxyState: () => call<ProxyState>("proxy_state"),
@@ -272,6 +275,8 @@ export type LineAuto = {
   previous: string;
   base: string;
   switched: boolean;
+  /** 本轮被会话熔断拦截（有胜者但不许切）：前端必须消费并明示。 */
+  breakerBlocked?: boolean;
   pick: {
     base: string;
     tier: "main" | "cn" | "mirror" | "none";
@@ -285,15 +290,6 @@ export type LineAuto = {
     /* 两轮确认首轮的待确认胜者（整改 5），确认前 base 仍是当前线 */
     pendingWinner?: string;
   };
-};
-
-/** 回切主站的探测结果：`probe.ok` 为主站到底通不通 */
-export type LineTryMain = {
-  cancelled?: boolean;
-  previous: string;
-  base: string;
-  switched: boolean;
-  probe: { ok: boolean; base: string; tier: string; ms: number; status: number | null };
 };
 
 /** `https://a.b/c` → `a.b`（线路展示用） */

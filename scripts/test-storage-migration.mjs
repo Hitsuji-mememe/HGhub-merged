@@ -80,6 +80,15 @@ try {
   {
     const { context, page } = await open(oldData);
     assert.deepEqual(await snapshot(page), { ...migrated, theme: "light" });
+    /* P1-2（audit6）：目标桶已存在 + 旧桶未上传进度 → 合并后进度在、新者胜 */
+    const mergeResult = await page.evaluate(() => window.__accountMerge);
+    assert.deepEqual(mergeResult.history44, { id: 44, ep: 3, t: 12.5, dur: 80, at: 2000 }, "newer previous progress wins");
+    assert.deepEqual(mergeResult.historyIds, [44, 45, 46], "histories unioned and sorted by recency");
+    assert.deepEqual(mergeResult.dirty44, { ep: 3, at: 2000 }, "un-uploaded dirty progress survives migration");
+    assert.deepEqual(mergeResult.dirty45, { ep: 1, at: 900 }, "target dirty progress kept");
+    assert.deepEqual(mergeResult.localHistory, [45, 44, 46], "local-only history unioned");
+    assert.deepEqual(mergeResult.favs, [7, 8], "collections unioned");
+    console.log("PASS: cross-line bucket migration merges instead of dropping dirty/local progress");
     assert.equal(await page.evaluate(() => window.storageMigrationFixture.getThemePreference()), "light");
     assert.equal(await page.evaluate(() => window.initialTheme), true);
     const saved = await storage(page);

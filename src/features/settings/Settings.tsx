@@ -11,7 +11,9 @@ import { UsageAgreementText } from "../../shared/ui/UsageAgreement";
 import { USAGE_AGREEMENT_VERSION } from "../../shared/storage/usageAgreement";
 import { autoLineEnabled, setAutoLine } from "../../shared/network/autoLine";
 import { initPlaybackLog } from "../../shared/diagnostics/playbackDiagnostics";
-import { buildDiagnosticReport } from "../../shared/diagnostics/diagnosticReport";
+import { buildFullDiagnosticExport } from "../../shared/diagnostics/diagnosticReport";
+import { readPlaybackFacts } from "../../shared/diagnostics/playbackFacts";
+import { lastPickRound } from "../../shared/network/autoLine";
 import { copyText } from "../../shared/lib/clipboard";
 import { Loader } from "../../shared/ui/ios/effects";
 import { IBack, IBoltF, IBroom, IChevR, ICompress, IHeart, IInfo, ILink, ILockF, IMoon, IRefresh, ISparkF, ISun, IVolMute } from "../../shared/ui/icons";
@@ -105,7 +107,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
               <span className="ios-setting-icon"><ISparkF size={16} /></span>
               <div className="flex-1 min-w-0">
                 <div className="text-[14px] text-on">画质超分</div>
-                <div className="text-[12px] text-mut">自动：按源分辨率＋码率密度选档（低清/糊源强效 · 真高清直通）；关闭：原画直通</div>
+                <div className="text-[12px] text-mut">自动：按源分辨率＋码率密度选档（低清/糊源强效 · 真高清直通）；关闭：原画直通{(() => { const f = readPlaybackFacts(); return f?.pipeline ? ` · 当前实际管线 ${f.pipeline}（判档 ${f.srMode}）` : ""; })()}</div>
               </div>
               <SegmentedControl aria-label="画质超分模式" activeIndex={srPref === "auto" ? 0 : 1}>
                 {([["auto", "自动"], ["off", "关闭"]] as const).map(([value, label]) => (
@@ -171,6 +173,17 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
                 toast(on ? "已开启自动选择线路" : "已关闭自动选线，可手动选择播放源", "info");
               }} />
             </div>
+            {/* 熔断人话状态行（audit6 P0-B ④）：熔断生效时用户要能看见
+                「为什么不切线」，而不是对着不动的线路干等。 */}
+            {lastPickRound()?.breakerBlocked && (
+              <div className="ios-settings-row">
+                <span className="ios-setting-icon"><IInfo size={15} /></span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[14px] text-on">线路熔断中</div>
+                  <div className="text-[12px] text-mut">最近一轮自动选线被熔断拦截，已保持当前线路；冷却结束后自动恢复检测</div>
+                </div>
+              </div>
+            )}
             <div className="ios-settings-row">
               <span className="ios-setting-icon"><ILockF size={15} /></span>
               <div className="flex-1 min-w-0">
@@ -201,7 +214,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
                 预览全文 + 一个「复制报告」按钮。记录始终开启、无开关。 */}
             <Button disabled={diagnosing} onClick={async () => {
               setDiagnosing(true);
-              try { setDiagReport(await buildDiagnosticReport()); }
+              try { setDiagReport(await buildFullDiagnosticExport()); }
               catch (e) { toast(`诊断报告生成失败：${e instanceof Error ? e.message : "请稍后重试"}`, "info"); }
               finally { setDiagnosing(false); }
             }} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable disabled:opacity-60">
