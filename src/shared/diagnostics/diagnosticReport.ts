@@ -25,6 +25,7 @@ import { snapshot as ledgerSnapshot, validateLedgerIntegrity} from "./eventLedge
 import { sourceRegistryVersion, sourceHealthLines } from "./sourceRegistry";
 import { cacheCountersSnapshot } from "../../features/feed/cacheMap";
 import { formatSrProductionLines, formatSrProbeLines, getSrProductionStats, getSrProbeResult } from "./gpuProbe";
+import { summarizeHoldEvents } from "../../features/feed/holdJank";
 import { feedTraceSnapshot, feedTraceSummary} from "../lib/feedTrace";
 
 type Json = Record<string, unknown>;
@@ -701,6 +702,21 @@ try {
 for (const l of formatSrProductionLines(getSrProductionStats())) lines.push(l);
 } catch {
 lines.push("读取失败（纯旁路，不影响本报告其余内容）");
+}
+/* 长按松手分组汇总（Muse 2026-11-19 最终版协调接线，聚合器为 B3 线
+ * summarizeHoldEvents）：按事件自带 sr_engaged 把长按/松手卡顿分
+ * 「SR 接管／判档直通」两组——设置里没有手动引擎开关、用户做不了
+ * A/B 对照，此分组就是真机一份诊断判读 SR 与松手卡顿是否相关的
+ * 唯一对照（条目 9 判别力）。无 sr_engaged 标记的事件不入桶不推断。 */
+try {
+const lastPid = entries.length? entries[entries.length - 1].pid: null;
+const session = lastPid == null? entries: entries.filter(e => e.pid === lastPid);
+const hs = summarizeHoldEvents(session as unknown as { event: string; data?: Record<string, unknown> }[]);
+lines.push("── 长按松手分组（SR 接管 vs 判档直通）──");
+lines.push(`SR 接管：长按 ${hs.engaged.holds} 次 · 松手卡顿 ${hs.engaged.janks} 次`);
+lines.push(`判档直通：长按 ${hs.bypass.holds} 次 · 松手卡顿 ${hs.bypass.janks} 次`);
+} catch {
+lines.push("长按松手分组：读取失败（纯旁路，不影响本报告其余内容）");
 }
 return lines.join("\n");
 }
