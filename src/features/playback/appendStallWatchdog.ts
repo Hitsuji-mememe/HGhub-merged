@@ -69,6 +69,11 @@ export class AppendStallWatchdog {
      * 不判死、转挂起（缺省放行）。 */
     shouldEscalate?: () => boolean;
     onStall: (state: AppendStallState) => void;
+    /** 判死被意愿门控挂起时的留痕通道（fix322/play）：门控吞掉判死
+     * 不得无声——3.2.1 真机出现「用户可见卡死但诊断无 append_stall」
+     * 的组合，门后无痕即无从定性。只记账、不改变判死行为：状态
+     * 参数为若未被门控本将交付 onStall 的判定。 */
+    onGated?: (state: AppendStallState) => void;
   }) {}
 
   private get clock(): StallClock {
@@ -119,16 +124,18 @@ export class AppendStallWatchdog {
       }
       /* 意愿门控（整改 B10）：append 臂与出画臂同态——意愿不在时
        * 挂起而非 retire。旧实现先 retire 再调 onStall，接线层意愿门
-       * 把 onStall 吞掉后看门狗已永久退役，本源再卡死无人检出。 */
-      if (this.opts.shouldEscalate && !this.opts.shouldEscalate()) {
-        this.suspended = true;
-        return;
-      }
+       * 把 onStall 吞掉后看门狗已永久退役，本源再卡死无人检出。
+       * 挂起必须留痕（fix322/play）：经 onGated 记下被吞的判定。 */
       const state: AppendStallState = !this.appendSeen
         ? "not-started"
         : this.appendInFlight
           ? "append-hung"
           : "appended-no-buffer";
+      if (this.opts.shouldEscalate && !this.opts.shouldEscalate()) {
+        this.suspended = true;
+        this.opts.onGated?.(state);
+        return;
+      }
       this.retire();
       this.opts.onStall(state);
     }, this.opts.timeoutMs ?? 4000);
@@ -153,8 +160,10 @@ export class AppendStallWatchdog {
       }
       if (this.opts.shouldEscalate && !this.opts.shouldEscalate()) {
         /* 意愿门控命中：挂起而非退役——用户恢复播放后 resume()
-         * 必须还能把本臂重新拉起（audit5 条 1 的核心时序）。 */
+         * 必须还能把本臂重新拉起（audit5 条 1 的核心时序）。
+         * 挂起留痕同 append 臂（fix322/play）。 */
         this.suspended = true;
+        this.opts.onGated?.("buffered-no-play");
         return;
       }
       this.retire();

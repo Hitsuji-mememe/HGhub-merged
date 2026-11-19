@@ -17,6 +17,11 @@ export const APPEND_STALL_EXHAUSTED_MESSAGE = "视频卡死且自动恢复已用
 
 export type StallRetryReason = "append_stall" | "append_stall_fallback";
 
+/** 判死被门控吞掉的位置（fix322/play 留痕用）：watchdog_intent =
+ * 看门狗构造期意愿门（shouldEscalate）挂起；stale_instance /
+ * paused_by_user / not_wanted = onStall 交付时的三道早退门。 */
+export type StallGate = "watchdog_intent" | "stale_instance" | "paused_by_user" | "not_wanted";
+
 export function createStallWatchdog(opts: {
   video: HTMLVideoElement;
   /** 本代 hls 是否仍是当前实例（旧实例的判死回调必须丢弃）。 */
@@ -31,6 +36,10 @@ export function createStallWatchdog(opts: {
   attemptRef: { current: number };
   /** 判死取证：调用方按各自字段组 trace（attempt 传的是递增前的值）。 */
   traceStall: (state: AppendStallState, attempt: number) => void;
+  /** 判死被门控吞掉时的留痕（fix322/play）：四道门（看门狗意愿挂起
+   * ＋onStall 三道早退）命中必经此通道记账，只记账不改行为——
+   * 「用户可见卡死但诊断无 append_stall」不得再无声发生。 */
+  traceGated?: (info: { gate: StallGate; state: AppendStallState }) => void;
   /** 重建通道：调用方落到自己的 proxyRecovery.retry(reason, true)。 */
   retry: (reason: StallRetryReason) => void;
   /** 自动恢复用尽时的报错通道：调用方落到自己的 onError / errMsg。 */
@@ -45,13 +54,15 @@ export function createStallWatchdog(opts: {
     hasBuffered: () => { try { return opts.video.buffered.length > 0 && opts.video.buffered.end(opts.video.buffered.length - 1) > 0; } catch { return false; } },
     isPlaying: () => !opts.video.paused && opts.video.readyState >= 2,
     shouldEscalate: () => opts.isPlayWanted(),
+    onGated: (state) => opts.traceGated?.({ gate: "watchdog_intent", state }),
     onStall: (state) => {
-      if (!opts.isCurrent()) return;
+      if (!opts.isCurrent()) { opts.traceGated?.({ gate: "stale_instance", state }); return; }
       /* 意愿门控：用户明确暂停（paused_by_user）不判死——他不想播，
        * 卡不卡死与他无关；恢复意愿时活动层会重新 play。isPlayWanted
-       * 兜底来源未知的暂停（fix2 B 三态门控）。 */
-      if (opts.pauseState?.() === "paused_by_user") return;
-      if (!opts.isPlayWanted()) return;
+       * 兜底来源未知的暂停（fix2 B 三态门控）。三道早退门均留痕
+       * （fix322/play）：吞掉判死是行为，留痕是义务。 */
+      if (opts.pauseState?.() === "paused_by_user") { opts.traceGated?.({ gate: "paused_by_user", state }); return; }
+      if (!opts.isPlayWanted()) { opts.traceGated?.({ gate: "not_wanted", state }); return; }
       opts.traceStall(state, opts.attemptRef.current);
       if (opts.attemptRef.current < 1) {
         opts.attemptRef.current += 1;

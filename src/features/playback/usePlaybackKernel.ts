@@ -14,7 +14,7 @@ import { mediaResource, observeHls, registerHlsVersion, usePlayerDiagnostics } f
 import { notePlaybackPlaying, publishPlaybackFacts, type PlaybackFacts } from "../../shared/diagnostics/playbackFacts";
 import { usePlaybackActivity } from "./usePlaybackActivity";
 import { createFragThroughputReporter, currentLineOrigin } from "./playbackThroughput";
-import { createStallWatchdog, wireStallWatchdogSignals, type StallRetryReason } from "./stallWatchdogWiring";
+import { createStallWatchdog, wireStallWatchdogSignals, type StallGate, type StallRetryReason } from "./stallWatchdogWiring";
 import type { AppendStallWatchdog, AppendStallState } from "./appendStallWatchdog";
 import { useSrDensity, type SrDensity, type SrFragSample, type SrLevelInfo } from "./useSrDensity";
 import { formatFirstRendition, observeFirstRendition } from "./hlsConfig";
@@ -241,6 +241,7 @@ export function usePlaybackKernel(opts: {
     video: HTMLVideoElement;
     isCurrent: () => boolean;
     traceStall: (state: AppendStallState, attempt: number) => void;
+    traceGated?: (info: { gate: StallGate; state: AppendStallState }) => void;
     retry: (reason: StallRetryReason) => void;
     onExhausted: (message: string) => void;
   }): AppendStallWatchdog => createStallWatchdog({
@@ -250,6 +251,7 @@ export function usePlaybackKernel(opts: {
     pauseState: () => activity.pauseState(),
     attemptRef: stallAttemptRef,
     traceStall: o.traceStall,
+    traceGated: o.traceGated,
     retry: o.retry,
     onExhausted: o.onExhausted,
   });
