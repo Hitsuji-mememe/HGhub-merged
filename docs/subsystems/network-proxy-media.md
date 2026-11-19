@@ -63,6 +63,11 @@
 5. 媒体下载统一走 `fetch_bytes()`：`get_with_dns()` 取字节，失败时按
    `media_dns::eligible()` 判断是否切换公网 DNS。只对 HTTPS 域名、DNS/timeout/transport
    类错误回退；403/404/503 或地址策略拒绝不回退。成功的公网 DNS 路由按 host 记住 30 秒。
+   Referer 走候选链（`media_referer_candidates`，fix331/gallery-device）：首选当前线路
+   base（原生源 CDN 只认本站 Referer，旧行为不变）；仅 HTTP 403（防盗链的拒绝形态）
+   才依次换目标自身 origin、不带 Referer——外部图床多为「空/本本站放行、外站 403」，
+   无条件发 base Referer 会让受保护图片（source-006 图床 jpg）必然 403、/img 回 502、
+   Img 三次 attempt 全灭。其余错误不换候选，维持既有重试语义。
 6. `media::handle()` 接受 `/img?u=`、`/hls?u=`、`/seg?u=`。`/img` 下载 AES-128-CBC 封面并
    校验图片魔数；`/hls` 拉清单并把 variant、key、init、part、media 等 URI 改写到本地
    `LOCAL_ORIGIN`，移除可派生的 URI 字段；`/seg` 下载分片或 Key，若返回 `#EXTM3U` 则继续改写，

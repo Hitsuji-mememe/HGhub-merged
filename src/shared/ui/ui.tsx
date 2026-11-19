@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cover, platform } from "../api/api";
 import { getFullscreenElement, onFullscreenChange } from "../lib/fullscreen";
-import { imageDisplayed, imageFailed, imageRetry, imageStarted, traceFeed, urlFingerprint } from "../lib/feedTrace";
+import { imageDisplayed, imageFailed, imageRetry, imageStarted, recordImageFailure, traceFeed, urlFingerprint } from "../lib/feedTrace";
 export { Sheet, Modal } from "./ios/overlays";
 import { useToasts } from "../model/store";
 import { Loader } from "./ios/effects";
@@ -164,9 +164,12 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
   const [armed, setArmed] = useState(eager);
   const frameRef = useRef<HTMLDivElement>(null);
   const settledRef = useRef(false);
-  /* 当前 attempt 起算时刻（fix331/covers-header）：onError 在 JSX
-   * 处理器里、拿不到 effect 内的 startedAt，逐图留痕的耗时靠它。 */
-  const attemptStartedRef = useRef(0);
+  /* 逐图失败明细的耗时锚点（fix331/gallery-device）：首 attempt 起算
+   * 与当前 attempt 起算，供终局记录算总耗时档/末次耗时档；当前
+   * attempt 锚同时供 onError 的逐图事件耗时（fix331/covers-header
+   * 原 attemptStartedRef，集成时统一为同一事实源）。 */
+  const firstStartRef = useRef(0);
+  const attemptStartRef = useRef(0);
   const ok = state === "decoded" || state === "displayed";
   const err = state === "failed";
   /* 封面走本地解密代理，网络抖动会偶发失败：同地址重试两次再落到占位。
@@ -213,7 +216,8 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
     imageStarted();
     const fp = urlFingerprint(url);
     const startedAt = Date.now();
-    attemptStartedRef.current = startedAt;
+    attemptStartRef.current = startedAt;
+    if (!firstStartRef.current) firstStartRef.current = startedAt;
     traceFeed("image", { ev: "loading", attempt, url: fp, surface, origin });
     const failOrRetry = (reason: "timeout" | "network" | "decode") => {
       if (settledRef.current) return;
@@ -230,6 +234,12 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
         setAttempt(attempt + 1);
       } else {
         imageFailed(reason, surface);
+        recordImageFailure({
+          fp, stage: reason === "timeout" ? "attempt-timeout" : "error-event", reason,
+          attempts: attempt + 1,
+          totalMs: Date.now() - (firstStartRef.current || startedAt),
+          lastMs: Date.now() - startedAt,
+        });
         setState("failed");
       }
     };
@@ -262,13 +272,19 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
           const el = e.currentTarget as HTMLImageElement;
           const reason = el.naturalWidth === 0 ? "network" : "decode";
           settledRef.current = true;
-          traceFeed("image", { ev: "error", attempt, url: urlFingerprint(url), reason, surface, origin, ms: attemptStartedRef.current ? Date.now() - attemptStartedRef.current : undefined, final: raw || attempt >= 2 });
+          traceFeed("image", { ev: "error", attempt, url: urlFingerprint(url), reason, surface, origin, ms: attemptStartRef.current ? Date.now() - attemptStartRef.current : undefined, final: raw || attempt >= 2 });
           if (!raw && attempt < 2) {
             imageRetry();
             setState("loading");
             setAttempt(attempt + 1);
           } else {
             imageFailed(reason, surface);
+            recordImageFailure({
+              fp: urlFingerprint(url), stage: reason === "decode" ? "decode" : "error-event", reason,
+              attempts: attempt + 1,
+              totalMs: Date.now() - (firstStartRef.current || attemptStartRef.current || Date.now()),
+              lastMs: Date.now() - (attemptStartRef.current || Date.now()),
+            });
             setState("failed");
           }
         }}

@@ -90,9 +90,73 @@ export function imageRetry(): void {
   if (imageInFlight > 0) imageInFlight--;
 }
 
+/* —— 逐图终局失败明细（Muse 2026-11-20 fix331/gallery-device） ——
+ * 3.3.1 真机诊断实证：聚合计数只有一行（显示/失败/原因），图集会话
+ * 在其中零明细——坏在哪张、死在哪段、烧了几次 attempt 全不可见，
+ * 定位只能靠用户截图。现保留最近 48 条**终局**失败明细：面（宿主
+ * 经 setImageTraceSurface 标注，图集=gallery、源图集列表=source-list、
+ * 缺省 app）、host 指纹（urlFingerprint，不记 URL 全文）、段位
+ * （error-event＝本地路由/传输给了错误响应；attempt-timeout＝Img 自
+ * 己的 20s 时钟先到；decode＝字节到手但解码失败）、终局原因、
+ * attempt 总数、总耗时档与末次 attempt 耗时档。判读键：error-event
+ * 且耗时档小（<2s 级）≈上游快速拒绝（如防盗链 403 经本地路由回
+ * 502）；耗时档大≈上游重试耗尽/传输抖动。深层段位（上游 HTTP 状态
+ * 与 error_kind）在 Rust playback_log 的 network.end/proxy.end 里，
+ * 两边靠 host 指纹＋时间对齐。纯旁路：记录失败不影响业务。 */
+export type ImageFailureStage = "error-event" | "attempt-timeout" | "decode";
+export type ImageFailureRecord = {
+  ts: number;
+  surface: string;
+  fp: string;
+  stage: ImageFailureStage;
+  reason: ImageFailReason;
+  attempts: number;
+  totalBucket: string;
+  lastBucket: string;
+};
+const MAX_IMAGE_FAILURES = 48;
+const imageFailures: ImageFailureRecord[] = [];
+let imageSurface = "app";
+export function setImageTraceSurface(surface: string): void {
+  imageSurface = surface || "app";
+}
+export function msBucket(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "?";
+  if (ms < 1000) return "<1s";
+  if (ms < 5000) return "1-5s";
+  if (ms < 20000) return "5-20s";
+  if (ms < 60000) return "20-60s";
+  return ">60s";
+}
+export function recordImageFailure(r: {
+  fp: string;
+  stage: ImageFailureStage;
+  reason: ImageFailReason;
+  attempts: number;
+  totalMs: number;
+  lastMs: number;
+}): void {
+  try {
+    imageFailures.push({
+      ts: Date.now(),
+      surface: imageSurface,
+      fp: r.fp,
+      stage: r.stage,
+      reason: r.reason,
+      attempts: r.attempts,
+      totalBucket: msBucket(r.totalMs),
+      lastBucket: msBucket(r.lastMs),
+    });
+    if (imageFailures.length > MAX_IMAGE_FAILURES) {
+      imageFailures.splice(0, imageFailures.length - MAX_IMAGE_FAILURES);
+    }
+  } catch { /* 旁路：记录失败不影响业务 */ }
+}
+
 export type FeedTraceSnapshot = {
   events: FeedTraceEvent[];
   image: typeof imageStats & { inFlight: number };
+  imageFailures: ImageFailureRecord[];
 };
 
 export function feedTraceSnapshot(): FeedTraceSnapshot {
@@ -103,6 +167,7 @@ export function feedTraceSnapshot(): FeedTraceSnapshot {
   return {
     events: [...events],
     image: { ...imageStats, byReason: { ...imageStats.byReason }, bySurface, inFlight: imageInFlight },
+    imageFailures: [...imageFailures],
   };
 }
 

@@ -393,7 +393,59 @@ pub async fn fetch_bytes_with_url(url: &str) -> Result<(String, Option<String>, 
     fetch_bytes_with_url_cap(url, FETCH_BYTES_MAX).await
 }
 
+/// 媒体字节抓取的 Referer 候选链（Muse 2026-11-20 fix331/gallery-device，
+/// 3.3.1 真机图集全灭定性）：旧实现对一切目标无条件发当前线路 base 的
+/// Referer——这是为原生源 CDN 的防盗链设的（它只认本站 Referer）。但
+/// 外部源图床的防盗链口径相反：空 Referer 与本站 Referer 放行、**外站
+/// Referer 一律 403**（source-006 图床实测：jpg 受保护、webp 豁免，
+/// 故真机形态为「首图恰为 webp 独活、其余 jpg 全 403」；403 不可重试，
+/// /img 回 502，Img 三次 attempt 每次重进抓取栈每次 403、终局 HG）。
+/// 故候选链：①线路 base（与旧行为逐字一致，原生源路径零变化）；
+/// ②目标自身 origin（模拟本站页面嵌图，满足「只认本站」型防盗链）；
+/// ③不带 Referer（满足「空放行」型）。仅 HTTP 403 触发换候选——403
+/// 正是防盗链的拒绝形态；其余错误维持既有重试语义、不换候选。
+pub(super) fn media_referer_candidates(raw: &str) -> Vec<Option<String>> {
+    let base_ref = format!("{}/", base());
+    let mut out: Vec<Option<String>> = vec![Some(base_ref.clone())];
+    if let Ok(parsed) = url::Url::parse(raw) {
+        let own = format!("{}/", parsed.origin().ascii_serialization());
+        if own != base_ref {
+            out.push(Some(own));
+        }
+    }
+    out.push(None);
+    out
+}
+
+fn is_http_403(error: &str) -> bool {
+    error
+        .strip_prefix("HTTP ")
+        .and_then(|s| s.split_whitespace().next())
+        .and_then(|s| s.parse::<u16>().ok())
+        == Some(403)
+}
+
 async fn fetch_bytes_with_url_cap(url: &str, max_bytes: usize) -> Result<(String, Option<String>, Vec<u8>), String> {
+    let candidates = media_referer_candidates(url);
+    let last_index = candidates.len() - 1;
+    for (i, referer) in candidates.iter().enumerate() {
+        match fetch_bytes_with_referer(url, max_bytes, referer.as_deref()).await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                if i == last_index || !is_http_403(&e) {
+                    return Err(e);
+                }
+                crate::playback_log::record(
+                    "network.referer_fallback",
+                    json!({"resource": crate::playback_log::resource_id(url), "candidate": i + 1}),
+                );
+            }
+        }
+    }
+    unreachable!("候选链至少含一项且末项必返回")
+}
+
+async fn fetch_bytes_with_referer(url: &str, max_bytes: usize, referer: Option<&str>) -> Result<(String, Option<String>, Vec<u8>), String> {
     let request = NEXT_REQUEST.fetch_add(1, Ordering::Relaxed);
     let resource = crate::playback_log::resource_id(url);
     let mut attempt = 0;
@@ -402,7 +454,7 @@ async fn fetch_bytes_with_url_cap(url: &str, max_bytes: usize) -> Result<(String
     let host = target.as_ref().and_then(|target| target.host_str()).unwrap_or("").to_string();
     let public_dns = AtomicBool::new(MEDIA_DNS_ROUTES.lock().ok()
         .is_some_and(|routes| routes.prefers_public(&host, Instant::now())));
-    let referer = format!("{}/", base());
+    let referer = referer.map(str::to_string);
     with_retry(true, || {
         attempt += 1;
         let attempt = attempt;
@@ -419,7 +471,7 @@ async fn fetch_bytes_with_url_cap(url: &str, max_bytes: usize) -> Result<(String
             let mut status = None;
             let mut headers_ms = None;
             let result = async {
-                let mut resp = get_with_dns(&url, Duration::from_secs(20), None, Some(&referer), using_public_dns).await?;
+                let mut resp = get_with_dns(&url, Duration::from_secs(20), None, referer.as_deref(), using_public_dns).await?;
                 status = Some(resp.status().as_u16());
                 headers_ms = Some(started.elapsed().as_millis() as u64);
                 if !resp.status().is_success() {
@@ -493,6 +545,32 @@ mod tests {
         assert_eq!(page_text_cap("https://guest.freeanimehentai.net.evil.example/api/v11/search_hvs"), PAGE_TEXT_MAX_BYTES);
         assert_eq!(page_text_cap("https://hanime.tv/api/v11/search_hvs"), PAGE_TEXT_MAX_BYTES);
         assert_eq!(page_text_cap("not a url"), PAGE_TEXT_MAX_BYTES);
+    }
+
+    /* fix331/gallery-device：媒体 Referer 候选链——外站目标必须含
+     * 「目标自身 origin」与「不带 Referer」两个后备（防盗链 403 的唯
+     * 二解法形态），且首候选恒为线路 base（旧行为零变化）；与 base
+     * 同源的目标不重复加候选。旧实现只有单一 base Referer，此断言
+     * 在旧码上无对应函数即红。 */
+    #[test]
+    fn media_referer_candidates_cover_anti_hotlink_shapes() {
+        let base_ref = format!("{}/", base());
+        let foreign = media_referer_candidates("https://images.example.net/a/b.jpg");
+        assert_eq!(
+            foreign,
+            vec![Some(base_ref.clone()), Some("https://images.example.net/".to_string()), None],
+            "外站目标：base → 自身 origin → 空，三候选齐备且顺序固定"
+        );
+        let own = media_referer_candidates(&format!("{base_ref}cover/x.jpg"));
+        assert_eq!(own.first(), Some(&Some(base_ref)), "同源目标首候选仍是 base");
+        assert_eq!(own.iter().filter(|c| c.is_some()).count(), 1, "同源不重复加自身 origin 候选");
+        assert_eq!(own.last(), Some(&None), "末候选恒为不带 Referer");
+        let invalid = media_referer_candidates("not a url");
+        assert_eq!(invalid, vec![Some(format!("{}/", base())), None], "不可解析目标只留 base＋空");
+        assert!(is_http_403("HTTP 403"));
+        assert!(!is_http_403("HTTP 404"));
+        assert!(!is_http_403("HTTP 503"));
+        assert!(!is_http_403("请求超时"));
     }
 
     /* 流式上限：恰好 4MB 可过，累计越线立即报错（分块到达也一样）。 */

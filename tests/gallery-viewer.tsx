@@ -11,9 +11,18 @@ import "../src/index.css";
 /* 张数经 ?n= 注入（默认 3 与既有场景同形态；缩略图条场景传 n=146
  * 复现真机大图集——条手势隔离/快速定位/跟随同步只在大图集下成立）。 */
 const params = new URLSearchParams(location.search);
+/* 设备链模式（Muse 2026-11-20 fix331/gallery-device）：?real=1 时用
+ * 编排脚本注入的真实图集地址（window.__DEVICE_CHAIN_URLS__，源图床
+ * 实址），Img 经 cover() 指向本机真实媒体服务 127.0.0.1:17650——与
+ * 几何场景的 fixture.invalid 假址＋路由拦截 fulfill 是两条完全不同
+ * 的链：这里不拦截、真请求、真上游。注入缺失时回退假址（场景会因
+ * 断言无图而红，不静默假绿）。 */
+const realUrls = (window as unknown as { __DEVICE_CHAIN_URLS__?: string[] }).__DEVICE_CHAIN_URLS__;
 const nParam = Number(params.get("n"));
 const count = Number.isFinite(nParam) && nParam >= 1 ? Math.min(300, Math.floor(nParam)) : 3;
-const images = Array.from({ length: count }, (_, i) => `https://fixture.invalid/album/${i + 1}.jpg`);
+const images = params.get("real") === "1" && Array.isArray(realUrls) && realUrls.length >= 3
+  ? realUrls.slice(0, count)
+  : Array.from({ length: count }, (_, i) => `https://fixture.invalid/album/${i + 1}.jpg`);
 /* ?immersive=1（fix330/gallery-viewer 安全区场景）：模拟 SourceGallery
  * 的 fixed 覆满视口宿主——无壳顶栏、可用区即全屏，并在根上注入已知
  * 安全区变量（--sat 47 / --sab 34，iPhone 刘海机型量级），供场景断
