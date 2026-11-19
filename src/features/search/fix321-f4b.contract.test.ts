@@ -11,6 +11,12 @@
  * 侧（不进视频、也不猜进短剧）；单条视频仍进视频页签；判定同源
  * （shared/lib/contentKind 唯一出处、搜索层只 re-export）；Search
  * 生产接线文本断言。不访问真实网络。
+ * fix322 适配注记（契约变化、非削弱）：裁决升级为标记优先——裸
+ * 1 集卡（无标记、无补判）不再直判视频、落 unknown 暂扣待补判；
+ * 真单条的 Detail 规范记录带 tracking 品类标记（26/27），本文件
+ * singleCanonical 夹具据此补 source_type_id: 26（Detail 实际形
+ * 态，映射出自上游官方分类表），「单条不误伤」改由标记补判路径
+ * 验证、覆盖不减。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -38,7 +44,8 @@ const dramaSearchFormMissing = { id: 201, title: "巨乳姐姐" } as EpisodeStru
 const dramaCanonical = { episode_count: 24, total_episodes: 24, episodes: Array.from({ length: 24 }, (_, i) => ({ ep_num: i + 1 })) };
 const singleSearchForm = { id: 202, title: "单条视频甲", episode_count: 1, total_episodes: 1 };
 const singleSearchFormNoSignal = { id: 202, title: "单条视频甲", episode_count: 0, total_episodes: 0 };
-const singleCanonical = { episode_count: 1, total_episodes: 1, episodes: [{ ep_num: 1 }] };
+/* fix322：Detail 实际形态带 tracking 品类标记，真单条为 26/27 类 */
+const singleCanonical = { episode_count: 1, total_episodes: 1, episodes: [{ ep_num: 1 }], source_type_id: 26 };
 
 /* 搜索页签归类复刻（与 Search.tsx groups 同口径）：resolved kind 为
  * unknown 的条目不生成任何页签命中（安全侧暂扣），其余经
@@ -99,13 +106,16 @@ const tabGroupsFor = (entries: { card: EpisodeStructureSignal & { id: number; ti
   assert.equal(held.video.length + held.drama.length + held.post.length + held.image.length, 0, "unknown 条目暂不进任何页签");
 }
 
-/* ── 单条视频不误伤：有信号直接进视频；无信号经补判仍进视频 ── */
+/* ── 单条视频不误伤：经标记补判进视频；补判未到先暂扣（fix322） ── */
 {
-  assert.equal(sharedSearchKind(singleSearchForm), "video", "单条（1 集）→ 视频（无需补判）");
-  assert.equal(sharedSearchKind(singleSearchFormNoSignal, singleCanonical), "video", "单条无信号＋规范记录（1 集）→ 视频");
-  const groups = tabGroupsFor([{ card: singleSearchForm }]);
-  assert.equal(groups.video.length, 1, "单条进视频页签");
+  assert.equal(sharedSearchKind(singleSearchForm), "unknown", "单条（1 集）无标记无补判 → unknown 暂扣（fix322：单集不直判、与单集短剧同形）");
+  assert.equal(sharedSearchKind(singleSearchFormNoSignal, singleCanonical), "video", "单条无信号＋规范记录（1 集、标记 26）→ 视频");
+  assert.equal(sharedSearchKind(singleSearchForm, singleCanonical), "video", "单条（1 集）＋标记补判 → 视频");
+  const groups = tabGroupsFor([{ card: singleSearchFormNoSignal, canonical: singleCanonical }]);
+  assert.equal(groups.video.length, 1, "单条经补判进视频页签");
   assert.equal(groups.drama.length, 0, "单条不进短剧页签");
+  const held = tabGroupsFor([{ card: singleSearchForm }]);
+  assert.equal(held.video.length + held.drama.length, 0, "单条补判未到时暂不进任何页签（不误入视频）");
 }
 
 /* ── 生产接线（文本断言，与 wiring-manifest fix321-f4b-* 互证） ── */

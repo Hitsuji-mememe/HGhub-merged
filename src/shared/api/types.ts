@@ -48,6 +48,15 @@ export type Detail = {
   video_type?: number;
   duration?: number;
   created_at?: string;
+  /** 上游埋点块：drama_type_id 是源头显式品类标记（上游分类表
+   * /api/site/categories/video 的 id：24 短剧/25 漫剧/26 AI换脸/
+   * 27 AI魔改，字符串形态）。归类判定经 shared/lib/contentKind 的
+   * kindSignalOfDetail 提取消费；列表/搜索载荷不下发此块。 */
+  tracking?: {
+    drama_type_id?: string | number;
+    drama_type_name?: string;
+    drama_content_type?: string;
+  };
 };
 
 export type PlayInfo = {

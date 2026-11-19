@@ -11,7 +11,12 @@ import { CollectionLink, CollectionLinks } from "../../shared/ui/CollectionLink"
 import { InplaceSearch } from "../search/InplaceSearch";
 import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import { dedupedIncoming } from "../../shared/lib/dedup";
-import { partitionCardsByKind } from "../../shared/lib/contentKind";
+import {
+  kindSignalOfDetail,
+  needsCanonicalKindLookup,
+  partitionCardsByResolvedKind,
+  type EpisodeStructureSignal,
+} from "../../shared/lib/contentKind";
 import { traceFeed } from "../../shared/lib/feedTrace";
 import { Empty } from "../../shared/ui/ui";
 import { IAward, IBack, IChevR, IFilm, IFlame, IGrid, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
@@ -33,9 +38,46 @@ export const CHANNELS = [
   { cate: "original", name: "视频", Icon: IAward },
 ] as const;
 
+/* ── 归类补判（fix322 标记线，浏览面接缝）：性质未决定的条目按 ID
+ * 查 Detail 规范信号（kindSignalOfDetail 单点构造：集数结构＋
+ * tracking 品类标记）。key=`${accountScope}:${lineEpoch}:${id}`
+ * （作用域/线路代次进 key，同搜索面口径，仓库不变量 2）；请求登
+ * 记先行、成败都不重复查同一 ID；并发 4；单查 15s 超时兜底、失
+ * 败静默——条目保持 unknown 暂扣（不进任何呈现组），信号到达后
+ * 经 version 自增触发调用方重算自动归位。总览与频道页共用。 ── */
+function useCanonicalKindSignals(envKey: string) {
+  const signalsRef = useRef(new Map<string, EpisodeStructureSignal>());
+  const requestedRef = useRef(new Set<string>());
+  const aliveRef = useRef(true);
+  useEffect(() => () => { aliveRef.current = false; }, []);
+  const [version, setVersion] = useState(0);
+  const fetchFor = useCallback(async (cards: readonly VideoCard[]): Promise<void> => {
+    const queue = cards.filter((v) => needsCanonicalKindLookup(v) && !requestedRef.current.has(`${envKey}:${v.id}`));
+    if (!queue.length) return;
+    queue.forEach((v) => requestedRef.current.add(`${envKey}:${v.id}`));
+    const worker = async () => {
+      while (queue.length > 0) {
+        const v = queue.shift()!;
+        try {
+          const d = await withRequestTimeout(api.video(v.id), 15_000);
+          if (d) signalsRef.current.set(`${envKey}:${v.id}`, kindSignalOfDetail(d));
+        } catch { /* 静默：补不到保持 unknown 安全侧 */ }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, queue.length) }, () => worker()));
+    if (aliveRef.current) setVersion((x) => x + 1);
+  }, [envKey]);
+  const signalFor = useCallback(
+    (card: VideoCard) => signalsRef.current.get(`${envKey}:${card.id}`),
+    [envKey],
+  );
+  return { fetchFor, signalFor, version };
+}
+
 /* ================= 分类总览 ================= */
 export default function Category({ wide, active }: { wide: boolean; active: boolean }) {
-  const { push, lineEpoch, setTab } = useStore();
+  const { push, lineEpoch, accountScope, setTab } = useStore();
+  const kindSignals = useCanonicalKindSignals(`${accountScope}:${lineEpoch}`);
   const [rows, setRows] = useState<Record<string, VideoCard[]>>({});
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -122,11 +164,22 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
     void loadPreview("posts");
   }, [lineEpoch, loadPreview]);
 
-  /* 性质分组（Muse 2026-11-19 3.2.1 修复 F4 线，与搜索共用
-   * shared/lib/contentKind 判定）：总览视频区只出 video 组；
-   * original 频道里的 drama 组条目补入短剧区（按 id 去重），
-   * 多集条目在总览只归短剧一处、不在两区重复出现。 */
-  const originalKindGroups = partitionCardsByKind(rows["original"] || []);
+  /* 总览归类补判（fix322）：original 预览窗口到达后，对性质未决
+   * 定者（单集/无信号、无标记）批量查 Detail 品类标记；信号写入
+   * 后 version 自增触发下方分组重算、条目自动归位。 */
+  useEffect(() => {
+    const originals = rows["original"];
+    if (originals?.length) void kindSignals.fetchFor(originals);
+  }, [rows, kindSignals]);
+
+  /* 性质分组（Muse 2026-11-19 3.2.1 修复 F4 线＋fix322 标记线，
+   * 与搜索共用 shared/lib/contentKind 统一裁决）：总览视频区只出
+   * resolved video 组；original 频道里的 drama 组条目补入短剧区
+   * （按 id 去重），多集条目在总览只归短剧一处、不在两区重复出
+   * 现；unknown 组（补判未到/无标记）暂不呈现于任一区。重算依
+   * 赖 kindSignals.version（补判到达信号），render 期现算。 */
+  void kindSignals.version;
+  const originalKindGroups = partitionCardsByResolvedKind(rows["original"] || [], kindSignals.signalFor);
 
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
@@ -295,7 +348,8 @@ const originalSort = (cate: (typeof ORIGINAL_CATES)[number]["value"]) =>
   cate === "all" ? "new" : "latest";
 
 export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: string; onBack: () => void; wide: boolean }) {
-  const { push, lineEpoch } = useStore();
+  const { push, lineEpoch, accountScope } = useStore();
+  const kindSignals = useCanonicalKindSignals(`${accountScope}:${lineEpoch}`);
   const { preferences } = useContentPreferences();
   const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
   const [searching, setSearching] = useState(false);
@@ -353,12 +407,23 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
         : api.category(cate, next, 20, sortOverride));
       if (seq !== requestSeq.current) return;
       const rawItems = res?.items || [];
-      /* 性质过滤（F4 线）：「视频」频道服务端分页内混排剧集与单条，
-       * incoming 先按共用判定剔除 drama 组再入列表。分页取舍：过滤
-       * 只作用于入列表的条目，page/pages 仍按服务端原值推进与终止
-       * （见下方 setPages），单页可见数可少于 20、整页被滤光时哨兵/
-       * 加载更多继续翻下一服务端页，不提前到底也不死循环。 */
-      const incomingItems = cate === "original" ? partitionCardsByKind(rawItems).video : rawItems;
+      /* 性质过滤（F4 线＋fix322 标记线）：「视频」频道服务端分页内
+       * 混排剧集与单条，incoming 先经统一裁决只入 resolved video
+       * 组。fix322 前只看集数结构——单集短剧与普通视频同形被放行
+       * （3.2.1 真机实锤）；现每页先对性质未决定者（无标记且集数
+       * ≤1）批量补判 Detail 品类标记（useCanonicalKindSignals，
+       * 并发 4、静默失败），标记定夺后 drama 与 unknown（补判失
+       * 败/Detail 无标记）都不入列表。补判在 busy 内完成、await
+       * 后复检 seq 防迟到写入。分页取舍：过滤只作用于入列表的条
+       * 目，page/pages 仍按服务端原值推进与终止（见下方
+       * setPages），单页可见数可少于 20、整页被滤光时哨兵/加载
+       * 更多继续翻下一服务端页，不提前到底也不死循环。 */
+      let incomingItems = rawItems;
+      if (cate === "original") {
+        await kindSignals.fetchFor(rawItems);
+        if (seq !== requestSeq.current) return;
+        incomingItems = partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video;
+      }
       setPageItems((prev) => {
         const base = reset ? [] : prev;
         /* pageItems 是分页数组：新页 = 相对全部已加载页去重后的 incoming

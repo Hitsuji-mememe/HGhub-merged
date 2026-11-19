@@ -17,6 +17,11 @@
  * 信号落 unknown 暂不呈现、补判到达后自动归位）；面1 只留 video、
  * 面2 只留 drama。本测试以完整 VideoCard 形态夹具直接执行生产门
  * 函数，并以源码文本断言绑死 hook 接线（漂移即红）。不访问真实网络。
+ * fix322 适配注记（契约变化、非削弱）：裁决升级为标记优先——单集
+ * 条目（含面1 的单条对照）无标记无补判时落 unknown 暂扣、不再直
+ * 入视频面；面1「单条保留」改以带标记的 Detail 补判验证（生产同
+ * 路径：needsCanonicalKindLookup 触发补判），并新增同场景无补判
+ * 时「暂扣不误入」断言，覆盖不减。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -42,16 +47,20 @@ const singleNonOriginal = card({ id: 9106, title: "单条视频丙", episode_cou
 const jingjieSearchForm = card({ id: 9101, title: "警界之花", episode_count: 0, total_episodes: 0, is_original: 1 });
 const singleSearchForm = card({ id: 9104, title: "单条视频甲", episode_count: 0, total_episodes: 0, is_original: 1 });
 const jingjieCanonical: EpisodeStructureSignal = { episode_count: 3, total_episodes: 3, episodes: [{}, {}, {}] };
-const singleCanonical: EpisodeStructureSignal = { episode_count: 1, total_episodes: 1, episodes: [{}] };
+/* fix322：Detail 实际形态带 tracking 品类标记，真单条为 26/27 类 */
+const singleCanonical: EpisodeStructureSignal = { episode_count: 1, total_episodes: 1, episodes: [{}], source_type_id: 26 };
 const noCanonical = () => undefined;
 const canonicalFor = (m: Record<number, EpisodeStructureSignal>) => (c: Card) => m[c.id];
 
 const ids = (cards: Card[]) => cards.map((c) => c.id);
 
-/* ── 面1（「视频」，scope=original）：多集剧绝不进、单条保留 ── */
+/* ── 面1（「视频」，scope=original）：多集剧绝不进、单条经标记
+ * 补判保留；补判未到时单条暂扣（fix322，不再结构直入） ── */
 {
-  const shown = filterSearchCardsByKind([jingjie, singleOriginal], "video", noCanonical);
-  assert.deepEqual(ids(shown), [9104], "面1： 《警界之花》（3 集）被性质门剔除、单条视频保留");
+  const shown = filterSearchCardsByKind([jingjie, singleOriginal], "video", canonicalFor({ 9104: singleCanonical }));
+  assert.deepEqual(ids(shown), [9104], "面1： 《警界之花》（3 集）被性质门剔除、单条视频经标记补判保留");
+  const held = filterSearchCardsByKind([jingjie, singleOriginal], "video", noCanonical);
+  assert.deepEqual(ids(held), [], "面1：补判未到时两条都不入视频面（多集剔除、单条暂扣不误入）");
   assert.equal(searchKindForHuangguoVideo(jingjie), "drama", "面1 判定同源：3 集 → drama");
 }
 
@@ -67,7 +76,7 @@ const ids = (cards: Card[]) => cards.map((c) => c.id);
   assert.deepEqual(ids(filterSearchCardsByKind([jingjieSearchForm, singleSearchForm], "drama", lookup)), [9101],
     "补判：无信号短剧经 Detail 补判（3 集）进短剧面");
   assert.deepEqual(ids(filterSearchCardsByKind([jingjieSearchForm, singleSearchForm], "video", lookup)), [9104],
-    "补判：无信号单条经 Detail 补判（1 集）进视频面、不误伤");
+    "补判：无信号单条经 Detail 补判（1 集、标记 26）进视频面、不误伤");
 }
 
 /* ── 安全侧：无信号且补不到 → unknown，两面都不呈现 ── */
@@ -87,7 +96,8 @@ const ids = (cards: Card[]) => cards.map((c) => c.id);
   assert.ok(hook.includes('scope === "original" ? "video" : "drama"'), "目标性质与呈现标签同口径：original 面=video、其余面=drama");
   assert.ok(hook.includes("api.video("), "信号缺失条目按 ID 查 Detail 补判（api.video）");
   assert.ok(hook.includes("Math.min(4,"), "补判并发 ≤4（与全局搜索 F4b 同口径）");
-  assert.ok(hook.includes("hasEpisodeStructureSignal"), "只查自带信号缺失者（hasEpisodeStructureSignal 门）");
+  assert.ok(hook.includes("needsCanonicalKindLookup"), "补判触发走共用门 needsCanonicalKindLookup（无标记且集数 ≤1 才查，fix322 改绑）");
+  assert.ok(hook.includes("kindSignalOfDetail(d)"), "补判规范信号经共用提取点构造（集数＋品类标记不丢）");
   assert.ok(hook.includes("item.is_original === 1"), "original 面既有 is_original 圈定保留（频道圈定不在本线改动范围）");
   const inplace = read("./InplaceSearch.tsx");
   assert.ok(inplace.includes('scope === "original" ? "视频" : "短剧"'), "呈现标签口径未变：original=视频、其余=短剧");

@@ -28,7 +28,7 @@
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../sources/types.ts";
 /* 黄果条目性质判定唯一出处在 shared/lib/contentKind（浏览面共用，
  * 3.2.1 修复 F4 线抽共用）；此处只 re-export 保持既有导入路径。 */
-export { kindForHuangguoVideo, searchKindForHuangguoVideo, hasEpisodeStructureSignal } from "../../shared/lib/contentKind.ts";
+export { kindForHuangguoVideo, searchKindForHuangguoVideo, hasEpisodeStructureSignal, resolveHuangguoKind, kindSignalOfDetail, needsCanonicalKindLookup } from "../../shared/lib/contentKind.ts";
 export type { EpisodeStructureSignal, HuangguoSearchKind } from "../../shared/lib/contentKind.ts";
 
 export type GlobalSearchKind = "video" | "drama" | "post" | "image";

@@ -3,7 +3,8 @@ import { api } from "../../shared/api/api";
 import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import {
   filterSearchCardsByKind,
-  hasEpisodeStructureSignal,
+  kindSignalOfDetail,
+  needsCanonicalKindLookup,
   type EpisodeStructureSignal,
 } from "../../shared/lib/contentKind";
 import type { Post, VideoCard } from "../../shared/api/types";
@@ -35,9 +36,10 @@ export function useSearchResults(scope?: "original") {
   const envKey = `${accountScope}:${lineEpoch}`;
   const prevEnvRef = useRef(envKey);
   /* F4c 补判规范信号（与全局搜索 Search.tsx 同接缝/同口径）：key=
-   * `${accountScope}:${lineEpoch}:${id}`，值只存 Detail 的剧集结构
-   * 信号；请求登记先行、成败都不重复查同一 ID；写入后经版本号触发
-   * 下方性质门重跑、条目自动归位。 */
+   * `${envKey}:${id}`，值经 kindSignalOfDetail 存 Detail 的剧集结构
+   * 信号＋tracking 品类标记（fix322 标记升级，摘字段不许再丢标
+   * 记）；请求登记先行、成败都不重复查同一 ID；写入后经版本号触
+   * 发下方性质门重跑、条目自动归位。 */
   const canonicalSignals = useRef(new Map<string, EpisodeStructureSignal>());
   const kindLookupRequested = useRef(new Set<string>());
   const [canonicalVersion, setCanonicalVersion] = useState(0);
@@ -66,15 +68,17 @@ export function useSearchResults(scope?: "original") {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawResult, canonicalVersion, envKey, targetKind]);
 
-  /* ── F4c 补判：搜索载荷信号缺失的条目按 ID 查 Detail 规范信号 ──
-   * 只查信号缺失者（自带正计数者已可判定）；并发 Math.min(4, …)
-   * 与全局搜索同口径 ≤4；失败静默（不弹窗、不置错误态），条目保持
-   * unknown 暂扣，成功后经性质门重跑归位到正确面。 */
+  /* ── F4c 补判＋fix322 标记升级：性质未决定的条目按 ID 查 Detail
+   * 规范信号 ──触发门 needsCanonicalKindLookup（共用出处）：无标
+   * 记且集数 ≤1 者都查（搜索载荷恒无标记；1 集与普通视频同形、
+   * 必须靠 Detail 的 tracking 品类标记裁决）；并发 Math.min(4, …)
+   * 与全局搜索同口径 ≤4；失败静默（不弹窗、不置错误态），条目
+   * 保持 unknown 暂扣，成功后经性质门重跑归位到正确面。 */
   useEffect(() => {
     if (rawResult?.kind !== "video") return;
     const queue = (rawResult.items as VideoCard[]).filter((v) => {
       const key = `${envKey}:${v.id}`;
-      return !hasEpisodeStructureSignal(v) && !kindLookupRequested.current.has(key);
+      return needsCanonicalKindLookup(v) && !kindLookupRequested.current.has(key);
     });
     if (!queue.length) return;
     queue.forEach((v) => kindLookupRequested.current.add(`${envKey}:${v.id}`));
@@ -84,9 +88,7 @@ export function useSearchResults(scope?: "original") {
         try {
           const d = await api.video(v.id);
           if (d) {
-            canonicalSignals.current.set(`${envKey}:${v.id}`, {
-              total_episodes: d.total_episodes, episode_count: d.episode_count, episodes: d.episodes,
-            });
+            canonicalSignals.current.set(`${envKey}:${v.id}`, kindSignalOfDetail(d));
             if (alive.current) setCanonicalVersion((x) => x + 1);
           }
         } catch { /* 静默：补不到保持 unknown 安全侧 */ }
