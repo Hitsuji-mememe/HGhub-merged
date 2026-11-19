@@ -50,10 +50,10 @@ export const BUILTIN_SOURCES: SourceDef[] = [
   },
   {
     id: "xvideos", displayName: "XVideos", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/?k=&p={page}", itemLinkPattern: "/video", detailPath: "/video{id}" } },
+    adapter: { template: "hls-site", params: { listPath: "/", itemLinkPattern: "/video.", detailPath: "/video.{id}" } },
     baseUrls: ["https://www.xvideos.com"],
-    enabled: true, order: 23, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+    enabled: true, order: 23, maturity: "stable",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：新版条目 URL 形态 /video.<hash>/slug、首页解析 60 条、详情 setVideoHLS 实测 m3u8（另有 setVideoUrlHigh/Low mp4）；旧列表参数 /?k=&p= 返回 500 已弃；分页路径未验、当前 listPath 只出首页",
   },
   {
     id: "hanime-tv", displayName: "Hanime.tv", kind: "video", category: "video",
