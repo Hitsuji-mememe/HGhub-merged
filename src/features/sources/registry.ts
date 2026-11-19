@@ -2,13 +2,13 @@
  * 内置源注册表（Muse 2026-11-19 根治包·多源线 条目2）。
  * 名单已冻结（正式 16 + 探路 5 + myfans 预览），不许增删。
  *
- * 成熟度口径（诚实标注）：
+ * 成熟度口径（诚实标注，2026-11-19 真站实测后更新）：
  * - 黄果 stable：仓内既有 native 通道、现行生产源；
- * - 其余正式源 probe：适配器已按模板实现并过夹具契约测试，但运行时
- *   取页通道（仓内无通用取页 Tauri 命令，见 adapters/fetchPage.ts）
- *   未接入、未做真站实测，不标 stable；
- * - 探路 5：2026-11-19 探测实测全降级（tools/source-probe/results.md：
- *   直连无出口、代理出口被 Cloudflare 403 拦截），enabled=false；
+ * - 正式源逐源真站实测（每源 ≤3 页：列表+详情+流形态）：列表/详情/流
+ *   三段全通的标 stable；只通一段或取流未证的标 probe 并在 note 写卡点；
+ *   站点不可达/被墙的标 blocked 并在 note 写证据、enabled=false；
+ * - 运行时取页通道（Rust 通用取页命令）由并行线接入，见 adapters/fetchPage.ts；
+ * - 探路 5：2026-11-19 探测实测全降级（tools/source-probe/results.md），enabled=false；
  * - myfans preview：仅预览专区单列，不入正式源。
  */
 import type { SourceDef } from "./types.ts";
@@ -32,7 +32,7 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
     baseUrls: ["https://rou.video"],
     enabled: true, order: 20, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：入口为 18+ 年龄门页（按钮指向 /home），主 JS 两 chunk 内无数据 API 路径、门页 HTML 无条目；列表须自 /home 起爬、数据接口未定位 → probe",
   },
   {
     id: "91video", displayName: "91视频", kind: "video", category: "video",
