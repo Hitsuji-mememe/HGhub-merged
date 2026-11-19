@@ -35,6 +35,7 @@ import { registerOverlayBack } from "../../shared/lib/back";
 import { Player } from "../playback";
 import { extractArticleBlocks } from "./articleBlocks.ts";
 import { createAdapter } from "./adapters/index.ts";
+import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
 type DetailState =
@@ -53,6 +54,8 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
    * 分类总览据此整区隐藏空的吃瓜区。不传则不回报（Posts 页）。 */
   onSettledEmpty?: (empty: boolean) => void;
 }) {
+  /* 进入浏览面补探（fix331/source-reliability）：同 SourceBrowse 口径。 */
+  useSourceSelfCheckOnView(def);
   const { toast } = useStore();
   const [items, setItems] = useState<SourceItem[]>([]);
   const [page, setPage] = useState(0);

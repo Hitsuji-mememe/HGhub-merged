@@ -1764,6 +1764,55 @@
       ],
       "symbol": "bySurface",
       "min": 3
+    },
+    {
+      "id": "fix331-reliability-tail-probe",
+      "item": "fix331/source-reliability 自检补全链：视频类详情可达后抽同 1 条目续探取流（healthCheck 引擎 resolve 调用点）",
+      "symbol": "adapter.resolve(",
+      "files": [
+        "src/features/sources/healthCheck.ts"
+      ],
+      "min": 1
+    },
+    {
+      "id": "fix331-reliability-single-derivation",
+      "item": "fix331/source-reliability 源健康单一派生 classifySelfCheckResult：healthCheck 定义＋registryDiag 诊断计数/状态消费",
+      "symbol": "classifySelfCheckResult",
+      "files": [
+        "src/features/sources/healthCheck.ts",
+        "src/features/sources/registryDiag.ts"
+      ],
+      "min": 3
+    },
+    {
+      "id": "fix331-reliability-surface-badges",
+      "item": "fix331/source-reliability 展示面徽标改读同一派生 sourceHealthBadgeText：源切换器与分类总览源行各须在位",
+      "symbol": "sourceHealthBadgeText",
+      "files": [
+        "src/features/sources/SourceSwitcher.tsx",
+        "src/features/category/Category.tsx"
+      ],
+      "each": true
+    },
+    {
+      "id": "fix331-reliability-onview-topup",
+      "item": "fix331/source-reliability 进入浏览面补探 useSourceSelfCheckOnView：视频/帖子/图集三浏览面各须在位",
+      "symbol": "useSourceSelfCheckOnView",
+      "files": [
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourcePosts.tsx",
+        "src/features/sources/SourceGallery.tsx"
+      ],
+      "each": true
+    },
+    {
+      "id": "fix331-reliability-diag-host-attribution",
+      "item": "fix331/source-reliability 诊断取页归属改多 host 认领（C④）：registryDiag 按全部 baseUrls∪模板 origin 派生 host 集合",
+      "symbol": "templateFetchOrigins",
+      "files": [
+        "src/features/sources/registryDiag.ts"
+      ],
+      "min": 1
     }
   ]
 }

@@ -16,6 +16,7 @@ import { IBack, IGrid } from "../../shared/ui/icons";
 import { AlbumViewer } from "./AlbumViewer.tsx";
 import { registerOverlayBack } from "../../shared/lib/back";
 import { createAdapter } from "./adapters/index.ts";
+import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import type { SourceDef, SourceItem } from "./types.ts";
 
 type AlbumState =
@@ -24,6 +25,8 @@ type AlbumState =
   | { phase: "error"; item: SourceItem; message: string };
 
 export default function SourceGallery({ def }: { def: SourceDef }) {
+  /* 进入浏览面补探（fix331/source-reliability）：同 SourceBrowse 口径。 */
+  useSourceSelfCheckOnView(def);
   const [items, setItems] = useState<SourceItem[]>([]);
   const [page, setPage] = useState(0);
   const [pages, setPages] = useState(1);

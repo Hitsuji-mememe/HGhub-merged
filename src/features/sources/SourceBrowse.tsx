@@ -26,6 +26,7 @@ import { IBack, IFilm } from "../../shared/ui/icons";
 import { Player } from "../playback";
 import { registerOverlayBack } from "../../shared/lib/back";
 import { createAdapter } from "./adapters/index.ts";
+import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import type { SourceDef, SourceItem } from "./types.ts";
 
 type DetailState =
@@ -42,6 +43,9 @@ export default function SourceBrowse({ def, onDetailOpenChange }: {
    * 详情关闭自动恢复。 */
   onDetailOpenChange?: (open: boolean) => void;
 }) {
+  /* 进入浏览面补探（fix331/source-reliability）：自检结果缺失/
+   * 过期时后台单源补探，徽标探完即刷新，不阻塞本面取数。 */
+  useSourceSelfCheckOnView(def);
   const [items, setItems] = useState<SourceItem[]>([]);
   const [page, setPage] = useState(0);
   const [pages, setPages] = useState(1);

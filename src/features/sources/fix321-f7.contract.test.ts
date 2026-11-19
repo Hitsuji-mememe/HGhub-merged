@@ -8,7 +8,12 @@
  * （selfCheckDiagLines/selfCheckSegmentText）输出含该源自检行与
  * 失败形态，registryDiag 两条呈现路径文本接线；(c) 预算/资格——
  * 未启用/blocked/preview 源不进探测名单、结果未过期不重探、每源
- * 请求数 ≤ SELF_CHECK_MAX_REQUESTS_PER_SOURCE（硬预算 2）。
+ * 请求数 ≤ SELF_CHECK_MAX_REQUESTS_PER_SOURCE（硬预算 3）。
+ * 断言适配（2026-11-20 fix331/source-reliability）：自检补全链
+ * （视频类详情后抽 1 条目续探取流）后硬预算 2→3、结果格式新增
+ * 末段三字段＋清单版本指纹，本文件假适配器 resolve 改回真流、
+ * 全部结果夹具补齐新格式字段；资格/TTL/落盘口径不变、覆盖不降，
+ * 全链派生与补探口径由 fix331-reliability.contract.test.ts 承接。
  * 不访问真实网络：适配器经注入接缝（createAdapterFor）以假适配器
  * 隔离；registryDiag.ts 本体不在 node 直导入（其 fetchHealth→
  * playbackDiagnostics 链含 Tauri/react 导入，为既有约束），其消费
@@ -17,6 +22,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { getBuiltinRegistry } from "./registry.ts";
+import { getActiveRegistry, getRegistryInfo } from "./manifest.ts";
 import { SourceParseEmptyError } from "./adapters/templates.ts";
 import {
   SELF_CHECK_MAX_REQUESTS_PER_SOURCE,
@@ -80,7 +86,7 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
       if (behavior.detailError) throw behavior.detailError;
       return { sourceId: "fake", externalId: id, title: "d", cover: "", href: "", tags: [], images: [], episodes: [] };
     },
-    async resolve() { return { streams: [] }; },
+    async resolve() { return { streams: [{ url: "https://x.example/v.m3u8", kind: "hls" as const }] }; },
   };
 }
 
@@ -134,16 +140,17 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
 {
   const fresh: SourceSelfCheckResult = {
     sourceId: "hanime-tv", at: NOW - 1000, listOk: true, itemCount: 3,
-    listFailure: null, detail: "ok", detailFailure: null, requests: 2,
+    listFailure: null, detail: "ok", detailFailure: null, requests: 3,
+    tail: "ok", tailKind: "stream", tailFailure: null, manifestVersion: getActiveRegistry().manifestVersion, appVersion: getRegistryInfo().appVersion,
   };
   const stale = { ...fresh, at: NOW - SELF_CHECK_TTL_MS - 1 };
   assert.ok(!buildSelfCheckPlan(getBuiltinRegistry(), { "hanime-tv": fresh }, NOW).some((s) => s.id === "hanime-tv"), "TTL 内不重探");
   assert.ok(buildSelfCheckPlan(getBuiltinRegistry(), { "hanime-tv": stale }, NOW).some((s) => s.id === "hanime-tv"), "过期后重探");
 }
 
-/* ── (c) 预算：每源最多 2 请求（列表 1＋详情 1），失败形态分开记 ── */
+/* ── (c) 预算：每源最多 3 请求（列表 1＋详情 1＋视频类取流 1），失败形态分开记 ── */
 {
-  assert.equal(SELF_CHECK_MAX_REQUESTS_PER_SOURCE, 2, "硬预算常量 = 2");
+  assert.equal(SELF_CHECK_MAX_REQUESTS_PER_SOURCE, 3, "硬预算常量 = 3（fix331 补取流段后）");
   const def = fakeDef("budget");
 
   const c1 = { calls: 0 };
@@ -151,7 +158,8 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   assert.equal(ok.listOk, true, "列表成功");
   assert.equal(ok.itemCount, 3, "记条目数");
   assert.equal(ok.detail, "ok", "有条目再探详情、可达");
-  assert.equal(ok.requests, 2, "成功路径恰用 2 请求");
+  assert.equal(ok.tail, "ok", "视频类续探取流、可达（fix331 补全链）");
+  assert.equal(ok.requests, 3, "全链成功路径恰用 3 请求");
   assert.ok(c1.calls <= SELF_CHECK_MAX_REQUESTS_PER_SOURCE, "适配器调用不超硬预算");
 
   const c2 = { calls: 0 };
@@ -191,6 +199,7 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   const r: SourceSelfCheckResult = {
     sourceId: "swag", at: NOW, listOk: false, itemCount: 0,
     listFailure: "解析为空", detail: "skipped", detailFailure: null, requests: 1,
+    tail: "skipped", tailKind: "stream", tailFailure: null, manifestVersion: getActiveRegistry().manifestVersion, appVersion: getRegistryInfo().appVersion,
   };
   saveSelfCheckResult(r);
   assert.ok(storage.map.has(SELF_CHECK_STORAGE_KEY), "结果写入落盘键");
@@ -209,9 +218,10 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
     { id: "swag", stableId: "source-013" },
     { id: "91video", stableId: "source-003" },
   ];
+  const mv = getActiveRegistry().manifestVersion;
   const results: Record<string, SourceSelfCheckResult> = {
-    swag: { sourceId: "swag", at: NOW, listOk: false, itemCount: 0, listFailure: "解析为空", detail: "skipped", detailFailure: null, requests: 1 },
-    huangguo: { sourceId: "huangguo", at: NOW, listOk: true, itemCount: 12, listFailure: null, detail: "ok", detailFailure: null, requests: 2 },
+    swag: { sourceId: "swag", at: NOW, listOk: false, itemCount: 0, listFailure: "解析为空", detail: "skipped", detailFailure: null, requests: 1, tail: "skipped", tailKind: "stream", tailFailure: null, manifestVersion: mv, appVersion: getRegistryInfo().appVersion },
+    huangguo: { sourceId: "huangguo", at: NOW, listOk: true, itemCount: 12, listFailure: null, detail: "ok", detailFailure: null, requests: 3, tail: "ok", tailKind: "stream", tailFailure: null, manifestVersion: mv, appVersion: getRegistryInfo().appVersion },
   };
   const lines = selfCheckDiagLines(sources, results);
   const joined = lines.join("\n");
