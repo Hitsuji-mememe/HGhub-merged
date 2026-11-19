@@ -214,6 +214,18 @@
   再 `startLoad(time)` 并恢复播放意图。
 - 被覆盖的播放页保留 pending 错误，但不发请求；取消/销毁后计时器和 pending
   必须清空。没有这个边界，首页会同时为多张卡片恢复清单。
+- 恢复排期不得被后续错误推迟（fix322/play）：同一故障期内新 fatal
+  错误只更新 pending（待执行动作跟随最新错误，如分片错后清单错改
+  走 loadSource），已排定的计时器保住原触发时刻。旧实现 error()
+  无条件 cancelTimer 重排、attempts 只在触发时递增——错误间隔小于
+  恢复延迟时恢复永不执行、4 次上限与 onFatal 永不达（饥饿型不
+  收敛）；契约 `fix322-recovery.contract.test.ts`（假时钟错误洪流）。
+- append 看门狗判死被门控吞掉必须留痕（fix322/play）：四道门——
+  看门狗两臂意愿挂起（onGated）、接线层 onStall 的 stale_instance/
+  paused_by_user/not_wanted 三道早退——统一经 traceGated 记
+  `hls.append_stall_gated`（gate+state），只记账不改判死/挂起/复活
+  行为。「用户可见卡死但诊断无 append_stall」不得再无声发生；
+  夹具 playback-engines F14＋W5/W10/W11 钉住。
 - hls.js 配置禁用 interstitials/content steering，`preferManagedMediaSource:false`；
   iOS 关闭 worker。媒体层还会移除 playlist 中可派生请求的 URI 字段。
 - iOS AVFoundation 不能读 `hg://`，所以只通过 `ios_media_http` 的临时 loopback

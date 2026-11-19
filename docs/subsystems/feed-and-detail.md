@@ -33,6 +33,7 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
 1. Feed 使用 `api_feed`/分类/搜索/list page 传入的 `videoIds`，不自行重新请求列表。
    全局搜索（最终版 D3，`src/features/search/Search.tsx`＋`multiSourceSearch.ts`）：黄果视频/帖子与外部源扇出统一聚合——页签按内容种类封顶四类（视频/短剧/帖子/图片）、同类全源混排、跨源同标题合并保留全部副本；黄果条目仍以数值 id 经 `push({kind:"feed"})` 进 Feed（口径不变），外部条目在搜索页内经适配器 resolve/detail 呈现，不进 Feed。
    3.2.1 F1 同源去重口径：黄果不进扇出（`FANOUT_EXCLUDE_NATIVE`，原生视频＋帖子两路已完整覆盖，扇出 native 适配器只会重复 `api.searchPosts`）；聚合层同源重复必合并——同源同 ID 合并且副本按 `(sourceId, externalId)` 去重（不留假副本、`identityConfirmed` 保持 true）、同源同标题＋同封面合并，同源非重复仍独立；跨源合并仍走多信号置信门（≥3 合并、≥4 身份确认），不因同源口径削弱。渐进呈现 `onPartial` 传累计快照、呈现层每次经 `aggregateHits` 全量重聚合，跨批到达的重复同样在最终呈现层合并。
+   fix322/play 修订（用户 3.2.1 真机裁定）：副本层与卡片层共用同一去重判定——同源 content 重复（同标题＋同封面、不同 ID）并卡后**不留第二副本**（F1 的「两 ID 副本各留一份」使详情「来源副本」出现同名双副本，作废），只留高优先第一份，`alsoOn` 不重名；判定次序改两遍扫描——同源判定（确定性：先 id 后 content，全簇）优先于跨源置信（概率性），逐簇混扫会让后到的一份被先建簇的置信匹配截走（双路到达的 publishedAt 完整度差异即可造成同一条目劈进两张卡）。契约 `fix321-f1.contract.test.ts` 已按新裁定修订并补跨源簇内重复与置信截胡两例。列表页口径：原生频道/发现列表走 `shared/lib/dedup.ts` 按 ID 去重；外部源列表的同名重复卡实例（Pornhub）随产品瘦身删源消解，剩余面无第二组装路径。
    扇出资格三段齐全门（3.2.1 修复 F5，`missingSearchSegments`）：外部源只有搜索＋详情＋取流三段都有真实现（模板可实例化＋`capabilities.search`＋`maturity=stable` 验通标记＋非未校准骨架）才进扇出；分层总表的 `INCLUDE_OVERRIDE` 只能在三段齐全者中生效、不得绕过。缺段源静默出局（不发请求、不记失败）、注册保留、频道浏览不受此限。现行扇出名单恰为三段验通 7 源（黄果/91视频/Pornhub/XVideos/Fyptt/Rule34Video/CosplayTele）；Shorties 等 13 源因缺段移出（逐源缺段见 `fix321-f5.contract.test.ts`）。
    分类浏览（`src/features/category/Category.tsx` 总览与频道页）与搜索共用同一性质判定（`src/shared/lib/contentKind.ts` 的 `kindForHuangguoVideo`/`partitionCardsByKind`，3.2.1 F4 线抽共用、搜索层只 re-export）：有分集结构（`total_episodes`/`episode_count`＞1）的条目只归短剧——总览视频区只渲染 video 组、original 频道混入的 drama 组补入短剧区（按 id 去重）；「视频」频道页服务端分页 incoming 先剔 drama 组再入列表，`page`/`pages` 仍按服务端原值推进与终止（单页可见数可少于页大小、整页被滤光时靠哨兵/加载更多续翻下一服务端页，不提前到底）。此前浏览面按频道直渲染 original 列表，《警界之花》（3 集）同时出现在短剧与视频两区（用户实报）。
    搜索面同病（3.2.1 F4b 线）：通用搜索端点 `/api/search?type=video` 的载荷不下发剧集结构信号（字段缺失或恒 0；本地 Rust/前端三层审计无丢弃点、信号丢在上游响应本身，证据 `fix321/evidence/f4b/root-cause.md`），同 ID 条目在频道/详情里却有——判定函数在场也无信号可用、必然默认落视频（搜「御姐」视频页签混入同批 AI 短剧，用户实报）。搜索归类改走 `contentKind.searchKindForHuangguoVideo`（仍为唯一出处）：卡自带正计数信号直接判；信号缺失者由 Search 以条目 ID 查 `api.video` Detail 规范信号补判（`hgCanonicalSignals`，作用域＋线路代次进 key、并发 4、失败静默）；补判也无信号 → `unknown` 安全侧暂扣、不进任何页签（不默认落视频、不猜落短剧），补判到达后自动重归类。代价：详情不可达条目在搜索中暂不可见。浏览面不走补判（频道载荷信号齐全、0 集即真无分集）。
@@ -123,12 +124,23 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   rootMargin 600px、eager 图为挂载时）起算——img 是 lazy，视口外
   根本不发请求，旧实现自挂载起算会把离屏封面的 attempt 依次烧光、
   回滚进来只见永久失败占位。
-- 横向手势仲裁（fix2.1）：App 链式手势五级优先级——输入/横滚区 >
-  全屏 scrub 独占 > 单击/双击/长按（播放器表面内部仲裁）> 栈页右划
-  pop（300ms 冷却防连退）> 详情页左划下一条。左划下一条仅在栈顶
-  feed 页、起手落在详情信息区（`data-feed-info-zone`，视频控制层/
-  图文帖信息块）且不在进度条区（`data-feed-scrub-zone`）时经
-  `detailNext` 通道触发，语义与桌面 onNext 一致（先下一集、后下一条）。
+- 横向手势仲裁（fix2.1，fix322/play 修订）：App 链式手势优先级——
+  输入/横滚区/dialog 起手 > 播放器手势面/进度条区起手（fix322 新增
+  让行）> 全屏 scrub 独占 > 单击/双击/长按（播放器表面内部仲裁）>
+  栈页右划 pop（300ms 冷却防连退）> 详情页左划下一条。起点分类与
+  终点裁决在 `src/app/gestureChain.ts`（纯函数＋契约测试），App.tsx
+  只留 DOM 胶水。fix322 根因：面内横拖 seek 的位移（≥72px）与链的
+  方向锁天然重叠，旧仲裁只让行左缘 24px、且误判两者「不重叠」——
+  栈内 Feed 页中部右划 seek 被 pop（整个画面划出去）、首页左划
+  seek 被切页签、进度条区起手只被 detailNext 的否定条件引用而不
+  挡 pop。定版口径＝手势按起点归属隔离（与 AlbumViewer 缩略图条
+  同口径）：`data-player-surface`（Feed 手势面）或
+  `data-feed-scrub-zone` 起手时本链整体不触发，面内手势由 Feed
+  表面自理；取舍：首页自视频区起手的链式切页签失效，离 home 走
+  顶栏/页签钮。左划下一条仅在栈顶 feed 页、起手落在详情信息区
+  （`data-feed-info-zone`，视频控制层/图文帖信息块）且不在进度条区
+  （`data-feed-scrub-zone`）时经 `detailNext` 通道触发，语义与桌面
+  onNext 一致（先下一集、后下一条）。
 - 右侧动作栏（2026-11-18 用户再裁定，恢复同日撤下的版本）：喜欢/收藏/
   评论三钮 + 计数沿上游原样回到移动端与桌面右侧栏——此前判「游客用不上」
   是错的，用户明确用得上。但不做常驻覆层：整栏跟随控制层显隐（移动端
