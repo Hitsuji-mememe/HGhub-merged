@@ -94,8 +94,8 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     id: "51chigua", displayName: "51吃瓜网", kind: "post", category: "posts",
     adapter: { template: "chigua", params: { listPath: "/?page={page}", itemLinkPattern: "/archives/", detailPath: "/archives/{id}" } },
     baseUrls: ["https://51chigua.com"],
-    enabled: true, order: 30, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "吃瓜模板实例化；未真站实测",
+    enabled: false, order: 30, maturity: "blocked",
+    capabilities: NO_CAPS, network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：51chigua.com 与 www 均跳转 *.chiguadama.com 停放页（标题「404 | 站点维护中」、全文无入口锚点）；吃瓜模板保留、待发布页给出新域名后改 baseUrls 一级恢复",
   },
   {
     id: "meiridasai", displayName: "每日大赛", kind: "post", category: "posts",
