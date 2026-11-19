@@ -680,6 +680,61 @@
       ],
       "symbol": "inset-0 rounded-none",
       "min": 1
+    },
+    {
+      "id": "fin-b3-recovery-seek-follow",
+      "item": "最终版B3线任务1：代理恢复 pending 快照跟随恢复期 seeking（落点以用户最新 seek 为准）",
+      "files": [
+        "src/features/playback/useProxyPlaybackRecovery.ts"
+      ],
+      "symbol": "onSeeking",
+      "min": 2
+    },
+    {
+      "id": "fin-b3-profile-sr-engaged",
+      "item": "最终版B3线任务3：hold.release_profile 自带 sr_engaged 显式布尔＋pipeline（判别力，不靠 SR 段 null 推断）",
+      "files": [
+        "src/features/feed/holdJank.ts"
+      ],
+      "symbol": "sr_engaged",
+      "min": 2
+    },
+    {
+      "id": "fin-b3-profile-aggregator",
+      "item": "最终版B3线任务3：holdJank 纯函数聚合器 summarizeHoldEvents（engaged/bypass 两桶）",
+      "files": [
+        "src/features/feed/holdJank.ts"
+      ],
+      "symbol": "summarizeHoldEvents",
+      "min": 1
+    },
+    {
+      "id": "fin-b3-pipeline-state-bus",
+      "item": "最终版B3线任务3：SrCanvas 在管线切换点登记 noteHoldPipelineState（接管/webgl/none）",
+      "files": [
+        "src/features/playback/SrCanvas.tsx"
+      ],
+      "symbol": "noteHoldPipelineState",
+      "min": 2
+    },
+    {
+      "id": "fin-b3-hls-instance-bus",
+      "item": "最终版B3线任务2：HLS attach 时登记实例 ID（VideoSurface/Player 两宿主同口径）",
+      "files": [
+        "src/features/playback/VideoSurface.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "symbol": "noteHoldHlsAttach",
+      "min": 2
+    },
+    {
+      "id": "fin-b3-rvfc-metadata",
+      "item": "最终版B3线任务2：Feed rVFC 回调把 metadata（mediaTime/presentedFrames）透传剖面 firstFrame",
+      "files": [
+        "src/features/feed/Feed.tsx"
+      ],
+      "symbol": "presentedFrames",
+      "min": 2
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",

@@ -58,6 +58,28 @@ export function useProxyPlaybackRecovery(
     return () => window.removeEventListener("hg:proxy-changed", onProxyChanged);
   }, [retry]);
 
+  /* 恢复期 seek 跟随（最终版 B3 线任务 1，裁定条目 4 实锤）：快照在
+   * retry 时刻冻结位置，恢复加载期间用户 seek 到新位置后，restore
+   * 落点仍写快照旧值、把用户 seek 覆盖掉（80s→seek 130→落回 80）。
+   * 根治在快照一侧：pending 存续期间任何 seeking 都把快照 time 更
+   * 新为当前 seek 目标——落点以用户最新位置为准，快照只作无 seek
+   * 时的兜底。restore 自身写 currentTime 时 pending 已同步清零，
+   * 其 seeking 事件到达时快照已不存在，不会自更新。 */
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onSeeking = () => {
+      const snapshot = pending.current;
+      if (!snapshot || snapshot.src !== latest.current.src) return;
+      const t = video.currentTime;
+      if (!Number.isFinite(t) || t === snapshot.time) return;
+      pending.current = { ...snapshot, time: t };
+      latest.current.trace("proxy.snapshot_seek", { time: t });
+    };
+    video.addEventListener("seeking", onSeeking);
+    return () => video.removeEventListener("seeking", onSeeking);
+  }, [videoRef]);
+
   const resume = useCallback(() => {
     if (pending.current?.src !== latest.current.src) pending.current = null;
     return pending.current;

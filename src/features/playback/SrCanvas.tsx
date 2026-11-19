@@ -18,6 +18,7 @@ import type { SuperResMode } from "../../shared/model/store";
 import { getSrProbeResult, runSrProbe } from "../../shared/diagnostics/gpuProbe";
 import SuperResCanvas from "./SuperResCanvas";
 import WebGpuSrCanvas from "./WebGpuSrCanvas";
+import { noteHoldPipelineState, noteHoldSurfaceMount, noteHoldSurfaceUnmount } from "../feed/holdJank";
 
 type Props = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -110,6 +111,22 @@ export default function SrCanvas(props: Props) {
     (props.mode === "natural" || props.mode === "crisp");
 
   useEffect(() => { props.onPipelineChange?.(engaged); }, [engaged, props]);
+
+  /* 松手剖面判别力登记（最终版 B3 线任务 2/3，只走 trace 账本）：
+   * 本组件是管线切换的唯一决策点——engaged 即 WebGPU 接管；未接管
+   * 时呈现为 SuperResCanvas（webgl，子模式粒度在播放 facts 的
+   * pipeline 字段）；mode=off 时无 SR 呈现记 none。画布 mount/
+   * unmount 时刻同登记，剖面据此算面龄与窗口内重挂。 */
+  useEffect(() => {
+    noteHoldSurfaceMount("sr", performance.now());
+    return () => noteHoldSurfaceUnmount("sr", performance.now());
+  }, []);
+  useEffect(() => {
+    noteHoldPipelineState({
+      srEngaged: engaged,
+      pipeline: engaged ? "webgpu" : props.mode === "off" ? "none" : "webgl",
+    });
+  }, [engaged, props.mode]);
 
   if (engaged) {
     return (

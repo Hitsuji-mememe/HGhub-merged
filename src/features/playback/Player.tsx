@@ -10,6 +10,7 @@ import { mediaErrorMessage } from "./mediaErrors";
 import { mediaHost, mediaResource } from "../../shared/diagnostics/playbackDiagnostics";
 import { useProxyPlaybackRecovery } from "./useProxyPlaybackRecovery";
 import { usePlaybackKernel } from "./usePlaybackKernel";
+import { noteHoldHlsAttach } from "../feed/holdJank";
 import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
 import { useSeekInput } from "./useSeekInput";
 import { useInlinePlayerFullscreen } from "./useInlinePlayerFullscreen";
@@ -175,6 +176,8 @@ export default function Player({
       });
       hls.loadSource(source.url);
       hls.attachMedia(video);
+      /* HLS 实例登记（最终版 B3 线任务 2，纯诊断）：与 VideoSurface 同口径 */
+      noteHoldHlsAttach();
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         lockHighestStartLevel(hls);
         if (activity.isActive()) hls.startLoad(resume?.time ?? -1);

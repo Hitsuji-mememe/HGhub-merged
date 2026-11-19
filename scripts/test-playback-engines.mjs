@@ -264,10 +264,40 @@ try {
   check("HP no emit before sr present completes the set", r.hp_no_emit_before_sr_present, 0);
   check("HP emits exactly one profile", r.hp_emit_count, 1);
   check("HP profile event name", r.hp_event, "hold.release_profile");
-  check("HP profile segments", r.hp_segments, { release_to_first_frame_ms: 33, release_to_sr_attempt_ms: 12, sr_attempt_to_present_ms: 28, release_to_sr_present_ms: 40 });
+  // HP 四段判据（B3 起剖面行增字段，改子集断言：原四段值一字不让）
+  const hpSeg = (name, data, want) => {
+    try {
+      for (const [k, v] of Object.entries(want)) assert.deepEqual(data?.[k], v, `${k}: got ${JSON.stringify(data?.[k])}, want ${JSON.stringify(v)}`);
+      report.passed.push(name);
+    } catch (e) { report.failed.push(`${name}: ${e.message}`); }
+  };
+  hpSeg("HP profile segments", r.hp_segments, { release_to_first_frame_ms: 33, release_to_sr_attempt_ms: 12, sr_attempt_to_present_ms: 28, release_to_sr_present_ms: 40 });
   check("HP no-SR profile waits for tail", r.hp_nosr_no_emit_before_tail, 0);
   check("HP no-SR profile emits at tail", r.hp_nosr_emit_count, 1);
-  check("HP no-SR segments carry null SR fields", r.hp_nosr_segments, { release_to_first_frame_ms: 16, release_to_sr_attempt_ms: null, sr_attempt_to_present_ms: null, release_to_sr_present_ms: null });
+  hpSeg("HP no-SR segments carry null SR fields", r.hp_nosr_segments, { release_to_first_frame_ms: 16, release_to_sr_attempt_ms: null, sr_attempt_to_present_ms: null, release_to_sr_present_ms: null });
+
+  // HP2 — B3 剖面补字段＋判别力（注入假源，全字段深断言）
+  check("HP2 profiler exists", r.hp2_profiler_exists, true);
+  check("HP2 engaged line carries full B3 fields", r.hp2_engaged_line, {
+    release_to_first_frame_ms: 33, release_to_sr_attempt_ms: 12, sr_attempt_to_present_ms: 28, release_to_sr_present_ms: 40,
+    sr_engaged: true, pipeline: "webgpu",
+    rvfc_media_time: 12.5, rvfc_presented_frames: 42, rvfc_expected_display_time: 5000,
+    longtask_count: 2, longtask_max_ms: 120, longtask_total_ms: 200,
+    feed_surface_age_ms: 600, sr_canvas_age_ms: 100, sr_canvas_remounted: true, sr_canvas_unmounted: false,
+    hls_instance_id: "hls-7", hls_rebuilt_during_window: false,
+  });
+  check("HP2 bypass line: engaged=false explicit, nulls honest", r.hp2_bypass_line, {
+    release_to_first_frame_ms: 16, release_to_sr_attempt_ms: null, sr_attempt_to_present_ms: null, release_to_sr_present_ms: null,
+    sr_engaged: false, pipeline: "none",
+    rvfc_media_time: null, rvfc_presented_frames: null, rvfc_expected_display_time: null,
+    longtask_count: null, longtask_max_ms: null, longtask_total_ms: null,
+    feed_surface_age_ms: 1600, sr_canvas_age_ms: null, sr_canvas_remounted: false, sr_canvas_unmounted: false,
+    hls_instance_id: "hls-9", hls_rebuilt_during_window: false,
+  });
+  check("HP2 HLS rebuilt during window flagged", r.hp2_hls_rebuilt, true);
+  check("HP2 HLS id is release-time instance", r.hp2_hls_id, "hls-1");
+  check("HP2 aggregator exists", r.hp2_agg_exists, true);
+  check("HP2 aggregator buckets by explicit sr_engaged only", r.hp2_agg_counts, { engaged: { holds: 1, janks: 2 }, bypass: { holds: 1, janks: 1 } });
   check("HP silent release (no frames) dropped", r.hp_silent_release_dropped, 0);
 
   await page.waitForFunction(() => (window).__seekArb !== undefined, null, { timeout: 20000 });
@@ -294,6 +324,12 @@ try {
   check("FIN-B1 proxy_restore state is paused_by_system", fb1.proxy_state, "paused_by_system");
   check("FIN-B1 own toggle pause wanted=false", fb1.own_wanted, false);
   check("FIN-B1 own toggle pause state is paused_by_user", fb1.own_state, "paused_by_user");
+
+  await page.waitForFunction(() => (window).__finB3 !== undefined, null, { timeout: 20000 });
+  const fb3 = await page.evaluate(() => (window).__finB3);
+  check("FIN-B3 recovery-period seek: snapshot follows user seek", fb3.case_seek, { snapshotTime: 130, landed: 130, restored: [130], pauses: ["proxy_restore"], plays: 0 });
+  check("FIN-B3 no user seek: snapshot landing unchanged", fb3.case_control, { snapshotTime: 80, landed: 80, restored: [80], pauses: ["proxy_restore"], plays: 0 });
+  check("FIN-B3 repeated seek: last seek wins", fb3.case_reseek, { snapshotTime: 200, landed: 200, restored: [200], pauses: ["proxy_restore"], plays: 0 });
 
   await page.waitForFunction(() => (window).__keepAlive !== undefined, null, { timeout: 15000 });
   const ka = await page.evaluate(() => (window).__keepAlive);
