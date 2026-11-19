@@ -71,10 +71,10 @@ export const BUILTIN_SOURCES: SourceDef[] = [
   },
   {
     id: "fyptt", displayName: "Fyptt", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
+    adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
     baseUrls: ["https://fyptt.to"],
-    enabled: true, order: 26, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+    enabled: true, order: 26, maturity: "stable",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：本站为 WP 站、/wp-json/wp/v2/posts 列表与详情实测可达；正文嵌 fypttstr.php 播放器 iframe、其实测含 mp4 直链（stream.fyptt.to、令牌时效内有效）、wp-rest resolve 已支持 iframe 跟进",
   },
   {
     id: "redgifs", displayName: "RedGifs", kind: "video", category: "video",
