@@ -1069,6 +1069,33 @@
       "id": "sr-takeover",
       "item": "SR 探针完成后已挂载面补接管（SrCanvas 自调＋调度器）",
       "symbol": "runSrProbe"
+    },
+    {
+      "files": [
+        "src/features/posts/Posts.tsx"
+      ],
+      "id": "fix321-f9-nav-reset-gate",
+      "item": "吃瓜详情导航重置只认 id 变化（shouldResetPostForNav 定义＋load effect 调用）",
+      "min": 2,
+      "symbol": "shouldResetPostForNav"
+    },
+    {
+      "files": [
+        "src/features/posts/Posts.tsx"
+      ],
+      "id": "fix321-f9-play-scroll-guard",
+      "item": "吃瓜详情点播滚动守卫（restorePostScrollAfterPlay 定义＋play effect 调用）",
+      "min": 2,
+      "symbol": "restorePostScrollAfterPlay"
+    },
+    {
+      "files": [
+        "src/features/posts/Posts.tsx"
+      ],
+      "id": "fix321-f9-load-trace",
+      "item": "吃瓜详情加载判读埋点 post_detail.load（注释口径＋trace 调用）",
+      "min": 2,
+      "symbol": "post_detail.load"
     }
   ]
 }

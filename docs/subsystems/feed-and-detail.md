@@ -196,6 +196,15 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   把封面裁成大椭圆（黑边圆罩，用户实报 bug）；回归脚本
   `scripts/test-post-detail.mjs`（夹具 `tests/post-detail`）断言
   DOM 顺序、未点击零视频装载、封面框计算圆角 0px。
+- 吃瓜详情点播稳定性（3.2.1 F9 线，2026-11-19，用户实报点播放跳顶＋
+  起播卡 0:01）：`PostDetail` 加载 effect 的整页重置（scrollTo(0,0)/
+  清播放/清分段）只许由帖子 id 变化触发（`shouldResetPostForNav`）；
+  lineEpoch/accountScope 变化只刷新数据与分段，滚动、播放态全保留。
+  点播瞬间记滚动值，play 翻真后漂移则一帧内恢复
+  （`restorePostScrollAfterPlay`，静默无焦点动作）。加载判读埋点
+  `post_detail.load`（nav_reset/line_epoch/was_playing/scroll_top）。
+  回归 `scripts/test-post-detail-playback.mjs`（夹具
+  `tests/post-detail-f9`，hls.js 引擎面；iOS 原生引擎面属真机判读）。
 
 ## 验证命令
 
