@@ -27,6 +27,7 @@ import SourceBrowse from "../sources/SourceBrowse";
 import SourceGallery from "../sources/SourceGallery";
 import SourcePosts from "../sources/SourcePosts";
 import { resolvePostsBrowse } from "../sources/postsRoute";
+import { contentSectionVisible } from "./overviewSections";
 
 /* 短剧三类合一（根治包多源线条目5）：原 AI成人短剧 / AI成人漫剧
  * （及原创内的短剧/漫剧子筛）合并为一个「短剧」入口，cate 取
@@ -105,6 +106,18 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
   const lineEpochRef = useRef(lineEpoch);
   lineEpochRef.current = lineEpoch;
   const retryKeys = useRef(new Set<string>());
+  /* 吃瓜外部源（SourcePosts compact）的已结空态回报（fix330/ui-
+   * fixes 空区隐藏）：按源 id 记「已结算且为空」，总览吃瓜区据此
+   * 整区隐藏；源切换/重新有数据时回报 false 自动恢复。 */
+  const [settledEmptySources, setSettledEmptySources] = useState<ReadonlySet<string>>(new Set());
+  const reportSettledEmpty = useCallback((sourceId: string, empty: boolean) => {
+    setSettledEmptySources((prev) => {
+      if (prev.has(sourceId) === empty) return prev;
+      const next = new Set(prev);
+      if (empty) next.add(sourceId); else next.delete(sourceId);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
@@ -183,6 +196,16 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
   void kindSignals.version;
   const originalKindGroups = partitionCardsByResolvedKind(rows["original"] || [], kindSignals.signalFor);
 
+  /* 吃瓜区可见性（fix330/ui-fixes 空区隐藏）：黄果模式走总览自有
+   * posts 状态谓词；外部源 browse 模式走 SourcePosts 已结空态回
+   * 报；pending/blocked 诚实提示不是内容区、恒可见。 */
+  const guaVisible = postsSourceId === "huangguo"
+    ? contentSectionVisible({ attempted: errors.posts !== undefined, loading: loading.posts === true, hasError: !!errors.posts, count: posts.length })
+    : resolvePostsBrowse(postsSource) === "browse" && postsSource
+      ? !settledEmptySources.has(postsSourceId)
+      : true;
+  const imageSources = sourcesForCategory("image", activeSources);
+
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
       <div className="ios-page-heading shrink-0 px-4">
@@ -222,6 +245,12 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
               ? [...rawList, ...originalKindGroups.drama.filter((d) => !rawList.some((x) => x.id === d.id))]
               : rawList;
           const ChannelIcon = c.Icon;
+          /* 空区隐藏（fix330/ui-fixes 用户裁定，含「视频」区）：
+           * 已尝试（loadPreview 起始即写 errors[key]）∧非加载∧无
+           * 错误∧呈现条目为 0 才整区不渲染；加载中/未尝试/出错保
+           * 持可见。original 区的 list 为渲染期分组结果，补判信号
+           * 迟到归位时条目出现、本区自动恢复呈现。 */
+          if (!contentSectionVisible({ attempted: errors[c.cate] !== undefined, loading: loading[c.cate] === true, hasError: !!errors[c.cate], count: list.length })) return null;
           return (
             <section key={c.cate} aria-label={c.name} className="mb-6 a-rise" style={{ animationDelay: `${Math.min(ci * 50, 300)}ms` }}>
               <Button onClick={() => push({ kind: "channel", cate: c.cate, name: c.name })}
@@ -247,6 +276,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
         })}
 
         {/* 吃瓜 */}
+        {guaVisible && (
         <section aria-label="吃瓜" className="mb-5 a-rise">
           <Button onClick={() => push({ kind: "posts" })}
             className="w-full flex items-center gap-3 mb-3 text-left pressable group">
@@ -273,11 +303,12 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             /* 吃瓜预览接线（3.3.0 接通批，与 Posts 页同判定）：非黄果
              * 非 blocked 源经 SourcePosts compact 真取数；blocked 仍
              * 走诚实提示。此前本预览对一切非黄果源无条件提示。 */
-            <SourcePosts def={postsSource} compact onShowAll={() => push({ kind: "posts" })} />
+            <SourcePosts def={postsSource} compact onShowAll={() => push({ kind: "posts" })} onSettledEmpty={(empty) => reportSettledEmpty(postsSourceId, empty)} />
           ) : (
             <SourcePendingNotice displayName={postsSource?.displayName ?? postsSourceId} maturity={postsSource?.maturity} note={postsSource?.note} />
           )}
         </section>
+        )}
 
         {/* 图片分区（Muse 2026-11-19 最终版 D 线，①用户亲定条目8；
             2026-11-19 fix321-F2 修订）：只列 active 注册表
@@ -286,13 +317,17 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             既有 channel 栈页（cate="image:<源id>"）进图集浏览页。
             浏览面只显示已启用源：停用状态的源不在此排队，只在源管理/
             诊断明细面可见（远程清单启用后自动转入本列表）。 */}
+        {/* 空区隐藏（fix330/ui-fixes）：本区是图片源入口列表，「空」
+            ＝无已启用图片源——整区不渲染；有源（含 blocked 徽标源）
+            照常列出。 */}
+        {imageSources.length > 0 && (
         <section aria-label="图片" className="mb-5 a-rise">
           <div className="flex items-center gap-3 mb-3">
             <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IGrid size={18} strokeWidth={1.9} /></span>
             <span role="heading" aria-level={2} className="block text-[16px] font-bold text-on leading-tight">图片</span>
           </div>
           <div className="flex flex-col gap-2">
-            {sourcesForCategory("image", activeSources).map((s) => (
+            {imageSources.map((s) => (
               <Button key={s.id} onClick={() => push({ kind: "channel", cate: `image:${s.id}`, name: s.displayName })}
                 className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 text-left pressable">
                 <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
@@ -306,6 +341,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             ))}
           </div>
         </section>
+        )}
 
 
         <div className="text-center text-[12px] text-dim pt-1">— 已展示全部频道 —</div>
@@ -365,8 +401,20 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
   const channelSource = sourcesForChannel(cate, getActiveRegistry().sources).find((s) => s.id === effectiveChannelSourceId);
   const [serverSort, setServerSort] = useState<(typeof CHANNEL_SORTS)[number]["value"]>("latest");
   const [originalCate, setOriginalCate] = useState<(typeof ORIGINAL_CATES)[number]["value"]>("all");
-  const [pageItems, setPageItems] = useState<VideoCard[][]>([]);
-  const items = pageItems.flat();
+  /* 原始页落座＋渲染期分组（Muse 2026-11-19 fix330/ui-fixes，
+   * device-verdict-322 #10）：旧实现把 incoming 先过滤再存分页数组、
+   * 且把 Detail 补判 await 进 loadMore——整页待判时分页被补判往返
+   * （并发 4、单查 15s 超时）堵住，整页被滤光时哨兵只能以补判速度
+   * 翻页，真机「已加载 0 部·4/13 页」持续转圈无终态。现原始页先
+   * 落座（分页只受接口速度与 pages 约束），性质分组在渲染期经统一
+   * 裁决现算（与总览同口径，见下方 items）；补判由 effect 非阻塞
+   * 触发，信号到达经 kindSignals.version 自增重算自动归位。 */
+  const [rawPages, setRawPages] = useState<VideoCard[][]>([]);
+  const rawItems = rawPages.flat();
+  void kindSignals.version;
+  const items = cate === "original"
+    ? partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video
+    : rawItems;
   const [page, setPage] = useState(0);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -398,29 +446,25 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
         ? api.originalVideos(originalCateOverride, next, 20, originalSort(originalCateOverride))
         : api.category(cate, next, 20, sortOverride));
       if (seq !== requestSeq.current) return;
-      const rawItems = res?.items || [];
-      /* 性质过滤（F4 线＋fix322 标记线）：「视频」频道服务端分页内
-       * 混排剧集与单条，incoming 先经统一裁决只入 resolved video
-       * 组。fix322 前只看集数结构——单集短剧与普通视频同形被放行
-       * （3.2.1 真机实锤）；现每页先对性质未决定者（无标记且集数
-       * ≤1）批量补判 Detail 品类标记（useCanonicalKindSignals，
-       * 并发 4、静默失败），标记定夺后 drama 与 unknown（补判失
-       * 败/Detail 无标记）都不入列表。补判在 busy 内完成、await
-       * 后复检 seq 防迟到写入。分页取舍：过滤只作用于入列表的条
-       * 目，page/pages 仍按服务端原值推进与终止（见下方
-       * setPages），单页可见数可少于 20、整页被滤光时哨兵/加载
-       * 更多继续翻下一服务端页，不提前到底也不死循环。 */
-      let incomingItems = rawItems;
-      if (cate === "original") {
-        await kindSignals.fetchFor(rawItems);
-        if (seq !== requestSeq.current) return;
-        incomingItems = partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video;
-      }
-      setPageItems((prev) => {
+      const pageRaw = res?.items || [];
+      /* 性质分组（F4 线＋fix322 标记线＋fix330/ui-fixes 改渲染期）：
+       * 「视频」频道服务端分页内混排剧集与单条，最终呈现只入
+       * resolved video 组——分组不在此预先过滤，而是原始页落座后
+       * 在渲染期经统一裁决现算（见组件上方 items 计算）。fix322 的
+       * 补判 await 曾堵住分页（整页待判时一页要等全部 Detail 往返，
+       * 滤光页连环出现即成空转，device-verdict-322 #10）；现补判由
+       * effect 非阻塞触发（useCanonicalKindSignals，登记先行、成败
+       * 不重复查），drama 与 unknown（补判失败/Detail 无标记）都
+       * 不入呈现组、信号到达自动归位。分页取舍不变：page/pages 仍
+       * 按服务端原值推进与终止（见下方 setPages），单页可见数可
+       * 少于 20、整页被滤光时哨兵/加载更多继续翻下一服务端页，
+       * 翻到 pages 终点即落诚实终态，不提前到底也不死循环。 */
+      setRawPages((prev) => {
         const base = reset ? [] : prev;
-        /* pageItems 是分页数组：新页 = 相对全部已加载页去重后的 incoming
-         * （dedupedIncoming 与 appendDeduped 同一实现，页内重复同步入 seen） */
-        return [...base, dedupedIncoming(base.flat(), incomingItems, (x) => x.id)];
+        /* rawPages 是原始分页数组：新页 = 相对全部已加载原始页去重
+         * 后的本页原始条目（dedupedIncoming 与 appendDeduped 同一
+         * 实现，页内重复同步入 seen）；性质过滤在渲染期，不在此。 */
+        return [...base, dedupedIncoming(base.flat(), pageRaw, (x) => x.id)];
       });
       setDisplayedFilter(filterKey(sortOverride, originalCateOverride));
       setPage(next);
@@ -431,7 +475,9 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
        * 时新筛选继承旧总页数、状态行页数与可翻页判断双双失真。 */
       setPages(res?.pagination?.pages ?? ((res?.items?.length ?? 0) > 0 ? Math.max(reset ? 1 : pages, next) : next));
       setErr(null);
-      traceFeed("page.success", { list: `channel:${cate}`, page: next, received: rawItems.length, kindFiltered: rawItems.length - incomingItems.length, pages: res?.pagination?.pages ?? null, ms: Date.now() - startedAt });
+      /* kindFiltered 不再记：分组改渲染期现算、落座时信号未齐，
+       * 在此计过滤数只会记假数（fix330/ui-fixes）。 */
+      traceFeed("page.success", { list: `channel:${cate}`, page: next, received: pageRaw.length, pages: res?.pagination?.pages ?? null, ms: Date.now() - startedAt });
     } catch (e) {
       traceFeed("page.fail", { list: `channel:${cate}`, page: reset ? 1 : page + 1, reason: "error", message: (e as Error).message || "加载失败" });
       if (seq === requestSeq.current) { lastFailAt.current = Date.now(); setErr((e as Error).message || "加载失败"); }
@@ -456,12 +502,23 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
     /* 图片源页（cate="image:<id>"）不走黄果频道接口，数据由
      * SourceGallery 经适配器供给，本 effect 直接跳过。 */
     if (cate.startsWith("image:")) return;
-    setPageItems([]); setPage(0); setPages(1);
+    setRawPages([]); setPage(0); setPages(1);
     setServerSort("latest"); setOriginalCate("all"); setSearching(false);
     void loadMore(true, "latest", "all");
     return () => { requestSeq.current++; busy.current = false; };
     /* eslint-disable-next-line */
   }, [cate, lineEpoch]);
+  /* 归类补判触发（fix330/ui-fixes 改非阻塞，与总览同口径）：原始
+   * 页落座后 effect 触发 Detail 补判，不再 await 进 loadMore 的分
+   * 页关键路径；fetchFor 内部登记先行、同一 ID 成败都不重复查，
+   * 重复触发为廉价空转。信号到达后 kindSignals.version 自增，渲
+   * 染期分组重算、条目自动归位；补判不可达的条目保持 unknown 暂
+   * 扣（安全侧口径不变），分页照常推进到 pages 终点落诚实终态。 */
+  useEffect(() => {
+    if (cate !== "original" || rawPages.length === 0) return;
+    void kindSignals.fetchFor(rawPages.flat());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cate, rawPages]);
   const filterPending = displayedFilter !== filterKey(serverSort, originalCate);
   const replacing = refreshing || filterPending;
   /* 哨兵不再因 err 整体停摆（fix2 A2 推广，吃瓜同病）：错误态下哨兵
@@ -570,6 +627,15 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
         ) : err ? (
           <Empty icon={<ChannelGlyph size={26} />} title="加载失败" sub={err} action="重试" onAction={() => void loadMore(true)} />
         ) : loading ? (
+          <div className="flex justify-center py-10"><Loader className="w-8 h-8 spinner" /></div>
+        ) : cate === "original" && page >= pages ? (
+          /* 诚实终态（fix330/ui-fixes）：「视频」频道已翻完全部服务
+           * 端页、但无一条经品类标记确认——呈现空态而非无限转圈；
+           * 补判信号迟到归位时 items 非空自动切回列表呈现。 */
+          <Empty icon={<ChannelGlyph size={26} />} title="暂无已确认条目" sub="已翻完全部页；条目须经品类标记确认后才呈现，本频道暂无确认的视频条目" />
+        ) : page < pages ? (
+          /* 呈现为空但服务端页未耗尽：哨兵（下方）在视口内会继续
+           * 翻页，此处转圈表示「仍在翻页找已确认条目」，有终点兜底。 */
           <div className="flex justify-center py-10"><Loader className="w-8 h-8 spinner" /></div>
         ) : <Empty icon={<ChannelGlyph size={26} />} title="该筛选下暂无内容" sub="换个筛选试试" />}
         <div ref={sentinel} className="h-10" />

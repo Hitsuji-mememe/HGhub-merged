@@ -34,12 +34,16 @@ type DetailState =
   | { phase: "ready"; item: SourceItem; detail: SourceDetail; streamUrl: string | null; play: boolean }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourcePosts({ def, compact = false, onShowAll }: {
+export default function SourcePosts({ def, compact = false, onShowAll, onSettledEmpty }: {
   def: SourceDef;
   /** compact＝分类总览预览形态：只拉第一页少量条目、无哨兵续页，
    * 底部「查看全部」由调用方接（跳吃瓜页）。 */
   compact?: boolean;
   onShowAll?: () => void;
+  /** 已结空态回报（fix330/ui-fixes）：首批加载已结算（成功返回过
+   * 至少一页）∧非加载∧无错误∧条目为 0 时报 true，其余报 false；
+   * 分类总览据此整区隐藏空的吃瓜区。不传则不回报（Posts 页）。 */
+  onSettledEmpty?: (empty: boolean) => void;
 }) {
   const { toast } = useStore();
   const [items, setItems] = useState<SourceItem[]>([]);
@@ -100,6 +104,14 @@ export default function SourcePosts({ def, compact = false, onShowAll }: {
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def.id]);
+
+  /* 已结空态回报（fix330/ui-fixes）：page>0 表示至少一页成功返回
+   * （失败走 err 不算已结）；源切换时 items/page 先复位、loading
+   * 回 true，回报自动回到 false，总览区不会被旧源空态误藏。 */
+  const settledEmpty = !loading && !err && items.length === 0 && page > 0;
+  useEffect(() => {
+    onSettledEmpty?.(settledEmpty);
+  }, [settledEmpty, onSettledEmpty]);
 
   const openItem = useCallback(async (item: SourceItem) => {
     const adapter = createAdapter(def);

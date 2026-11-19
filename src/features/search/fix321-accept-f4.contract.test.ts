@@ -175,11 +175,16 @@ const channelIncoming = (cate: string, raw: Card[]): Card[] => {
   }
   return raw;
 };
-check("面2-生产绑定：频道页 incoming 过滤与 Category.tsx 字面对齐", () => {
+check("面2-生产绑定：频道页性质分组与 Category.tsx 字面对齐", () => {
   if (partitionCardsByResolvedKind) {
-    assert.ok(categorySrc.includes('if (cate === "original")'), "视频频道 incoming 走性质过滤分支");
-    assert.ok(categorySrc.includes("await kindSignals.fetchFor(rawItems)"), "入列前先对本页未决条目批量补判 Detail 标记");
-    assert.ok(categorySrc.includes("partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video"), "视频频道 incoming 经统一裁决只入 video 组");
+    /* 断言适配（fix330/ui-fixes，device-verdict-322 #10）：分组接缝
+     * 由「loadMore 内 await 补判后过滤 incoming」迁为「原始页落座
+     * ＋渲染期分组＋effect 非阻塞补判」——旧绑定字面（await
+     * kindSignals.fetchFor(rawItems)）随接缝退场，改绑新接缝三处
+     * 字面；分组语义本身由下方 channelIncoming 行为检查不变守护。 */
+    assert.ok(categorySrc.includes("partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video"), "视频频道呈现集经统一裁决只入 video 组（渲染期现算）");
+    assert.ok(categorySrc.includes("void kindSignals.fetchFor(rawPages.flat())"), "原始页落座后 effect 非阻塞触发 Detail 补判（不 await 进分页）");
+    assert.ok(categorySrc.includes("暂无已确认条目"), "上游耗尽且无已确认条目时落诚实终态（不空转）");
   } else {
     assert.ok(!categorySrc.includes("partitionCardsByKind"), "旧码频道页无任何性质过滤");
   }

@@ -19,6 +19,12 @@
  *   接管滚动后残留起点污染下一次手势。
  * - 契约不变：index 完全受控于调用方（计数/跳张同步一份状态）、
  *   缩略图点选跳张且当前张高亮并滚动定位、返回/关闭由调用方注入。
+ * - 快速滑动不消失（Muse 2026-11-19 fix330/ui-fixes，用户真机实
+ *   报「图片预览滑的快了会直接消失隐藏」）：双机制——(1) 舞台窗口
+ *   化：只挂当前张±1 三帧、邻图随挂载即预取，旧单 Img 逐张重挂
+ *   在慢图源下快翻张张空白；(2) chrome 活动续命：缩略图条滚动/
+ *   悬浮层触摸都算「还在用 chrome」，淡出计时据此重置，旧计时
+ *   只挂呼出/切张，条上划找图满 3 秒整层在指下淡出。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../shared/ui/ios/controls";
@@ -39,6 +45,17 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
   footerNote?: string;
 }) {
   const [chrome, setChrome] = useState(true);
+  /* chrome 活动计数（fix330/ui-fixes）：悬浮层上的滚动/触摸经
+   * pokeChrome 节流递增，淡出计时以它为依赖重置——在条上持续
+   * 划动找图期间 chrome 不淡出，停手后照常 3 秒淡出。 */
+  const [chromeActivity, setChromeActivity] = useState(0);
+  const pokeRef = useRef(0);
+  const pokeChrome = useCallback(() => {
+    const now = Date.now();
+    if (now - pokeRef.current < 500) return;
+    pokeRef.current = now;
+    setChromeActivity((n) => n + 1);
+  }, []);
   const touchRef = useRef<{ x: number; y: number } | null>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const idx = Math.min(Math.max(0, index), Math.max(0, images.length - 1));
@@ -48,12 +65,13 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
     onIndexChange(next);
   }, [images.length, idx, onIndexChange]);
 
-  /* 悬浮层自动淡出：呼出/切张后重新计时，静止 ALBUM_CHROME_IDLE_MS 淡出。 */
+  /* 悬浮层自动淡出：呼出/切张/chrome 上有活动后重新计时，静止
+   * ALBUM_CHROME_IDLE_MS 淡出（活动续命 fix330/ui-fixes）。 */
   useEffect(() => {
     if (!chrome) return;
     const t = window.setTimeout(() => setChrome(false), ALBUM_CHROME_IDLE_MS);
     return () => window.clearTimeout(t);
-  }, [chrome, idx]);
+  }, [chrome, idx, chromeActivity]);
 
   /* 当前缩略图定位：切张后把当前张滚进缩略图条可视区中央。 */
   useEffect(() => {
@@ -72,8 +90,9 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
 
   const chromeCls = `transition-opacity duration-300 ${chrome ? "opacity-100" : "opacity-0 pointer-events-none"}`;
   /* 悬浮层手势隔离：click 与全部 touch 事件都不冒泡到舞台——条上
-   * 横滚、顶栏拖动一律不触发舞台横滑/点按判定（fix322/gallery）。 */
-  const stopTouch = (e: React.TouchEvent) => e.stopPropagation();
+   * 横滚、顶栏拖动一律不触发舞台横滑/点按判定（fix322/gallery）；
+   * 同时 touch 即 chrome 活动、续命淡出计时（fix330/ui-fixes）。 */
+  const stopTouch = (e: React.TouchEvent) => { e.stopPropagation(); pokeChrome(); };
 
   return (
     <div data-ui="album-viewer-stage" className="relative h-full w-full overflow-hidden bg-black select-none"
@@ -92,7 +111,22 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
         if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy)) { go(dx < 0 ? idx + 1 : idx - 1); setChrome(true); }
       }}
       onTouchCancel={() => { touchRef.current = null; }}>
-      <Img src={images[idx]} alt={title} eager fit="contain" />
+      {/* 窗口化舞台（fix330/ui-fixes）：只挂当前张±1 三帧、仅当
+          前张不透明。旧实现单 Img 以 src 为 key 逐张重挂——每张
+          从空白/微光起步、无邻图预载，慢图源下快速连翻必然张张
+          追不上、舞台空白如「消失」。窗口帧按 index 定 key、随
+          idx 滑动复用：已挂载帧的 Img 不重走 attempt，邻图在被
+          翻到前已经预取解码；非当前帧 opacity-0（不影响 Img 的
+          视口 attempt 门，几何仍在场）。 */}
+      {images.slice(Math.max(0, idx - 1), Math.min(images.length, idx + 2)).map((src, k) => {
+        const i = Math.max(0, idx - 1) + k;
+        return (
+          <div key={i} data-album-frame={i} className="absolute inset-0"
+            style={{ opacity: i === idx ? 1 : 0, pointerEvents: "none" }} aria-hidden={i !== idx}>
+            <Img src={src} alt={i === idx ? title : ""} eager fit="contain" />
+          </div>
+        );
+      })}
       {/* 顶部悬浮层：返回 + 标题 + 计数 + 关闭 */}
       <div data-album-chrome="top" className={`absolute inset-x-0 top-0 z-10 ${chromeCls}`}
         onClick={(e) => e.stopPropagation()}
@@ -116,7 +150,7 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
           {footerNote && <p className="mb-2 text-[12px] text-white/75">{footerNote}</p>}
           {images.length > 1 && (
             <div ref={stripRef} className="scroll-x flex gap-2" role="group" aria-label="相册图片缩略图"
-              style={{ touchAction: "pan-x" }}>
+              style={{ touchAction: "pan-x" }} onScroll={pokeChrome}>
               {images.map((src, i) => (
                 <Button key={`${src}-${i}`} data-thumb-index={i} aria-label={`第 ${i + 1} 张`} aria-pressed={i === idx}
                   onClick={() => onIndexChange(i)}

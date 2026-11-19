@@ -90,7 +90,9 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   const ids = plan.map((s) => s.id);
   /* 断言适配（3.2.2 瘦身）：名单收口到保留集（91video/swag/jabletv/
    * missav 已摘除注册表），资格口径不变。 */
-  for (const id of ["huangguo", "hanime-tv", "rule34video", "pornpics"]) {
+  /* 断言适配（fix330/ui-fixes）：rule34video 已摘除注册表，样本移除
+   * （其余已启用源样本与下组 fix330 新启用源断言不变，覆盖不降）。 */
+  for (const id of ["huangguo", "hanime-tv", "pornpics"]) {
     assert.ok(ids.includes(id), `已启用源 ${id} 在自检名单`);
   }
   /* 断言适配（fix330 接通批）：hanime1/iwara 已启用 → 按资格通则

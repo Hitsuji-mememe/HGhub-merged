@@ -36,12 +36,13 @@ const def = (id: string) => {
     assert.equal(s.enabled, true, "频道列表只列已启用源");
   }
   /* 断言适配（3.2.2 瘦身）：名单收口到保留集——保留的 video 源
-   * （里番）同样无分集能力、不进短剧列表，且仍在「视频」频道。 */
-  for (const id of ["hanime-tv", "rule34video"]) {
+   * （里番）同样无分集能力、不进短剧列表，且仍在「视频」频道。
+   * 断言适配（fix330/ui-fixes）：rule34video 已摘除，样本改 iwara。 */
+  for (const id of ["hanime-tv", "iwara"]) {
     assert.ok(!drama.some((s) => s.id === id), `${id} 无短剧品类映射、不进短剧频道切源列表`);
   }
   const original = sourcesForChannel("original", getBuiltinRegistry());
-  for (const id of ["hanime-tv", "rule34video"]) {
+  for (const id of ["hanime-tv", "iwara"]) {
     assert.ok(original.some((s) => s.id === id), `${id} 仍在「视频」频道切源列表（其他频道不受影响）`);
   }
   const category = read("../category/Category.tsx");

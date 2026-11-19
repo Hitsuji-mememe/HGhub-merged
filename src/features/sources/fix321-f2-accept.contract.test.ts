@@ -83,13 +83,14 @@ const def = (id: string) => {
   const video = sourcesForChannel("original", reg);
   const expectVideo = reg.filter((s) => s.enabled && s.category === "video");
   assert.deepEqual(video.map((s) => s.id), expectVideo.map((s) => s.id), "视频频道名单＝谓词全量枚举");
-  for (const id of ["hanime-tv", "rule34video"]) {
+  for (const id of ["hanime-tv", "iwara"]) {
     assert.ok(!drama.some((s) => s.id === id), `用户实报 offender ${id} 不在短剧切源名单`);
   }
   /* 合成双向：停用的 episodes 源不得入、启用的 episodes 源必须入
-   * （证明按字段判定而非硬编码排除名单） */
+   * （证明按字段判定而非硬编码排除名单）。合成基底原用 rule34video，
+   * 已摘除后改 iwara（同为 video 分类保留源，fix330/ui-fixes 适配）。 */
   const mk = (id: string, enabled: boolean, episodes: boolean): SourceDef => ({
-    ...def("rule34video"), id, enabled, capabilities: { search: true, episodes, hevc: false, comments: false },
+    ...def("iwara"), id, enabled, capabilities: { search: true, episodes, hevc: false, comments: false },
   });
   const synth = [mk("vd-drama-off", false, true), mk("vd-drama-on", true, true), mk("vd-nodrama", true, false)];
   const sd = sourcesForChannel("ai-duanju", synth);
@@ -167,8 +168,8 @@ const def = (id: string) => {
    * 结构门口径不变（与 fix321-f5 契约同口径）。 */
   assert.equal(searchPolicyFor(def("pornpics")).include, false, "pornpics 搜索属实 false、无搜索段出局（fix330）");
   const included = reg.filter((s) => searchPolicyFor(s).include).map((s) => s.id).sort();
-  assert.deepEqual(included, ["51chigua", "cosplaytele", "danbooru", "hanime-tv", "hanime1", "hentaihaven", "huangguo", "iwara", "meiridasai", "nudecosplay", "pixibb", "rule34video", "xiuren"],
-    "扇出纳入集＝保留集内具备搜索段的 13 源（20:48 裁定口径＋3.3.0 集成）");
+  assert.deepEqual(included, ["51chigua", "cosplaytele", "danbooru", "hanime-tv", "hanime1", "hentaihaven", "huangguo", "iwara", "meiridasai", "nudecosplay", "pixibb", "xiuren"],
+    "扇出纳入集＝保留集内具备搜索段的 12 源（20:48 裁定口径＋3.3.0 集成；fix330/ui-fixes 摘 rule34video 后 13→12）");
 }
 /* ── (F) 51吃瓜解 blocked＋黑料网毕业：内置面三面一致 ── */
 {

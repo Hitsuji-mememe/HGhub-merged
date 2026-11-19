@@ -153,10 +153,49 @@ function installChannelIpc() {
   });
 }
 
+/* 视频频道空转证伪场景（fix330/ui-fixes，device-verdict-322 #10）：
+ * api_original_videos 三页全是无品类标记的单集卡（真实形态：单集
+ * 短剧与普通视频同形、Detail 才有标记），api_video 永不 resolve
+ * （补判通道挂死——比真机「补判慢/失败」更硬的形态）。不变量：
+ * 列表不得空转——分页须推进到 pages 终点并落诚实终态。旧实现把
+ * 补判 await 进 loadMore：第一页即被挂死的补判堵死、page 恒 0、
+ * 终态永不出现（驱动超时判红）。 */
+function installChannelSpinIpc() {
+  const card = (id: number, title: string) => ({
+    id, title, cover: "", tags: [], score: 0, hot: 0,
+    episode_count: 1, total_episodes: 1, is_finished: true, is_original: 0,
+    like_count: 0, comment_count: 0, collect_count: 0,
+  });
+  Object.assign(window, {
+    __TAURI_INTERNALS__: {
+      invoke(cmd: string, args: Record<string, unknown> = {}) {
+        if (cmd === "app_boot") return Promise.resolve({ user: null, logged_in: false, base: "https://fixture.invalid" });
+        if (cmd === "debug_log") return Promise.resolve();
+        if (cmd === "api_original_videos") {
+          const page = Number(args.page) || 1;
+          const items = Array.from({ length: 20 }, (_, i) => card(page * 100 + i, `单集第${page}页·${i}`));
+          return Promise.resolve({ items, pagination: { page, pages: 3, size: 20, total: 60 } });
+        }
+        if (cmd === "api_video") return new Promise(() => {}); /* 补判挂死：永不返回 */
+        return Promise.reject(`Unexpected IPC: ${cmd}`);
+      },
+    },
+  });
+}
+
 const scene = new URLSearchParams(location.search).get("scene") || "prefetch";
 const root = createRoot(document.getElementById("root")!);
 if (scene === "offscreen" || scene === "late") {
   root.render(<ImageScene variant={scene} />);
+} else if (scene === "channel-spin") {
+  installChannelSpinIpc();
+  root.render(
+    <AppProvider>
+      <div style={{ position: "relative", width: 420, height: 800 }}>
+        <ChannelPage cate="original" name="视频" onBack={() => {}} wide={false} />
+      </div>
+    </AppProvider>,
+  );
 } else if (scene === "channel") {
   installChannelIpc();
   root.render(

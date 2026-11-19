@@ -17,9 +17,11 @@ import { TEMPLATE_IDS } from "./adapters/templates.ts";
  * 12（黄果＋吃瓜三源＋图片三源＋里番五源中的命名部分），普通视频
  * 全部、myfans、FC2 与停用杂源已摘除，断言随之收口到保留集。
  * 断言适配（fix330 接通批，2026-11-19）：HentaiHaven 自目录导入
- * 毕业为命名源，命名源 12→13、CORE_IDS 随之加 hentaihaven。 */
+ * 毕业为命名源，命名源 12→13、CORE_IDS 随之加 hentaihaven。
+ * 断言适配（fix330/ui-fixes，2026-11-19）：用户 21:51 裁定 Rule34Video
+ * 摘除，命名源 13→12、CORE_IDS 移除 rule34video 并入负向名单。 */
 const CORE_IDS = [
-  "huangguo", "hanime-tv", "rule34video", "51chigua", "feedheiliao", "meiridasai",
+  "huangguo", "hanime-tv", "51chigua", "feedheiliao", "meiridasai",
   "xiuren", "pornpics", "cosplaytele", "danbooru", "hanime1", "iwara", "hentaihaven",
 ];
 
@@ -28,10 +30,10 @@ const CORE_IDS = [
   const ids = new Set(BUILTIN_SOURCES.map((s) => s.id));
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
   for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
-  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 13（fix330 含毕业的 hentaihaven）");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 12（fix330 含毕业的 hentaihaven、已摘 rule34video）");
   /* 瘦身负向不变量：被删源不得回流注册表（App 内不得出现）。 */
   for (const goneId of ["rouvideo", "91video", "pornhub", "xvideos", "swag", "fyptt", "redgifs", "fc2",
-    "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91"]) {
+    "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91", "rule34video"]) {
     assert.ok(!ids.has(goneId), `瘦身删除源 ${goneId} 不在册`);
   }
   assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
@@ -151,17 +153,19 @@ const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ i
 import { readFileSync } from "node:fs";
 import { getActiveRegistry } from "./manifest.ts";
 import { sourcesForCategory } from "./registry.ts";
-{ // fake fetcher 把 rule34video 熔断 → active 表与 UI getter 同步反映
+{ // fake fetcher 把 iwara 熔断 → active 表与 UI getter 同步反映
+  // （断言适配 fix330/ui-fixes：原熔断样本 rule34video 已按用户裁定
+  // 摘除注册表，同 category 保留源 iwara 接替，覆盖不变）
   const st = memStorage();
   const r = await resolveRegistry({
-    fetcher: async () => ({ manifestVersion: 11, minAppVersion: "2.0.0", sources: [{ id: "rule34video", enabled: false }] }),
+    fetcher: async () => ({ manifestVersion: 11, minAppVersion: "2.0.0", sources: [{ id: "iwara", enabled: false }] }),
     storage: st, appVersion: "2.2.0",
   });
   assert.equal(r.source, "remote");
-  assert.equal(getActiveRegistry().sources.find((s) => s.id === "rule34video")!.enabled, false, "active 表反映远程熔断");
+  assert.equal(getActiveRegistry().sources.find((s) => s.id === "iwara")!.enabled, false, "active 表反映远程熔断");
   const uiVideo = sourcesForCategory("video", getActiveRegistry().sources);
-  assert.ok(!uiVideo.some((s) => s.id === "rule34video"), "UI 消费 getter（active 表）不再列出被熔断源");
-  assert.ok(sourcesForCategory("video").some((s) => s.id === "rule34video"), "对照：内置表口径仍含 pornhub（证明覆盖来自 active 而非内置变更）");
+  assert.ok(!uiVideo.some((s) => s.id === "iwara"), "UI 消费 getter（active 表）不再列出被熔断源");
+  assert.ok(sourcesForCategory("video").some((s) => s.id === "iwara"), "对照：内置表口径仍含 iwara（证明覆盖来自 active 而非内置变更）");
 }
 { // 接线文本断言：三处 UI 读 active 表 + 订阅事件；main 启动调用 resolveRegistry
   const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
