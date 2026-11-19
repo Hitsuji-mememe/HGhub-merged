@@ -78,7 +78,10 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   assert.deepEqual([p("feedheiliao").include, p("feedheiliao").weight], [false, 60], "黑料网补充：权重仍落表，无搜索段不纳入");
   assert.deepEqual([p("meiridasai").include, p("meiridasai").weight], [true, 50], "每日大赛：权重在黑料网之下落表，搜索段已接线纳入（3.3.0）");
   assert.ok(p("51chigua").weight > p("feedheiliao").weight && p("feedheiliao").weight > p("meiridasai").weight, "吃瓜三层权重严格递减");
-  assert.deepEqual([p("pornpics").include, p("pornpics").weight], [true, 100], "PornPics 写真主力：权重仍落表，具备搜索段纳入（成熟度不预扣）");
+  /* 断言适配（fix330 图片线，2026-11-19）：PornPics 模板搜索实证不可用
+   * （/?s= 跳首页、/search/?q= 404），capabilities.search 属实改 false
+   * → 无搜索段不纳入；权重 100 仍落表（与 51吃瓜同形态）。 */
+  assert.deepEqual([p("pornpics").include, p("pornpics").weight], [false, 100], "PornPics 写真主力：权重仍落表，搜索段属实缺失不纳入（fix330）");
   assert.deepEqual([p("xiuren").include, p("xiuren").weight], [true, 40], "秀人网：中性权重，具备搜索段纳入（旧 OFF 表已退役）");
   assert.deepEqual([p("danbooru").include, p("danbooru").weight], [true, 40], "Danbooru：中性权重，具备搜索段纳入（blocked 只记验通状态）");
   assert.deepEqual([p("rule34video").include, p("rule34video").weight], [true, 40], "总表未覆盖的已启用源：中性 40 纳入");

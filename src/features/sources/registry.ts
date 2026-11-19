@@ -80,17 +80,17 @@ export const NAMED_SOURCES: SourceDef[] = [
   {
     id: "xiuren", displayName: "秀人网", kind: "image", category: "image",
     adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
-    baseUrls: ["https://xiuren.com"],
-    enabled: true, order: 40, maturity: "blocked",
+    baseUrls: ["https://xiuren.biz", "https://xiuren.com"],
+    enabled: true, order: 40, maturity: "probe",
     capabilities: { search: true, episodes: false, hevc: false, comments: false },
-    network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：xiuren.com 首页与 /wp-json/wp/v2/posts 均连接失败（HTTP status 0、本机非中国出口不可达、疑地域限制）；WP REST 模板保留、换可达出口复测可改判",
+    network: PROBE_NET, note: "fix330 图片线解 blocked＋校准（2026-11-19）：生效域名改 xiuren.biz 在前（远程清单 v3 同口径）——xiuren.com 住宅三轮＋本机均 DNS 不可达（source-verify-20261119 第一至三轮）；xiuren.biz 本机出口四级实证全通（首页 200、/wp-json/wp/v2/posts 200 真条目、详情 200、图集出图 206）＋搜索端点 200 有结果（证据 fix330/evidence/images.md）；wp-rest 适配器按 .biz 实抓校准（参数不变、形态与模板一致）；App 侧未真机验 → probe（非 blocked 呈现）",
   },
   {
     id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
     adapter: { template: "hls-site", params: { listPath: "/recent/", itemLinkPattern: "/galleries/", detailPath: "/galleries/{id}/" } },
     baseUrls: ["https://www.pornpics.com"],
     enabled: true, order: 41, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站复核（2026-11-19 fix321-F2，本机出口参考）：旧判有误——首页确为分类索引无图集，但 /recent/ SSR 有图集 tile：单引号属性锚点 /galleries/<slug>-<id>/（img alt 为空、标题靠 slug 还原）；旧模板三处不符（列表路径 /、图案 /gallery/、解析只认双引号）已全修，解析层支持单引号属性与 slug 标题兜底、真站结构夹具解析出图集；图集详情页本机可达（17 图）未逐图验 → 仍 probe。fix321-F2b 追加（解析不动）：住宅出口验收 www/裸域/刷新三次均 DNS 层不可达（source-verify-20261119）——站点死亡还是住宅 DNS 过滤未定，与本机出口可达结论并存记录；maturity 维持 probe",
+    capabilities: NO_CAPS, network: PROBE_NET, note: "真站复核（2026-11-19 fix321-F2，本机出口参考）：旧判有误——首页确为分类索引无图集，但 /recent/ SSR 有图集 tile：单引号属性锚点 /galleries/<slug>-<id>/（img alt 为空、标题靠 slug 还原）；旧模板三处不符（列表路径 /、图案 /gallery/、解析只认双引号）已全修，解析层支持单引号属性与 slug 标题兜底、真站结构夹具解析出图集；图集详情页本机可达（17 图）未逐图验 → 仍 probe。fix321-F2b 追加（解析不动）：住宅出口验收 www/裸域/刷新三次均 DNS 层不可达（source-verify-20261119）——站点死亡还是住宅 DNS 过滤未定，与本机出口可达结论并存记录；maturity 维持 probe。fix330 图片线复核（2026-11-19）：本机出口四级实证全通（/recent/ 200 真条目、详情 200、图集、出图 206）；住宅出口失败在协议层（ERR_HTTP2_PROTOCOL_ERROR、非 DNS，第三轮复核）——两出口不一致、维持 probe 不标 stable（证据 fix330/evidence/images.md）。搜索属实改 false：模板搜索 /?s= 跳首页无条目、站方 /search/?q= 实抓 404，无可用搜索段",
   },
   {
     id: "cosplaytele", displayName: "CosplayTele", kind: "image", category: "image",
@@ -103,9 +103,9 @@ export const NAMED_SOURCES: SourceDef[] = [
     id: "danbooru", displayName: "Danbooru", kind: "image", category: "image",
     adapter: { template: "danbooru-api", params: { listPath: "/posts.json" } },
     baseUrls: ["https://danbooru.donmai.us"],
-    enabled: true, order: 43, maturity: "blocked",
+    enabled: true, order: 43, maturity: "probe",
     capabilities: { search: true, episodes: false, hevc: false, comments: false },
-    network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：/posts.json 以 iOS 与桌面两种 UA 均返回 403 Cloudflare「Just a moment」challenge 页（本机出口 IP 被拦）；danbooru-api 适配器已就绪、换出口复测通过即可升 stable",
+    network: PROBE_NET, note: "fix330 图片线翻案（2026-11-19）：旧 blocked 系本机机房出口 CF 假象——住宅出口四级验收全通在案（source-verify-20261119 第二轮）；本机出口复核仍 CF 拦截（/posts.json 403 challenge、另一次连接中断），两出口事实分开记录（证据 fix330/evidence/images.md）；danbooru-api 适配器就绪、住宅实证全通、App 侧未真机验 → probe。搜索与列表同端点（tags 参数）、随住宅实证列入、search 属实 true",
   },
   /* ── 探路保留 2（里番）：探测降级，enabled=false、不写适配器 ── */
   {

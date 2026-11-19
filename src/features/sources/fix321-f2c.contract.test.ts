@@ -160,16 +160,20 @@ assert.deepEqual(templateFetchOrigins("none"), [], "none 模板无取页 origin"
 /* ── D. 收紧口径：未启用／blocked 源的 origin 不放行 ── */
 {
   const allow = new Set(sourceFetchAllowlistOrigins(builtin));
-  assert.ok(!allow.has("https://sexy.pixibb.com"), "未启用目录源（pixibb）origin 不在白名单内");
+  /* 断言适配（fix330 图片线，2026-11-19）：pixibb 已实证启用、xiuren
+   * 解 blocked（生效 origin 改 xiuren.biz）、danbooru 翻案 probe——三源
+   * origin 按「已启用∧非 blocked」口径转正入名单；blocked/未启用的
+   * 不放行口径由 meiridasai/hanime1 接棒，覆盖不降。 */
+  assert.ok(allow.has("https://sexy.pixibb.com"), "fix330 已启用目录源（pixibb）origin 在白名单内");
   assert.ok(!allow.has("https://hanime1.me"), "未启用探路源（hanime1）origin 不在白名单内");
-  /* 契约适配（3.3.0 接通批，2026-11-19）：meiridasai 已解 blocked
-   * （换 mrds66 主域、probe、enabled），其 origin 按派生口径入名单
-   * ——改验新事实；「blocked 不放行」由下方 xiuren/danbooru 与合成
-   * blocked def 断言接棒，覆盖不降。 */
+  /* 契约适配（3.3.0 接通批集成，2026-11-19）：meiridasai（吃瓜线，换
+   * mrds66 主域）、xiuren（图片线，xiuren.biz）、danbooru（图片线翻案）
+   * 三源均已解 blocked（probe＋enabled），其 origin 按派生口径入名单
+   * ——改验新事实；「blocked 不放行」由下方合成 blocked def 断言接棒，
+   * 覆盖不降。三源的次选旧域同为其声明 baseUrls、随源启用一并派生。 */
   assert.ok(allow.has("https://www.mrds66.com"), "meiridasai 已解 blocked：mrds66 origin 入白名单");
-  assert.ok(!allow.has("https://xiuren.com"), "blocked 源（xiuren）origin 不在白名单内");
-  assert.ok(!allow.has("https://danbooru.donmai.us"), "blocked 源（danbooru）origin 不在白名单内");
-  /* 清单远程下线 swag（enabled=false）→ 其根域与 API origin 一并退出白名单 */
+  assert.ok(allow.has("https://xiuren.biz"), "xiuren 已解 blocked：xiuren.biz origin 入白名单");
+  assert.ok(allow.has("https://danbooru.donmai.us"), "danbooru 已翻案：origin 入白名单");  /* 清单远程下线 swag（enabled=false）→ 其根域与 API origin 一并退出白名单 */
   const off = validateManifest({
     manifestVersion: 9, minAppVersion: "3.0.0",
     sources: [{ id: "swag", enabled: false, baseUrls: ["https://swag.live"] }],

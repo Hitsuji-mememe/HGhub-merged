@@ -8,6 +8,11 @@
  * 2026-11-19 瘦身定版（3.2.2 集成批）：只保留图片类 5 源＋里番
  * HentaiHaven，其余目录源已摘除（生成器产物、本注记后补说明，
  * 条目本体未手改）。
+ * 2026-11-19 fix330 图片线逐源定级（本注记后补说明）：图片类 5 源
+ * 已逐源实抓定级、条目本体随之手改——pixibb/nudecosplay 有真列表
+ * 证据启用（probe），gelbooru/yandere/pixiv 维持未启用并在 note
+ * 记实证/排除结论（证据 fix330/evidence/images.md）；HentaiHaven
+ * 属里番线、本线未动。
  */
 import type { SourceDef } from "./types.ts";
 
@@ -22,29 +27,29 @@ export const CATALOG_SOURCES: SourceDef[] = [
     id: "pixibb", displayName: "PixiBB", kind: "image", category: "image",
     adapter: { template: "wp-rest", params: {"restBase": "/wp-json/wp/v2", "listPath": "/posts"} },
     baseUrls: ["https://sexy.pixibb.com"],
-    enabled: false, order: 101, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "目录导入·未实测（Hentai-Park 目录，2026-11-19）：Cosplay 与写真图集，支持推荐、分类与搜索；模板参数为通用骨架、未按真站校准",
+    enabled: true, order: 101, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false }, network: PROBE_NET, note: "fix330 图片线定级（2026-11-19）：本机出口四级实证全通（/wp-json/wp/v2/posts 200 真条目、详情 200、图集、出图 200）＋搜索端点 200 有结果；住宅出口两级筛查正常在案（source-verify-20261119 第二轮 B 组）；wp-rest 参数按实抓校准无变更；App 侧未真机验 → 启用、probe（证据 fix330/evidence/images.md）",
   },
   {
     id: "nudecosplay", displayName: "NudeCosplay", kind: "image", category: "image",
     adapter: { template: "wp-rest", params: {"restBase": "/wp-json/wp/v2", "listPath": "/posts"} },
     baseUrls: ["https://nudecosplay.biz"],
-    enabled: false, order: 102, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "目录导入·未实测（Hentai-Park 目录，2026-11-19）：Cosplay 写真图集，支持总热门、月热门与周热门；模板参数为通用骨架、未按真站校准",
+    enabled: true, order: 102, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false }, network: PROBE_NET, note: "fix330 图片线定级（2026-11-19）：本机出口四级实证全通（/wp-json/wp/v2/posts 200 真条目、详情 200、图集、出图 206）＋搜索端点 200 有结果；住宅出口两级筛查正常在案（source-verify-20261119 第二轮 B 组）；wp-rest 参数按实抓校准无变更；App 侧未真机验 → 启用、probe（证据 fix330/evidence/images.md）",
   },
   {
     id: "yandere", displayName: "yande.re", kind: "image", category: "image",
     adapter: { template: "danbooru-api", params: {"listPath": "/posts.json"} },
     baseUrls: ["https://yande.re/"],
     enabled: false, order: 103, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "目录导入·未实测（Hentai-Park 目录，2026-11-19）：成人插画图库，支持评分排序、搜索与原图；模板参数为通用骨架、未按真站校准",
+    capabilities: NO_CAPS, network: PROBE_NET, note: "fix330 图片线定级（2026-11-19）：维持未启用——住宅出口 DNS 失效在案（source-verify-20261119 第二轮 B 组）；本机出口事实分开记：站方真实端点 /post.json 实抓 200 有真条目，但目录模板 listPath /posts.json 实抓 404（路径不符）、住宅不可达未解 → 不启用、不硬通（证据 fix330/evidence/images.md）",
   },
   {
     id: "gelbooru", displayName: "Gelbooru", kind: "image", category: "image",
     adapter: { template: "danbooru-api", params: {"listPath": "/posts.json"} },
     baseUrls: ["https://gelbooru.com/"],
     enabled: false, order: 104, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "目录导入·未实测（Hentai-Park 目录，2026-11-19）：成人美图画廊，支持评分排序、搜索与原图；模板参数为通用骨架、未按真站校准",
+    capabilities: NO_CAPS, network: PROBE_NET, note: "fix330 图片线定级（2026-11-19）：维持未启用——本机出口实抓：模板端点 /posts.json 404、站方 dapi（json/xml 两形态）匿名 401 需 API 凭证，无模板级真列表证据；住宅出口 HTML 两级筛查正常仅为页面级存档（source-verify-20261119 第二轮 B 组）、不构成 API 列表证据 → 不启用（证据 fix330/evidence/images.md）",
   },
   {
     id: "hentaihaven", displayName: "HentaiHaven", kind: "video", category: "video",
@@ -58,6 +63,6 @@ export const CATALOG_SOURCES: SourceDef[] = [
     adapter: { template: "wp-rest", params: {"restBase": "/wp-json/wp/v2", "listPath": "/posts"} },
     baseUrls: ["https://www.pixiv.net"],
     enabled: false, order: 121, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "目录导入·未实测（Hentai-Park 目录，2026-11-19）：插画与漫画社区，支持个性化推荐、排行、搜索和多页原图阅读；模板参数为通用骨架、未按真站校准",
+    capabilities: NO_CAPS, network: PROBE_NET, note: "fix330 图片线定级（2026-11-19）：维持未启用并按收录标准排除——环境拦截＋需登录（source-verify-20261119 第二轮 B 组存档口径）；本机出口复核首页 403；目录 wp-rest 参数为通用骨架、与站方形态无关，不校准、不启用（证据 fix330/evidence/images.md）",
   },
 ];

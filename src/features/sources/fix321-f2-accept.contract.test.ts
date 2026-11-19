@@ -144,10 +144,10 @@ const def = (id: string) => {
  * 已由 F5 三段齐全门放宽为搜索段结构门——保留源具备搜索段一律进
  * 扇出（probe/blocked 成熟度不再在搜索入口扣留，可播性后移详情/
  * 起播解析）；无搜索段的源仍出局。
- * 3.3.0 接通批续适配（2026-11-19）：51chigua/meiridasai 已按真站
- * 搜索形态接线搜索段（caps.search=true），纳入集 7→9 源；
- * feedheiliao 经实证无 GET 搜索段（关键词不变页），维持出局。 ── */
-{
+ * 3.3.0 接通批集成续适配（2026-11-19）：吃瓜线 51chigua/meiridasai
+ * 接线搜索段、图片线 pixibb/nudecosplay 启用且搜索属实、pornpics 搜索
+ * 属实改 false 出局——纳入集 7→10 源；feedheiliao 经实证无 GET 搜索
+ * 段（关键词不变页），维持出局。 ── */{
   {
     const p = searchPolicyFor(def("feedheiliao"));
     assert.equal(p.include, false, "吃瓜源 feedheiliao 无搜索段、不进扇出（结构门）");
@@ -156,14 +156,18 @@ const def = (id: string) => {
     const p = searchPolicyFor(def(id));
     assert.equal(p.include, true, `吃瓜源 ${id} 搜索段已接线（3.3.0）、进扇出`);
   }
-  for (const id of ["hanime-tv", "pornpics", "xiuren", "danbooru"]) {
+  for (const id of ["hanime-tv", "xiuren", "danbooru"]) {
     const p = searchPolicyFor(def(id));
     assert.equal(p.include, true, `保留源 ${id} 具备搜索段即进扇出（成熟度 ${def(id).maturity} 不再预扣）`);
   }
+  /* 断言适配（fix330 图片线，2026-11-19）：pornpics 模板搜索实证不可
+   * 用、capabilities.search 属实改 false → 无搜索段出局；pixibb/
+   * nudecosplay 实证启用且搜索属实 true → 新进扇出。纳入集 7→8 源，
+   * 结构门口径不变（与 fix321-f5 契约同口径）。 */
+  assert.equal(searchPolicyFor(def("pornpics")).include, false, "pornpics 搜索属实 false、无搜索段出局（fix330）");
   const included = reg.filter((s) => searchPolicyFor(s).include).map((s) => s.id).sort();
-  assert.deepEqual(included, ["51chigua", "cosplaytele", "danbooru", "hanime-tv", "huangguo", "meiridasai", "pornpics", "rule34video", "xiuren"],
-    "扇出纳入集＝保留集内具备搜索段的 9 源（20:48 裁定口径＋3.3.0 吃瓜两源接线）");
-}
+  assert.deepEqual(included, ["51chigua", "cosplaytele", "danbooru", "hanime-tv", "huangguo", "meiridasai", "nudecosplay", "pixibb", "rule34video", "xiuren"],
+    "扇出纳入集＝保留集内具备搜索段的 10 源（20:48 裁定口径＋3.3.0 集成）");}
 
 /* ── (F) 51吃瓜解 blocked＋黑料网毕业：内置面三面一致 ── */
 {

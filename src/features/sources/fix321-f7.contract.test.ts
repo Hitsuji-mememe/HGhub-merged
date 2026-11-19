@@ -96,8 +96,20 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   for (const id of ["hanime1", "iwara"]) {
     assert.ok(!ids.includes(id), `未启用源 ${id} 不进自检名单`);
   }
-  for (const id of ["xiuren", "danbooru"]) {
-    assert.ok(!ids.includes(id), `blocked 源 ${id} 不进自检名单（blocked 本就不拉数据）`);
+  /* 集成适配（3.3.0 接通批）：xiuren/danbooru/meiridasai 均已解 blocked
+   * 改判 probe 进自检名单（见下方 fix330 定级源断言），「blocked 不进
+   * 名单」改由合成 blocked def 承接（口径不变、覆盖不降）。 */
+  {
+    const blockedClone = { ...getBuiltinRegistry().find((s) => s.id === "huangguo")!, maturity: "blocked" as const };
+    const blockedPlan = buildSelfCheckPlan([blockedClone], {}, NOW);
+    assert.ok(!blockedPlan.some((s) => s.id === "huangguo"), "blocked 源不进自检名单（blocked 本就不拉数据）");
+    assert.ok(ids.includes("meiridasai"), "meiridasai 已解 blocked 进自检名单（3.3.0 吃瓜线）");
+  }  /* 断言适配（fix330 图片线，2026-11-19）：xiuren（xiuren.biz 四级
+   * 全通）与 danbooru（住宅四级全通翻案）已解 blocked 改判 probe，
+   * pixibb/nudecosplay 已实证启用——四源按资格口径进自检名单；
+   * 「blocked 不探测」由 meiridasai 接棒（同 51chigua 先例）。 */
+  for (const id of ["xiuren", "danbooru", "pixibb", "nudecosplay"]) {
+    assert.ok(ids.includes(id), `fix330 定级源 ${id} 进自检名单`);
   }
   // 契约适配（基础设施批集成，2026-11-19）：51chigua 已被 fix321-F2b 解 blocked
   // （换现行域名 51cg1.com、maturity=probe、enabled=true），不再属 blocked 名单；

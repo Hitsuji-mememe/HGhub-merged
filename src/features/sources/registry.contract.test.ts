@@ -33,21 +33,38 @@ const CORE_IDS = [
     assert.ok(!ids.has(goneId), `瘦身删除源 ${goneId} 不在册`);
   }
   assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
+  /* 断言适配（fix330 图片线，2026-11-19）：目录图片 5 源已逐源实抓
+   * 定级，原「一律未启用＋未实测注记」口径由逐源实名断言接棒（覆盖
+   * 不降：每个目录源恰落一组）；HentaiHaven 属里番线未动、维持原口径。 */
   for (const s of CATALOG_SOURCES) {
-    assert.equal(s.enabled, false, `目录源 ${s.id} 默认未启用（远程清单可按 id 启用）`);
     assert.equal(s.maturity, "probe", `目录源 ${s.id} 一律 probe`);
-    assert.ok(s.note?.includes("目录导入·未实测"), `目录源 ${s.id} 注记诚实标注未实测`);
+    if (s.id === "hentaihaven") {
+      assert.equal(s.enabled, false, "目录源 hentaihaven 默认未启用（远程清单可按 id 启用）");
+      assert.ok(s.note?.includes("目录导入·未实测"), "目录源 hentaihaven 注记诚实标注未实测");
+    } else if (s.id === "pixibb" || s.id === "nudecosplay") {
+      assert.equal(s.enabled, true, `目录源 ${s.id} fix330 实证启用（本机四级全通）`);
+      assert.ok(s.note?.includes("fix330 图片线定级"), `目录源 ${s.id} 注记已按实证更新`);
+    } else {
+      assert.equal(s.enabled, false, `目录源 ${s.id} fix330 定级维持未启用`);
+      assert.ok(s.note?.includes("fix330 图片线定级"), `目录源 ${s.id} 注记已记定级结论`);
+    }
   }
   /* fix321-F2b：51chigua 换域名 51cg1.com 后解 blocked（契约变化适配）。
-   * 3.3.0 接通批续适配：meiridasai 换备用镜像 mrds66 后解 blocked
-   * （住宅四级全通＋本机四级实证），blocked 接棒由 xiuren/danbooru
-   * 两源承担、口径不变；meiridasai 改验解封后新事实（probe＋新主域）。 */
-  for (const blockedId of ["xiuren", "danbooru"]) {
-    const s = BUILTIN_SOURCES.find((x) => x.id === blockedId)!;
-    assert.equal(s.maturity, "blocked");
-    assert.equal(s.enabled, true, `${blockedId} blocked 保留口径：列表可见、点开诚实提示`);
+   * 3.3.0 接通批集成适配（2026-11-19）：吃瓜线解 meiridasai（mrds66）、
+   * 图片线解 xiuren（xiuren.biz）/danbooru（住宅翻案）后，保留集已无
+   * blocked 源——blocked 保留口径改由派生断言承接（注册表内任一
+   * blocked 源自动受检、现集为空集），三源改验解封后新事实。 */
+  for (const s of BUILTIN_SOURCES.filter((x) => x.maturity === "blocked")) {
+    assert.equal(s.enabled, true, `${s.id} blocked 保留口径：列表可见、点开诚实提示`);
   }
   {
+    const x = BUILTIN_SOURCES.find((v) => v.id === "xiuren")!;
+    assert.equal(x.maturity, "probe", "xiuren 已解 blocked（3.3.0 图片线）");
+    assert.equal(x.baseUrls[0], "https://xiuren.biz", "xiuren 主域为 xiuren.biz（与清单 v3 一致）");
+    const d = BUILTIN_SOURCES.find((v) => v.id === "danbooru")!;
+    assert.equal(d.maturity, "probe", "danbooru 已翻案解 blocked（3.3.0 图片线）");
+    assert.equal(d.enabled, true, "danbooru enabled");
+  }  {
     const s = BUILTIN_SOURCES.find((x) => x.id === "meiridasai")!;
     assert.equal(s.maturity, "probe", "meiridasai 已解 blocked（3.3.0 接通批）");
     assert.equal(s.baseUrls[0], "https://www.mrds66.com", "meiridasai 主域为 mrds66（与清单 v3 一致）");

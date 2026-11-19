@@ -4,10 +4,33 @@
  * 只做模板需要的四件事：锚点枚举、图片提取、meta 提取、m3u8 提取。
  */
 
+/* 命名实体表（fix330 图片线补全）：只收真站标题/简介里常见的标点与
+ * 符号类；数字实体（十进制/十六进制）走通用解码，不逐个列表。 */
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
+  hellip: "…", mdash: "—", ndash: "–", lsquo: "‘", rsquo: "’",
+  ldquo: "“", rdquo: "”", laquo: "«", raquo: "»", middot: "·",
+  bull: "•", deg: "°", copy: "©", reg: "®", trade: "™",
+  times: "×", divide: "÷", plusmn: "±", frac12: "½", iexcl: "¡", iquest: "¿",
+};
+
+/** HTML 实体解码（共用解析层单点，fix330 图片线补全）：旧实现只认
+ * &#39; 等少数形态，真站标题/简介里的 &#039;（前导零）、&#8217;、
+ * &#x27;、&hellip; 等全部原样漏进界面（用户实报详情简介出现
+ * &#039;）。现单遍扫描：十进制（含前导零）/十六进制数字实体通用
+ * 解码＋命名实体查表；单遍替换保证 &amp;#039; 只解一层、不二次
+ * 解码；未知实体与无分号裸 & 原样保留。全部模板的标题/简介/正文
+ * 文本路径（stripTags/findAnchors/imgAlt/headingText/metaContent/
+ * firstImgSrc/allImgSrcs/extractIframeSrc）都经此一处。 */
 export function decodeEntities(s: string): string {
-  return s
-    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, " ");
+  return s.replace(/&(#(?:x|X)[0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]+);/g, (whole, body: string) => {
+    if (body.startsWith("#")) {
+      const hex = body[1] === "x" || body[1] === "X";
+      const n = parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
+      return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : whole;
+    }
+    return NAMED_ENTITIES[body] ?? whole;
+  });
 }
 
 export function stripTags(html: string): string {
