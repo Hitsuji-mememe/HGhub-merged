@@ -7,13 +7,27 @@
 export const URL_CACHE_CAPACITY = 200;
 export const DETAIL_CACHE_CAPACITY = 100;
 
+/* ── 缓存计数（Muse 2026-11-19 根治包·飞行记录仪收口）──
+ * 命中/未命中/写入/淘汰/作用域失效只记聚合计数供诊断快照判读；
+ * 逐次淘汰不入统一时间线（高频且单条无判读价值），作用域整表
+ * 清空由调用方另发 cache.scope_clear 事件入流水。进程期有效、
+ * 不落盘；计数本身永不抛错、永不影响缓存行为。 */
+export type CacheCounters = { hits: number; misses: number; sets: number; evictions: number; scopeClears: number };
+const counters: CacheCounters = { hits: 0, misses: 0, sets: 0, evictions: 0, scopeClears: 0 };
+export const noteCacheHit = (): void => { counters.hits++; };
+export const noteCacheMiss = (): void => { counters.misses++; };
+export const noteCacheScopeClear = (): void => { counters.scopeClears++; };
+export const cacheCountersSnapshot = (): CacheCounters => ({ ...counters });
+
 /** Map 写入口：已存在键只更新值不刷新序；新键超限时淘汰最旧键。 */
 export function setCapped<K, V>(map: Map<K, V>, key: K, value: V, capacity: number): void {
+  counters.sets++;
   if (!map.has(key)) {
     while (map.size >= capacity) {
       const oldest = map.keys().next().value;
       if (oldest === undefined) break;
       map.delete(oldest);
+      counters.evictions++;
     }
   }
   map.set(key, value);
@@ -25,6 +39,7 @@ export function setCapped<K, V>(map: Map<K, V>, key: K, value: V, capacity: numb
 export function capRecordByFifo<T>(record: Record<number, T>, capacity: number): Record<number, T> {
   const keys = Object.keys(record);
   if (keys.length <= capacity) return record;
+  counters.evictions += keys.length - capacity;
   const next = { ...record };
   for (const key of keys.slice(0, keys.length - capacity)) delete next[Number(key)];
   return next;
@@ -34,6 +49,7 @@ export function capRecordByFifo<T>(record: Record<number, T>, capacity: number):
 export function capStringRecordByFifo<T>(record: Record<string, T>, capacity: number): Record<string, T> {
   const keys = Object.keys(record);
   if (keys.length <= capacity) return record;
+  counters.evictions += keys.length - capacity;
   const next = { ...record };
   for (const key of keys.slice(0, keys.length - capacity)) delete next[key];
   return next;

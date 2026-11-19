@@ -6,7 +6,8 @@
  * cacheMap 的 FIFO 上限（URL 类 200 条）。version 计数供调用方把
  * 「缓存已变」接进 effect 依赖（替代旧 playUrls[...] 依赖写法）。 */
 import { useCallback, useRef, useState } from "react";
-import { scopedPlayKey, setCapped, URL_CACHE_CAPACITY } from "./cacheMap";
+import { noteCacheHit, noteCacheMiss, noteCacheScopeClear, scopedPlayKey, setCapped, URL_CACHE_CAPACITY } from "./cacheMap";
+import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 
 export function usePlayUrlCache(accountScope: string, lineEpoch: number) {
   const mainRef = useRef(new Map<string, string>());
@@ -15,6 +16,13 @@ export function usePlayUrlCache(accountScope: string, lineEpoch: number) {
   const scopeRef = useRef("");
   const scope = `${accountScope}:${lineEpoch}`;
   if (scopeRef.current !== scope) {
+    /* 作用域失效入统一时间线（飞行记录仪收口）：整表清空是缓存域的
+     * 关键事件（切线/换账号），逐次淘汰只记计数不入流水。首帧的
+     * 空→初值不算失效，不发事件。 */
+    if (scopeRef.current) {
+      noteCacheScopeClear();
+      tracePlayback("cache.scope_clear", { scope });
+    }
     scopeRef.current = scope;
     mainRef.current.clear();
     hevcRef.current.clear();
@@ -24,8 +32,16 @@ export function usePlayUrlCache(accountScope: string, lineEpoch: number) {
     (id: number, ep: number) => scopedPlayKey(accountScope, lineEpoch, id, ep),
     [accountScope, lineEpoch],
   );
-  const getMain = useCallback((key: string) => mainRef.current.get(key), []);
-  const getHevc = useCallback((key: string) => hevcRef.current.get(key), []);
+  const getMain = useCallback((key: string) => {
+    const v = mainRef.current.get(key);
+    if (v === undefined) noteCacheMiss(); else noteCacheHit();
+    return v;
+  }, []);
+  const getHevc = useCallback((key: string) => {
+    const v = hevcRef.current.get(key);
+    if (v === undefined) noteCacheMiss(); else noteCacheHit();
+    return v;
+  }, []);
   const setUrls = useCallback((key: string, main: string, hevc?: string) => {
     setCapped(mainRef.current, key, main, URL_CACHE_CAPACITY);
     if (hevc) setCapped(hevcRef.current, key, hevc, URL_CACHE_CAPACITY);
