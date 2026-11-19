@@ -135,4 +135,29 @@ import { sourcesForCategory } from "./registry.ts";
   assert.ok(read("../../main.tsx").includes("resolveRegistry"), "main.tsx 启动调用 resolveRegistry");
 }
 
+/* ── D4 清单防回滚（Muse 2026-11-19 整改，G5 P2-2）：远程版本低于
+ * 本地 last-good 时不生效、不覆盖缓存；相等/更高才接受。 ── */
+{ // 远程 v3 < last-good v7 → 用 last-good，缓存不被覆盖
+  const st = memStorage();
+  st.setItem(MANIFEST_CACHE_KEY, JSON.stringify(goodManifest)); // v7：swag 熔断
+  const r = await resolveRegistry({
+    fetcher: async () => ({ manifestVersion: 3, minAppVersion: "2.0.0", sources: [{ id: "swag", enabled: true }] }),
+    storage: st, appVersion: "2.2.0",
+  });
+  assert.equal(r.source, "last-good", "低版本远程清单被防回滚拒绝");
+  assert.equal(r.manifestVersion, 7);
+  assert.equal(r.sources.find((s) => s.id === "swag")!.enabled, false, "仍按 last-good 的熔断位");
+  assert.equal(JSON.parse(st.map.get(MANIFEST_CACHE_KEY)!).manifestVersion, 7, "last-good 缓存未被低版本覆盖");
+}
+{ // 远程 v7 == last-good v7 → 接受远程
+  const st = memStorage();
+  st.setItem(MANIFEST_CACHE_KEY, JSON.stringify(goodManifest));
+  const r = await resolveRegistry({
+    fetcher: async () => ({ manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ id: "swag", enabled: true }] }),
+    storage: st, appVersion: "2.2.0",
+  });
+  assert.equal(r.source, "remote", "同版本远程清单可接受");
+  assert.equal(r.sources.find((s) => s.id === "swag")!.enabled, true);
+}
+
 console.log("registry.contract: all assertions passed");

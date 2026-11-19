@@ -138,21 +138,26 @@ export async function resolveRegistry(deps?: {
   const usable = (m: SourcesManifest | null): m is SourcesManifest =>
     m !== null && compareVersions(m.minAppVersion, appVersion) <= 0;
 
+  /* 防回滚（Muse 2026-11-19 整改 D4，G5 P2-2）：先读 last-good 版本，
+   * 远程清单版本低于它时不生效、不覆盖缓存，直接用 last-good；
+   * 版本相等或更高才接受远程。 */
+  let cachedManifest: SourcesManifest | null = null;
+  try {
+    const cached = storage?.getItem(MANIFEST_CACHE_KEY);
+    cachedManifest = cached ? validateManifest(JSON.parse(cached)) : null;
+  } catch { /* 缓存损坏 → 视为无 last-good，后续按内置兜底 */ }
+
   try {
     const manifest = validateManifest(await fetcher(deps?.url ?? REMOTE_MANIFEST_URL));
-    if (usable(manifest)) {
+    if (usable(manifest) && (cachedManifest === null || manifest.manifestVersion >= cachedManifest.manifestVersion)) {
       try { storage?.setItem(MANIFEST_CACHE_KEY, JSON.stringify(manifest)); } catch { /* 缓存失败不影响本轮生效 */ }
       return setActive({ sources: applyManifest(getBuiltinRegistry(), manifest), manifestVersion: manifest.manifestVersion, source: "remote" });
     }
   } catch { /* 远程失败 → last-good */ }
 
-  try {
-    const cached = storage?.getItem(MANIFEST_CACHE_KEY);
-    const manifest = cached ? validateManifest(JSON.parse(cached)) : null;
-    if (usable(manifest)) {
-      return setActive({ sources: applyManifest(getBuiltinRegistry(), manifest), manifestVersion: manifest.manifestVersion, source: "last-good" });
-    }
-  } catch { /* 缓存损坏 → 内置 */ }
+  if (usable(cachedManifest)) {
+    return setActive({ sources: applyManifest(getBuiltinRegistry(), cachedManifest), manifestVersion: cachedManifest.manifestVersion, source: "last-good" });
+  }
 
   return setActive({ sources: getBuiltinRegistry(), manifestVersion: BUILTIN_MANIFEST_VERSION, source: "builtin" });
 }
