@@ -1716,6 +1716,15 @@
         "src/shared/ui/ui.tsx"
       ],
       "min": 3
+    },
+    {
+      "id": "fix331-hanime-resolve-trace",
+      "item": "3.3.2修复hanime-403线 取流分段留痕 traceResolveFailure（hanimeApi 定义＋resolve 三段生产调用；source.resolve_fail 只带稳定编号/段名/固定码/状态/尝试序）",
+      "symbol": "traceResolveFailure",
+      "files": [
+        "src/features/sources/adapters/hanimeApi.ts"
+      ],
+      "min": 2
     }
   ]
 }

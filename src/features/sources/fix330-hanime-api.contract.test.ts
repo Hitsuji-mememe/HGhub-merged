@@ -26,7 +26,7 @@ import { sourceFetchAllowlistOrigins } from "./allowlist.ts";
 import { setFetchPage } from "./adapters/fetchPage.ts";
 import { setFetchPost, type FetchPostResult } from "./adapters/fetchPost.ts";
 import { HANIME_AUTH_ORIGIN, HANIME_CT_ORIGIN, HANIME_GUEST_ORIGIN, isFetchPageTemplate, templateFetchOrigins } from "./adapters/fetchOrigins.ts";
-import { buildHandshakeRequest, createHanimeApiAdapter, hanimeSignatureHex, openHandshakeResponse, sealEnvelope, sha256Hex } from "./adapters/hanimeApi.ts";
+import { buildHandshakeRequest, createHanimeApiAdapter, hanimeSignatureHex, openHandshakeResponse, resolveFailureEventData, sealEnvelope, sha256Hex } from "./adapters/hanimeApi.ts";
 
 const fx = (name: string) => readFileSync(new URL(`./adapters/fixtures/${name}`, import.meta.url), "utf8");
 const def = getBuiltinRegistry().find((s) => s.id === "hanime-tv");
@@ -150,6 +150,43 @@ const catalogJson = fx("hanime-search-hvs.json");
   assert.equal(csrfCalls, 2, "CSRF 失效后重取一次");
   assert.equal(postCalls, 2, "握手 POST 共两次（首败重试）");
   assert.deepEqual(r.streams, streams, "resolve 全链产出与响应判读一致");
+}
+
+/* ── 取流分段留痕（fix331-hanime-403）：纯函数键集合固定、无敏感
+ * 值位置；终局 HTTP 拒绝的重试行为与留痕前一致，403 文案按本线
+ * 定性处置带出口提示（非 403 维持裸状态形态） ── */
+{
+  assert.deepEqual(
+    resolveFailureEventData("source-002", "handshake", "handshake_http_error", 403, 0),
+    { source: "source-002", segment: "handshake", code: "handshake_http_error", status: 403, attempt: 0 },
+    "留痕数据：编号/段名/固定码/状态/尝试序",
+  );
+  const noStatus = resolveFailureEventData("source-002", "decode", "decode_failed", undefined, 1);
+  assert.deepEqual(Object.keys(noStatus).sort(), ["attempt", "code", "segment", "source"], "无状态时 status 键整缺、键集合封闭");
+  const adapterSrc = readFileSync(new URL("./adapters/hanimeApi.ts", import.meta.url), "utf8");
+  assert.ok(adapterSrc.includes('tracePlayback(\n      "source.resolve_fail"') || adapterSrc.includes('"source.resolve_fail"'), "resolve 失败经 source.resolve_fail 留痕");
+  for (const seg of ['"csrf"', '"handshake"', '"decode"']) {
+    assert.ok(adapterSrc.includes(`traceResolveFailure(def.id, ${seg}`), `三段留痕齐全：${seg}`);
+  }
+  assert.ok(!adapterSrc.includes("tracePlayback") || !/tracePlayback\([^)]*(req\.|headers|csrfToken)/.test(adapterSrc), "留痕落点不直收请求材料（只经 resolveFailureEventData 固定组装）");
+
+  /* 终局拒绝：非 CSRF 错误的 403 不重试、错误文案保持固定形态 */
+  setFetchPage(async (url) => {
+    if (url === `${HANIME_GUEST_ORIGIN}/api/v11/search_hvs`) return catalogJson;
+    return JSON.stringify({ csrf_token: "fixture-csrf-x" });
+  });
+  let denyPosts = 0;
+  setFetchPost(async (): Promise<FetchPostResult> => {
+    denyPosts += 1;
+    return { status: 403, body: JSON.stringify({ error_id: "ACCESS_DENIED" }), xToken: null };
+  });
+  const denied = createHanimeApiAdapter(def);
+  await assert.rejects(denied.resolve("fixture-slug-one"), (e: unknown) => e instanceof Error && e.message === "Hanime 握手失败：HTTP 403（站点拒绝了当前网络出口，切换线路或节点后重试）", "终局 403 带出口提示文案");
+  assert.equal(denyPosts, 1, "非 CSRF 错误不重试");
+  /* 非 403 状态维持裸状态固定形态，不带出口提示 */
+  setFetchPost(async (): Promise<FetchPostResult> => ({ status: 500, body: "{}", xToken: null }));
+  const failed500 = createHanimeApiAdapter(def);
+  await assert.rejects(failed500.resolve("fixture-slug-one"), (e: unknown) => e instanceof Error && e.message === "Hanime 握手失败：HTTP 500", "非 403 维持裸状态文案");
 }
 
 /* ── 注册表/工厂/白名单接线 ── */
