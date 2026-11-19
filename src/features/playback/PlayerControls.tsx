@@ -63,7 +63,10 @@ export default function PlayerControls({
         // Native button activation must not also toggle Feed's playback shortcut.
         if ([" ", "Enter"].includes(event.key) && (event.target as HTMLElement).closest("button")) event.stopPropagation();
       }}>
-      <div className={`desktop-seek ${seekEnabled ? "is-seekable" : ""}`}>
+      {/* is-scrubbing：共享层 useSeekInput 的 scrub 仲裁态（B2 追加）。
+          静默性口径（用户 2026-11-19 产品原则）：独占锁不产生任何可见
+          提示——此类名只作宿主状态钩子（DOM/诊断可读），不挂视觉样式。 */}
+      <div className={`desktop-seek ${seekEnabled ? "is-seekable" : ""} ${seek.scrubbing ? "is-scrubbing" : ""}`}>
         <div className="desktop-seek-track">
           <span className="desktop-seek-buffer" style={{ width: `${Math.min(1, buffered) * 100}%` }} />
           <span className="desktop-seek-played" style={{ width: `${pct}%` }} />

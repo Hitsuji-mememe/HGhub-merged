@@ -353,6 +353,38 @@ async function gestureChecks(page) {
   assert.equal(await video.evaluate(v => v.paused), true, 'Pinch-interrupted scrub must not resume a video the user had paused');
   await dblTap();
   await page.waitForFunction(() => document.querySelector('video')?.paused === false);
+  // ── 拖进度条误触（最终版 B2 线追加，用户实报）：热区与 scrub 独占 ──
+  // (a) 热区：全部可见 scrub 区的有效触控高度 ≥28px（旧值 14/22 必红）。
+  // (b) 独占：单击判定（250ms 窗）挂起时立刻拖进度条——判定必须被
+  //     scrub 取消，窗口到期不许翻显隐（旧实现无取消：到期照翻必红）；
+  //     拖动中途大幅竖移（+140px）不许转交切集/切作品（锁已成立），
+  //     松手只提交一次 mobile_bar seek。tap 与 bar 拖动在同一次
+  //     evaluate 内背靠背派发，保证 bar 起手落在判定窗内（同 dblTap 口径）。
+  await ensureVisible();
+  const zoneHeights = await page.evaluate(() => [...document.querySelectorAll('[data-feed-scrub-zone="true"]')]
+    .map(z => Math.round(z.getBoundingClientRect().height)).filter(h => h > 0));
+  assert(zoneHeights.length > 0 && zoneHeights.every(h => h >= 28), `Scrub zones must expose >=28px touch height, got ${JSON.stringify(zoneHeights)}`);
+  const cleanBeforeBar = await clean();
+  const barSeeksBefore = (await getLogs(page)).filter(e => e.event === "seek.input.up" && e.data.input === "mobile_bar").length;
+  await page.evaluate(() => {
+    const surface = document.querySelector('video').parentElement.parentElement;
+    const bounds = surface.getBoundingClientRect();
+    for (const type of ['pointerdown', 'pointerup']) surface.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, pointerId: 91, pointerType: 'touch', button: 0, clientX: bounds.x + 100, clientY: bounds.y + 100,
+    }));
+    const zone = [...document.querySelectorAll('[data-feed-scrub-zone="true"]')].find(z => z.getBoundingClientRect().height > 0);
+    const r = zone.getBoundingClientRect();
+    const x = r.x + r.width / 2, y = r.y + r.height / 2;
+    zone.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 96, pointerType: 'touch', button: 0, clientX: x, clientY: y }));
+    zone.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 96, pointerType: 'touch', button: 0, clientX: x + 60, clientY: y }));
+    zone.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 96, pointerType: 'touch', button: 0, clientX: x + 60, clientY: y + 140 }));
+    zone.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 96, pointerType: 'touch', button: 0, clientX: x + 60, clientY: y + 140 }));
+  });
+  await page.waitForTimeout(600);
+  assert.equal(await clean(), cleanBeforeBar, 'Bar scrub must cancel the pending tap judge (chrome must not toggle)');
+  assert.match(await epLabel(), /第 1 集/, 'Vertical drift during bar scrub must not switch episode');
+  const barSeeksAfter = (await getLogs(page)).filter(e => e.event === "seek.input.up" && e.data.input === "mobile_bar").length;
+  assert.equal(barSeeksAfter, barSeeksBefore + 1, 'Bar scrub must commit exactly one mobile_bar seek');
   return {singleTapMs};
 }
 
@@ -429,6 +461,15 @@ async function portraitFitChecks(page) {
 
 async function seekChecks(page, legacy) {
   await loadPlayer(page, legacy);
+  /* 热区（最终版 B2 线追加，用户实报「拖进度条极易误触别的界面」）：
+   * 两宿主 seek 输入的有效触控高度必须 ≥28px——旧值：桌面
+   * .desktop-seek 19px、.hg-range 基础高 20px（帖子行内靠 min-height
+   * 补到 28 属巧合达标，一并钉住防回退）。 */
+  const seekZoneHeight = await page.evaluate((isLegacy) => {
+    const el = document.querySelector(isLegacy ? ".post-player-seek-row .hg-range" : ".desktop-seek");
+    return el ? Math.round(el.getBoundingClientRect().height) : 0;
+  }, legacy);
+  assert(seekZoneHeight >= 28, `Seek touch height must be >=28px, got ${seekZoneHeight} (${legacy ? "legacy player" : "desktop controls"})`);
   await clickProgress(page, .1);
   assert.equal((await getLogs(page)).length, 0, "Default-off must not record seeks");
   await page.getByRole("button", { name: "诊断设置", exact: true }).click();
@@ -467,6 +508,11 @@ async function seekChecks(page, legacy) {
   assert.equal(drags.length, 1, "A whole drag must commit exactly one seek on release");
   const last = drags.at(-1);
   assert(logs.some(e => e.event === "seek.input.up" && e.data.input === "drag"));
+  /* scrub 仲裁相位（B2 追加）：共享层 useSeekInput 在拖动成立/结束时
+   * 经同一 onInteraction 通道发 scrubstart/scrubend，两宿主同源。旧
+   * hook 无此相位，本断言必红。 */
+  assert(logs.some(e => e.event === "seek.input.scrubstart" && e.data.input === "drag"), "Drag must raise seek.input.scrubstart");
+  assert(logs.some(e => e.event === "seek.input.scrubend" && e.data.input === "drag"), "Drag release must raise seek.input.scrubend");
   assert(logs.some(e => e.event === "seek.resumed" && e.data.seek === last.data.seek), "Final drag target must recover a frame");
   const fragments = (await getLogs(page)).filter(e => e.event === "hlsFragLoading" || e.event === "hlsFragLoaded");
   assert(fragments.some(e => e.event === "hlsFragLoading" && e.data.load_ms === null), "Incomplete downloads must have unknown duration");

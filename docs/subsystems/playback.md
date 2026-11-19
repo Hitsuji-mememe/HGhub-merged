@@ -57,6 +57,19 @@
    `useSeekInput`/进度条手势。指针移动只预览，松手提交一次；
    `VideoSurface.seek` 把目标夹到 `duration - 0.15`（避免 iOS 片尾卡死），
    通知 hls `startLoad(target)`，写入 `currentTime`，原本在播放才续播。
+   seek 手势仲裁（最终版 B2 线追加，用户实报「拖进度条极易误触别的
+   界面」）：三处 seek 输入的有效触控高度一律 ≥28px（Feed 两处 scrub
+   区、桌面 `.desktop-seek`、帖子 `.hg-range`；视觉轨道不变）。共享层
+   `useSeekInput` 出仲裁：指针位移过 3px（moved 阈值）即 scrub 成立，
+   经 `onInteraction` 发 `scrubstart/scrubend(drag)` 并以 `scrubbing`
+   态对外，两宿主消费同一份；拖动结束后 500ms 内的 click 由共享层
+   吞掉（无位移点击不吞），不许冒泡触发宿主显隐/播放切换。Feed 移动
+   进度条（阈值 8px）起手即取消挂起的单击显隐判定（250ms 窗），区内
+   capture＋stopPropagation＋touchAction:none 使竖向超阈也不转交切
+   作品/滚动；拖动后的尾随 click 由区自身吞掉。仲裁全程静默：独占锁
+   不产生任何可见提示（`is-scrubbing` 只作宿主状态钩子）。Feed 主手
+   势面阈值不变：横拖定位 |dx|>14 且占优、竖滑 |dy|>14 进 pan／抬手
+   |dy|>56 切作品、长按 380ms。
 6. 播放时钟是外部 store：`onTime` 只 `publish` 时钟，进度组件
    `PlaybackProgress`/`PlaybackTime` 用 `useSyncExternalStore` 重绘，避免整个 Feed
    每 250ms 重渲染。Feed 每 5 秒把观看进度通过 `addHistory` 落盘，卸载时再补一次。

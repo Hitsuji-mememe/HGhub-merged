@@ -1146,6 +1146,95 @@ import { usePlaybackActivity } from "../src/features/playback/usePlaybackActivit
   })();
 }
 
+/* ── SA seek 仲裁（最终版 B2 线追加，用户实报「拖进度条极易误触」）：
+ * 真实 useSeekInput hook + 真实 <input type=range> + 父级 onClick 计数。
+ * 契约：拖动过阈值 → onInteraction 恰发一次 scrubstart(drag)、松手恰
+ * 发一次 scrubend(drag)；scrubbing 在拖动中为 true、松手后 false；
+ * 拖动后紧随的 click 必须被共享层吞掉（父级 click 计数不变），而无
+ * 位移的普通点击不许误吞（计数 +1）。旧 hook 无 scrub 相位、无
+ * scrubbing 态、无 click 吞咽：phases 恒缺、click 恒穿透，本组必红。 ── */
+import { useSeekInput } from "../src/features/playback/useSeekInput";
+{
+  void (async () => {
+    const out: Record<string, unknown> = {};
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    try {
+      /* 等最吵的邻居（FIN-B1：反复挂载/卸载根＋真实视频播放）收场后再
+       * 起手：其生命周期内的焦点变动会经本 hook 的 onBlur 取消拖动
+       * （产品语义），与本探针的时序断言相争属夹具伪影。 */
+      for (let i = 0; i < 300 && !(window as unknown as { __finB1?: unknown }).__finB1; i++) await sleep(100);
+      const phases: string[] = [];
+      const seeks: string[] = [];
+      let parentClicks = 0;
+      function Probe() {
+        const seek = useSeekInput({
+          time: 10, duration: 100,
+          onSeek: (_t, input) => { seeks.push(input); },
+          onInteraction: (phase, input) => { phases.push(`${phase}:${input}`); },
+        });
+        return (
+          <div onClick={() => { parentClicks += 1; }}>
+            <span data-scrubbing>{String((seek as { scrubbing?: boolean }).scrubbing)}</span>
+            <input aria-label="seekarb" type="range" {...seek.inputProps} style={{ ...seek.inputProps.style, width: 200 }} />
+          </div>
+        );
+      }
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      root.render(<Probe />);
+      /* 夹具主线程竞争激烈（同页多个真实定时器探针），渲染落定靠轮询等。 */
+      for (let i = 0; i < 100 && !host.querySelector("input"); i++) await sleep(50);
+      const input = host.querySelector("input") as HTMLInputElement;
+      /* 合成 PointerEvent 的 pointerId 不是活动指针，capture 三件套
+       * 打桩为空操作（与真实触摸的差异只在 capture 机制本身）。 */
+      input.setPointerCapture = () => {};
+      input.releasePointerCapture = () => {};
+      input.hasPointerCapture = () => false;
+      const rect = input.getBoundingClientRect();
+      const nativeEvents: string[] = [];
+      for (const t of ["pointercancel", "blur", "lostpointercapture", "focus"]) input.addEventListener(t, () => nativeEvents.push(t));
+      out.nativeEvents = nativeEvents;
+      /* 合并时序日志（调试＋断言共用）：相位与 scrubbing 文本变化同轴记录。 */
+      const timeline: string[] = [];
+      out.timeline = timeline;
+      const scrubSpan = host.querySelector("[data-scrubbing]");
+      if (scrubSpan) new MutationObserver(() => timeline.push(`scrubbing=${scrubSpan.textContent}`)).observe(scrubSpan, { childList: true, characterData: true, subtree: true });
+      const fire = (type: string, x: number) => input.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 7, button: 0, clientX: x }));
+      const scrubbingText = () => host.querySelector("[data-scrubbing]")?.textContent ?? null;
+      /* 拖动：down → 横移 40px（过 3px moved 阈值）→ up → click。
+       * down 后先等相位到达再继续：夹具冷启动时 React 根监听装配与
+       * 渲染落定存在竞态，同步连发会把首个事件丢在装配前（实测）。 */
+      fire("pointerdown", rect.left + 20);
+      for (let i = 0; i < 40 && phases.length < 2; i++) await sleep(50);
+      /* scrubbing 是渲染态：pointermove 属非离散事件，状态 flush 时机
+       * 不定，靠轮询等它落定（邻居探针已收场，窗口内无抢焦源）。 */
+      fire("pointermove", rect.left + 60);
+      for (let i = 0; i < 20 && scrubbingText() !== "true"; i++) await sleep(50);
+      out.scrubbingDuring = scrubbingText();
+      fire("pointerup", rect.left + 60);
+      for (let i = 0; i < 20 && scrubbingText() !== "false"; i++) await sleep(50);
+      out.scrubbingAfter = scrubbingText();
+      input.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      out.clicksAfterDrag = parentClicks;
+      /* 普通点击（无位移）：down → up → click，不许误吞 */
+      fire("pointerdown", rect.left + 30);
+      fire("pointerup", rect.left + 30);
+      input.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      out.clicksAfterTap = parentClicks;
+      out.phasesAll = [...phases];
+      out.seeksAll = [...seeks];
+      out.scrubStarts = phases.filter(p => p === "scrubstart:drag").length;
+      out.scrubEnds = phases.filter(p => p === "scrubend:drag").length;
+      out.dragSeeks = seeks.filter(s => s === "drag");
+      root.unmount();
+    } catch (e) {
+      out.error = e instanceof Error ? e.message : String(e);
+    }
+    Object.assign(window, { __seekArb: out });
+  })();
+}
+
 /* ── B18 Player 接线用例（模块级观测点）：Player 组件 harness 在本
  * 夹具不可及（需 store/Tauri 全量装配），故以「Player 模块经 vite
  * 转换后的源码文本」为观测点断言生产接线存在：notePlaybackPlaying

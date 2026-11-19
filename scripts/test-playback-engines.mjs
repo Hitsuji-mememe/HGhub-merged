@@ -210,6 +210,16 @@ try {
   check("HP no-SR segments carry null SR fields", r.hp_nosr_segments, { release_to_first_frame_ms: 16, release_to_sr_attempt_ms: null, sr_attempt_to_present_ms: null, release_to_sr_present_ms: null });
   check("HP silent release (no frames) dropped", r.hp_silent_release_dropped, 0);
 
+  await page.waitForFunction(() => (window).__seekArb !== undefined, null, { timeout: 20000 });
+  const sa = await page.evaluate(() => (window).__seekArb);
+  check("SA scrubstart fired once on drag", sa.scrubStarts, 1);
+  check("SA scrubend fired once on release", sa.scrubEnds, 1);
+  check("SA scrubbing true during drag", sa.scrubbingDuring, "true");
+  check("SA scrubbing false after release", sa.scrubbingAfter, "false");
+  check("SA click after drag swallowed by shared layer", sa.clicksAfterDrag, 0);
+  check("SA plain click not swallowed", sa.clicksAfterTap, 1);
+  check("SA drag commits exactly one seek", sa.dragSeeks, ["drag"]);
+
   await page.waitForFunction(() => (window).__finB1 !== undefined, null, { timeout: 20000 });
   const fb1 = await page.evaluate(() => (window).__finB1);
   check("FIN-B1 native case started playing", fb1.native_started, true);
