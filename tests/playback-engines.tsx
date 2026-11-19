@@ -7,7 +7,8 @@
 import { AppendStallWatchdog, type StallClock } from "../src/features/playback/appendStallWatchdog";
 import { nativeFallbackState, noteNativeFallback, playbackSource, resetNativeFallbackForTests } from "../src/features/playback/mediaTransport";
 import { createStallWatchdog } from "../src/features/playback/stallWatchdogWiring";
-import { createSrPerfTracker, effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
+import { createSrPerfTracker, effectiveSrMode, presentationPipeline, srContentRect, srCostBudgetMs, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
+import { createSrFpsEstimator } from "../src/features/playback/srFpsEstimate";
 import { createSrDensitySampler, type SrFragSample, type SrLevelInfo } from "../src/features/playback/useSrDensity";
 import { evaluateSrGatesV2, runSrProbe, srProbeCacheKey } from "../src/shared/diagnostics/gpuProbe";
 import * as srDensityModule from "../src/features/playback/useSrDensity";
@@ -460,6 +461,22 @@ function run() {
   results.c_pref_off = effectiveSrMode("off", 720, 1280, { bitrateBps: 500_000, fps: 30 });
   results.c_unknown_size = effectiveSrMode("auto", 0, 0);
   results.c_demote = [srDemote("crisp", 1), srDemote("natural", 1), srDemote("off", 1), srDemote("crisp", 2)];
+
+  /* ── C2 SR 帧率回填（2026-11-19 3.3.0批 SR 帧率回填线）：单档列表
+   * 形态（声明 fps 恒缺失、低密度 bpp≈0.044）回填前恒 natural、实测
+   * 定版后翻 crisp；回归两条——高密度源回填后不得新翻 off（关超分
+   * 门只认声明 fps）、帧预算只认声明 fps（同 density 下预算不变）。 */
+  results.c2_single_level_unknown_fps = effectiveSrMode("auto", 720, 1280, { bitrateBps: 1_219_000 });
+  results.c2_single_level_measured_fps = effectiveSrMode("auto", 720, 1280, { bitrateBps: 1_219_000, measuredFps: 30 });
+  results.c2_high_density_measured_not_off = effectiveSrMode("auto", 1080, 1920, { bitrateBps: 12_000_000, measuredFps: 30 });
+  results.c2_high_density_declared_off = effectiveSrMode("auto", 1080, 1920, { bitrateBps: 12_000_000, fps: 30 });
+  results.c2_budget_declared_only = [srCostBudgetMs(undefined), srCostBudgetMs(30), Math.round(srCostBudgetMs(60) * 1000) / 1000];
+  {
+    const est = createSrFpsEstimator();
+    let settled: ReturnType<typeof est.current> = est.current();
+    for (let k = 0; k <= 70; k++) settled = est.feed(k, k / 30);
+    results.c2_estimator_30fps = [settled.settled, settled.fps ?? null];
+  }
 
   /* ── D SR 黑场自检纯判据：内容矩形避黑边 + 有效帧门控 ── */
   // 竖屏源（720x1280）进横画布（1920x1080）：内容居中、左右各留 656.25 黑边

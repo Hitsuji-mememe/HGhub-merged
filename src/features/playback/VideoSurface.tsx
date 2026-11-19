@@ -417,6 +417,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         ready={ready}
         fit={fit}
         srcKey={src}
+        /* 帧预算通道只传声明 fps（density.fps）：实测回填值
+         * （measuredFps）只进判档 crisp 门，不许走此通道（回填线
+         * 护栏 1，见 SuperResCanvas.srCostBudgetMs）。 */
         fps={srDensity?.fps}
         onFallbackChange={setSvgFallback}
         onActiveModeChange={setCanvasSrMode}

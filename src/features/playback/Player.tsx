@@ -290,6 +290,8 @@ export default function Player({
         ready={videoReady || playing || time > 0}
         fit="contain"
         srcKey={src}
+        /* 帧预算通道只传声明 fps（density.fps），与 VideoSurface 同
+         * 口径：实测回填值不许走此通道（回填线护栏 1）。 */
         fps={srDensity?.fps}
         onFallbackChange={setSvgFallback}
         onActiveModeChange={setCanvasSrMode}

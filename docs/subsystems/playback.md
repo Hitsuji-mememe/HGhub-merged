@@ -293,6 +293,23 @@
   化 `PlaybackFacts.levelFacts`（两播放面共用 attachHls；原生引擎标
   不可控来源）；纯观测补强，不改 ABR/选档与 SR 判档。回归见
   `fix330-diag-levels.contract.test.ts`。
+- SR 判档帧率双口径（2026-11-19 3.3.0批 SR 帧率回填线）：声明帧率
+  （主列表 FRAME-RATE → density.fps）之外新增 rVFC 实测回填——单档
+  媒体列表直给的源没有变体行、声明恒缺失，内核（usePlaybackKernel）
+  在声明缺失时以呈现回调实测 fps＝ΔpresentedFrames/ΔmediaTime（内
+  容域比值、对倍速不变、掉帧只偏低），`srFpsEstimate` 估计器按 10
+  帧分窗中值滤波、累计 ≥60 已呈现帧一次性定版锁定、向标准率
+  {24/25/30/50/60} 向下吸附（宁低勿高；低于 24 按未知不定版回填值），
+  经密度采样器 noteMeasuredFps 合并为 density.measuredFps（声明一
+  出现即停测、永不覆盖声明）。消费分离是硬护栏：回填值只供
+  effectiveSrMode 低密度 crisp 门（fpsKnownForCrisp）；bpp 计算、
+  高密度关超分门（fpsKnownDeclared）与 SR 帧成本预算
+  （srCostBudgetMs，双播放面 SrCanvas 的 fps prop）只认声明 fps。
+  定版回填后判档走渲染期纯函数重算＋画布 modeRef 逐帧读，引擎/
+  画布/管线零重建。facts 分开记 fps（恒声明值）/measuredFps/
+  fpsSource（declared/measured），报告帧率行明示来源、bpp 复算仍
+  按声明口径。回归见 `fix330-sr-fps.contract.test.ts` 与
+  playback-engines C2 组。
 
 ## 验证命令
 
