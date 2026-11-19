@@ -120,17 +120,23 @@ export function srCodecScale(codec?: string): number {
  * 整改 4（同日晚）：阈值先按编码族缩放（srCodecScale）；fps 未知时
  * bpp 按 30 估会系统性偏高（60fps 源真值只有一半），密度路径走保守
  * 档——不给 crisp、也不关档（off 同样需要 fps 背书），一律 natural。 */
-export function effectiveSrMode(pref: SrPref, w: number, h: number, density?: { bitrateBps?: number; fps?: number; codec?: string }): SuperResMode {
+export function effectiveSrMode(pref: SrPref, w: number, h: number, density?: { bitrateBps?: number; fps?: number; codec?: string; provisional?: boolean }): SuperResMode {
   if (pref === "off") return "off";
   const short = Math.min(w || 0, h || 0);
   if (short <= 0) return "natural";
   if (short <= 480) return "crisp";
-  const bpp = srBpp(w, h, density?.bitrateBps, density?.fps);
+  /* provisional 守卫（Muse 2026-11-19 最终版 E 线，GPT P2-04）：未满
+   * 3 片的 density?.provisional 密度不许驱动判档——一律按密度未知
+   * 处理（走下方 bpp==null 的纯分辨率回落）。主防护在采样器/hook
+   * （useSrDensity.srDensityForTiering），此处是共享判档函数的兜底，
+   * 任何直接传 provisional 对象的调用方都被同一口径拦住。 */
+  const d = density?.provisional ? undefined : density;
+  const bpp = srBpp(w, h, d?.bitrateBps, d?.fps);
   if (bpp == null) return short <= 720 ? "natural" : "off";
-  const scale = srCodecScale(density?.codec);
+  const scale = srCodecScale(d?.codec);
   const low = SR_BPP_LOW * scale;
   const high = SR_BPP_HIGH * scale;
-  const fpsKnown = !!density?.fps && density.fps > 0;
+  const fpsKnown = !!d?.fps && d.fps > 0;
   if (bpp < low) return fpsKnown ? "crisp" : "natural";
   if (bpp < high) return "natural";
   if (short > 720) return fpsKnown ? "off" : "natural";

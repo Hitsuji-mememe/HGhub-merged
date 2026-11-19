@@ -99,7 +99,8 @@ export function evaluateSrGatesV2(r: {
 }
 
 /* ── 探针持久化（audit6 P0-A 第 3 层）：结果落 localStorage，键＝设备
- * 型号×iOS 版本×引擎版本；命中且 <30 天直接用，禁止每次启动重跑。
+ * 型号×iOS 版本×引擎版本；成功命中且 <30 天直接用，禁止每次启动
+ * 重跑；失败条目短 TTL 1 天且新测失败不落盘（fin-e，见下方常量）。
  * 设备型号/iOS 版本只取 UA 可得的粗粒度标识（探针键用途，非指纹上报，
  * 不出本机）。引擎版本由 features 注册时注入（shared 不反向依赖）。 */
 let srEngineVersion = 0;
@@ -110,7 +111,18 @@ export function srProbeCacheKey(): string {
   return `hghubx_sr_probe_v1:${model}:${osVer}:e${srEngineVersion}`;
 }
 const SR_PROBE_MAX_AGE_MS = 30 * 24 * 3600_000;
-function readPersistedSrProbe(): SrProbeResult | null {
+/* 失败短 TTL（Muse 2026-11-19 最终版 E 线，来源①用户点名 SR 打磨）：
+ * 成功结果维持 30 天；失败结果只认 1 天——旧实现失败也吃满 30 天，
+ * 一次临时失败（冷启动/驱动抖动）会把超分探针挡住近一个月。且新测
+ * 失败不落盘（见 persistSrProbe），重进直接重探；本短 TTL 只兜底
+ * 历史版本已落盘的失败条目。 */
+export const SR_PROBE_FAILURE_MAX_AGE_MS = 24 * 3600_000;
+/** 探针失败判据：门禁不过或无可用摄入路径。读回时以重判后的
+ * gatesPass 为准（见 readPersistedSrProbe），不信存量布尔。 */
+export function srProbeIsFailure(r: { gatesPass: boolean; recommendedPath: "external" | "copy" | null }): boolean {
+  return !r.gatesPass || r.recommendedPath == null;
+}
+export function readPersistedSrProbe(): SrProbeResult | null {
   try {
     const raw = localStorage.getItem(srProbeCacheKey());
     if (!raw) return null;
@@ -118,7 +130,6 @@ function readPersistedSrProbe(): SrProbeResult | null {
     const at = Date.parse(parsed.at);
     if (!Number.isFinite(at)) return null;
     const age = Date.now() - at;
-    if (age < 0 || age >= SR_PROBE_MAX_AGE_MS) return null;
     /* 持久化重判（整改 C10）：存有原始指标时重跑门禁判读，不直接
      * 信存下的 gatesPass（门禁口径升级后旧结论可能已不成立）；存量
      * 只有 gatesPass、没有原始指标的旧条目按过期处理。 */
@@ -127,10 +138,16 @@ function readPersistedSrProbe(): SrProbeResult | null {
       && parsed.external != null && parsed.copy != null
       && "recommendedPath" in parsed;
     if (!hasRawMetrics) return null;
-    return { ...parsed, gatesPass: evaluateSrGatesV2(parsed), source: "persisted", ageDays: Math.round((age / 86400_000) * 10) / 10 };
+    const gatesPass = evaluateSrGatesV2(parsed);
+    const maxAge = srProbeIsFailure({ gatesPass, recommendedPath: parsed.recommendedPath }) ? SR_PROBE_FAILURE_MAX_AGE_MS : SR_PROBE_MAX_AGE_MS;
+    if (age < 0 || age >= maxAge) return null;
+    return { ...parsed, gatesPass, source: "persisted", ageDays: Math.round((age / 86400_000) * 10) / 10 };
   } catch { return null; }
 }
 function persistSrProbe(result: SrProbeResult): void {
+  /* 失败不落盘（fin-e）：落盘只配成功结果；失败当场返回后下次启动
+   * 无条目可命中、直接重探，不被旧失败挡住。 */
+  if (srProbeIsFailure(result)) return;
   try { localStorage.setItem(srProbeCacheKey(), JSON.stringify(result)); } catch { /* 存储不可用则下次重跑 */ }
 }
 
@@ -152,9 +169,9 @@ export function srProbeRegistered(): boolean {
   return srProbeRunner !== null;
 }
 
-/** 跑 v2（幂等、永不 reject）。持久化命中（<30 天）直接用（读时
- * 重判门禁，见 readPersistedSrProbe），不重跑——探针是分钟级开
- * 销，不许每次启动付一遍。 */
+/** 跑 v2（幂等、永不 reject）。持久化命中（成功 <30 天／失败 <1 天，
+ * 读时重判门禁，见 readPersistedSrProbe）直接用，不重跑——探针是
+ * 分钟级开销，不许每次启动付一遍；失败条目过期即重探。 */
 export function runSrProbe(): Promise<SrProbeResult | null> {
   if (srProbeCached) return Promise.resolve(srProbeCached);
   if (!srProbeRunner) return Promise.resolve(null);

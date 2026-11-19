@@ -10,6 +10,8 @@ import { createStallWatchdog } from "../src/features/playback/stallWatchdogWirin
 import { createSrPerfTracker, effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
 import { createSrDensitySampler } from "../src/features/playback/useSrDensity";
 import { evaluateSrGatesV2, runSrProbe, srProbeCacheKey } from "../src/shared/diagnostics/gpuProbe";
+import * as srDensityModule from "../src/features/playback/useSrDensity";
+import * as gpuProbeModule from "../src/shared/diagnostics/gpuProbe";
 import * as webgpuSrModule from "../src/features/playback/webgpuSr";
 import * as srCanvasModule from "../src/features/playback/SrCanvas";
 import SrCanvas from "../src/features/playback/SrCanvas";
@@ -523,6 +525,64 @@ function run() {
     results.b4_density_bitrate_from_playing_level = d?.bitrateBps ?? null;
     results.b4_density_size_from_playing_level = [d?.width ?? null, d?.height ?? null];
     results.b4_density_fps_codec_from_playing_level = [d?.fps ?? null, d?.codec ?? null];
+  }
+
+  /* ── E 最终版 E 线（Muse 2026-11-19 fin-e）：①SR 探针失败短 TTL
+   * ②密度 provisional（GPT P2-04）。新导出经模块命名空间取用：基线
+   * 无此导出/字段时结果记缺失或旧行为 → 本组在基线上红、修复后绿。
+   * 判档判别例：1080p 低密度（1.2Mbps、bpp≈0.019）——final 时判
+   * crisp；provisional 值若驱动判档也会判 crisp；受防护时密度视为
+   * 未知、走纯分辨率回落判 off。故 1–2 片期望 off、3 片期望 crisp。 */
+  {
+    const forTiering = (srDensityModule as unknown as { srDensityForTiering?: (d: unknown) => { bitrateBps?: number } | undefined }).srDensityForTiering;
+    const sampler = createSrDensitySampler();
+    const lvl = { frameRate: 30, videoCodec: "avc1.640028", width: 1920, height: 1080, bitrate: 1_200_000 };
+    const frag = { loaded: 100_000, duration: 2, level: 0 };
+    type Prov = { provisional?: boolean; sampleCount?: number };
+    const one = sampler.ingest(frag, lvl);
+    results.e_prov_1_flag = (one as Prov | null)?.provisional ?? null;
+    results.e_prov_1_count = (one as Prov | null)?.sampleCount ?? null;
+    results.e_prov_1_tiering = forTiering ? (forTiering(one) ?? null) : "missing";
+    results.e_prov_1_mode = effectiveSrMode("auto", 1920, 1080, one as unknown as Parameters<typeof effectiveSrMode>[3] ?? undefined);
+    const two = sampler.ingest(frag, lvl);
+    results.e_prov_2_flag = (two as Prov | null)?.provisional ?? null;
+    results.e_prov_2_count = (two as Prov | null)?.sampleCount ?? null;
+    results.e_prov_2_tiering = forTiering ? (forTiering(two) ?? null) : "missing";
+    results.e_prov_2_mode = effectiveSrMode("auto", 1920, 1080, two as unknown as Parameters<typeof effectiveSrMode>[3] ?? undefined);
+    const three = sampler.ingest(frag, lvl);
+    results.e_prov_3_flag = (three as Prov | null)?.provisional ?? null;
+    results.e_prov_3_count = (three as Prov | null)?.sampleCount ?? null;
+    results.e_prov_3_tiering_bps = forTiering ? (forTiering(three)?.bitrateBps ?? null) : "missing";
+    results.e_prov_3_mode = effectiveSrMode("auto", 1920, 1080, three as unknown as Parameters<typeof effectiveSrMode>[3] ?? undefined);
+  }
+  {
+    const readPersisted = (gpuProbeModule as unknown as { readPersistedSrProbe?: () => { source?: string; gatesPass?: boolean } | null }).readPersistedSrProbe;
+    const key = srProbeCacheKey();
+    const day = 86400_000;
+    const okChains = {
+      presented720: 10, frames720Ok: true,
+      external: { ok: true, msAvg: 5, msP90: 6, processed: 24, dropped: 0 },
+      copy: { ok: true, msAvg: 5, msP90: 6, processed: 24, dropped: 0 },
+      chain720: { ok: true, msAvg: 11, msP90: 15, withinBudget: true },
+      chain1080: { ok: true, msAvg: 16, msP90: 20 },
+      deviceLost: 0, droppedRate720: 0.01, tailRatio720: 1.05,
+    };
+    const success29 = { ...okChains, at: new Date(Date.now() - 29 * day).toISOString(), recommendedPath: "copy", gatesPass: true };
+    const failure2d = { ...okChains, chain720: { ok: false, msAvg: null, msP90: null, withinBudget: false }, at: new Date(Date.now() - 2 * day).toISOString(), recommendedPath: null, gatesPass: false };
+    const success31 = { ...success29, at: new Date(Date.now() - 31 * day).toISOString() };
+    try {
+      localStorage.setItem(key, JSON.stringify(failure2d));
+      results.e_ttl_failure_2d = readPersisted ? (readPersisted() === null ? "ignored" : "used") : "missing";
+      localStorage.setItem(key, JSON.stringify(success29));
+      const hit = readPersisted ? readPersisted() : null;
+      results.e_ttl_success_29d = hit ? (hit.source ?? "hit-no-source") : "missing";
+      results.e_ttl_success_29d_gates = hit ? (hit.gatesPass ?? null) : null;
+      localStorage.setItem(key, JSON.stringify(success31));
+      results.e_ttl_success_31d = readPersisted ? (readPersisted() === null ? "ignored" : "used") : "missing";
+    } catch {
+      results.e_ttl_error = "threw";
+    }
+    try { localStorage.removeItem(key); } catch { /* 清理夹具写入 */ }
   }
 
   /* ── H HLS 工厂（audit6 P0-A 第 1 层）：播种值、回退默认、锁最高档、

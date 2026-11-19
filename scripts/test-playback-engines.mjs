@@ -138,6 +138,24 @@ try {
   check("H start level locks highest", r.h_lock_highest, [3, 3]);
   check("H first rendition format", r.h_first_rendition, "第 4/4 档 · 1920x1080 · 8000kbps");
 
+  // E — fin-e: provisional density (P2-04) + probe failure short TTL
+  check("E prov 1 frag flagged provisional", r.e_prov_1_flag, true);
+  check("E prov 1 frag sampleCount", r.e_prov_1_count, 1);
+  check("E prov 1 frag excluded from tiering", r.e_prov_1_tiering, null);
+  check("E prov 1 frag does not drive tier (1080p low-density stays resolution fallback)", r.e_prov_1_mode, "off");
+  check("E prov 2 frags flagged provisional", r.e_prov_2_flag, true);
+  check("E prov 2 frags sampleCount", r.e_prov_2_count, 2);
+  check("E prov 2 frags excluded from tiering", r.e_prov_2_tiering, null);
+  check("E prov 2 frags do not drive tier", r.e_prov_2_mode, "off");
+  check("E prov 3 frags final", r.e_prov_3_flag, false);
+  check("E prov 3 frags sampleCount", r.e_prov_3_count, 3);
+  check("E prov 3 frags tiering bps", r.e_prov_3_tiering_bps, 1_200_000);
+  check("E prov 3 frags drive tier (low-density -> crisp)", r.e_prov_3_mode, "crisp");
+  check("E ttl failure aged 2d ignored (reprobe)", r.e_ttl_failure_2d, "ignored");
+  check("E ttl success aged 29d still persisted hit", r.e_ttl_success_29d, "persisted");
+  check("E ttl success aged 29d gates re-evaluated pass", r.e_ttl_success_29d_gates, true);
+  check("E ttl success aged 31d expired", r.e_ttl_success_31d, "ignored");
+
   check("G gates v2 all pass", r.g_all_pass, true);
   check("G gates v2 720p P90 blocks", r.g_p90_720_blocks, false);
   check("G gates v2 1080p avg blocks", r.g_1080_avg_blocks, false);
