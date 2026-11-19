@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, cover, fmt, isMobile } from "../../shared/api/api";
 import type { HotSearchVideo, Post, RankItem, VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
+import { LOCAL_SCOPE } from "../../shared/model/localLibrary";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { MediaCard, RankRow } from "../../shared/ui/cards";
 import { FilteredContent } from "../../shared/ui/FilteredContent";
@@ -12,6 +13,9 @@ import { SearchTags } from "./SearchTags";
 import { IBack, IChevR, IClose, IFilm, IFireF, IPlayF, IRefresh, ISearch, ITrophy } from "../../shared/ui/icons";
 import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
+
+/* 资料库作用域（账号体系拆除后恒定）：代次键的前缀成分。 */
+const scope = LOCAL_SCOPE;
 import { AlbumViewer } from "../sources/AlbumViewer";
 import { getActiveRegistry } from "../sources/manifest";
 import { createAdapter } from "../sources/adapters/index.ts";
@@ -75,14 +79,14 @@ const copyCacheKey = (c: CopyRef) => `${c.sourceId}:${c.item.externalId}`;
 const FANOUT_EXCLUDE_NATIVE = new Set(["huangguo"]);
 
 export default function Search({ active, wide }: { active: boolean; wide: boolean }) {
-  const { push, searchHist, addSearch, clearSearchHist, lineEpoch, accountScope, setTab: setMainTab } = useStore();
+  const { push, searchHist, addSearch, clearSearchHist, lineEpoch, setTab: setMainTab } = useStore();
   const { preferences } = useContentPreferences();
   const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
   const [q, setQ] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [tab, setTab] = useState<GlobalSearchKind>("video");
   const [hgVideo, setHgVideo] = useState<HgState<VideoCard>>(null);
-  /* F4b 补判规范信号：key=`${accountScope}:${lineEpoch}:${id}`（作用域
+  /* F4b 补判规范信号：key=`${scope}:${lineEpoch}:${id}`（作用域
    * 与代次进口径同 useFeedDetails），值只存 Detail 的剧集结构信号。 */
   const [hgCanonicalSignals, setHgCanonicalSignals] = useState<Record<string, EpisodeStructureSignal>>({});
   const kindLookupRequested = useRef(new Set<string>());
@@ -224,7 +228,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   submitRef.current = submit;
   const submittedRef = useRef("");
   submittedRef.current = submitted;
-  const envKey = `${accountScope}:${lineEpoch}`;
+  const envKey = `${scope}:${lineEpoch}`;
   const prevEnvRef = useRef(envKey);
   useEffect(() => {
     if (prevEnvRef.current === envKey) return;
@@ -721,7 +725,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
               </Surface>
             )}
 
-            <SearchTags key={JSON.stringify([lineEpoch, accountScope])} active={active} />
+            <SearchTags key={JSON.stringify([lineEpoch, scope])} active={active} />
           </>
         ) : (
           <>

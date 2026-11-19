@@ -55,8 +55,9 @@ export function capStringRecordByFifo<T>(record: Record<string, T>, capacity: nu
   return next;
 }
 
-/** 播放缓存作用域键（不变量 2）：账号作用域＋线路代次＋内容 id＋集数。
- * 切线/换账号后旧条目按键不可达，读路径不再需要额外校验。 */
-export function scopedPlayKey(accountScope: string, lineEpoch: number, id: number, ep: number): string {
-  return `${accountScope}:${lineEpoch}:${id}:${ep}`;
+/** 播放缓存作用域键（不变量 2）：资料库作用域（恒 LOCAL_SCOPE）＋
+ * 线路代次＋内容 id＋集数。切线后旧条目按键不可达，读路径不再需要
+ * 额外校验。 */
+export function scopedPlayKey(scope: string, lineEpoch: number, id: number, ep: number): string {
+  return `${scope}:${lineEpoch}:${id}:${ep}`;
 }

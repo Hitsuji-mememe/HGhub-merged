@@ -154,9 +154,8 @@ try {
     assert.equal(await dialog.getByText("recommended.fixture.invalid", { exact: true }).count(), 0);
     assert.equal((await calls(page, "line_mirrors")).length, 1);
     await dialog.getByRole("button").filter({ hasText: "mirror-one.fixture.invalid" }).click();
-    await page.waitForFunction(() => window.lineSelectionFixture?.base === "https://mirror-one.fixture.invalid" && window.lineSelectionSnapshot?.lineEpoch === 1 && window.lineSelectionSnapshot?.user?.id === 17);
+    await page.waitForFunction(() => window.lineSelectionFixture?.base === "https://mirror-one.fixture.invalid" && window.lineSelectionSnapshot?.lineEpoch === 1);
     assert.equal(await page.evaluate(() => window.lineSelectionFixture.lineChanged), 1);
-    assert.equal(await page.evaluate(() => window.lineSelectionSnapshot.user?.id), 17);
     assert.deepEqual((await calls(page, "line_set")).map(call => call.args), [{ url: MIRROR }]);
     await dialog.getByRole("button", { name: "关闭", exact: true }).click();
     await sourceButton(page).getByText("mirror-one.fixture.invalid", { exact: true }).waitFor();
@@ -164,7 +163,7 @@ try {
     await dialog.waitFor();
     assert.equal((await calls(page, "line_mirrors")).length, 1);
     await page.screenshot({ path: join(output, mobile ? "line-picker-android.png" : "line-picker-desktop.png"), fullPage: true, animations: "disabled" });
-    report.passed.push(`${mobile ? "Android-sized sheet" : "Desktop dialog"}: Expanding network settings opens the real picker; fixed and published mirror rows load without legacy-only recommendations; successful selection updates current line, store epoch and settings host while the trusted-line rebase keeps the logged-in user`);
+    report.passed.push(`${mobile ? "Android-sized sheet" : "Desktop dialog"}: Expanding network settings opens the real picker; fixed and published mirror rows load without legacy-only recommendations; successful selection updates current line, store epoch and settings host`);
     await context.close();
   }
 
@@ -179,8 +178,7 @@ try {
     assert.equal(await page.evaluate(() => window.lineSelectionFixture.base), MAIN);
     assert.equal(await page.evaluate(() => window.lineSelectionFixture.lineChanged), 0);
     assert.equal(await page.evaluate(() => window.lineSelectionSnapshot.lineEpoch), 0);
-    assert.equal(await page.evaluate(() => window.lineSelectionSnapshot.user?.id), 17);
-    report.passed.push("Rejected manual selection retains line, login UI and content epoch without emitting line-changed");
+    report.passed.push("Rejected manual selection retains line and content epoch without emitting line-changed");
     await context.close();
   }
 

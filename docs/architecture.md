@@ -59,9 +59,10 @@ Feed 与评论、选集、详情面板放在 `features/feed/`。跨功能使用�
 ## 共享状态的当前边界
 
 [`shared/model/store.tsx`](../src/shared/model/store.tsx) 仍是一个应用 Provider，聚合导航、
-主题、账号与播放偏好；Toast 列表通过独立的 `useToasts()`（`useSyncExternalStore`）订阅，避免提示弹层触发全树重渲染。
+主题、资料库与播放偏好；Toast 列表通过独立的 `useToasts()`（`useSyncExternalStore`）订阅，避免提示弹层触发全树重渲染。
 
-`store` 调用同目录的 `accountData` 处理账号数据缓存与同步。`accountData` 对 `store`
+`store` 调用同目录的 `localLibrary` 处理本地资料库（收藏/历史）与旧账号分桶的启动
+吸收（3.3.0 账号体系拆除，原 `accountData` 已删）。`localLibrary` 对 `store`
 中的 `WatchProgress` 仅有类型引用，须保留 `import type`；`contentPreferences` 仍是独立的
 external store，由多个页面共享，而非设置页私有状态。
 

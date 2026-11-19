@@ -1,7 +1,7 @@
 /* ── 播放 URL 缓存（Muse 2026-11-19 根治包，audit6 P1-3/P2-08）──
  * 从 Feed 抽出：playUrls/hevcUrls 此前以未作用域的 `${id}:${ep}` 为键、
  * 无容量上限——切线后当前条目继续用旧线 URL 播放、换账号能读到上一
- * 账号解析的 URL。现键统一为 scopedPlayKey（accountScope:lineEpoch:
+ * 账号解析的 URL。现键统一为 scopedPlayKey（scope:lineEpoch:
  * id:ep），作用域变化整表清空（旧条目既不可达也不占内存），容量经
  * cacheMap 的 FIFO 上限（URL 类 200 条）。version 计数供调用方把
  * 「缓存已变」接进 effect 依赖（替代旧 playUrls[...] 依赖写法）。
@@ -47,7 +47,7 @@ export function isScopeOnlyChange(prevKey: string, nextKey: string, prevContent:
 }
 
 export function usePlayUrlCache(
-  accountScope: string,
+  scope: string,
   lineEpoch: number,
   currentEntryRef?: { current: { id: number; ep: number } },
   skipPreserveRef?: { current: Set<string> },
@@ -56,18 +56,18 @@ export function usePlayUrlCache(
   const hevcRef = useRef(new Map<string, string>());
   const [version, setVersion] = useState(0);
   const scopeRef = useRef("");
-  const scopePartsRef = useRef({ accountScope: "", lineEpoch: -1 });
-  const scope = `${accountScope}:${lineEpoch}`;
-  if (scopeRef.current !== scope) {
+  const scopePartsRef = useRef({ scope: "", lineEpoch: -1 });
+  const scopeKey = `${scope}:${lineEpoch}`;
+  if (scopeRef.current !== scopeKey) {
     /* 作用域失效入统一时间线（飞行记录仪收口）：整表清空是缓存域的
-     * 关键事件（切线/换账号），逐次淘汰只记计数不入流水。首帧的
+     * 关键事件（切线），逐次淘汰只记计数不入流水。首帧的
      * 空→初值不算失效，不发事件。当前条目在清表前快照、清后按新键
      * 写回（整改 B1 键迁移）；skip 集内的条目不迁移（自愈重解析）。 */
     let snap: EntrySnapshot = null;
     let migratedKey = "";
     if (scopeRef.current) {
       noteCacheScopeClear();
-      tracePlayback("cache.scope_clear", { scope });
+      tracePlayback("cache.scope_clear", { scope: scopeKey });
       const cur = currentEntryRef?.current;
       const prev = scopePartsRef.current;
       if (cur && cur.id && prev.lineEpoch >= 0) {
@@ -75,21 +75,21 @@ export function usePlayUrlCache(
         if (skipPreserveRef?.current.has(ck)) {
           skipPreserveRef.current.delete(ck);
         } else {
-          snap = snapshotEntry(mainRef.current, hevcRef.current, scopedPlayKey(prev.accountScope, prev.lineEpoch, cur.id, cur.ep));
-          migratedKey = scopedPlayKey(accountScope, lineEpoch, cur.id, cur.ep);
+          snap = snapshotEntry(mainRef.current, hevcRef.current, scopedPlayKey(prev.scope, prev.lineEpoch, cur.id, cur.ep));
+          migratedKey = scopedPlayKey(scope, lineEpoch, cur.id, cur.ep);
         }
       }
     }
-    scopeRef.current = scope;
-    scopePartsRef.current = { accountScope, lineEpoch };
+    scopeRef.current = scopeKey;
+    scopePartsRef.current = { scope, lineEpoch };
     mainRef.current.clear();
     hevcRef.current.clear();
     if (snap) restoreEntry(mainRef.current, hevcRef.current, migratedKey, snap);
   }
 
   const keyFor = useCallback(
-    (id: number, ep: number) => scopedPlayKey(accountScope, lineEpoch, id, ep),
-    [accountScope, lineEpoch],
+    (id: number, ep: number) => scopedPlayKey(scope, lineEpoch, id, ep),
+    [scope, lineEpoch],
   );
   const getMain = useCallback((key: string) => {
     const v = mainRef.current.get(key);

@@ -177,12 +177,6 @@ export type AccountInteractions = {
   like_post_ids?: number[];
   favorite_post_ids?: number[];
 };
-export type AccountSnapshot = { user: User; interactions?: AccountInteractions; origin: string };
-export type AccountIdentity = { expectedUserId: number; expectedOrigin: string };
-export type AccountHistoryItem = {
-  id: number; video_id: number; target_type: "video"; last_ep: number; updated_at: string;
-};
-export type AccountHistoryPage = {
-  items: AccountHistoryItem[];
-  pagination: { page: number; pages: number; size: number; total: number };
-};
+/* 账号体系已于 3.3.0 拆除：AccountSnapshot/AccountIdentity/云历史类型
+ * 随前端包装一并删除。User/AccountInteractions 保留——app_boot 的
+ * Rust 返回仍带 user 字段，前端类型与之同步（不变量 8），仅不再消费。 */

@@ -7,18 +7,18 @@ import { useStore } from "../../shared/model/store";
 import { Avatar, Empty, Modal } from "../../shared/ui/ui";
 import { MediaCard } from "../../shared/ui/cards";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
-import { CollectionLink, CollectionLinks } from "../../shared/ui/CollectionLink";
-import { IBack, IChevR, IClock, IHeart, ILogout, ISettings, IStar, IUser, IUserF } from "../../shared/ui/icons";
+import { IBack, IChevR, IClock, IHeart, ISettings, IStar, IUser } from "../../shared/ui/icons";
 
-/* Account changes discard cached details synchronously, before another account can paint. */
+/* 线路变化时丢弃缓存详情重挂载（旧实现另有 accountScope 成分，账号
+ * 体系拆除后身份恒定，只剩 lineEpoch 代次）。 */
 export default function Profile({ wide, active = true }: { wide: boolean; active?: boolean }) {
-  const { accountScope, lineEpoch } = useStore();
-  return <ProfileContent key={`${accountScope}:${lineEpoch}`} wide={wide} active={active} />;
+  const { lineEpoch } = useStore();
+  return <ProfileContent key={lineEpoch} wide={wide} active={active} />;
 }
 
 function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
   const { blockReason } = useContentPreferences();
-  const { user, setLoginOpen, logout, history, favs, postFavs, setCollected, toast, clearHistory, push, accountSync, syncAccount, setTab: setMainTab } = useStore();
+  const { history, favs, postFavs, setCollected, toast, clearHistory, push, setTab: setMainTab } = useStore();
   const [tab, setTab] = useState<"fav" | "history">("fav");
   const [favKind, setFavKind] = useState<"video" | "post">("video");
   const [videoCache, setVideoCache] = useState<Record<number, Detail>>({});
@@ -31,10 +31,6 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
   const [failedIds, setFailedIds] = useState<number[]>([]);
   const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [logoutOpen, setLogoutOpen] = useState(false);
-  const [logoutBusy, setLogoutBusy] = useState(false);
-  const [logoutError, setLogoutError] = useState("");
-  const logoutPending = useRef(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [clearError, setClearError] = useState("");
@@ -55,9 +51,6 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
   const cardsCount = showingPosts ? postCards.length : videoCards.length;
   const failed = failedIds.filter(id => visibleIds.includes(id));
   const idsKey = visibleIds.join(",");
-  const favoriteStateUnknown = tab === "fav" && !!user && !accountSync.favoritesKnown && favs.length === 0 && postFavs.length === 0;
-  const favoriteSyncFailed = favoriteStateUnknown && !accountSync.busy;
-  const syncingFavorites = favoriteStateUnknown && !favoriteSyncFailed;
   /** 观看记录里这条的进度（收藏页没有） */
   const progressOf = (id: number) => (tab === "history" ? history.find((h) => h.id === id) : undefined);
 
@@ -102,22 +95,6 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
     return () => { alive = false; };
   }, [active, idsKey, tab, showingPosts, reload]);
 
-  const confirmLogout = async () => {
-    if (logoutPending.current) return;
-    logoutPending.current = true;
-    setLogoutBusy(true);
-    setLogoutError("");
-    try {
-      await logout();
-      if (mounted.current) setLogoutOpen(false);
-    } catch (error) {
-      if (mounted.current) setLogoutError(error instanceof Error ? error.message : "退出失败，请重试");
-    } finally {
-      logoutPending.current = false;
-      if (mounted.current) setLogoutBusy(false);
-    }
-  };
-
   const clearWatchHistory = async () => {
     if (clearing.current) return;
     clearing.current = true;
@@ -152,22 +129,8 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
       </div>
 
       <div className="ios-page-body flex-1 scroll-y px-4 pt-2 pb-24">
-        {/* Muse 2026-11-18 (2.2.0 合并, 移植 2.1.1): 登录脸整体移除——用户长期游客模式，
-            「我的」打开直接是本地收藏/观看历史；底层 accountData 本地存储不动。 */}
-
-        {user && accountSync.error && <div role="alert" className="mt-3 rounded-(--r-sm) bg-s3 px-3.5 py-3 text-[13px] flex flex-wrap items-center justify-between gap-2">
-          <p className="text-danger break-words flex-1 min-w-[200px]">{accountSync.error}</p>
-          <Button disabled={accountSync.busy} onClick={() => { void syncAccount().catch(() => {}); }}
-            className="inline-flex items-center min-h-9 -mx-2 px-2 text-primary font-semibold shrink-0">{accountSync.busy ? "正在重试…" : "重试同步"}</Button>
-        </div>}
-
-        {/* 我的主页（关注已于 3.2.2 砍单删除） */}
-        {user && (
-          <CollectionLinks className="ios-profile-links mt-4">
-            <CollectionLink icon={<IUserF size={18} />} title="我的主页"
-              onClick={() => push({ kind: "user", id: user.id, name: user.nickname })} />
-          </CollectionLinks>
-        )}
+        {/* 「我的」只有本机收藏/观看历史：登录脸已于 2.2.0 移除，账号
+            体系（同步/分桶/登出）于 3.3.0 拆除，资料库纯本地。 */}
 
         {/* 我的内容 */}
         <SegmentedControl className="mt-4" aria-label="我的内容" activeIndex={tab === "fav" ? 0 : 1}>
@@ -176,7 +139,7 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
           ))}
         </SegmentedControl>
 
-        {tab === "fav" && !favoriteStateUnknown && (favs.length > 0 || postFavs.length > 0 || favKind === "post") && (
+        {tab === "fav" && (favs.length > 0 || postFavs.length > 0 || favKind === "post") && (
           <div className="mt-2.5 flex items-center gap-2" role="group" aria-label="收藏内容类型">
             <Button aria-pressed={favKind === "video"} onClick={() => setFavKind("video")} className="ios-filter-pill">
               短剧{favs.length ? ` ${favs.length}` : ""}
@@ -187,14 +150,8 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
           </div>
         )}
 
-        <div className="mt-3" aria-busy={loading || syncingFavorites}>
-          {favoriteSyncFailed ? (
-            <Empty icon={<IStar size={24} />} title="收藏状态未知"
-              sub="账号同步未完成，暂时无法确认收藏内容。" action="重试"
-              onAction={() => { void syncAccount().catch(() => {}); }} />
-          ) : syncingFavorites ? (
-            <FavoriteSyncState wide={wide} />
-          ) : loading && !cardsCount ? (
+        <div className="mt-3" aria-busy={loading}>
+          {loading && !cardsCount ? (
             <div className="flex justify-center py-8"><Loader className="w-7 h-7 spinner" /></div>
           ) : showingPosts && postCards.length ? (
             <div className={`ios-media-grid ${wide ? "is-wide" : ""}`}>
@@ -253,7 +210,7 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
             <Button disabled={loading} onClick={() => setReload(n => n + 1)} className="px-3 text-primary">重试失败内容</Button>
           </div>}
           {cardsCount > 0 && loading && <div className="flex justify-center py-3"><Loader label="加载更多内容" /></div>}
-          {ids.length > 0 && <p role="status" className="mt-3 text-[12px] text-mut">已显示 {cardsCount} / {ids.length} 项{user ? "账号记录" : "本机记录"}</p>}
+          {ids.length > 0 && <p role="status" className="mt-3 text-[12px] text-mut">已显示 {cardsCount} / {ids.length} 项本机记录</p>}
           {visibleIds.length < ids.length && <Button disabled={loading} onClick={() => setLimits(previous => ({ ...previous, [limitKey]: previous[limitKey] + 12 }))}
             className="mt-3 w-full rounded-(--r-ctl) bg-s3 text-[13px] text-on">加载更多</Button>}
           {tab === "history" && history.length > 0 && (
@@ -292,23 +249,10 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
           </div>
         )}
       </Modal>
-      <Modal open={logoutOpen} onClose={() => { if (!logoutPending.current) setLogoutOpen(false); }} label="退出登录">
-        <div className="p-5">
-          <h2 className="text-[18px] font-bold">退出登录</h2>
-          <p className="mt-2 text-[14px] text-mut">退出当前账户？账号数据和本机进度会保留，退出后显示游客的本机记录。</p>
-          {logoutError && <p role="alert" className="mt-3 text-[13px] text-danger">{logoutError}</p>}
-          <div className="mt-4 flex gap-3">
-            <Button variant="secondary" disabled={logoutBusy} onClick={() => setLogoutOpen(false)} className="flex-1">取消</Button>
-            <Button variant="danger" disabled={logoutBusy} onClick={() => void confirmLogout()} className="flex-1 rounded-(--r-ctl) px-3">
-              {logoutBusy ? "正在退出…" : "确认退出"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
       <Modal open={clearOpen} onClose={() => { if (!clearing.current) setClearOpen(false); }} label="清空观看历史">
         <div className="p-5">
           <h2 className="text-[18px] font-bold">清空观看历史</h2>
-          <p className="mt-2 text-[14px] text-mut">确认清空全部观看历史？{user ? "当前账号的云端观看历史与本机缓存都会被清除。" : "本机游客观看历史会被清除。"}此操作无法撤销，收藏不会受影响。</p>
+          <p className="mt-2 text-[14px] text-mut">确认清空全部观看历史？本机观看历史会被清除。此操作无法撤销，收藏不会受影响。</p>
           {clearError && <p role="alert" className="mt-3 text-[13px] text-danger">{clearError}</p>}
           <div className="mt-4 flex gap-3">
             <Button variant="secondary" disabled={clearBusy} onClick={() => setClearOpen(false)} className="flex-1">取消</Button>
@@ -322,21 +266,3 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
   );
 }
 
-function FavoriteSyncState({ wide }: { wide: boolean }) {
-  return <>
-    <div role="status" aria-live="polite" aria-label="正在同步收藏"
-      className="mb-4 flex items-center justify-center gap-2.5 text-[13px] text-mut">
-      <span aria-hidden="true" className="ios-loader spinner w-5 h-5" />
-      <span>正在同步收藏…</span>
-    </div>
-    <div aria-hidden="true" className={`ios-media-grid ${wide ? "is-wide" : ""}`}>
-      {[0, 1, 2, 3].map(index => (
-        <div key={index} className="min-w-0">
-          <div className="aspect-[3/4] w-full rounded-[22px] bg-s3 animate-pulse" />
-          <div className="mt-2.5 h-3.5 w-4/5 rounded-full bg-s3 animate-pulse" />
-          <div className="mt-2 h-3 w-1/2 rounded-full bg-s2 animate-pulse" />
-        </div>
-      ))}
-    </div>
-  </>;
-}

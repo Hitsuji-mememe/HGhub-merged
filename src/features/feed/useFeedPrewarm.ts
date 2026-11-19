@@ -12,7 +12,7 @@ import { prewarmFirstSegment, prewarmRetryDue, type PrewarmMark } from "./prewar
 export function useFeedPrewarm(opts: {
   active: boolean;
   kind: "video" | "post";
-  accountScope: string;
+  scope: string;
   lineEpoch: number;
   playKey: string;
   playingKey: string;
@@ -26,7 +26,7 @@ export function useFeedPrewarm(opts: {
 }) {
   const prewarmedRef = useRef<Map<string, PrewarmMark>>(new Map());
   const scopeRef = useRef("");
-  const scope = `${opts.accountScope}:${opts.lineEpoch}`;
+  const scope = `${opts.scope}:${opts.lineEpoch}`;
   if (scopeRef.current !== scope) {
     scopeRef.current = scope;
     prewarmedRef.current.clear();

@@ -2,9 +2,10 @@ import React, { createContext, useCallback, useContext, useEffect, useLayoutEffe
 import { api, platform as envPlatform } from "../api/api";
 import { exitDocumentFullscreen, getFullscreenElement } from "../lib/fullscreen";
 import { isStrictSecurity, setStrictSecurity as setHtmlStrictSecurity } from "../lib/securityMode";
-import type { User } from "../api/types";
 import { readStorage, STORAGE_KEYS } from "../storage/storage";
-import { pickGuestData, useAccountData, type GuestData } from "./accountData";
+import {
+  absorbLegacyAccounts, clearAbsorbedLegacyAccounts, pickLibraryData, useLocalLibrary, type LibraryData,
+} from "./localLibrary";
 
 export type Platform = "android" | "ios" | "windows" | "macos" | "linux";
 export type Theme = "dark" | "light";
@@ -68,7 +69,7 @@ export type Toast = {
 /** 观看记录：看到第几集、第几秒（`dur` 用来判断是否已看完） */
 export type WatchProgress = { id: number; ep: number; t: number; dur: number; at: number };
 
-type Persist = GuestData & {
+type Persist = LibraryData & {
   muted: boolean;
   muteOnStartup: boolean;
   volume: number;
@@ -118,6 +119,22 @@ function normalizeHistory(raw: unknown): WatchProgress[] {
   return out;
 }
 
+/** 旧账号分桶吸收（3.3.0 拆除线）：曾登录用户的资料库只在
+ * `hghubx_accounts_v1` 分桶里，load 时合并进本机 Persist。合并结果
+ * 先写新键并回读验证、成功才删旧键（存储不变量 7）；写失败保留
+ * 旧键，下次启动幂等重吸收，本次内存数据已合并、不受影响。 */
+function absorbIntoPersist(base: Persist): Persist {
+  const legacy = absorbLegacyAccounts(pickLibraryData(base));
+  if (!legacy.absorbed) return base;
+  const merged = { ...base, ...legacy.data };
+  try {
+    const text = JSON.stringify(merged);
+    localStorage.setItem(LS, text);
+    if (localStorage.getItem(LS) === text) clearAbsorbedLegacyAccounts();
+  } catch { /* 写失败保留旧分桶键，下次启动重吸收 */ }
+  return merged;
+}
+
 function loadPersist(): Persist {
   try {
     const raw = readStorage(LS);
@@ -144,9 +161,10 @@ function loadPersist(): Persist {
        尊重存量取值。写死项：muteOnStartup+muted/preferHevc 恒 true；
        swipeEp 同日被用户真机纠正推翻（竖滑切作品、非切集），恒 false——
        1.2.9 的一次性迁移（旧 false 视为默认、强制改 true）就此废止。 */
-    return { ...p, swipeEp: false, srMode, srPref, muteOnStartup: true, muted: true, fsIdleSecs, preferHevc: true, history: normalizeHistory(p.history) };
+    const base: Persist = { ...p, swipeEp: false, srMode, srPref, muteOnStartup: true, muted: true, fsIdleSecs, preferHevc: true, history: normalizeHistory(p.history) };
+    return absorbIntoPersist(base);
   } catch {
-    return DEFAULTS;
+    return absorbIntoPersist(DEFAULTS);
   }
 }
 
@@ -187,23 +205,13 @@ type Store = {
   theme: Theme; themePreference: ThemePreference;
   tab: Tab; setTab: (t: Tab) => void;
   stack: Page[]; push: (p: PageInput) => void; openRootPage: (p: PageInput) => void; pop: () => void;
-  user: User | null; setUser: (u: User | null, origin?: string) => void;
-  accountScope: string; accountSync: { busy: boolean; error: string; lastSynced: number; favoritesKnown: boolean };
-  syncAccount: () => Promise<void>;
   setCollected: (kind: "video" | "post", id: number, on: boolean) => Promise<void>;
-  setLiked: (kind: "video" | "post", id: number, ep: number, on: boolean) => Promise<void>;
-  setFollowing: (id: number, on: boolean) => Promise<void>;
   actionPending: (key: string) => boolean;
-  loginOpen: boolean; setLoginOpen: (b: boolean) => void;
-  logout: () => Promise<void>;
   likes: number[]; favs: number[]; postLikes: number[]; postFavs: number[]; history: WatchProgress[]; follows: number[];
-  isLiked: (id: number, ep?: number, kind?: "video" | "post") => boolean; isFav: (id: number, kind?: "video" | "post") => boolean;
-  toggleLikeLocal: (id: number) => boolean;
-  toggleFavLocal: (id: number) => boolean;
+  isFav: (id: number, kind?: "video" | "post") => boolean;
   /** 记一条观看记录；`ep/t/dur` 省略时保留原进度，`ep` 变了就把进度归零 */
   addHistory: (id: number, ep?: number, t?: number, dur?: number) => void;
   clearHistory: () => Promise<void>;
-  toggleFollowLocal: (uid: number) => boolean;
   fs: boolean; setFs: (v: boolean | ((p: boolean) => boolean)) => void;
   /** 移动端「净屏」：只留画面，UI 全隐 */
   clean: boolean; setClean: (v: boolean | ((p: boolean) => boolean)) => void;
@@ -257,14 +265,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const tabRef = useRef(tab);
   tabRef.current = tab;
   const [stack, setStack] = useState<Page[]>([]);
-  // Guest library writes must not roll back sound, quality, gestures or search preferences.
-  const account = useAccountData(
-    pickGuestData(p),
-    data => setP(previous => ({ ...previous, ...pickGuestData(data) })),
+  // Library writes must not roll back sound, quality, gestures or search preferences.
+  const library = useLocalLibrary(
+    pickLibraryData(p),
+    data => setP(previous => ({ ...previous, ...pickLibraryData(data) })),
   );
-  const { user, setUser } = account;
-  const accountRef = useRef(account); accountRef.current = account;
-  const [loginOpen, setLoginOpen] = useState(false);
   const [lineEpoch, setLineEpoch] = useState(0);
   const [fs, setFsState] = useState(false);
   const [clean, setCleanState] = useState(false);
@@ -296,7 +301,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 
   useEffect(() => {
-    try { localStorage.setItem(LS, JSON.stringify(p)); } catch { /* ignore */ }
+    try {
+      localStorage.setItem(LS, JSON.stringify(p));
+      /* 吸收后落盘成功即清旧分桶键（load 时写失败的兜底重试；
+       * load 时已验证写成功的已在 loadPersist 内删）。 */
+      clearAbsorbedLegacyAccounts();
+    } catch { /* ignore */ }
   }, [p]);
 
   useEffect(() => {
@@ -304,10 +314,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let active = true;
     const readBoot = () => {
       const current = ++request;
-      const generation = accountRef.current.generation();
       void api.boot().then((r) => {
         if (!active || current !== request) return;
-        accountRef.current.restoreSession(r.user && (r.user as User).id ? r.user as User : null, r.base || "", generation);
         if (typeof r.strict_security === "boolean") {
           setStrictSecurityState(r.strict_security);
           setHtmlStrictSecurity(r.strict_security);
@@ -317,8 +325,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }).catch(() => { /* 离线也能用 */ });
     };
     readBoot();
-    // 切线/代理变化后由 boot 决定会话：可信线路间后端保留登录（rebase），
-    // 不再先 setUser(null) 闪退；不可信/自定义切线后端已清会话，boot 返回 null 正常登出。
+    // 切线/代理变化后重读 boot：严格模式与 CLI 放行状态随后端配置走。
     const changed = () => { readBoot(); };
     window.addEventListener("hg:line-changed", changed);
     window.addEventListener("hg:proxy-changed", changed);
@@ -399,7 +406,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTabRaw(t);
     setStack(s => s.length ? [] : s);
   }, [exitNativeFs]);
-  useEffect(() => { if (tab === "profile") void accountRef.current.syncAccount().catch(() => {}); }, [tab]);
   const push = useCallback((pg: PageInput) => {
     exitNativeFs();
     setFsState(false);
@@ -428,12 +434,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setP((s) => ({ ...s, searchHist: [t, ...s.searchHist.filter((x) => x !== t)].slice(0, 12) }));
   }, []);
   const clearSearchHist = useCallback(() => setP((s) => ({ ...s, searchHist: [] })), []);
-
-  const logout = useCallback(async () => {
-    await accountRef.current.logout();
-    toast("已退出登录", "info");
-  }, [toast]);
-
 
   const setFs = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setFsState((prev) => (typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v));
@@ -492,13 +492,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     platform: envPlatform,
     theme, themePreference,
     tab, setTab, stack, push, openRootPage, pop,
-    user, setUser, loginOpen, setLoginOpen, logout,
-    accountScope: account.accountScope, accountSync: account.accountSync, syncAccount: account.syncAccount,
-    likes: account.likes, favs: account.favs, postLikes: account.postLikes, postFavs: account.postFavs, history: account.history, follows: account.follows,
-    isLiked: account.isLiked, isFav: account.isFav,
-    setCollected: account.setCollected, setLiked: account.setLiked, setFollowing: account.setFollowing, actionPending: account.actionPending,
-    toggleLikeLocal: account.toggleLikeLocal, toggleFavLocal: account.toggleFavLocal, toggleFollowLocal: account.toggleFollowLocal,
-    addHistory: account.addHistory, clearHistory: account.clearHistory,
+    likes: library.likes, favs: library.favs, postLikes: library.postLikes, postFavs: library.postFavs, history: library.history, follows: library.follows,
+    isFav: library.isFav,
+    setCollected: library.setCollected, actionPending: library.actionPending,
+    addHistory: library.addHistory, clearHistory: library.clearHistory,
     muted: p.muted, setMuted, volume: p.volume, setVolume, rate: p.rate, setRate, fs, setFs, clean, setClean,
     muteOnStartup: p.muteOnStartup, setMuteOnStartup,
     swipeEp: p.swipeEp, setSwipeEp,
@@ -509,8 +506,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     searchHist: p.searchHist, addSearch, clearSearchHist,
     strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     get toasts() { return toastList; }, toast, lineEpoch,
-  }), [theme, themePreference, tab, setTab, stack, push, openRootPage, pop, user, loginOpen, logout,
-    p, account,
+  }), [theme, themePreference, tab, setTab, stack, push, openRootPage, pop,
+    p, library,
     setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setSrMode, cycleSrMode, setSrPref, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toast, lineEpoch, fs, setFs, clean, setClean]);
 

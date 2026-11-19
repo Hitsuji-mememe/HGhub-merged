@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, cover, fmt, isMobile } from "../../shared/api/api";
 import type { Post } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
+import { LOCAL_SCOPE } from "../../shared/model/localLibrary";
 import { copyText } from "../../shared/lib/clipboard";
 import { Empty, Img, Sheet } from "../../shared/ui/ui";
 import { Player } from "../playback";
@@ -23,8 +24,11 @@ import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from ".
 import { postHot } from "./postData";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 
+/* 资料库作用域（账号体系拆除后恒定）：请求代次键的前缀成分。 */
+const scope = LOCAL_SCOPE;
+
 /* 导航重置判定（Muse 2026-11-19 3.2.1修复F9线）：只有帖子 id 真变化
- * （新导航）才许整页重置（跳顶/清播放/清分段）；lineEpoch/accountScope
+ * （新导航）才许整页重置（跳顶/清播放/清分段）；lineEpoch/scope
  * 是线路与账号代次，与换帖无关——旧实现把两者绑在同一 effect 上，
  * 播放期线路 epoch 一变就跳顶并撕掉正在播的 Player（用户实报两症状）。 */
 export const shouldResetPostForNav = (prevId: number | null, id: number): boolean => prevId !== id;
@@ -138,8 +142,8 @@ const HIDDEN_POST_TAG = "\u9ec4\u679c";
 /* ================= 吃瓜详情（网页式浏览） ================= */
 export function PostDetail({ id, onBack, active = true }: { id: number; onBack: () => void; active?: boolean }) {
   const {
-    toast, strictSecurity, muted, setMuted, volume, push, lineEpoch, accountScope,
-    isLiked, isFav, setLiked, setCollected, actionPending,
+    toast, strictSecurity, muted, setMuted, volume, push, lineEpoch,
+    isFav, setCollected, actionPending,
   } = useStore();
   const { preferences, blockReason } = useContentPreferences();
   const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
@@ -231,7 +235,7 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
       })
       .catch((e) => { if (alive) setErr((e as Error).message || "加载失败"); });
     return () => { alive = false; };
-  }, [id, reload, lineEpoch, accountScope]);
+  }, [id, reload, lineEpoch, scope]);
 
   useEffect(() => {
     if (!allowed) { setResolving(false); return; }
@@ -247,7 +251,7 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
       .catch(e => { if (alive) setMediaError(e instanceof Error ? e.message : "视频解析失败"); })
       .finally(() => { if (alive) setResolving(false); });
     return () => { alive = false; };
-  }, [id, reload, mediaRetry, allowed, lineEpoch, accountScope]);
+  }, [id, reload, mediaRetry, allowed, lineEpoch, scope]);
 
   // Keep blocked content out of the surface while the host navigates back.
   if (currentPost && blocked) return <div className="absolute inset-0 flex items-center justify-center bg-bg" aria-label="正在返回">

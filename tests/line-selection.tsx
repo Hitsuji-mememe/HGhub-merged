@@ -12,7 +12,7 @@ initAutoLine();
 function Probe() {
   const store = useStore();
   useEffect(() => {
-    Object.assign(window, { lineSelectionSnapshot: { lineEpoch: store.lineEpoch, user: store.user, ready: store.strictSecurityReady } });
+    Object.assign(window, { lineSelectionSnapshot: { lineEpoch: store.lineEpoch, ready: store.strictSecurityReady } });
   }, [store]);
   return null;
 }
