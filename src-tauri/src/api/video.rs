@@ -75,34 +75,6 @@ pub async fn api_play(state: State<'_, Api>, id: i64, ep: u32) -> Result<Value, 
     }
 }
 
-    id: i64,
-    ep: u32,
-    page: u32,
-    size: u32,
-) -> Result<Value, String> {
-    state
-        .get(&format!(
-            "/api/videos/{id}/comments?ep={ep}&page={page}&size={size}"
-        ))
-        .await
-}
-
-    id: i64,
-    ep: u32,
-    text: String,
-    reply_id: Option<i64>,
-) -> Result<Value, String> {
-    let mut body = json!({ "text": text });
-    let path = match reply_id {
-        Some(rid) if rid > 0 => {
-            body["reply_id"] = json!(rid);
-            format!("/api/videos/{id}/comments")
-        }
-        _ => format!("/api/videos/{id}/comments?ep={ep}"),
-    };
-    state.account_request("POST", &path, Some(body), None, None).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::{has_play_url, normalize_play_info};

@@ -213,14 +213,6 @@ pub async fn api_related(state: State<'_, Api>, id: i64) -> Result<Value, String
     state.get(&format!("/api/videos/{id}/related")).await
 }
 
-    page: u32,
-    size: u32,
-) -> Result<Value, String> {
-    state
-        .account_request("GET", &format!("/api/videos/following?page={page}&size={size}"), None, None, None)
-        .await
-}
-
 /// 用户主页：`/api/users/{id}`。
 #[tauri::command]
 pub async fn api_user(state: State<'_, Api>, id: i64) -> Result<Value, String> {

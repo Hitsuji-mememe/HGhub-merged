@@ -45,12 +45,3 @@ pub async fn api_post_collect(state: State<'_, Api>, id: i64, on: bool, expected
         .account_request(method, &format!("/api/posts/{id}/collect"), None, expected_user_id, expected_origin.as_deref())
         .await
 }
-
-    id: i64,
-    page: u32,
-    size: u32,
-) -> Result<Value, String> {
-    state
-        .get(&format!("/api/posts/{id}/comments?page={page}&size={size}"))
-        .await
-}
