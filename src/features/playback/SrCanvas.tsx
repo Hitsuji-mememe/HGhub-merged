@@ -15,7 +15,7 @@
 
 import React, { useEffect, useState } from "react";
 import type { SuperResMode } from "../../shared/model/store";
-import { getSrProbeResult } from "../../shared/diagnostics/gpuProbe";
+import { getSrProbeResult, runSrProbe } from "../../shared/diagnostics/gpuProbe";
 import SuperResCanvas from "./SuperResCanvas";
 import WebGpuSrCanvas from "./WebGpuSrCanvas";
 
@@ -74,19 +74,27 @@ export default function SrCanvas(props: Props) {
   /* 任一播放面的引擎死亡 → 全部已挂载面退出 WebGPU（整改 B17-3）。 */
   useEffect(() => subscribeWebgpuSessionDeath(() => setDeadTick((v) => v + 1)), []);
 
-  /* 探针在启动后后台完成：轮询缓存直到有结果（上限 ~40s），
-   * 有结果后若门全过，后续挂载的播放面自动走 WebGPU 管线。 */
+  /* 探针等待对齐（整改 B17-1）：旧实现只轮询缓存 ~40s（n>20）就
+   * 放弃，而探针预算是 idle 调度＋最长 90s 以上，且无人替先挂载的
+   * 面调 runSrProbe 时缓存永远为空——先挂载的播放面永远等不到。
+   * 现事件驱动为主：挂载即调 runSrProbe()（幂等、共享 inflight、
+   * 持久化命中直接 resolve），完成即补接管；长轮询兜底上限延至
+   * ~150s（n>75），覆盖探针全程预算。 */
   useEffect(() => {
     if (probeReady) return;
+    let cancelled = false;
+    void runSrProbe().then(() => {
+      if (!cancelled) setProbeReady(getSrProbeResult() !== null);
+    });
     let n = 0;
     const timer = setInterval(() => {
       n += 1;
-      if (getSrProbeResult() !== null || n > 20) {
+      if (getSrProbeResult() !== null || n > 75) {
         setProbeReady(getSrProbeResult() !== null);
         clearInterval(timer);
       }
     }, 2000);
-    return () => clearInterval(timer);
+    return () => { cancelled = true; clearInterval(timer); };
   }, [probeReady]);
 
   const probe = getSrProbeResult();
