@@ -122,6 +122,65 @@ export function unregisterPlayerInstance(instanceId: string): void {
   active.delete(instanceId);
 }
 
+/** 记一次迟到丢弃（Muse 2026-11-19 整改 C1）：迟到回调在注销后到
+ * 达、且其绑定已销毁无从走 recordIfCurrent 时，由绑定层直接累加——
+ * droppedLate 不许再结构性恒 0。旁路：永不抛错。 */
+export function noteDroppedLate(): void {
+  try {
+    droppedLate += 1;
+  } catch { /* 旁路 */ }
+}
+
+export type LedgerBinding = {
+  /** 写一条实例级事件：首次写账时惰性注册并把 (id, generation)
+   * 成对存下，此后恒用存下的 generation，不随调用方新值漂移。 */
+  record: (name: string, data: Record<string, unknown> | undefined, generation: number) => boolean;
+  /** 注销绑定：注销后 record 不再重注册，改为真实累加 droppedLate。
+   * 幂等。调用方须先经 record 发出 player.unmount 再 dispose，
+   * 注销动作本身不算迟到事件。 */
+  dispose: () => void;
+  readonly disposed: boolean;
+};
+
+/** 播放器实例的账本绑定（Muse 2026-11-19 整改 C1）：修复旧
+ * mirrorLedger 在 ledgerId 为 null（已注销）时重新 register 的结构
+ * 缺陷——迟到事件曾被当新实例入账、活跃实例单调泄漏、droppedLate
+ * 恒 0。本绑定把「未注册／已注册／已注销」三态显式化：已注销后
+ * 的 record 只计 droppedLate，永不重注册。纯旁路、永不抛错。 */
+export function createLedgerBinding(): LedgerBinding {
+  let id: string | null = null;
+  let storedGeneration: number | null = null;
+  let disposed = false;
+  return {
+    get disposed() {
+      return disposed;
+    },
+    record(name, data, generation) {
+      try {
+        if (disposed) {
+          noteDroppedLate();
+          return false;
+        }
+        if (id === null) {
+          id = registerPlayerInstance();
+          storedGeneration = generation;
+        }
+        return recordIfCurrent(id, name, { generation: storedGeneration, ...(data ?? {}) });
+      } catch {
+        return false;
+      }
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      if (id !== null) {
+        unregisterPlayerInstance(id);
+        id = null;
+      }
+    },
+  };
+}
+
 /**
  * 实例有效性判据：异步回调写账前必须过这一关。
  * null/undefined 表示会话级（无实例归属），恒有效。
