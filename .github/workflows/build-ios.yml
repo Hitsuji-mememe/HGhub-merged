@@ -24,10 +24,6 @@ jobs:
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
       - uses: swatinem/rust-cache@v2.9.3
-        # 实验临时禁用（Muse 2026-11-19 sccache 热跑验证）：rust-cache
-        # 全量还原会掩盖编译、使 sccache 零请求；本轮对照需让编译真实
-        # 发生。验证结束后恢复，勿带进合入补丁。
-        if: false
         continue-on-error: true
         timeout-minutes: 20
         with:
