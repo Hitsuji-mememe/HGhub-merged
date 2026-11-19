@@ -341,7 +341,6 @@
       "min": 2
     },
     {
-<<<<<<< HEAD
       "id": "fin-c-confirm-gen-capture",
       "item": "P1-05 auto_pick 任务开始捕获 CONFIRM_GEN（捕获点＋收尾传参）",
       "symbol": "confirm_gen_at_start",
@@ -609,7 +608,8 @@
       "item": "最终版A线 P2-08 代次捕获 trace（诊断侧定义＋内核 attachHls 登记时捕获）",
       "symbol": "captureTrace",
       "min": 2
-=======
+    },
+    {
       "id": "fin-d-manifest-url",
       "item": "最终版D线 条目6 清单改址常量（manifest.ts 定义＋registry 解析消费）",
       "files": [
@@ -680,7 +680,6 @@
       ],
       "symbol": "inset-0 rounded-none",
       "min": 1
->>>>>>> fin/d2
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",
