@@ -99,7 +99,8 @@ export function evaluateSrGatesV2(r: {
 }
 
 /* ── 探针持久化（audit6 P0-A 第 3 层）：结果落 localStorage，键＝设备
- * 型号×iOS 版本×引擎版本；命中且 <30 天直接用，禁止每次启动重跑。
+ * 型号×iOS 版本×引擎版本；成功命中且 <30 天直接用，禁止每次启动
+ * 重跑；失败条目短 TTL 1 天且新测失败不落盘（fin-e，见下方常量）。
  * 设备型号/iOS 版本只取 UA 可得的粗粒度标识（探针键用途，非指纹上报，
  * 不出本机）。引擎版本由 features 注册时注入（shared 不反向依赖）。 */
 let srEngineVersion = 0;
@@ -110,7 +111,18 @@ export function srProbeCacheKey(): string {
   return `hghubx_sr_probe_v1:${model}:${osVer}:e${srEngineVersion}`;
 }
 const SR_PROBE_MAX_AGE_MS = 30 * 24 * 3600_000;
-function readPersistedSrProbe(): SrProbeResult | null {
+/* 失败短 TTL（Muse 2026-11-19 最终版 E 线，来源①用户点名 SR 打磨）：
+ * 成功结果维持 30 天；失败结果只认 1 天——旧实现失败也吃满 30 天，
+ * 一次临时失败（冷启动/驱动抖动）会把超分探针挡住近一个月。且新测
+ * 失败不落盘（见 persistSrProbe），重进直接重探；本短 TTL 只兜底
+ * 历史版本已落盘的失败条目。 */
+export const SR_PROBE_FAILURE_MAX_AGE_MS = 24 * 3600_000;
+/** 探针失败判据：门禁不过或无可用摄入路径。读回时以重判后的
+ * gatesPass 为准（见 readPersistedSrProbe），不信存量布尔。 */
+export function srProbeIsFailure(r: { gatesPass: boolean; recommendedPath: "external" | "copy" | null }): boolean {
+  return !r.gatesPass || r.recommendedPath == null;
+}
+export function readPersistedSrProbe(): SrProbeResult | null {
   try {
     const raw = localStorage.getItem(srProbeCacheKey());
     if (!raw) return null;
@@ -118,7 +130,6 @@ function readPersistedSrProbe(): SrProbeResult | null {
     const at = Date.parse(parsed.at);
     if (!Number.isFinite(at)) return null;
     const age = Date.now() - at;
-    if (age < 0 || age >= SR_PROBE_MAX_AGE_MS) return null;
     /* 持久化重判（整改 C10）：存有原始指标时重跑门禁判读，不直接
      * 信存下的 gatesPass（门禁口径升级后旧结论可能已不成立）；存量
      * 只有 gatesPass、没有原始指标的旧条目按过期处理。 */
@@ -127,10 +138,16 @@ function readPersistedSrProbe(): SrProbeResult | null {
       && parsed.external != null && parsed.copy != null
       && "recommendedPath" in parsed;
     if (!hasRawMetrics) return null;
-    return { ...parsed, gatesPass: evaluateSrGatesV2(parsed), source: "persisted", ageDays: Math.round((age / 86400_000) * 10) / 10 };
+    const gatesPass = evaluateSrGatesV2(parsed);
+    const maxAge = srProbeIsFailure({ gatesPass, recommendedPath: parsed.recommendedPath }) ? SR_PROBE_FAILURE_MAX_AGE_MS : SR_PROBE_MAX_AGE_MS;
+    if (age < 0 || age >= maxAge) return null;
+    return { ...parsed, gatesPass, source: "persisted", ageDays: Math.round((age / 86400_000) * 10) / 10 };
   } catch { return null; }
 }
 function persistSrProbe(result: SrProbeResult): void {
+  /* 失败不落盘（fin-e）：落盘只配成功结果；失败当场返回后下次启动
+   * 无条目可命中、直接重探，不被旧失败挡住。 */
+  if (srProbeIsFailure(result)) return;
   try { localStorage.setItem(srProbeCacheKey(), JSON.stringify(result)); } catch { /* 存储不可用则下次重跑 */ }
 }
 
@@ -152,9 +169,9 @@ export function srProbeRegistered(): boolean {
   return srProbeRunner !== null;
 }
 
-/** 跑 v2（幂等、永不 reject）。持久化命中（<30 天）直接用（读时
- * 重判门禁，见 readPersistedSrProbe），不重跑——探针是分钟级开
- * 销，不许每次启动付一遍。 */
+/** 跑 v2（幂等、永不 reject）。持久化命中（成功 <30 天／失败 <1 天，
+ * 读时重判门禁，见 readPersistedSrProbe）直接用，不重跑——探针是
+ * 分钟级开销，不许每次启动付一遍；失败条目过期即重探。 */
 export function runSrProbe(): Promise<SrProbeResult | null> {
   if (srProbeCached) return Promise.resolve(srProbeCached);
   if (!srProbeRunner) return Promise.resolve(null);
@@ -186,6 +203,115 @@ export function runSrProbe(): Promise<SrProbeResult | null> {
     }
   })();
   return srProbeInflight;
+}
+
+/* ── 生产期统计（Muse 2026-11-19 最终版 E2 线，来源②：GPT 后续复审
+ * 条目 1，主代理亲核属实）──────────────────────────────────────────
+ * 此前引擎 getStats() 全仓只有探针（srProbe benchPath）在调，生产循环
+ * WebGpuSrCanvas 从不发布——报告里的丢帧率/P90 只有探针数字，生产期
+ * 无独立证据。现生产侧经 createSrProductionPublisher 周期发布：默认
+ * 30s 一次、降级级变化立即发布（轨迹留痕），快照带 phase:"production"，
+ * 与探针结果在报告中分节呈现、不混算。发布器只做节流＋汇总，调用方
+ * 逐帧 tick 也不会逐帧写任何账本/存储。 */
+export type SrProductionStats = {
+  phase: "production";
+  /** 发布时刻（ISO）。 */
+  at: string;
+  frames: number;
+  droppedStale: number;
+  /** droppedStale / (frames + droppedStale)，无帧时 0。 */
+  droppedRate: number;
+  costAvgMs: number;
+  costP90Ms: number;
+  path: string | null;
+  degrade: 0 | 1 | 2;
+  /** 本会话内降级级变化轨迹（含起始级，去重连续重复，上限 16）。 */
+  degradeTrail: (0 | 1 | 2)[];
+  mode: string | null;
+};
+
+export function srDroppedRate(frames: number, dropped: number): number {
+  const denom = frames + dropped;
+  return denom > 0 ? dropped / denom : 0;
+}
+
+/** P90 口径与引擎 getStats 一致：升序后取 floor(n×0.9) 位（封顶末位）。 */
+export function srCostP90(costs: number[]): number {
+  if (!costs.length) return 0;
+  const sorted = [...costs].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))];
+}
+
+export function srCostAvg(costs: number[]): number {
+  if (!costs.length) return 0;
+  return costs.reduce((a, b) => a + b, 0) / costs.length;
+}
+
+export type SrProductionInput = {
+  frames: number;
+  droppedStale: number;
+  /** 原始成本窗（夹具/测试用）；与 costAvgMs/costP90Ms 二选一，优先 costs。 */
+  costs?: number[];
+  costAvgMs?: number;
+  costP90Ms?: number;
+  degrade: 0 | 1 | 2;
+  path: string | null;
+  mode: string | null;
+};
+
+let srProductionLatest: SrProductionStats | null = null;
+
+export function getSrProductionStats(): SrProductionStats | null {
+  return srProductionLatest;
+}
+
+/** 生产统计发布器（每 WebGpuSrCanvas 挂载一个实例）：consider() 每次
+ * 调用只做廉价节流判定——首次必发、距上次发布 ≥intervalMs 才发、
+ * degrade 变化立即发（force 可强制，如卸载收尾）。发布即写入模块级
+ * 最新快照供诊断报告读取。nowMs 由调用方注入（performance.now 口径），
+ * 夹具以假时钟驱动。 */
+export function createSrProductionPublisher(opts?: { intervalMs?: number }): {
+  consider: (input: SrProductionInput, nowMs: number, force?: boolean) => SrProductionStats | null;
+} {
+  const intervalMs = opts?.intervalMs ?? 30_000;
+  let lastPublishedAt: number | null = null;
+  let lastDegrade: 0 | 1 | 2 | null = null;
+  const trail: (0 | 1 | 2)[] = [];
+  return {
+    consider(input, nowMs, force = false) {
+      if (trail[trail.length - 1] !== input.degrade) trail.push(input.degrade);
+      const degradeChanged = lastDegrade !== null && input.degrade !== lastDegrade;
+      lastDegrade = input.degrade;
+      const due = force || lastPublishedAt === null || degradeChanged || nowMs - lastPublishedAt >= intervalMs;
+      if (!due) return null;
+      lastPublishedAt = nowMs;
+      const round2 = (v: number) => Math.round(v * 100) / 100;
+      const snap: SrProductionStats = {
+        phase: "production",
+        at: new Date(nowMs).toISOString(),
+        frames: input.frames,
+        droppedStale: input.droppedStale,
+        droppedRate: srDroppedRate(input.frames, input.droppedStale),
+        costAvgMs: round2(input.costs?.length ? srCostAvg(input.costs) : input.costAvgMs ?? 0),
+        costP90Ms: round2(input.costs?.length ? srCostP90(input.costs) : input.costP90Ms ?? 0),
+        path: input.path,
+        degrade: input.degrade,
+        degradeTrail: trail.slice(-16),
+        mode: input.mode,
+      };
+      srProductionLatest = snap;
+      return snap;
+    },
+  };
+}
+
+export function formatSrProductionLines(s: SrProductionStats | null): string[] {
+  if (!s) return ["生产期：暂无（WebGPU 生产管线本会话未运行，或尚未到首个发布周期）"];
+  return [
+    `生产期（与探针期分开统计）：处理 ${s.frames} 帧 · 过期丢弃 ${s.droppedStale} 帧（丢弃率 ${(s.droppedRate * 100).toFixed(1)}%）`,
+    `生产期帧成本：平均 ${s.costAvgMs}ms / P90 ${s.costP90Ms}ms · 摄入路径 ${s.path ?? "未知"} · 呈现档 ${s.mode ?? "未知"}`,
+    `生产期降级轨迹：${s.degradeTrail.join(" → ")}（0=全链 2x、1=仅 Restore 1x、2=已停）· 最近发布 ${s.at}`,
+  ];
 }
 
 export function formatSrProbeLines(result: SrProbeResult | null): string[] {

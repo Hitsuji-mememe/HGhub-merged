@@ -3,13 +3,35 @@
  * ＋level 的 frameRate＋videoCodec；Player 用首个样本锁定、无 codec——
  * 同一 effectiveSrMode 纯函数、两套口径，Feed 与帖子判档不可比。
  * 现收敛为一份：纯采样器 createSrDensitySampler（可单测）＋ hook 包装。
- * 口径以 VideoSurface 现行为准：同 level 前 3 片码率中位数；ABR 中途
- * 换 level 时旧样本作废重采；fps 只认 10–120 合理区间。
+ * 口径以 VideoSurface 现行为准：同 level 累计采样，满 3 片取 3 片码率
+ * 中位数为 final 密度；未满 3 片时采样器返回的只是 provisional 值
+ * （已采样本的上中位数，仅供诊断/测试观测），不许驱动判档（GPT
+ * P2-04，Muse 2026-11-19 最终版 E 线）：hook 只发布 final 值，
+ * srDensityForTiering 与 effectiveSrMode 的 density?.provisional
+ * 守卫再兜一层。ABR 中途换 level 时旧样本作废重采；fps 只认
+ * 10–120 合理区间。
  * 重置面：换源（srcKey 变）＋换线（lineEpoch 变）都重置——密度是线路
  * 相关量，旧线密度不许判新线。 */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type SrDensity = { bitrateBps: number; fps?: number; codec?: string; width?: number; height?: number };
+export type SrDensity = {
+  bitrateBps: number;
+  fps?: number;
+  codec?: string;
+  width?: number;
+  height?: number;
+  /** 未满 3 个完整分片时为 true：值未定版，不许驱动判档/降档。 */
+  provisional: boolean;
+  /** 当前 level 已采完整分片数（1–3）。 */
+  sampleCount: number;
+};
+
+/** 判档入参收口（fin-e）：provisional 密度一律视为密度未知（返回
+ * undefined），只有 final 密度可进 effectiveSrMode 的 bpp 判据。
+ * 两播放面经 useSrDensity hook 消费本收口后的值，自动继承。 */
+export function srDensityForTiering(density: SrDensity | null | undefined): SrDensity | undefined {
+  return density && !density.provisional ? density : undefined;
+}
 
 export type SrFragSample = {
   loaded: number;
@@ -37,6 +59,9 @@ export function createSrDensitySampler() {
       if (samples.length < 3) {
         samples = [...samples, (frag.loaded * 8) / frag.duration];
         const sorted = [...samples].sort((a, b) => a - b);
+        /* 未满 3 片时这是已采样本的上中位数（1 片＝该片值、2 片＝较大
+         * 值），不是「前 3 片中位数」——仅作 provisional 观测值随
+         * 返回对象带出，判档路径不得消费（见文件头 P2-04 口径）。 */
         const median = sorted[Math.floor(sorted.length / 2)];
         const fps = level?.frameRate;
         density = {
@@ -47,6 +72,8 @@ export function createSrDensitySampler() {
           codec: level?.videoCodec || undefined,
           width: level?.width && level.width > 0 ? level.width : undefined,
           height: level?.height && level.height > 0 ? level.height : undefined,
+          provisional: samples.length < 3,
+          sampleCount: samples.length,
         };
       }
       return density;
@@ -73,8 +100,12 @@ export function useSrDensity(srcKey: string, lineEpoch: number) {
   }, [srcKey, lineEpoch]);
 
   const ingest = useCallback((frag: SrFragSample, level: SrLevelInfo) => {
-    const next = samplerRef.current?.ingest(frag, level) ?? null;
-    setDensity(prev => (prev?.bitrateBps === next?.bitrateBps && prev?.fps === next?.fps && prev?.codec === next?.codec && prev?.width === next?.width && prev?.height === next?.height ? prev : next));
+    /* 发布面只给 final 密度（fin-e P2-04 防护点）：provisional 值经
+     * srDensityForTiering 收口为 null，hook 状态在满 3 片前保持
+     * null——两播放面（VideoSurface/Player）的判档/facts/fps 消费
+     * 全部经本状态，自动继承防护，不必逐面改。 */
+    const next = srDensityForTiering(samplerRef.current?.ingest(frag, level) ?? null) ?? null;
+    setDensity(prev => (prev?.bitrateBps === next?.bitrateBps && prev?.fps === next?.fps && prev?.codec === next?.codec && prev?.width === next?.width && prev?.height === next?.height && prev?.provisional === next?.provisional && prev?.sampleCount === next?.sampleCount ? prev : next));
   }, []);
 
   const reset = useCallback(() => {

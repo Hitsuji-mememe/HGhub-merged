@@ -372,6 +372,109 @@
         "src-tauri/src/range_fetch.rs"
       ],
       "min": 3
+    },
+    {
+      "id": "fin-e-probe-failure-ttl",
+      "item": "E线 SR 探针失败短 TTL 常量（定义＋读回判读点）",
+      "symbol": "SR_PROBE_FAILURE_MAX_AGE_MS",
+      "files": [
+        "src/shared/diagnostics/gpuProbe.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e-probe-failure-gate",
+      "item": "E线 SR 探针失败判据（定义＋读回 TTL 分流＋落盘拦截）",
+      "symbol": "srProbeIsFailure",
+      "files": [
+        "src/shared/diagnostics/gpuProbe.ts"
+      ],
+      "min": 3
+    },
+    {
+      "id": "fin-e-density-tiering-gate",
+      "item": "E线 provisional 密度判档收口（定义＋hook 发布点）",
+      "symbol": "srDensityForTiering",
+      "files": [
+        "src/features/playback/useSrDensity.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e-density-mode-guard",
+      "item": "E线 effectiveSrMode provisional 守卫（注释＋守卫表达式）",
+      "symbol": "density?.provisional",
+      "files": [
+        "src/features/playback/SuperResCanvas.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e-report-recovery-semantics",
+      "item": "E线 报告账本 recovery 语义标注（注释＋账本行）",
+      "symbol": "切线决策已提交",
+      "files": [
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e-report-multistore-header",
+      "item": "E线 报告头多存储拼装口径（注释＋报告头行）",
+      "symbol": "多存储拼装",
+      "files": [
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e2-prod-stats-publisher",
+      "item": "E2线 SR 生产统计发布器（定义＋WebGpuSrCanvas 生产调用）",
+      "symbol": "createSrProductionPublisher",
+      "files": [
+        "src/shared/diagnostics/gpuProbe.ts",
+        "src/features/playback/WebGpuSrCanvas.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e2-prod-stats-report",
+      "item": "E2线 诊断报告生产期统计节（格式化定义＋报告消费）",
+      "symbol": "formatSrProductionLines",
+      "files": [
+        "src/shared/diagnostics/gpuProbe.ts",
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e2-rate-budget",
+      "item": "E2线 帧预算纳入倍速核销（定义＋生产调用）",
+      "symbol": "srFrameBudgetMs",
+      "files": [
+        "src/features/playback/webgpuSr.ts",
+        "src/features/playback/WebGpuSrCanvas.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e2-present-mode-pass",
+      "item": "E2线 呈现档入引擎（模式归一定义＋画布传参）",
+      "symbol": "srPresentModeFor",
+      "files": [
+        "src/features/playback/webgpuSr.ts",
+        "src/features/playback/WebGpuSrCanvas.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-e2-sharpen-params",
+      "item": "E2线 两档 RCAS 参数表（定义＋processFrame 消费）",
+      "symbol": "SR_PRESENT_SHARPEN",
+      "files": [
+        "src/features/playback/webgpuSr.ts"
+      ],
+      "min": 2
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",

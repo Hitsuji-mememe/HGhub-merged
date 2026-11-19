@@ -15,7 +15,14 @@
 import React, { useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { RESTORE_PASSES, UPSCALE_PASSES, type SrPass } from "../src/features/playback/anime4kWeights";
-import { __test } from "../src/features/playback/webgpuSr";
+import { __test, SR_PRESENT_SHARPEN } from "../src/features/playback/webgpuSr";
+
+/* 呈现 uniform 适配（fin-e2 契约变化）：PRESENT_SHADER 的 uniform 已扩
+ * 为 4×vec4（dst/src/RCAS 参数/gateHi），夹具按 natural 档参数写 64B。 */
+const PRESENT_UNIFORM_NATURAL = (() => {
+  const sp = SR_PRESENT_SHARPEN.natural;
+  return new Float32Array([0, 0, 1, 1, 0, 0, 1, 1, sp.coeff, sp.detail, sp.overshoot, sp.gateLo, sp.gateHi, 0, 0, 0]);
+})();
 import SuperResCanvas from "../src/features/playback/SuperResCanvas";
 
 const params = new URLSearchParams(location.search);
@@ -286,8 +293,8 @@ async function runStability() {
   });
   const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
   const target = device.createTexture({ size: [W * 2, H * 2], format, usage: 0x10 | 0x01 });
-  const uniform = device.createBuffer({ size: 32, usage: 0x40 | 0x08 });
-  device.queue.writeBuffer(uniform, 0, new Float32Array([0, 0, 1, 1, 0, 0, 1, 1]).buffer as ArrayBuffer);
+  const uniform = device.createBuffer({ size: 64, usage: 0x40 | 0x08 });
+  device.queue.writeBuffer(uniform, 0, PRESENT_UNIFORM_NATURAL.buffer as ArrayBuffer);
   const presentModule = device.createShaderModule({ code: __test.PRESENT_SHADER });
   const presentPipe = device.createRenderPipeline({
     layout: "auto",
@@ -572,8 +579,8 @@ function GpuOnlyApp() {
         await submitAndTime("upscale+d2s", enc);
         /* 呈现：引擎同款 PRESENT_SHADER → 离屏目标 → 读回。 */
         const target = device.createTexture({ size: [W * 2, H * 2], format, usage: 0x10 | 0x01 });
-        const uniform = device.createBuffer({ size: 32, usage: 0x40 | 0x08 });
-        device.queue.writeBuffer(uniform, 0, new Float32Array([0, 0, 1, 1, 0, 0, 1, 1]).buffer as ArrayBuffer);
+        const uniform = device.createBuffer({ size: 64, usage: 0x40 | 0x08 });
+        device.queue.writeBuffer(uniform, 0, PRESENT_UNIFORM_NATURAL.buffer as ArrayBuffer);
         const module = device.createShaderModule({ code: __test.PRESENT_SHADER });
         const rp = device.createRenderPipeline({
           layout: "auto",

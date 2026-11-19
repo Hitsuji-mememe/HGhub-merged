@@ -10,6 +10,8 @@ import { createStallWatchdog } from "../src/features/playback/stallWatchdogWirin
 import { createSrPerfTracker, effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
 import { createSrDensitySampler } from "../src/features/playback/useSrDensity";
 import { evaluateSrGatesV2, runSrProbe, srProbeCacheKey } from "../src/shared/diagnostics/gpuProbe";
+import * as srDensityModule from "../src/features/playback/useSrDensity";
+import * as gpuProbeModule from "../src/shared/diagnostics/gpuProbe";
 import * as webgpuSrModule from "../src/features/playback/webgpuSr";
 import * as srCanvasModule from "../src/features/playback/SrCanvas";
 import SrCanvas from "../src/features/playback/SrCanvas";
@@ -523,6 +525,135 @@ function run() {
     results.b4_density_bitrate_from_playing_level = d?.bitrateBps ?? null;
     results.b4_density_size_from_playing_level = [d?.width ?? null, d?.height ?? null];
     results.b4_density_fps_codec_from_playing_level = [d?.fps ?? null, d?.codec ?? null];
+  }
+
+  /* ── E 最终版 E 线（Muse 2026-11-19 fin-e）：①SR 探针失败短 TTL
+   * ②密度 provisional（GPT P2-04）。新导出经模块命名空间取用：基线
+   * 无此导出/字段时结果记缺失或旧行为 → 本组在基线上红、修复后绿。
+   * 判档判别例：1080p 低密度（1.2Mbps、bpp≈0.019）——final 时判
+   * crisp；provisional 值若驱动判档也会判 crisp；受防护时密度视为
+   * 未知、走纯分辨率回落判 off。故 1–2 片期望 off、3 片期望 crisp。 */
+  {
+    const forTiering = (srDensityModule as unknown as { srDensityForTiering?: (d: unknown) => { bitrateBps?: number } | undefined }).srDensityForTiering;
+    const sampler = createSrDensitySampler();
+    const lvl = { frameRate: 30, videoCodec: "avc1.640028", width: 1920, height: 1080, bitrate: 1_200_000 };
+    const frag = { loaded: 100_000, duration: 2, level: 0 };
+    type Prov = { provisional?: boolean; sampleCount?: number };
+    const one = sampler.ingest(frag, lvl);
+    results.e_prov_1_flag = (one as Prov | null)?.provisional ?? null;
+    results.e_prov_1_count = (one as Prov | null)?.sampleCount ?? null;
+    results.e_prov_1_tiering = forTiering ? (forTiering(one) ?? null) : "missing";
+    results.e_prov_1_mode = effectiveSrMode("auto", 1920, 1080, one as unknown as Parameters<typeof effectiveSrMode>[3] ?? undefined);
+    const two = sampler.ingest(frag, lvl);
+    results.e_prov_2_flag = (two as Prov | null)?.provisional ?? null;
+    results.e_prov_2_count = (two as Prov | null)?.sampleCount ?? null;
+    results.e_prov_2_tiering = forTiering ? (forTiering(two) ?? null) : "missing";
+    results.e_prov_2_mode = effectiveSrMode("auto", 1920, 1080, two as unknown as Parameters<typeof effectiveSrMode>[3] ?? undefined);
+    const three = sampler.ingest(frag, lvl);
+    results.e_prov_3_flag = (three as Prov | null)?.provisional ?? null;
+    results.e_prov_3_count = (three as Prov | null)?.sampleCount ?? null;
+    results.e_prov_3_tiering_bps = forTiering ? (forTiering(three)?.bitrateBps ?? null) : "missing";
+    results.e_prov_3_mode = effectiveSrMode("auto", 1920, 1080, three as unknown as Parameters<typeof effectiveSrMode>[3] ?? undefined);
+  }
+  {
+    const readPersisted = (gpuProbeModule as unknown as { readPersistedSrProbe?: () => { source?: string; gatesPass?: boolean } | null }).readPersistedSrProbe;
+    const key = srProbeCacheKey();
+    const day = 86400_000;
+    const okChains = {
+      presented720: 10, frames720Ok: true,
+      external: { ok: true, msAvg: 5, msP90: 6, processed: 24, dropped: 0 },
+      copy: { ok: true, msAvg: 5, msP90: 6, processed: 24, dropped: 0 },
+      chain720: { ok: true, msAvg: 11, msP90: 15, withinBudget: true },
+      chain1080: { ok: true, msAvg: 16, msP90: 20 },
+      deviceLost: 0, droppedRate720: 0.01, tailRatio720: 1.05,
+    };
+    const success29 = { ...okChains, at: new Date(Date.now() - 29 * day).toISOString(), recommendedPath: "copy", gatesPass: true };
+    const failure2d = { ...okChains, chain720: { ok: false, msAvg: null, msP90: null, withinBudget: false }, at: new Date(Date.now() - 2 * day).toISOString(), recommendedPath: null, gatesPass: false };
+    const success31 = { ...success29, at: new Date(Date.now() - 31 * day).toISOString() };
+    try {
+      localStorage.setItem(key, JSON.stringify(failure2d));
+      results.e_ttl_failure_2d = readPersisted ? (readPersisted() === null ? "ignored" : "used") : "missing";
+      localStorage.setItem(key, JSON.stringify(success29));
+      const hit = readPersisted ? readPersisted() : null;
+      results.e_ttl_success_29d = hit ? (hit.source ?? "hit-no-source") : "missing";
+      results.e_ttl_success_29d_gates = hit ? (hit.gatesPass ?? null) : null;
+      localStorage.setItem(key, JSON.stringify(success31));
+      results.e_ttl_success_31d = readPersisted ? (readPersisted() === null ? "ignored" : "used") : "missing";
+    } catch {
+      results.e_ttl_error = "threw";
+    }
+    try { localStorage.removeItem(key); } catch { /* 清理夹具写入 */ }
+  }
+
+  /* ── E2 最终版 E2 线（Muse 2026-11-19 fin-e2，来源②GPT 后续复审
+   * 主代理亲核条目 1/2/3）：①SR 生产统计周期发布（与探针分开）
+   * ②帧预算纳入倍速核销 ③natural/crisp WebGPU 路径真实差异。
+   * 新导出经命名空间取用：基线无此导出时记 "missing" → 本组红。 */
+  {
+    const gp = gpuProbeModule as unknown as {
+      createSrProductionPublisher?: (opts?: { intervalMs?: number }) => {
+        consider: (input: { frames: number; droppedStale: number; costs: number[]; degrade: 0 | 1 | 2; path: string; mode: string }, nowMs: number) => { frames: number; droppedRate: number; costAvgMs: number; costP90Ms: number; phase: string; degradeTrail: number[] } | null;
+      };
+      getSrProductionStats?: () => { frames: number } | null;
+      formatSrProductionLines?: (s: unknown) => string[];
+      srDroppedRate?: (frames: number, dropped: number) => number;
+      srCostP90?: (costs: number[]) => number;
+    };
+    const round4 = (v: number) => Math.round(v * 10000) / 10000;
+    const costs = Array.from({ length: 100 }, (_, i) => i + 1); // 1..100ms
+    results.e2_dropped_rate_fn = gp.srDroppedRate ? round4(gp.srDroppedRate(100, 3)) : "missing";
+    results.e2_p90_fn = gp.srCostP90 ? gp.srCostP90(costs) : "missing";
+    const pub = gp.createSrProductionPublisher ? gp.createSrProductionPublisher({ intervalMs: 30_000 }) : null;
+    const in1 = { frames: 100, droppedStale: 3, costs, degrade: 0 as const, path: "copy", mode: "natural" };
+    const p1 = pub ? pub.consider(in1, 0) : "missing";
+    results.e2_prod_first_publish = p1 === "missing" ? "missing" : p1 != null;
+    results.e2_prod_first_phase = p1 === "missing" || p1 == null ? "missing" : p1.phase;
+    results.e2_prod_first_frames = p1 === "missing" || p1 == null ? "missing" : p1.frames;
+    results.e2_prod_first_dropped_rate = p1 === "missing" || p1 == null ? "missing" : round4(p1.droppedRate);
+    results.e2_prod_first_avg = p1 === "missing" || p1 == null ? "missing" : p1.costAvgMs;
+    results.e2_prod_first_p90 = p1 === "missing" || p1 == null ? "missing" : p1.costP90Ms;
+    const p2 = pub ? pub.consider({ ...in1, frames: 150, droppedStale: 4 }, 10_000) : "missing";
+    results.e2_prod_throttled = p2 === "missing" ? "missing" : p2 === null;
+    const p3 = pub ? pub.consider({ ...in1, frames: 200, droppedStale: 5 }, 30_000) : "missing";
+    results.e2_prod_interval_frames = p3 === "missing" || p3 == null ? "missing" : p3.frames;
+    results.e2_prod_interval_dropped_rate = p3 === "missing" || p3 == null ? "missing" : round4(p3.droppedRate);
+    const p4 = pub ? pub.consider({ ...in1, frames: 210, droppedStale: 5, degrade: 1 as const }, 31_000) : "missing";
+    results.e2_prod_degrade_forced = p4 === "missing" ? "missing" : p4 != null;
+    results.e2_prod_degrade_trail = p4 === "missing" || p4 == null ? "missing" : p4.degradeTrail;
+    results.e2_prod_registry_frames = gp.getSrProductionStats ? (gp.getSrProductionStats()?.frames ?? null) : "missing";
+    results.e2_prod_lines_label = gp.formatSrProductionLines && gp.getSrProductionStats
+      ? gp.formatSrProductionLines(gp.getSrProductionStats()).join("\n").includes("生产期") : "missing";
+  }
+  {
+    const budget = (webgpuSrModule as unknown as { srFrameBudgetMs?: (fps: number | undefined, playbackRate: number) => number }).srFrameBudgetMs;
+    results.e2_budget_30fps_1x = budget ? budget(30, 1) : "missing";
+    results.e2_budget_30fps_125x = budget ? budget(30, 1.25) : "missing";
+    results.e2_budget_30fps_15x = budget ? budget(30, 1.5) : "missing";
+    results.e2_budget_unknown_fps_1x = budget ? budget(undefined, 1) : "missing";
+    results.e2_budget_unknown_fps_2x = budget ? budget(undefined, 2) : "missing";
+    results.e2_budget_rate_zero = budget ? budget(30, 0) : "missing";
+  }
+  {
+    const wg = webgpuSrModule as unknown as {
+      SR_PRESENT_SHARPEN?: Record<string, { coeff: number; detail: number }>;
+      srPresentSharpenPixel?: (c: number[], n: number[], s: number[], w: number[], e: number[], mode: "natural" | "crisp") => number[];
+    };
+    results.e2_sharp_coeff_natural = wg.SR_PRESENT_SHARPEN?.natural.coeff ?? "missing";
+    results.e2_sharp_coeff_crisp = wg.SR_PRESENT_SHARPEN?.crisp.coeff ?? "missing";
+    const px = wg.srPresentSharpenPixel;
+    const gray = (v: number) => [v, v, v];
+    const flat = px ? px(gray(0.5), gray(0.5), gray(0.5), gray(0.5), gray(0.5), "crisp") : null;
+    results.e2_sharp_flat_unchanged = flat ? Math.abs(flat[0] - 0.5) : "missing";
+    /* 边缘例：中心 0.6、四邻 0.9/0.9/0.9/0.5（crossAvg 0.8，中心被
+     * 亮邻居包围）——锐化应把中心推离局部均值（向下），crisp 推得更远。 */
+    const nat = px ? px(gray(0.6), gray(0.9), gray(0.9), gray(0.9), gray(0.5), "natural") : null;
+    const cri = px ? px(gray(0.6), gray(0.9), gray(0.9), gray(0.9), gray(0.5), "crisp") : null;
+    const round3 = (v: number) => Math.round(v * 1000) / 1000;
+    results.e2_sharp_edge_natural = nat ? round3(nat[0]) : "missing";
+    results.e2_sharp_edge_crisp = cri ? round3(cri[0]) : "missing";
+    results.e2_sharp_edge_separation = nat && cri ? round3(Math.abs(nat[0] - cri[0])) : "missing";
+    results.e2_sharp_direction = nat && cri ? (cri[0] < nat[0] && nat[0] < 0.6) : "missing";
+    results.e2_sharp_shader_wired = webgpuSrModule.__test.PRESENT_SHADER.includes("rects[2]");
   }
 
   /* ── H HLS 工厂（audit6 P0-A 第 1 层）：播种值、回退默认、锁最高档、

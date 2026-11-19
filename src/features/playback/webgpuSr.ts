@@ -77,6 +77,69 @@ type GpuCanvasContextLike = {
   getCurrentTexture: () => GpuTextureLike;
 };
 
+/** 帧预算（Muse 2026-11-19 最终版 E2 线，来源②：GPT 后续复审条目 2）：
+ * 源帧间隔按 playbackRate 核销——倍速下帧到达的墙钟间隔是
+ * (1000/fps)/rate，预算不缩放会把 1.25x/1.5x 的正常成本误判超标
+ * （≥2x 另有 degradeGate 的快速域排除，两者不冲突：快速域不入窗、
+ * <2x 各档靠本函数把预算校准到真实帧间隔）。fps 未知沿用旧默认
+ * 33.3ms；rate 非法（≤0/NaN）按 1 计。 */
+export function srFrameBudgetMs(fps: number | undefined, playbackRate: number): number {
+  const base = fps && fps > 0 ? 1000 / fps : 33.3;
+  const rate = Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1;
+  return Math.round((base / rate) * 100) / 100;
+}
+
+/** 呈现档（WebGPU 路径只承接 natural/crisp 两档，见 SrCanvas 门）。 */
+export type SrPresentMode = "natural" | "crisp";
+export function srPresentModeFor(mode: string): SrPresentMode {
+  return mode === "crisp" ? "crisp" : "natural";
+}
+
+/** 两档真实差异（Muse 2026-11-19 最终版 E2 线，来源②：GPT 后续复审
+ * 条目 3）：此前 processFrame 无 mode 参数、两档 CNN 推理完全相同，
+ * mode 只用于上报名称——假两档。现差异落在呈现级 RCAS：CNN 全链
+ * （Restore+Upscale）两档共用，呈现趟按档施加 RCAS 锐化，参数与
+ * WebGL 路径 runNatural/runCrisp 同源同数值（coeff 0.14/0.24、细节
+ * 增益 0.09/0.20、门限带、crisp 允许 ±0.010·gate 过冲；WebGL natural
+ * 末尾的 0.76 回混是其独立滤镜管线的收尾、呈现级不移植）。WGSL
+ * （PRESENT_SHADER）与下方 CPU 参考实现 srPresentSharpenPixel 逐项
+ * 同式，夹具以 CPU 参考证两档输出可分。 */
+export const SR_PRESENT_SHARPEN: Record<SrPresentMode, { coeff: number; detail: number; overshoot: number; gateLo: number; gateHi: number }> = {
+  natural: { coeff: 0.14, detail: 0.09, overshoot: 0, gateLo: 0.025, gateHi: 0.088 },
+  crisp: { coeff: 0.24, detail: 0.20, overshoot: 0.010, gateLo: 0.016, gateHi: 0.065 },
+};
+
+function srSmoothstep(lo: number, hi: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - lo) / (hi - lo)));
+  return t * t * (3 - 2 * t);
+}
+
+/** 呈现级 RCAS 的 CPU 参考实现（与 PRESENT_SHADER 同式）：输入中心
+ * 与四邻的 RGB 三元组，输出锐化后的 RGB。平坦区 gate=0 → 原值直通。 */
+export function srPresentSharpenPixel(
+  c: number[], n: number[], s: number[], w: number[], e: number[], mode: SrPresentMode,
+): number[] {
+  const P = SR_PRESENT_SHARPEN[mode];
+  const luma = (v: number[]) => 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2];
+  const lc = luma(c); const ln = luma(n); const ls = luma(s); const lw = luma(w); const le = luma(e);
+  const lMin = Math.min(lc, ln, ls, lw, le);
+  const lMax = Math.max(lc, ln, ls, lw, le);
+  const gate = srSmoothstep(P.gateLo, P.gateHi, lMax - lMin);
+  const amp = Math.min(1, Math.max(0, Math.min(lMin, 1 - lMax) / Math.max(lMax, 1e-4)));
+  const wSharp = -P.coeff * Math.sqrt(amp) * gate;
+  const denom = Math.max(1 + 4 * wSharp, 1e-4);
+  const out: number[] = [];
+  for (let i = 0; i < 3; i += 1) {
+    const sum = n[i] + s[i] + w[i] + e[i];
+    const rcas = (c[i] + sum * wSharp) / denom;
+    const sharp = rcas + (c[i] - sum * 0.25) * (P.detail * gate);
+    const minC = Math.min(c[i], n[i], s[i], w[i], e[i]) - P.overshoot * gate;
+    const maxC = Math.max(c[i], n[i], s[i], w[i], e[i]) + P.overshoot * gate;
+    out.push(Math.min(maxC, Math.max(minC, sharp)));
+  }
+  return out;
+}
+
 export type SrIngestPath = "external" | "copy";
 export type SrEngineStats = {
   frames: number;
@@ -218,7 +281,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 const PRESENT_SHADER = `
 @group(0) @binding(0) var srcTex: texture_2d<f32>;
 @group(0) @binding(1) var srcSampler: sampler;
-@group(0) @binding(2) var<uniform> rects: array<vec4<f32>, 2>;
+@group(0) @binding(2) var<uniform> rects: array<vec4<f32>, 4>;
 struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
 @vertex fn vs(@builtin(vertex_index) i: u32) -> VsOut {
   var out: VsOut;
@@ -227,15 +290,39 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
   out.pos = vec4<f32>(xy * 2.0 - 1.0, 0.0, 1.0);
   return out;
 }
+fn srLuma(c: vec3<f32>) -> f32 { return dot(c, vec3<f32>(0.299, 0.587, 0.114)); }
 @fragment fn fs(in: VsOut) -> @location(0) vec4<f32> {
   let dst = rects[0];
   let src = rects[1];
+  /* rects[2] = 呈现级 RCAS 参数（coeff, detail, overshoot, gateLo），
+   * rects[3].x = gateHi——natural/crisp 两档真实差异（fin-e2 条目 3），
+   * 与 srPresentSharpenPixel（CPU 参考）同式。 */
+  let sharp = rects[2];
+  let gateHi = rects[3].x;
   let inside = in.uv.x >= dst.x && in.uv.x <= dst.x + dst.z && in.uv.y >= dst.y && in.uv.y <= dst.y + dst.w;
-  /* textureSample 必须在均匀控制流调用（隐式导数）：无条件采样，
-   * 矩形外用 select 填黑，不许 if 内提前 return 包住采样。 */
+  /* textureSample 必须在均匀控制流调用（隐式导数）：全部采样无条件
+   * 执行，矩形外用 select 填黑，不许 if 内提前 return 包住采样。 */
   let localUv = clamp((in.uv - dst.xy) / dst.zw, vec2<f32>(0.0), vec2<f32>(1.0));
-  let sampled = textureSample(srcTex, srcSampler, src.xy + localUv * src.zw);
-  return select(vec4<f32>(0.0, 0.0, 0.0, 1.0), sampled, inside);
+  let srcUv = src.xy + localUv * src.zw;
+  let texel = 1.0 / vec2<f32>(textureDimensions(srcTex));
+  let c = textureSample(srcTex, srcSampler, srcUv);
+  let n = textureSample(srcTex, srcSampler, srcUv + vec2<f32>(0.0, -texel.y));
+  let s = textureSample(srcTex, srcSampler, srcUv + vec2<f32>(0.0, texel.y));
+  let w = textureSample(srcTex, srcSampler, srcUv + vec2<f32>(-texel.x, 0.0));
+  let e = textureSample(srcTex, srcSampler, srcUv + vec2<f32>(texel.x, 0.0));
+  let lc = srLuma(c.rgb); let ln = srLuma(n.rgb); let ls = srLuma(s.rgb); let lw = srLuma(w.rgb); let le = srLuma(e.rgb);
+  let lMin = min(lc, min(min(ln, ls), min(lw, le)));
+  let lMax = max(lc, max(max(ln, ls), max(lw, le)));
+  let gate = smoothstep(sharp.w, gateHi, lMax - lMin);
+  let amp = clamp(min(lMin, 1.0 - lMax) / max(lMax, 1e-4), 0.0, 1.0);
+  let wSharp = -sharp.x * sqrt(amp) * gate;
+  let sum = n.rgb + s.rgb + w.rgb + e.rgb;
+  let rcas = (c.rgb + sum * wSharp) / max(1.0 + 4.0 * wSharp, 1e-4);
+  let sharpRgb = rcas + (c.rgb - sum * 0.25) * (sharp.y * gate);
+  let minC = min(c.rgb, min(min(n.rgb, s.rgb), min(w.rgb, e.rgb))) - sharp.z * gate;
+  let maxC = max(c.rgb, max(max(n.rgb, s.rgb), max(w.rgb, e.rgb))) + sharp.z * gate;
+  let outRgb = clamp(sharpRgb, minC, maxC);
+  return select(vec4<f32>(0.0, 0.0, 0.0, 1.0), vec4<f32>(outRgb, 1.0), inside);
 }`;
 
 type ChainPass = {
@@ -280,8 +367,8 @@ export class WebGpuSrEngine {
     this.onLost = onLost;
     this.onDegrade = onDegrade ?? null;
     this.sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
-    /* 呈现矩形 uniform：2×vec4（dst/src），UNIFORM=0x40 | COPY_DST=0x08。 */
-    this.presentUniform = device.createBuffer({ size: 32, usage: 0x40 | 0x08 });
+    /* 呈现 uniform：4×vec4（dst/src/RCAS 参数/gateHi），UNIFORM=0x40 | COPY_DST=0x08。 */
+    this.presentUniform = device.createBuffer({ size: 64, usage: 0x40 | 0x08 });
     void device.lost.then((info) => {
       this.failFatally(`device lost: ${info?.reason ?? "?"} ${info?.message ?? ""}`);
     });
@@ -407,14 +494,15 @@ export class WebGpuSrEngine {
 
   /**
    * 处理一帧。返回 false = 本帧被丢弃（在飞/已停/尺寸未就绪）。
-   * frameIntervalMs 为源帧间隔（预算），未知传 0（不做降级判定）。
+   * frameIntervalMs 为帧预算（源帧间隔，调用方已按 playbackRate
+   * 核销，见 srFrameBudgetMs），未知传 0（不做降级判定）。
    * presentRects = 呈现矩形（UV）：dst 画布内容矩形、src 源采样窗；
    * 缺省全幅（夹具/探针用）。
    */
   processFrame(
     video: HTMLVideoElement,
     frameIntervalMs: number,
-    presentRects?: { dst: [number, number, number, number]; src: [number, number, number, number] },
+    presentRects?: { dst: [number, number, number, number]; src: [number, number, number, number]; mode?: SrPresentMode },
   ): boolean {
     if (this.dead || this.stats.degrade === 2) return false;
     const w = video.videoWidth;
@@ -515,7 +603,11 @@ export class WebGpuSrEngine {
       if (this.presentPipeline) {
         const rects = presentRects ?? { dst: [0, 0, 1, 1] as const, src: [0, 0, 1, 1] as const };
         if (typeof device.queue.writeBuffer === "function") {
-          const data = new Float32Array([...rects.dst, ...rects.src]);
+          /* 两档差异落点（fin-e2 条目 3）：按 mode 取 RCAS 参数一并写
+           * 入 uniform；缺省（探针）按 natural——探针测的是生产默认档
+           * 全链，present 趟本就在链内，参数差不改变趟数。 */
+          const sp = SR_PRESENT_SHARPEN[presentRects?.mode ?? "natural"];
+          const data = new Float32Array([...rects.dst, ...rects.src, sp.coeff, sp.detail, sp.overshoot, sp.gateLo, sp.gateHi, 0, 0, 0]);
           device.queue.writeBuffer(this.presentUniform, 0, data.buffer as ArrayBuffer);
         }
         const view = this.ctx.getCurrentTexture().createView();

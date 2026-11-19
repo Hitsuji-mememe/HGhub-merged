@@ -24,7 +24,7 @@ import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot, validateLedgerIntegrity} from "./eventLedger";
 import { sourceRegistryVersion, sourceHealthLines } from "./sourceRegistry";
 import { cacheCountersSnapshot } from "../../features/feed/cacheMap";
-import { formatSrProbeLines, getSrProbeResult } from "./gpuProbe";
+import { formatSrProductionLines, formatSrProbeLines, getSrProductionStats, getSrProbeResult } from "./gpuProbe";
 import { feedTraceSnapshot, feedTraceSummary} from "../lib/feedTrace";
 
 type Json = Record<string, unknown>;
@@ -474,14 +474,16 @@ lines.push(`${new Date().toLocaleString("zh-CN", { hour12: false})}`);
  * 会话。账本是纯旁路——读取失败只降级这一行为「未知」，不拖垮报告
  * 其余内容（下方 try/catch 即回退路径）。 */
 lines.push(`构建：${BUILD_STAMP}`);
-/* 诊断原则（Muse 2026-11-19 根治包·飞行记录仪收口，用户定版）：
- * 本报告为未知问题回溯而建——统一时间线覆盖播放/选线/超分/源/
- * 缓存/账号会话/导航/网络/错误，不是已知问题清单；新增子系统
- * 接入统一时间线才算完成（模块化验收项）。原则入报告头，让读者
- * 按此口径判读覆盖面与缺口。 */
+/* 诊断原则（Muse 2026-11-19 根治包·飞行记录仪收口，用户定版；
+ * 2026-11-19 最终版 E 线按 diag-audit 口径修正）：本报告为未知问题
+ * 回溯而建，不是已知问题清单。不存在单一「统一时间线」存储——
+ * 本报告是多存储拼装：播放日志文件／事件账本／Feed 追踪／选线
+ * 近轮／Rust 即时探测／取页健康／播放事实快照，各存储留存与淘汰
+ * 口径不同、事件间无全局关联 ID，跨存储只能靠时间戳对齐。原则入
+ * 报告头，让读者按此口径判读覆盖面与缺口。 */
 /* 报告头口径（整改 C8，G4 P2-5）：不把目标写成现状——已接入与未
  * 接入如实分列（据 diag-audit-20261119 接入矩阵）。 */
-lines.push("诊断原则：全量飞行记录仪（目标）——已接入：播放/选线/超分/Feed 分页与封面/缓存计数/网络（生成时现跑探测）/错误；未接入：源取页观测链（无触发者，见源总览三态）、账号会话生命周期事件、注册表变更事件。覆盖面按此判读，不把目标当现状。");
+lines.push("诊断原则：全量飞行记录仪（目标）——本报告无单一统一时间线存储，系多存储拼装（播放日志文件／事件账本／Feed 追踪／选线近轮／Rust 即时探测／取页健康／播放事实快照），跨存储靠时间戳对齐；已接入：播放/选线/超分/Feed 分页与封面/缓存计数/网络（生成时现跑探测）/错误；未接入：源取页观测链（无触发者，见源总览三态）、账号会话生命周期事件、注册表变更事件。覆盖面按此判读，不把目标当现状。");
 try {
 const snap = ledgerSnapshot();
 const integrity = validateLedgerIntegrity(snap);
@@ -622,7 +624,10 @@ if (probeUpd != null) extras.push(`探测更新 ${timeOf(probeUpd)}`);
 if (e.playEnough === false) extras.push("播放样本不足");
 if (e.probeEnough === false) extras.push("探测样本不足");
 if (e.playStale === true) extras.push("播放样本已过期");
-lines.push(`账本[${lineIdFor(str(e.origin))} · ${str(e.mode) || "?"}]：play ${fmtBps(e.playBps)}（${num(e.playSamples)?? 0} 样本） · probe ${fmtBps(e.probeBps)}（${num(e.probeSamples)?? 0} 样本） · 卡顿 ${num(e.stall)?? 0} · 恢复 ${num(e.recovery)?? 0} · 降级 ${num(e.fallback)?? 0}${extras.length? ` · ${extras.join(" · ")}`: ""}`);
+/* recovery 语义标注（Muse 2026-11-19 最终版 E 线，GPT P2-12 残余）：
+ * 账本 recovery＝切线决策已提交的计数，不是播放恢复成功率（无分母、
+ * 不可算率）——行内明示，防读者误读为恢复成功次数/成功率。 */
+lines.push(`账本[${lineIdFor(str(e.origin))} · ${str(e.mode) || "?"}]：play ${fmtBps(e.playBps)}（${num(e.playSamples)?? 0} 样本） · probe ${fmtBps(e.probeBps)}（${num(e.probeSamples)?? 0} 样本） · 卡顿 ${num(e.stall)?? 0} · 恢复 ${num(e.recovery)?? 0}（切线决策已提交计数，非播放恢复成功率） · 降级 ${num(e.fallback)?? 0}${extras.length? ` · ${extras.join(" · ")}`: ""}`);
 }
 } else {
 lines.push("账本：无条目（本会话尚无线路吞吐/事件记录）");
@@ -685,6 +690,15 @@ lines.push("");
 lines.push("── WebGPU 探针 v2（超分检证）───────");
 try {
 for (const l of formatSrProbeLines(getSrProbeResult())) lines.push(l);
+} catch {
+lines.push("读取失败（纯旁路，不影响本报告其余内容）");
+}
+/* 生产期统计（Muse 2026-11-19 最终版 E2 线）：与探针期分开成节——
+ * 探针数字是离线 bench、生产数字是真实播放循环的周期发布，两组数
+ * 不许混读（GPT 后续复审条目 1 的缺口即在于此前只有探针数字）。 */
+lines.push("── WebGPU 生产期统计（真实播放）─────");
+try {
+for (const l of formatSrProductionLines(getSrProductionStats())) lines.push(l);
 } catch {
 lines.push("读取失败（纯旁路，不影响本报告其余内容）");
 }

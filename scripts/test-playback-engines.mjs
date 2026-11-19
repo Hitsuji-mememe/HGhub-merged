@@ -138,6 +138,55 @@ try {
   check("H start level locks highest", r.h_lock_highest, [3, 3]);
   check("H first rendition format", r.h_first_rendition, "第 4/4 档 · 1920x1080 · 8000kbps");
 
+  // E — fin-e: provisional density (P2-04) + probe failure short TTL
+  check("E prov 1 frag flagged provisional", r.e_prov_1_flag, true);
+  check("E prov 1 frag sampleCount", r.e_prov_1_count, 1);
+  check("E prov 1 frag excluded from tiering", r.e_prov_1_tiering, null);
+  check("E prov 1 frag does not drive tier (1080p low-density stays resolution fallback)", r.e_prov_1_mode, "off");
+  check("E prov 2 frags flagged provisional", r.e_prov_2_flag, true);
+  check("E prov 2 frags sampleCount", r.e_prov_2_count, 2);
+  check("E prov 2 frags excluded from tiering", r.e_prov_2_tiering, null);
+  check("E prov 2 frags do not drive tier", r.e_prov_2_mode, "off");
+  check("E prov 3 frags final", r.e_prov_3_flag, false);
+  check("E prov 3 frags sampleCount", r.e_prov_3_count, 3);
+  check("E prov 3 frags tiering bps", r.e_prov_3_tiering_bps, 1_200_000);
+  check("E prov 3 frags drive tier (low-density -> crisp)", r.e_prov_3_mode, "crisp");
+  check("E ttl failure aged 2d ignored (reprobe)", r.e_ttl_failure_2d, "ignored");
+  check("E ttl success aged 29d still persisted hit", r.e_ttl_success_29d, "persisted");
+  check("E ttl success aged 29d gates re-evaluated pass", r.e_ttl_success_29d_gates, true);
+  check("E ttl success aged 31d expired", r.e_ttl_success_31d, "ignored");
+
+  // E2 — fin-e2: SR production stats publishing / rate-scaled frame budget / real natural-vs-crisp split
+  check("E2 dropped rate fn", r.e2_dropped_rate_fn, 0.0291);
+  check("E2 cost P90 fn", r.e2_p90_fn, 91);
+  check("E2 prod first publish", r.e2_prod_first_publish, true);
+  check("E2 prod first phase labelled production", r.e2_prod_first_phase, "production");
+  check("E2 prod first frames", r.e2_prod_first_frames, 100);
+  check("E2 prod first dropped rate", r.e2_prod_first_dropped_rate, 0.0291);
+  check("E2 prod first cost avg", r.e2_prod_first_avg, 50.5);
+  check("E2 prod first cost P90", r.e2_prod_first_p90, 91);
+  check("E2 prod throttled inside interval", r.e2_prod_throttled, true);
+  check("E2 prod interval publish frames", r.e2_prod_interval_frames, 200);
+  check("E2 prod interval dropped rate", r.e2_prod_interval_dropped_rate, 0.0244);
+  check("E2 prod degrade change forces publish", r.e2_prod_degrade_forced, true);
+  check("E2 prod degrade trail", r.e2_prod_degrade_trail, [0, 1]);
+  check("E2 prod registry holds latest", r.e2_prod_registry_frames, 210);
+  check("E2 prod report lines labelled production phase", r.e2_prod_lines_label, true);
+  check("E2 budget 30fps 1x", r.e2_budget_30fps_1x, 33.33);
+  check("E2 budget 30fps 1.25x scaled", r.e2_budget_30fps_125x, 26.67);
+  check("E2 budget 30fps 1.5x scaled", r.e2_budget_30fps_15x, 22.22);
+  check("E2 budget unknown fps 1x", r.e2_budget_unknown_fps_1x, 33.3);
+  check("E2 budget unknown fps 2x scaled", r.e2_budget_unknown_fps_2x, 16.65);
+  check("E2 budget zero rate falls back to 1x", r.e2_budget_rate_zero, 33.33);
+  check("E2 sharpen coeff natural (mirrors WebGL RCAS)", r.e2_sharp_coeff_natural, 0.14);
+  check("E2 sharpen coeff crisp stronger", r.e2_sharp_coeff_crisp, 0.24);
+  check("E2 sharpen flat field unchanged", r.e2_sharp_flat_unchanged, 0);
+  check("E2 sharpen edge natural output", r.e2_sharp_edge_natural, 0.536);
+  check("E2 sharpen edge crisp output", r.e2_sharp_edge_crisp, 0.49);
+  check("E2 sharpen edge separation > 0.02", typeof r.e2_sharp_edge_separation === "number" ? r.e2_sharp_edge_separation > 0.02 : "missing", true);
+  check("E2 sharpen direction away from local average, crisp further", r.e2_sharp_direction, true);
+  check("E2 sharpen wired into present shader", r.e2_sharp_shader_wired, true);
+
   check("G gates v2 all pass", r.g_all_pass, true);
   check("G gates v2 720p P90 blocks", r.g_p90_720_blocks, false);
   check("G gates v2 1080p avg blocks", r.g_1080_avg_blocks, false);
