@@ -15,6 +15,7 @@ import { prewarmRetryDue } from "../src/features/feed/prewarm";
 import { createFragThroughputReporter, originOf } from "../src/features/playback/playbackThroughput";
 import { recordIfCurrent, registerPlayerInstance, snapshot as ledgerSnapshot, unregisterPlayerInstance, validateLedgerIntegrity } from "../src/shared/diagnostics/eventLedger";
 import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, lockHighestStartLevel, resolveAbrSeedBps } from "../src/features/playback/hlsConfig";
+import { isPlaybackPlaying, notePlaybackPlaying } from "../src/shared/diagnostics/playbackFacts";
 
 class FakeClock implements StallClock {
   now = 0;
@@ -270,6 +271,15 @@ function run() {
     results.b10_append_resumed_stall_fires = stalls;
     wd.dispose();
   }
+
+  /* ── B18 全局播放事实源契约（整改 B18）：notePlaybackPlaying 是
+   * autoLine main-return 护栏的唯一事实源——置 true 后 isPlaybackPlaying
+   * 必须为 true，置 false 后必须为 false（两播放面共用同一口径）。
+   * Player 侧接线本身由文件末尾的模块级接线用例断言（__b18）。 ── */
+  notePlaybackPlaying(true);
+  results.b18_fact_playing_true = isPlaybackPlaying();
+  notePlaybackPlaying(false);
+  results.b18_fact_playing_false = isPlaybackPlaying();
 
   /* ── C 超分判档（模拟源参数 + 真实采样锚点） ── */
   results.c_1080p_high_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 12_000_000, fps: 30 });
@@ -653,5 +663,23 @@ import { useFsKeepAlive } from "../src/features/feed/useFsKeepAlive";
     await sleep(1400);
     Object.assign(window, { __keepAlive: { pausedPlays, resumedPlays: state.plays } });
     root.unmount();
+  })();
+}
+
+/* ── B18 Player 接线用例（模块级观测点）：Player 组件 harness 在本
+ * 夹具不可及（需 store/Tauri 全量装配），故以「Player 模块经 vite
+ * 转换后的源码文本」为观测点断言生产接线存在：notePlaybackPlaying
+ * 必须被 import 且在播放/暂停/结束/卸载四类接线点出现（调用点计数
+ * ≥5：onPlay/onPlaying 置 true、onPause/onEnded/卸载 置 false）。
+ * 事实源语义本身由 run() 内 b18_fact_* 同步断言。 ── */
+{
+  void (async () => {
+    try {
+      const src = await fetch("/src/features/playback/Player.tsx").then(r => r.text());
+      const calls = (src.match(/notePlaybackPlaying\(/g) || []).length;
+      Object.assign(window, { __b18: { playerWired: src.includes("notePlaybackPlaying"), callSites: calls } });
+    } catch {
+      Object.assign(window, { __b18: { playerWired: false, callSites: 0 } });
+    }
   })();
 }

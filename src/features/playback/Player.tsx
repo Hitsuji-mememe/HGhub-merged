@@ -9,6 +9,7 @@ import { AppendStallWatchdog } from "./appendStallWatchdog";
 import { createStallWatchdog, wireStallWatchdogSignals } from "./stallWatchdogWiring";
 import { mediaErrorMessage } from "./mediaErrors";
 import { mediaHost, mediaResource, observeHls, usePlayerDiagnostics } from "../../shared/diagnostics/playbackDiagnostics";
+import { notePlaybackPlaying } from "../../shared/diagnostics/playbackFacts";
 import { usePlaybackActivity } from "./usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "./useProxyPlaybackRecovery";
 import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
@@ -201,6 +202,9 @@ export default function Player({
     }
 
     return () => {
+      /* 全局播放事实源（整改 B18）：与 VideoSurface 同一置位口径——
+       * 源卸载即视为不在播，autoLine 的 main-return 护栏据此判读。 */
+      notePlaybackPlaying(false);
       disconnectNative?.();
       stallWatchdog?.dispose();
       detachWatchdog?.();
@@ -267,14 +271,14 @@ export default function Player({
         onClick={toggle}
         onLoadedData={() => setVideoReady(true)}
         onCanPlay={() => setVideoReady(true)}
-        onPlay={() => { if (activity.isActive()) { setPlaying(true); onTogglePlay?.(true); } }}
-        onPause={() => { setPlaying(false); onTogglePlay?.(false); }}
+        onPlay={() => { if (activity.isActive()) { notePlaybackPlaying(true); setPlaying(true); onTogglePlay?.(true); } }}
+        onPause={() => { if (activity.isActive()) notePlaybackPlaying(false); setPlaying(false); onTogglePlay?.(false); }}
         onWaiting={() => setWaiting(true)}
-        onPlaying={() => { if (activity.isActive()) { setWaiting(false); setErrMsg(""); onPlaying?.(); } }}
+        onPlaying={() => { if (activity.isActive()) { notePlaybackPlaying(true); setWaiting(false); setErrMsg(""); onPlaying?.(); } }}
         onSeeked={() => setWaiting(false)}
         onTimeUpdate={(e) => setTime((e.target as HTMLVideoElement).currentTime)}
         onLoadedMetadata={(e) => { const v = e.target as HTMLVideoElement; setDuration(v.duration || 0); setSrSize({ w: v.videoWidth || 0, h: v.videoHeight || 0 }); }}
-        onEnded={() => { if (activity.isActive()) onEnded?.(); }}
+        onEnded={() => { notePlaybackPlaying(false); if (activity.isActive()) onEnded?.(); }}
         onError={() => {
           if (hlsRef.current) return;
           setWaiting(false);
