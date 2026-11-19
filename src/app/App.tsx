@@ -5,6 +5,7 @@ import { useStore, type Page, type Tab } from "../shared/model/store";
 import { isMobile, selfTest } from "../shared/api/api";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
 import { runBack } from "../shared/lib/back";
+import { runDetailNext } from "../shared/lib/detailNext";
 import { exitDocumentFullscreen, getFullscreenElement } from "../shared/lib/fullscreen";
 import Home from "../features/feed/Home";
 import LoginModal from "../features/account/LoginModal";
@@ -117,6 +118,10 @@ function MainTabs({ wide, pageActive, covered, bottomInset }: { wide: boolean; p
 function AppBody() {
   const { platform, tab, setTab, stack, pop, push, loginOpen, setLoginOpen, fs, setFs, clean, setClean, locked } = useStore();
   const mainRef = useRef<HTMLDivElement>(null);
+  /* 链式手势 pop 冷却（fix2.1 批四#12）：手势连发/触摸抖动时 300ms
+   * 内只许退一层，防一次滑退两页。用 ref 而非手势 effect 内变量——
+   * effect 随 stack/tab 变化重建，冷却须跨重建存活。 */
+  const lastChainPopAt = useRef(0);
   const [wide, setWide] = useState(false);
 
   useLayoutEffect(() => {
@@ -164,20 +169,35 @@ function AppBody() {
      本链只接中部起手；全屏（fs）中不触发本链；纵向滚动靠方向锁定
      （|dx|≥72 且 |dx|>|dy|×1.8）不误触；局部横滚区域（overflow-x 可滚
      的 chips 行/卡片行）、输入框、打开的 dialog/sheet 内起手不触发。
-     底部页签保留作直接跳达，与本链并存。 */
+     底部页签保留作直接跳达，与本链并存。
+     手势仲裁优先级（Muse 2026-11-19 fix2.1 批四#12 定版，高→低）：
+     ①输入框/横滚区/dialog 起手——本链整体不触发（上方 walk）；
+     ②全屏 scrub 独占——fs 时本链不触发，横拖只归进度条；
+     ③单击/双击/长按互斥——由播放器表面手势（mobileGestures）内部
+       按位移与时长仲裁，与本链的横划方向锁定（|dx|≥72）天然不重叠；
+     ④栈页右划返回——本链 pop，带 300ms 冷却防连退两层；
+     ⑤详情页左划下一条——仅栈顶 feed 页、起手落在详情信息区
+       （data-feed-info-zone）且不在进度条区（data-feed-scrub-zone）
+       时，经 detailNext 通道切下一集/下一条；其余栈页左划无动作。 */
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
-    let start: { x: number; y: number; blocked: boolean } | null = null;
+    let start: { x: number; y: number; blocked: boolean; inInfo: boolean; inScrub: boolean } | null = null;
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) { start = null; return; }
       const t = e.touches[0];
       let blocked = fs || loginOpen;
-      for (let n = e.target as Element | null; n && n !== el && !blocked; n = n.parentElement) {
-        if (n.tagName === "INPUT" || n.tagName === "TEXTAREA" || n.getAttribute("role") === "dialog") blocked = true;
-        else {
-          const s = getComputedStyle(n);
-          if ((s.overflowX === "auto" || s.overflowX === "scroll") && n.scrollWidth > n.clientWidth) blocked = true;
+      let inInfo = false;
+      let inScrub = false;
+      for (let n = e.target as Element | null; n && n !== el; n = n.parentElement) {
+        if (n.hasAttribute?.("data-feed-info-zone")) inInfo = true;
+        if (n.hasAttribute?.("data-feed-scrub-zone")) inScrub = true;
+        if (!blocked) {
+          if (n.tagName === "INPUT" || n.tagName === "TEXTAREA" || n.getAttribute("role") === "dialog") blocked = true;
+          else {
+            const s = getComputedStyle(n);
+            if ((s.overflowX === "auto" || s.overflowX === "scroll") && n.scrollWidth > n.clientWidth) blocked = true;
+          }
         }
       }
       // 播放器左缘起手归边缘返回手势，本链只接中部
@@ -185,7 +205,7 @@ function AppBody() {
       // 栈内 Feed 页同理：左缘起手归 Feed 自己的边缘返回（关面板/退全屏/
       // 返回同序），本链若再 pop 会一次退两层（Muse 2026-11-19 fix2 A1）
       if (stack[stack.length - 1]?.kind === "feed" && t.clientX <= 24) blocked = true;
-      start = { x: t.clientX, y: t.clientY, blocked };
+      start = { x: t.clientX, y: t.clientY, blocked, inInfo, inScrub };
     };
     const onEnd = (e: TouchEvent) => {
       const s = start;
@@ -200,13 +220,22 @@ function AppBody() {
       const top = stack[stack.length - 1];
       if (top) {
         /* 栈页右划一律返回上一级（Muse 2026-11-19 fix2 A1，用户真机反馈：
-           此前只有设置页能滑回，其余栈页手势被吞、只能点〈）。左划在栈页
-           无动作（链尾语义不变）。与既有手势的仲裁沿 E 项定版：全屏 fs
-           不触发本链（Feed 内 scrub 在 fs 态独占横拖）；非全屏中部横划
-           本就归本链（E 项真机裁定）；栈内 Feed 左缘起手已在 onStart
-           让给 Feed 边缘返回，避免双 pop；横滚区/输入框/dialog 起手
-           仍按上方 walk 拦截。 */
-        if (right) pop();
+           此前只有设置页能滑回，其余栈页手势被吞、只能点〈）。与既有
+           手势的仲裁见上方五级优先级：全屏 fs 不触发本链（scrub 独占）；
+           栈内 Feed 左缘起手已在 onStart 让给 Feed 边缘返回，避免双 pop；
+           横滚区/输入框/dialog 起手仍按上方 walk 拦截。
+           fix2.1 批四#12 两处补强：pop 加 300ms 冷却（连发/抖动只退
+           一层）；左划在栈顶 feed 页的详情信息区（非进度条区）切下
+           一集/下一条——其余栈页左划仍无动作（链尾语义不变）。 */
+        if (right) {
+          const now = Date.now();
+          if (now - lastChainPopAt.current >= 300) {
+            lastChainPopAt.current = now;
+            pop();
+          }
+        } else if (top.kind === "feed" && s.inInfo && !s.inScrub) {
+          runDetailNext();
+        }
         return;
       }
       if (tab === "home") { if (!right) setTab("search"); }

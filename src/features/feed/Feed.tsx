@@ -12,6 +12,7 @@ import { useSocialCounts } from "./ActionRail";
 import { LandHint } from "./LandHint";
 import { useProgressFlush } from "./useProgressFlush";
 import { setBackHandler } from "../../shared/lib/back";
+import { setDetailNextHandler } from "../../shared/lib/detailNext";
 import { copyText } from "../../shared/lib/clipboard";
 import {
   PlaybackProgress, PlaybackTime, PlayerControls, VideoSurface,
@@ -1171,6 +1172,23 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const epIdx = episodes.findIndex((e) => e.ep_num === curEp);
   const stepEp = (d: 1 | -1) => { const t = episodes[epIdx + d]; if (t) pickEp(t.ep_num); };
 
+  /* 详情页左划下一条（fix2.1 批四#12）：向 App 链式手势注册本页的
+   * 「下一个」——语义与桌面控制层 onNext 完全一致（有下一集先切集、
+   * 否则切下一条作品），来源列表上下文即本组件自持的
+   * effectiveVideoIds/index，无需外部传参。仅 context 模式且 active
+   * （栈顶可见）时持有注册，卸载/失活即注销；已在最后一集且无下一条
+   * 时返回未消费，左划无动作。 */
+  useEffect(() => {
+    if (!active || mode !== "context") return;
+    setDetailNextHandler(() => {
+      const nx = episodes.find((e) => e.ep_num === curEp + 1);
+      if (nx) { pickEp(nx.ep_num); return true; }
+      if (index < effectiveVideoIds.length - 1) { go(1); return true; }
+      return false;
+    });
+    return () => setDetailNextHandler(null);
+  }, [active, mode, episodes, curEp, index, effectiveVideoIds.length, go]);
+
   /* 点赞/收藏计数随右栏恢复（上游原算法在 ActionRail.useSocialCounts） */
   const { likeCount, collectCount } = useSocialCounts(meta, detail, kind, curEp, liked, collected);
 
@@ -1431,7 +1449,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   不加任何压暗层——黑边彻底去掉，全靠文字阴影保读；
                   进度条轨道几乎不可见，只用白点标播放位置。 */}
               {!fsUi && !isDesktop && kind === "post" && (
-                <div className="absolute inset-x-0 z-20" style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset}px)` }}>
+                <div data-feed-info-zone="true" className="absolute inset-x-0 z-20" style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset}px)` }}>
                   {/* 图文帖保留原信息块；视频条目的信息已并入单一控制层（蓝图 P1） */}
                   {!clean && (
                   <div className="mobile-video-meta-copy relative pb-2 flex items-center gap-2">
@@ -1458,7 +1476,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                       )}
                     </div>
                     )}
-                    <div ref={barRef} className="mx-4 mt-2 relative" style={{ height: 14, touchAction: "none" }}
+                    <div data-feed-scrub-zone="true" ref={barRef} className="mx-4 mt-2 relative" style={{ height: 14, touchAction: "none" }}
                       onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
                       {/* 轨道：几乎看不见，只暗示可拖动 */}
                       <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full" style={{ background: "rgba(255,255,255,.1)" }}>
@@ -1612,7 +1630,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </div>
       )}
       {!isDesktop && kind === "video" && (fsUi ? !idle : !clean) && (
-        <div className="hg-chrome-in absolute inset-x-0 bottom-0 z-40"
+        <div data-feed-info-zone="true" className="hg-chrome-in absolute inset-x-0 bottom-0 z-40"
           style={{ paddingBottom: `calc(var(--sab, 0px) + ${bottomInset}px + 6px)`, background: "linear-gradient(to top, rgba(21,23,27,.92), rgba(21,23,27,.55) 55%, transparent)" }}>
           {/* 信息行（收官批 A6/A7 合并）：原三行（剧名+集数 / 热度 / 进度）
               压成一行——左=剧名（可截断）+热度三数字灰色小字同行跟随，
@@ -1625,7 +1643,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             <span className="shrink-0 ml-auto text-[11px] font-semibold text-[#A1A5AD] tabular-nums"><PlaybackTime clock={playbackClock} /> / {fmtTime(duration)}</span>
           </div>
           <div className="px-4" style={{ height: 22 }}>
-            <div ref={barRef} className="relative h-full" style={{ touchAction: "none" }}
+            <div data-feed-scrub-zone="true" ref={barRef} className="relative h-full" style={{ touchAction: "none" }}
               onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
               <div className="absolute inset-x-0 bottom-[8px] h-[2.5px] rounded-full" style={{ background: "rgba(255,255,255,.3)" }}>
                 <PlaybackProgress clock={playbackClock} duration={duration} preview={barPct} className="h-full rounded-full bg-white" />
