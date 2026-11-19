@@ -12,11 +12,17 @@ import { installLayoutDiagnostics } from "./shared/diagnostics/layoutDiagnostics
 import { scheduleGpuProbe } from "./shared/diagnostics/gpuProbe";
 import { registerSrProbeV2 } from "./features/playback/srProbe";
 import { hasAcceptedAgreement } from "./shared/storage/usageAgreement";
+import { setFetchPage } from "./features/sources/adapters/fetchPage";
 
 const loadAcceptedApp = () => import("./app/AcceptedApp");
 const AcceptedApp = lazy(loadAcceptedApp);
 
 installPlaybackPageEvents();
+
+/* 多源取页通道接线（Muse 2026-11-19 根治包）：Rust source_fetch 命令已落地
+ * （生产网络栈：目标校验/DNS 固定/逐跳重定向复检＋4MB 上限），在此一处注入，
+ * 全部源适配器经 fetchPage 取页生效；契约见 features/sources/adapters/fetchPage.ts。 */
+setFetchPage((url) => invoke<string>("source_fetch", { url }));
 
 /* 运行期错误统一落到 debug.log，便于自查 */
 function report(kind: string, msg: string) {
