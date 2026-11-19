@@ -3,7 +3,7 @@ import { useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
 import type Hls from "hls.js";
 import type { FragBufferedData, FragLoadedData, FragLoadingData, HlsListeners } from "hls.js";
 import { copyText } from "../lib/clipboard";
-import { recordIfCurrent, registerPlayerInstance, unregisterPlayerInstance } from "./eventLedger";
+import { createLedgerBinding, type LedgerBinding } from "./eventLedger";
 
 let registeredHlsVersion: string | null = null;
 export function registerHlsVersion(version: string) {
@@ -169,16 +169,17 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
     if (lastResource.current !== undefined) generation.current += 1;
     lastResource.current = context.resource;
   }
-  /* 账本实例 id 由账本模块分配（自带计数器）：首次镜像时惰性注册，
-   * 卸载时注销——注销后迟到回调被 recordIfCurrent 挡下计 droppedLate。 */
-  const ledgerId = useRef<string | null>(null);
-  useEffect(() => () => {
-    if (ledgerId.current) { unregisterPlayerInstance(ledgerId.current); ledgerId.current = null; }
-  }, []);
+  /* 账本绑定（Muse 2026-11-19 整改 C1）：(id, generation) 注册时
+   * 成对存下，注销后迟到回调不重注册、真实累加 droppedLate（旧
+   * mirrorLedger 在 id 为 null 时重新注册，迟到事件被当新实例入账、
+   * droppedLate 结构性恒 0）。注销顺序：主 effect 清理先经账本发出
+   * player.unmount 再 dispose，注销动作本身不算迟到事件；主 effect
+   * 未运行（如 video 缺失）时由其后声明的兜底清理 dispose（幂等）。 */
+  const ledgerBinding = useRef<LedgerBinding | null>(null);
+  if (!ledgerBinding.current) ledgerBinding.current = createLedgerBinding();
   const mirrorLedger = (event: string, data: Data) => {
     try {
-      if (!ledgerId.current) ledgerId.current = registerPlayerInstance();
-      recordIfCurrent(ledgerId.current, event, { generation: generation.current, ...data });
+      ledgerBinding.current?.record(event, data, generation.current);
     } catch { /* 记账旁路 */ }
   };
   const snapshot = () => {
@@ -193,7 +194,9 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
   const pending = useRef<{ id: number; target: number; start: number; seeks: number; seeked: boolean } | null>(null);
   const seekSeq = useRef(0);
   const requestSeek = (target: number, source: string) => {
-    if (!playbackLogEnabled()) return;
+    /* 账本独立于日志开关（Muse 2026-11-19 整改 C2）：此处不再前置
+     * 判 playbackLogEnabled——trace 内部镜像无条件执行、落盘才受
+     * 开关控制；旧前置 return 让日志不可用时账本同时失明。 */
     const previous = pending.current;
     if (previous) trace("seek.superseded", { seek: previous.id, next_target: round(target), elapsed_ms: Math.round(performance.now() - previous.start) });
     pending.current = { id: ++seekSeq.current, target, start: performance.now(), seeks: 0, seeked: false };
@@ -223,7 +226,7 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
       pending.current = null;
     };
     const onEvent = (e: Event) => {
-      if (!playbackLogEnabled()) return;
+      /* C2：不前置判日志开关——emit 内镜像无条件、落盘受开关控制。 */
       const p = pending.current;
       if (e.type === "seeking" && p) p.seeks++;
       if (e.type === "seeked" && p) p.seeked = true;
@@ -242,10 +245,10 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
     };
     const events = ["loadstart", "loadedmetadata", "loadeddata", "play", "pause", "playing", "waiting", "stalled", "seeking", "seeked", "ended", "error", "emptied", "abort", "ratechange", "volumechange", "canplay"];
     events.forEach(event => v.addEventListener(event, onEvent));
-    const stateChange = () => { if (playbackLogEnabled()) emit("player.snapshot"); else pending.current = null; };
+    const stateChange = () => { emit("player.snapshot"); };
     const unsubscribe = subscribe(stateChange);
     const heartbeat = setInterval(() => {
-      if (!playbackLogEnabled()) return;
+      /* C2：心跳/超时同样先入账本，落盘与否由 emit 内部决定。 */
       const p = pending.current;
       if (p && performance.now() - p.start > 8000 && timeoutReported !== p.id) {
         timeoutReported = p.id;
@@ -255,11 +258,20 @@ export function usePlayerDiagnostics(videoRef: RefObject<HTMLVideoElement | null
     }, 1000);
     emit("player.mount");
     return () => {
+      /* C1 注销顺序：先经账本发出 player.unmount（此时绑定仍活跃、
+       * 正常入账），再 dispose——注销动作本身不变成迟到事件。 */
       emit("player.unmount");
+      try { ledgerBinding.current?.dispose(); } catch { /* 记账旁路 */ }
       events.forEach(event => v.removeEventListener(event, onEvent));
       clearInterval(heartbeat); unsubscribe();
       if (frame != null) v.cancelVideoFrameCallback?.(frame);
     };
+  }, []);
+  /* C1 兜底注销：主 effect 未运行（mount 时 video 缺失等）时绑定仍
+   * 可能经 trace 注册过实例；本清理声明在主 effect 之后，React 按
+   * 声明序执行清理，dispose 幂等、不会与上方顺序冲突。 */
+  useEffect(() => () => {
+    try { ledgerBinding.current?.dispose(); } catch { /* 记账旁路 */ }
   }, []);
   useEffect(() => { trace("player.context"); }, [context.active, context.view, context.video_id, context.episode, context.resource]);
   return { trace, requestSeek };
@@ -296,7 +308,7 @@ export function observeHls(hls: Hls, trace: (event: string, data?: Data) => void
      SourceBuffer 的 updateend/error 区分「没调 append / 调了没完成 / 完成了但
      buffered 没涨」三种根因。 */
   hls.on(eventsMap.BUFFER_APPENDED, (_event, data) => {
-    if (!playbackLogEnabled()) return;
+    /* C2：不前置判日志开关，trace 内部镜像无条件执行。 */
     const spans: Data = {};
     for (const [kind, value] of Object.entries(data.timeRanges)) if (value) spans[kind] = ranges(value);
     trace("hls.buffer_appended", { sb_type: data.type, fragment: data.frag.sn, start: round(data.frag.start), duration: round(data.frag.duration), ranges: spans });
@@ -306,7 +318,7 @@ export function observeHls(hls: Hls, trace: (event: string, data?: Data) => void
     for (const [kind, track] of Object.entries(data.tracks)) {
       const buffer = track?.buffer;
       if (!buffer) continue;
-      const onUpdateEnd = () => { if (playbackLogEnabled()) trace("mse.updateend", { sb_type: kind, updating: buffer.updating, buffered: ranges(buffer.buffered) }); };
+      const onUpdateEnd = () => { trace("mse.updateend", { sb_type: kind, updating: buffer.updating, buffered: ranges(buffer.buffered) }); };
       const onError = () => trace("mse.sb_error", { sb_type: kind });
       buffer.addEventListener("updateend", onUpdateEnd);
       buffer.addEventListener("error", onError);
@@ -317,7 +329,7 @@ export function observeHls(hls: Hls, trace: (event: string, data?: Data) => void
   hls.on(eventsMap.MANIFEST_PARSED, () => trace("hls.manifest", { levels: hls.levels.length }));
   for (const event of [eventsMap.FRAG_LOADING, eventsMap.FRAG_LOADED, eventsMap.FRAG_BUFFERED, eventsMap.FRAG_LOAD_EMERGENCY_ABORTED] as (keyof HlsListeners)[]) {
     hls.on(event, ((_event: string, data: FragLoadingData | FragLoadedData | FragBufferedData) => {
-      if (!playbackLogEnabled()) return;
+      /* C2：不前置判日志开关，trace 内部镜像无条件执行。 */
       const { frag } = data;
       const loading = frag.stats.loading;
       trace(String(event), { resource: mediaResource(frag.url), host: mediaHost(frag.url), fragment: frag.sn, start: round(frag.start), duration: round(frag.duration), bytes: frag.stats.loaded,
