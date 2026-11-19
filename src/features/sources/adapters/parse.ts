@@ -99,6 +99,49 @@ export function allImgSrcs(html: string): string[] {
   return out;
 }
 
+/** 内容区地标的内层 HTML（Muse 2026-11-20 fix332-B1）：地标＝
+ * <main> 元素或带 id="main"/role="main" 的容器（HTML 内容区语义
+ * 标记、非某站类名）。自地标开标签起按同名标签深度扫描找配平
+ * 闭合，返回其内层片段；无地标或未配平时返回 null（调用方回落
+ * 整页）。正则级解析的既有上限同样适用（属性值含 >、脚本/注释
+ * 内的同名标签字符串可扰动深度），扰动的最坏结果只是回落或
+ * 边界偏移，不产生新形态数据。 */
+function mainContentRegion(html: string): string | null {
+  const tagRe = /<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g;
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(html)) !== null) {
+    const tag = m[1].toLowerCase();
+    const open = m[0];
+    const isLandmark = tag === "main"
+      || /\bid\s*=\s*(["'])main\1/i.test(open)
+      || /\brole\s*=\s*(["'])main\1/i.test(open);
+    if (!isLandmark || open.endsWith("/>")) continue;
+    const innerStart = tagRe.lastIndex;
+    const scan = new RegExp(`<(/?)${tag}\\b[^>]*?(/?)>`, "gi");
+    scan.lastIndex = innerStart;
+    let depth = 1;
+    let s: RegExpExecArray | null;
+    while ((s = scan.exec(html)) !== null) {
+      if (s[2] === "/") continue;
+      if (s[1] === "/") { depth -= 1; if (depth === 0) return html.slice(innerStart, s.index); }
+      else depth += 1;
+    }
+    return null;
+  }
+  return null;
+}
+
+/** 内容区图片采集（fix332-B1）：整页采集会把页眉/页脚/登录区的
+ * 站点样式图形（logo、合规徽标等界面资源）混进图集——source-007
+ * 真站详情页实测每册恒定混入 5 张、全在内容区地标之外，地标内
+ * 43/43 张为内容图（含列表内 banner tile 的头像）。页面有内容区
+ * 地标时只在地标内采集（顺序与重复保留、与 allImgSrcs 同口径）；
+ * 无地标或未配平时回落整页采集，旧行为逐字不变。 */
+export function contentImgSrcs(html: string): string[] {
+  const region = mainContentRegion(html);
+  return allImgSrcs(region ?? html);
+}
+
 export function metaContent(html: string, property: string): string {
   const re = new RegExp(`<meta\\b[^>]*\\b(?:property|name)="${property}"[^>]*\\bcontent="([^"]*)"`, "i");
   const re2 = new RegExp(`<meta\\b[^>]*\\bcontent="([^"]*)"[^>]*\\b(?:property|name)="${property}"`, "i");

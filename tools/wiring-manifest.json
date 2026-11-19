@@ -1851,6 +1851,16 @@
       "item": "诊断报告图片失败明细节",
       "min": 2,
       "symbol": "imageFailures"
+    },
+    {
+      "files": [
+        "src/features/sources/adapters/parse.ts",
+        "src/features/sources/adapters/templates.ts"
+      ],
+      "id": "fix332-b1-content-scoped-images",
+      "item": "fix332-B1 hls-site 详情图片限定内容区：contentImgSrcs 内容区地标采集（parse 定义＋templates hls-site detail 消费），站点样式资产不进相册",
+      "min": 3,
+      "symbol": "contentImgSrcs"
     }
   ]
 }

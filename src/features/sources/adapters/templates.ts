@@ -12,7 +12,7 @@ import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
 import { IWARA_API_ORIGIN, REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
-import { allImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
+import { allImgSrcs, contentImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
 
 export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "hentaihaven-api", "preview-only", "none"] as const;
 type Params = Record<string, unknown>;
@@ -69,7 +69,7 @@ function parseAnchorList(html: string, base: string, sourceId: string, itemLinkP
   return items;
 }
 
-async function htmlDetail(def: SourceDef, externalId: string): Promise<SourceDetail> {
+async function htmlDetail(def: SourceDef, externalId: string, scopeImagesToContent = false): Promise<SourceDetail> {
   const base = def.baseUrls[0];
   const html = await fetchPage(absUrl(base, externalId));
   const title = metaContent(html, "og:title") || stripTags(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? "");
@@ -78,7 +78,7 @@ async function htmlDetail(def: SourceDef, externalId: string): Promise<SourceDet
   return {
     sourceId: def.id, externalId, title, cover: cover ? absUrl(base, cover) : "",
     href: absUrl(base, externalId), tags: [], description: metaContent(html, "description"),
-    contentHtml: undefined, images: allImgSrcs(html).map((s) => absUrl(base, s)),
+    contentHtml: undefined, images: (scopeImagesToContent ? contentImgSrcs(html) : allImgSrcs(html)).map((s) => absUrl(base, s)),
     episodes: hasStream ? [{ label: "正片", externalId }] : [],
   };
 }
@@ -156,9 +156,15 @@ export function createChiguaAdapter(def: SourceDef): SourceAdapter {
   };
 }
 
-/** (c) 通用 HLS 站骨架。 */
+/** (c) 通用 HLS 站骨架。详情图片限定内容区（Muse 2026-11-20
+ * fix332-B1）：整页采集把页眉/页脚的站点样式图形混进图集
+ * （source-007 真站实锤：每册恒定 5 张样式 SVG），hls-site 的
+ * detail.images 是相册本体、须纯；限定只挂本模板的 detail 路径
+ * ——chigua 的 detail 不经此处（其正文图由 contentHtml 提取链
+ * 负责），wp-rest/danbooru 的 images 本就来自内容载荷，均不外溢。 */
 export function createHlsSiteAdapter(def: SourceDef): SourceAdapter {
-  return htmlListAdapter(def);
+  const base0 = htmlListAdapter(def);
+  return { ...base0, detail: (id) => htmlDetail(def, id, true) };
 }
 
 /** (b) WP REST 骨架（秀人网）。 */
