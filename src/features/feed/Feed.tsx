@@ -387,6 +387,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 控件闲置隐藏：桌面 2.8s；移动全屏呈现（fs/fsUi）按设置秒数（#146-3）。
      调用点在 fsUi 定义之后：自动隐藏要覆盖竖屏即全屏呈现态。 */
   const { idle, setIdle, wake, arm } = useFsIdle(isDesktop, fsUi, paused, store.fsIdleSecs, boxRef, barPct !== null);
+  /* 单击判定到期读现值（整改 B5）：clean/idle/fsUi 的每渲染镜像 ref，超时回调不吃点击时捕获的快照 */
+  const cleanRef = useRef(clean); cleanRef.current = clean; const idleRef = useRef(idle); idleRef.current = idle; const fsUiRef = useRef(fsUi); fsUiRef.current = fsUi; const vpLandRef = useRef(vpLandscape); vpLandRef.current = vpLandscape;
   /* 竖屏快捷胶囊的显隐：不卸载、只改 opacity，这样淡入淡出都能过渡（#19） */
   /* 胶囊显隐只由缩放驱动（定版：仅 zoom>1.05 显示），不挂 clean：
      clean 的驱动源几经变更（播放状态→单击解耦），若继续挂 !clean，
@@ -886,12 +888,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         if (fsUi) setIdle(snap.idle);
         videoRef.current?.toggle();
       } else {
-        const snap = { clean, idle, fsUi };
+        /* 到期执行读现值（整改 B5）：250ms 内 clean/idle/fsUi 可能已被
+         * 其他路径（闲置隐藏、进出全屏）改动，按点击时快照翻转会翻错
+         * 方向；快照只保留在 tapJudgeRef 供双击恢复路径使用。 */
         const timer = window.setTimeout(() => {
           tapJudgeRef.current = null;
-          if (snap.fsUi) {
-            if (snap.idle) { wake(); setClean(false); } else { setIdle(true); setClean(true); }
-          } else setClean(!snap.clean);
+          if (fsUiRef.current) {
+            if (idleRef.current) { wake(); setClean(false); } else { setIdle(true); setClean(true); }
+          } else setClean(!cleanRef.current);
         }, 250) as unknown as number;
         tapJudgeRef.current = { timer, clean, idle };
       }
