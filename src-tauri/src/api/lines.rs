@@ -16,6 +16,14 @@ fn begin_line_selection() -> Result<u64, String> {
     Ok(*generation)
 }
 
+/// 只读快照当前选线代次（整改 A6，Hark G2 P2-4）：只探不切的命令
+/// 用它报 cancelled，不递增代次——递增会把在途 line_auto 误判为
+/// 已取消、丢掉一整轮选线。
+fn current_line_selection() -> Result<u64, String> {
+    let generation = LINE_SELECTION.lock().map_err(|_| "线路选择锁失败")?;
+    Ok(*generation)
+}
+
 #[tauri::command]
 pub async fn line_cancel() -> Result<(), String> {
     begin_line_selection()?;
@@ -38,6 +46,11 @@ pub async fn line_state() -> Result<Value, String> {
             "stall": e.stall, "recovery": e.recovery, "fallback": e.fallback,
             "probeSamples": e.probe_samples, "probeBps": e.probe_bps,
             "playSamples": e.play_samples, "playBps": e.play_bps,
+            /* 样本窗字段（整改 A8 跨线契约，camelCase 名不许改） */
+            "playFirstAt": e.play_first_at, "playUpdatedAt": e.play_updated_at,
+            "probeUpdatedAt": e.probe_updated_at,
+            "playEnough": e.play_enough, "probeEnough": e.probe_enough,
+            "playStale": e.play_stale,
         })).collect::<Vec<_>>(),
         "breaker": crate::lines::ledger::breaker_status().map(|b| json!({
             "total": b.total, "sessionMax": b.session_max,
@@ -152,8 +165,10 @@ pub async fn line_auto(state: State<'_, Api>, urgent: Option<bool>) -> Result<Va
         && !chosen.is_empty() && chosen != previous {
         // 会话熔断（U2 一期）：只拦自动切换，手动命令不经此路。拦下
         // 时保持当前线路正常返回、不报错——当前线还能播就继续播，
-        // 熔断的窗口/退避到期后下一次自动选线自动恢复尝试。
-        if crate::lines::ledger::auto_switch_allowed(&chosen) {
+        // 熔断的窗口/退避到期后下一次自动选线自动恢复尝试。urgent
+        // （当前线确认故障）豁免窗口/总上限、只保留单线退避（整改
+        // A2，Hark G2 P1-1）：死线面前先恢复可用，再谈防抖动。
+        if crate::lines::ledger::auto_switch_allowed(&chosen, urgent) {
             let next = crate::net::set_base(&chosen)?;
             crate::net::refresh_client();
             switched = next != previous;
@@ -187,7 +202,10 @@ pub async fn line_auto(state: State<'_, Api>, urgent: Option<bool>) -> Result<Va
 /// confirm_gate、熔断检查与 note_auto_switch 记账。
 #[tauri::command]
 pub async fn line_try_main() -> Result<Value, String> {
-    let selection = begin_line_selection()?;
+    // 只读命令不碰全局代次（整改 A6）：旧实现调 begin_line_selection
+    // 递增代次，任何调用都会把在途 line_auto 判 cancelled。现只取
+    // 快照比对——探测期间真有新选线开始时 cancelled 仍如实上报。
+    let selection = current_line_selection()?;
     crate::net::refresh_client();
     let probe = crate::lines::try_main().await;
     let generation = LINE_SELECTION.lock().map_err(|_| "线路选择锁失败")?;
@@ -210,9 +228,60 @@ pub async fn line_health() -> Result<Value, String> {
 /// VideoSurface 把分片实测聚合 bps（每 5 片中位数节流）经此命令
 /// 写入账本 play EWMA，与主动探测的 probe EWMA 分账。签名与前端
 /// api.lineRecordPlayback(origin, bps) 对齐（bps 为 f64 bit/s）；
-/// 非有限/非正值由账本层丢弃，本命令不因记账失败打断播放。
+/// 非有限/非正值由账本层丢弃，本命令不因记账失败打断播放。origin
+/// 另经 known_playback_origin 校验：不属于已知线路的一律不记账
+/// （整改 A3）。
+/// 吞吐回写记账的已知线路校验（整改 A3，Hark G2 P1-2 附带）：前端
+/// 回写的 origin 未经校验时，本地媒体包装 origin（hg://localhost、
+/// WebKit 的 "null"）与任意媒体主机都会入账、挤占账本 64 个名额且
+/// 永不被排名查到。口径：先经 normalize_base 规整（非纯 HTTPS
+/// origin 直接出局），再要求命中固定线路、发布页可信镜像或当前
+/// base 之一；记账统一用规整值，与排名查账的候选 url 同口径。
+fn known_playback_origin(origin: &str) -> Option<String> {
+    let normalized = crate::net::normalize_base(origin)?;
+    (crate::lines::is_fixed(&normalized)
+        || crate::lines::is_trusted_mirror(&normalized)
+        || normalized == crate::net::base())
+    .then_some(normalized)
+}
+
 #[tauri::command]
 pub async fn line_record_playback(origin: String, bps: f64) -> Result<(), String> {
-    crate::lines::ledger::record_playback(&origin, bps);
+    // 未知 origin 静默不记账（旁路记账不打断播放，口径同命令头注释）。
+    if let Some(known) = known_playback_origin(&origin) {
+        crate::lines::ledger::record_playback(&known, bps);
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::known_playback_origin;
+
+    /* ── 整改 A3（Hark G2 P1-2 附带）：吞吐回写命令侧 origin 校验。
+     * 未知 origin 不入账、已知线路（固定/当前 base）入账。 ── */
+    #[test]
+    fn playback_record_rejects_unknown_origins() {
+        // 本地媒体包装 origin（hg://）与 WebKit 的 "null" origin
+        assert_eq!(known_playback_origin("hg://localhost"), None);
+        assert_eq!(known_playback_origin("null"), None);
+        // 任意媒体主机：是合法 https origin 也不是已知线路
+        assert_eq!(known_playback_origin("https://media.example"), None);
+        assert_eq!(known_playback_origin("https://cdn.example:8443"), None);
+    }
+
+    #[test]
+    fn playback_record_accepts_known_lines() {
+        assert_eq!(
+            known_playback_origin("https://huangguoai.com").as_deref(),
+            Some("https://huangguoai.com"),
+            "固定线路应放行"
+        );
+        // 写法不规整的同一线路：先规整再比对（大小写/默认端口/尾斜杠）
+        assert_eq!(
+            known_playback_origin("https://HUANGGUOAI.COM:443/").as_deref(),
+            Some("https://huangguoai.com"),
+            "规整后命中已知线路应放行并返回规整值"
+        );
+    }
 }

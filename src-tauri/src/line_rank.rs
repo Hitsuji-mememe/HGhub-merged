@@ -47,6 +47,8 @@ impl LineMeasure {
     /// 参与分带的生效吞吐：本轮实测优先（实时证据压过历史——当前
     /// 已退化的线不能靠旧画像留在带内），实测缺失时依次用账本
     /// play EWMA、probe EWMA 估算（账本已用最小样本数把过关）。
+    /// 本轮超时候选的画像已在 pick_ranked 组装时封顶（整改 A4，
+    /// cap_timed_out_measure），此处不另判。
     fn effective_bps(&self) -> Option<f64> {
         self.bps.map(|b| b as f64).or(self.play_bps).or(self.probe_hist_bps)
     }
@@ -136,12 +138,17 @@ pub fn rank_lines(measures: &[LineMeasure]) -> Option<&LineMeasure> {
 /// 粘性决策（纯函数，pick_ranked 用）：当前线是否留任。根治包
 /// P0-B.4——粘性 60%→80%：双方都有生效吞吐时，当前线须严格高于
 /// 胜者 80% 才留任；恰好 80%（＝胜者快恰 1.25×）按裁定「胜者快
-/// ≥1.25× 必换」处理、不留任。缺吞吐数据时回落延迟判据（当前线
-/// 延迟 ≤胜者 2 倍留任，与旧制一致）。
+/// ≥1.25× 必换」处理、不留任。整改 A4（Hark G2 P1-3）补单边缺失
+/// 语义：当前线无生效吞吐而胜者有（当前线本轮超时且无画像正属
+/// 此列）→ 不留任，不许靠延迟判据守住一条测不出速度的线；胜者
+/// 无数据而当前线有 → 留任（无数据者在排名侧本就垫底，此为兜底）；
+/// 双方皆无数据才回落延迟判据（当前线延迟 ≤胜者 2 倍留任）。
 fn stickiness_keeps(current: &LineMeasure, winner: &LineMeasure) -> bool {
     match (current.effective_bps(), winner.effective_bps()) {
         (Some(cb), Some(wb)) => cb * 100.0 > wb * 80.0,
-        _ => current.ms <= winner.ms.saturating_mul(2),
+        (None, Some(_)) => false,
+        (Some(_), None) => true,
+        (None, None) => current.ms <= winner.ms.saturating_mul(2),
     }
 }
 
@@ -176,10 +183,30 @@ const PROBE_BUDGET_BYTES: u64 = 512 * 1024;
 
 /// 一次吞吐探测的结果：bps 为 None 时看 incomparable 区分原因——
 /// true＝候选没有锚内容（本轮不可比，只记延迟）；false＝内容可比
-/// 但没测出吞吐（超时/传输失败，以账本/延迟参与排名）。
+/// 但没测出吞吐（传输失败等，以账本/延迟参与排名）。timed_out＝
+/// 整体 6 秒超时（整改 A4 的负证据标记，与一般失败分开：超时说明
+/// 「6 秒拉不满预算」本身就是当下慢的证据，生效吞吐要封顶）。
 pub struct ProbeOutcome {
     pub bps: Option<u64>,
     pub incomparable: bool,
+    pub timed_out: bool,
+}
+
+/// 单候选整体探测超时（probe_throughput 用）。
+const PROBE_TIMEOUT: Duration = Duration::from_secs(6);
+
+/// 本轮超时者的生效吞吐封顶（整改 A4，Hark G2 P1-3）：512KB 预算
+/// 在 6 秒内没拉满，其当下吞吐至多是预算/超时时长量级（≈699kbps）。
+/// 超时候选的账本画像（play/probe EWMA）一律封到此顶——旧画像再
+/// 高也不许压过本轮实测，或靠粘性延迟判据留任（粘性侧见
+/// stickiness_keeps 的单边缺失语义）。
+const TIMEOUT_EFFECTIVE_CAP_BPS: f64 = (PROBE_BUDGET_BYTES as f64 * 8.0) / 6.0;
+
+/// 把一条本轮超时候选的账本画像封顶到 TIMEOUT_EFFECTIVE_CAP_BPS
+/// （纯函数，pick_ranked 组装 measures 时对 timed_out 候选调用）。
+fn cap_timed_out_measure(m: &mut LineMeasure) {
+    m.play_bps = m.play_bps.map(|v| v.min(TIMEOUT_EFFECTIVE_CAP_BPS));
+    m.probe_hist_bps = m.probe_hist_bps.map(|v| v.min(TIMEOUT_EFFECTIVE_CAP_BPS));
 }
 
 /// 锚内容：当前线目录首条视频 id。全候选测同一 id，样本才可比；
@@ -204,16 +231,16 @@ async fn anchor_video_id() -> Option<i64> {
 /// 的预算黑洞；6 秒内拉不满 512KB×2 的线路当下就不适合优先播放。
 pub async fn probe_throughput(origin: &str, anchor: Option<i64>) -> ProbeOutcome {
     let Some(anchor) = anchor else {
-        return ProbeOutcome { bps: None, incomparable: true };
+        return ProbeOutcome { bps: None, incomparable: true, timed_out: false };
     };
-    match tokio::time::timeout(Duration::from_secs(6), throughput_inner(origin, anchor)).await {
+    match tokio::time::timeout(PROBE_TIMEOUT, throughput_inner(origin, anchor)).await {
         Ok(outcome) => outcome,
-        Err(_) => ProbeOutcome { bps: None, incomparable: false },
+        Err(_) => ProbeOutcome { bps: None, incomparable: false, timed_out: true },
     }
 }
 
 async fn throughput_inner(origin: &str, anchor: i64) -> ProbeOutcome {
-    let unmeasured = ProbeOutcome { bps: None, incomparable: false };
+    let unmeasured = ProbeOutcome { bps: None, incomparable: false, timed_out: false };
     let info = match crate::net::edge(
         origin,
         "POST",
@@ -225,7 +252,7 @@ async fn throughput_inner(origin: &str, anchor: i64) -> ProbeOutcome {
     {
         Ok(info) => info,
         // 锚内容在此候选上取不到 playback：判不可比（区别于测速失败）。
-        Err(_) => return ProbeOutcome { bps: None, incomparable: true },
+        Err(_) => return ProbeOutcome { bps: None, incomparable: true, timed_out: false },
     };
     let playlist_url = info
         .get("streams")
@@ -235,7 +262,7 @@ async fn throughput_inner(origin: &str, anchor: i64) -> ProbeOutcome {
         .or_else(|| info.get("video_url").and_then(Value::as_str).filter(|s| !s.trim().is_empty()))
         .map(str::to_string);
     let Some(playlist_url) = playlist_url else {
-        return ProbeOutcome { bps: None, incomparable: true };
+        return ProbeOutcome { bps: None, incomparable: true, timed_out: false };
     };
     let seg_url = match crate::speed_probe::resolve_first_segment(&playlist_url).await {
         Ok(url) => url,
@@ -249,7 +276,7 @@ async fn throughput_inner(origin: &str, anchor: i64) -> ProbeOutcome {
         (Some(a), None) | (None, Some(a)) => Some(a),
         (None, None) => None,
     };
-    ProbeOutcome { bps, incomparable: false }
+    ProbeOutcome { bps, incomparable: false, timed_out: false }
 }
 
 /// 流式取首分片的前 PROBE_BUDGET_BYTES 字节并计 bps：Range 取段，
@@ -362,12 +389,12 @@ pub async fn pick_ranked(hits: Vec<(String, String, u64)>, current: Option<&str>
     let mut measures: Vec<LineMeasure> = Vec::new();
     for (tier, url, ms) in pool {
         let outcome = if round_started.elapsed() > ROUND_BUDGET {
-            ProbeOutcome { bps: None, incomparable: false }
+            ProbeOutcome { bps: None, incomparable: false, timed_out: false }
         } else {
             probe_throughput(&url, anchor).await
         };
         let tb = crate::lines::ledger::tiebreak(&url);
-        measures.push(LineMeasure {
+        let mut measure = LineMeasure {
             url,
             tier,
             ms,
@@ -375,7 +402,13 @@ pub async fn pick_ranked(hits: Vec<(String, String, u64)>, current: Option<&str>
             play_bps: tb.play,
             probe_hist_bps: tb.probe,
             incomparable: outcome.incomparable,
-        });
+        };
+        /* 本轮超时＝负证据（整改 A4）：账本画像封顶后再进排名，
+         * 不许靠旧画像胜出；粘性侧的单边缺失语义见 stickiness_keeps。 */
+        if outcome.timed_out {
+            cap_timed_out_measure(&mut measure);
+        }
+        measures.push(measure);
     }
     let candidates: Vec<Value> = measures.iter().map(LineMeasure::json).collect();
     match rank_lines(&measures) {
@@ -437,6 +470,33 @@ mod tests {
         main.tier = "main".into();
         let measures = vec![m("mirror-line", 50, Some(4_000_000)), main];
         assert_eq!(rank_lines(&measures).map(|w| w.url.as_str()), Some("main-line"));
+    }
+
+    /* ── 整改 A4（Hark G2 P1-3）：本轮测速超时＝负证据。旧代码下
+     * 超时候选 effective_bps 回落旧画像照常胜出、无画像的超时当前线
+     * 靠延迟判据留任——本组用例在旧实现上先红。 ── */
+    #[test]
+    fn timed_out_candidate_effective_bps_is_capped() {
+        // 超时且带 9M 旧 probe 画像：封顶到 512KB/6s 量级后，不得压过
+        // 本轮实测 4M 的对手
+        let mut stale = mh("timed-out", 30, None, 9_000_000.0);
+        cap_timed_out_measure(&mut stale);
+        let eff = stale.effective_bps().expect("封顶后应有生效吞吐上限值或画像封顶值");
+        assert!(eff <= TIMEOUT_EFFECTIVE_CAP_BPS + 1.0, "超时候选生效吞吐必须封顶, got {eff}");
+        let measures = vec![stale, m("measured", 200, Some(4_000_000))];
+        assert_eq!(rank_lines(&measures).map(|w| w.url.as_str()), Some("measured"));
+    }
+
+    #[test]
+    fn timed_out_current_without_profile_does_not_stick_by_latency() {
+        // 当前线本轮超时且无账本画像（生效吞吐 None）、延迟再低，
+        // 也不许靠延迟判据留任有实测吞吐的胜者
+        let cur = m("cur", 10, None);
+        let winner = m("winner", 500, Some(4_000_000));
+        assert!(!stickiness_keeps(&cur, &winner), "无生效吞吐的当前线不许靠延迟留任");
+        // 对称兜底：双方都无数据时仍回落延迟判据（旧契约不变）
+        let other = m("other", 500, None);
+        assert!(stickiness_keeps(&cur, &other), "双方无数据时延迟判据保留");
     }
 
     #[test]

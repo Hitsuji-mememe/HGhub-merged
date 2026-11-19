@@ -25,11 +25,14 @@ let failStreak = 0;
 let lastPickAt: number | null = null;
 let cancellation: Promise<void> = Promise.resolve();
 
-/* 计时器单一注册表（Muse 2026-11-19 根治包，audit5 条 2）：旧实现有
- * 两套计时器——schedule 链的 timer 与 confirm-pending 的 20 秒确认任务，
- * 后者无 handle、stopTimer 清不掉，关闭→重开后旧任务到期会多发一轮
- * 无调度选线。现全部计时器收进同一注册表，stopTimer 停一切；确认
- * 回调另带 pick epoch，开关/纪元变更后过期即弃（与 Rust 侧双代次对齐）。 */
+/* 计时器分工（Muse 2026-11-19 根治包，audit5 条 2；整改 A1 修订，
+ * Hark G2 P0-1）：健康调度计时器收进 timers 注册表，schedule/stopTimer
+ * 批量清理只管这一组。两轮确认计时器独立句柄（confirmTimer），绝不进
+ * timers——根治包曾把它登记进同一注册表，结果 confirm-pending 分支
+ * return 后同轮 finally 的 schedule()→stopTimer() 立刻把它清掉，第二轮
+ * 确认永不发出。确认计时器的失效不靠批量清理，靠 pickEpoch 代次校验：
+ * setAutoLine 开关时 epoch 自增，旧回调到期时 epoch 不符即弃；新一轮
+ * confirm-pending 排期时先清旧句柄（替换语义，一次只许一个在途确认）。 */
 const timers = new Set<number>();
 let pickEpoch = 0;
 let confirmDelayMs = 20_000;
@@ -45,6 +48,21 @@ function later(fn: () => void, delay: number): number {
 function stopTimer() {
   for (const id of timers) window.clearTimeout(id);
   timers.clear();
+}
+
+let confirmTimer: number | null = null;
+
+function stopConfirmTimer() {
+  if (confirmTimer !== null) {
+    window.clearTimeout(confirmTimer);
+    confirmTimer = null;
+  }
+}
+
+/** 确认专用计时器：独立于健康调度，schedule()/stopTimer() 不碰它。 */
+function laterConfirm(fn: () => void, delay: number): void {
+  stopConfirmTimer();
+  confirmTimer = window.setTimeout(() => { confirmTimer = null; fn(); }, delay);
 }
 
 function schedule(delay: number) {
@@ -154,6 +172,11 @@ export async function pickLine(reason: string, force = false, urgent = false): P
     };
     recentRounds.push(lastRound);
     if (recentRounds.length > 5) recentRounds.splice(0, recentRounds.length - 5);
+    /* 熔断状态刷新（整改 A7，Hark G2 P2-3）：每轮落定都发
+     * hg:auto-line-changed——设置页 sync 据此把 lastPickRound 的
+     * breakerBlocked 落进 state 重渲染；拦截出现要上屏、后续轮次
+     * 不再拦截时也要及时消退，只在被拦时发事件会留下过期显示。 */
+    window.dispatchEvent(new Event("hg:auto-line-changed"));
     if (result.breakerBlocked) {
       logLine(`[line] auto(${reason}) breaker-blocked keep ${hostOf(result.base)}`);
       tracePlayback("line.breakerBlocked", { reason, line: hostOf(result.base) });
@@ -168,7 +191,7 @@ export async function pickLine(reason: string, force = false, urgent = false): P
       logLine(`[line] auto(${reason}) confirm-pending winner=${result.pick.pendingWinner ? hostOf(result.pick.pendingWinner) : "?"} keep ${hostOf(result.base)} | ${candidates}`);
       tracePlayback("line.confirmPending", { reason, winner: result.pick.pendingWinner ? hostOf(result.pick.pendingWinner) : "", line: hostOf(result.base) });
       const epoch = pickEpoch;
-      later(() => {
+      laterConfirm(() => {
         if (epoch !== pickEpoch || !autoLineEnabled()) return;
         void pickLine("confirm");
       }, confirmDelayMs);

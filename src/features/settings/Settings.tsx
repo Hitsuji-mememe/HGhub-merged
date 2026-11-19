@@ -31,6 +31,10 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
   const [lineOpen, setLineOpen] = useState(false);
   const [lineBase, setLineBase] = useState("");
   const [autoLineOn, setAutoLineOn] = useState(autoLineEnabled);
+  /* 熔断状态走 state 驱动渲染（整改 A7，Hark G2 P2-3）：lastPickRound()
+   * 是模块快照、渲染时直读不会因事件自动刷新；sync 时把它落进 state，
+   * hg:auto-line-changed 到达即重读，拦截出现/消退都能及时上屏。 */
+  const [breakerBlocked, setBreakerBlocked] = useState(false);
   const clearBusy = useRef(false);
   const [clearError, setClearError] = useState("");
   const [lineError, setLineError] = useState("");
@@ -60,7 +64,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
 
   const readLine = () => { api.lineState().then((state) => { setLineBase(state.base); setLineError(""); }).catch(() => setLineError("线路读取失败，点击重新选择")); };
   useEffect(() => {
-    const sync = () => { readLine(); setAutoLineOn(autoLineEnabled()); };
+    const sync = () => { readLine(); setAutoLineOn(autoLineEnabled()); setBreakerBlocked(lastPickRound()?.breakerBlocked === true); };
     sync();
     window.addEventListener("hg:line-changed", sync);
     window.addEventListener("hg:auto-line-changed", sync);
@@ -175,7 +179,7 @@ export default function Settings({ onBack, initialSection }: { onBack: () => voi
             </div>
             {/* 熔断人话状态行（audit6 P0-B ④）：熔断生效时用户要能看见
                 「为什么不切线」，而不是对着不动的线路干等。 */}
-            {lastPickRound()?.breakerBlocked && (
+            {breakerBlocked && (
               <div className="ios-settings-row">
                 <span className="ios-setting-icon"><IInfo size={15} /></span>
                 <div className="flex-1 min-w-0">

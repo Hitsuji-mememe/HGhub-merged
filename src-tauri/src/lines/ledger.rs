@@ -18,15 +18,28 @@
 //! 触发自愈选线），fallback/recovery 取自动切换真正落盘的那一刻。
 //!
 //! 熔断：只拦自动切换（line_auto 落盘前），手动命令完全不经此路。
-//! 恢复全自动——窗口计数与单线退避都按时间惰性过期，下一次
+//! 恢复全自动——窗口计数、总上限与单线退避都按时间惰性过期，下一次
 //! auto_pick/line_auto 调用时自动重新允许尝试，不存在等用户手动
-//! 切线或手动复位的恢复路径；进程期总上限随进程重启归零。被熔断
-//! 拦下时调用方保持当前线路继续播放，不报错、不停播。
+//! 切线或手动复位的恢复路径。总上限改为时间衰减（24 小时内最多
+//! 12 次，超窗记录过期即恢复额度；旧制进程期只增不减，长驻进程
+//! 达上限后永不恢复，Hark G2 P1-1）。urgent 路径（当前线已确认
+//! 故障）豁免窗口计数与总上限、只保留单线退避——当前线已挂时还拦
+//! 故障切换等于守着死线。被熔断拦下时调用方保持当前线路继续
+//! 播放，不报错、不停播。
 
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// 当前墙钟（epoch 毫秒）：账本样本窗字段用（整改 A8 跨线契约）。
+/// Instant 只够算间隔、不可序列化，首/末样本时刻另以墙钟记。
+fn wall_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// 账本参与任何决胜/判断的最小吞吐样本数：不足时账本输入一律被
 /// 忽略（自动回退到纯探测排序），不让一两次采样冒充线路画像。
@@ -52,16 +65,21 @@ pub enum LineEvent {
     Fallback,
 }
 
-/// 一套吞吐 EWMA（样本数＋当前值＋最近更新时刻）。
+/// 一套吞吐 EWMA（样本数＋当前值＋最近更新时刻＋墙钟首/末样本时刻）。
 #[derive(Clone, Debug, Default)]
 pub struct Ewma {
     pub samples: u64,
     pub bps: Option<f64>,
     pub updated: Option<Instant>,
+    /// 首个有效样本的墙钟时刻（epoch 毫秒，整改 A8）：供诊断/报告
+    /// 呈现样本窗起点；无样本为 None。
+    pub first_wall_ms: Option<u64>,
+    /// 最近有效样本的墙钟时刻（epoch 毫秒，整改 A8）。
+    pub last_wall_ms: Option<u64>,
 }
 
 impl Ewma {
-    fn apply(&mut self, value: f64, now: Instant) {
+    fn apply(&mut self, value: f64, now: Instant, wall_ms: u64) {
         if !(value.is_finite() && value > 0.0) {
             return;
         }
@@ -74,6 +92,11 @@ impl Ewma {
         // 后续查询按样本不足处理（自动回退），绝不让坏值参与排序。
         self.bps = if next.is_finite() { Some(next) } else { None };
         self.updated = Some(now);
+        // 墙钟样本窗只记有效样本（与 samples 同步增减的口径一致）。
+        if self.first_wall_ms.is_none() {
+            self.first_wall_ms = Some(wall_ms);
+        }
+        self.last_wall_ms = Some(wall_ms);
     }
 
     /// 达到最小样本数且为有限正数才算有效画像。
@@ -124,36 +147,55 @@ static LEDGER: Lazy<Mutex<HashMap<String, LineStats>>> =
 
 /// 账本键：origin × 代理模式。代理模式取当前应用代理设置
 /// （system/custom/off）——环境切换后新样本自动落到新键，旧键画像
-/// 不再被查到（查询同样按当前模式组键）。
+/// 不再被查到（查询同样按当前模式组键）。测量跨时较长的回写必须
+/// 走带模式版（record_throughput_with_mode）：键用测量开始时捕获
+/// 的模式，不许在写入时现读当前模式（整改 A5，Hark G2 P2-1——
+/// 在途探测跨代理切换会把旧环境样本记进新环境键、污染画像）。
 fn ledger_key(origin: &str) -> String {
-    format!("{origin}\u{1f}{}", crate::proxy::mode().as_str())
+    ledger_key_with_mode(origin, crate::proxy::mode().as_str())
+}
+
+fn ledger_key_with_mode(origin: &str, mode: &str) -> String {
+    format!("{origin}\u{1f}{mode}")
 }
 
 fn with_entry<R>(origin: &str, f: impl FnOnce(&mut LineStats) -> R) -> Option<R> {
-    let key = ledger_key(origin);
+    with_entry_key(&ledger_key(origin), f)
+}
+
+fn with_entry_key<R>(key: &str, f: impl FnOnce(&mut LineStats) -> R) -> Option<R> {
     let mut map = LEDGER.lock().ok()?;
-    if !map.contains_key(&key) {
+    if !map.contains_key(key) {
         if map.len() >= MAX_LINES {
             return None;
         }
-        map.insert(key.clone(), LineStats::default());
+        map.insert(key.to_string(), LineStats::default());
     }
-    map.get_mut(&key).map(f)
+    map.get_mut(key).map(f)
 }
 
 /// 主动探测吞吐回写（auto_pick 的候选探测结果，probe EWMA）。
 /// bps=0 由 Ewma::apply 拒绝（不计样本），条目本身照常建立——与
 /// 旧实现的可观察行为一致（snapshot 能看到条目、样本数为 0）。
 pub fn record_throughput(origin: &str, bps: u64) {
+    record_throughput_with_mode(origin, bps, crate::proxy::mode());
+}
+
+/// 带捕获模式的探测吞吐回写（整改 A5）：mode 是测量开始时捕获的
+/// 代理模式，整轮测量跨代理切换也记回测量环境的键。
+pub fn record_throughput_with_mode(origin: &str, bps: u64, mode: crate::proxy::Mode) {
     let now = Instant::now();
-    let _ = with_entry(origin, |stats| stats.probe.apply(bps as f64, now));
+    let wall_ms = wall_now_ms();
+    let key = ledger_key_with_mode(origin, mode.as_str());
+    let _ = with_entry_key(&key, |stats| stats.probe.apply(bps as f64, now, wall_ms));
 }
 
 /// 真实播放吞吐回写（line_record_playback 命令，play EWMA）：
 /// 前端聚合的分片实测 bps（f64），非有限/非正一律丢弃。
 pub fn record_playback(origin: &str, bps: f64) {
     let now = Instant::now();
-    let _ = with_entry(origin, |stats| stats.play.apply(bps, now));
+    let wall_ms = wall_now_ms();
+    let _ = with_entry(origin, |stats| stats.play.apply(bps, now, wall_ms));
 }
 
 pub fn record_event(origin: &str, event: LineEvent) {
@@ -181,11 +223,27 @@ pub struct LedgerEntry {
     pub probe_bps: Option<f64>,
     pub play_samples: u64,
     pub play_bps: Option<f64>,
+    /* 样本窗字段（整改 A8，跨线契约——字段名经 line_state JSON 以
+     * camelCase 暴露为 playFirstAt/playUpdatedAt/probeUpdatedAt/
+     * playEnough/probeEnough/playStale，C 线报告按此名消费，不许改）：
+     * 时刻均为 epoch 毫秒、无样本为 None；enough＝样本数达到
+     * LEDGER_MIN_SAMPLES；play_stale＝play 已超 PLAY_FRESH 未更新
+     * （无样本不算 stale）。 */
+    pub play_first_at: Option<u64>,
+    pub play_updated_at: Option<u64>,
+    pub probe_updated_at: Option<u64>,
+    pub play_enough: bool,
+    pub probe_enough: bool,
+    pub play_stale: bool,
 }
 
 /// 全账本只读汇总（按 origin/mode 排序，输出稳定）。锁失败返回
 /// 空表——诊断旁路不许因账本锁故障报错，报告侧以空表呈现。
 pub fn summary() -> Vec<LedgerEntry> {
+    summary_at(Instant::now())
+}
+
+fn summary_at(now: Instant) -> Vec<LedgerEntry> {
     let Ok(map) = LEDGER.lock() else { return Vec::new() };
     let mut out: Vec<LedgerEntry> = map
         .iter()
@@ -201,6 +259,15 @@ pub fn summary() -> Vec<LedgerEntry> {
                 probe_bps: s.probe.bps,
                 play_samples: s.play.samples,
                 play_bps: s.play.bps,
+                play_first_at: s.play.first_wall_ms,
+                play_updated_at: s.play.last_wall_ms,
+                probe_updated_at: s.probe.last_wall_ms,
+                play_enough: s.play.samples >= LEDGER_MIN_SAMPLES,
+                probe_enough: s.probe.samples >= LEDGER_MIN_SAMPLES,
+                play_stale: s
+                    .play
+                    .updated
+                    .is_some_and(|at| now.duration_since(at) >= PLAY_FRESH),
             }
         })
         .collect();
@@ -223,12 +290,9 @@ pub struct BreakerStatus {
 pub fn breaker_status() -> Option<BreakerStatus> {
     let mut state = BREAKER.lock().ok()?;
     let now = Instant::now();
-    while matches!(state.window.front(), Some(at) if now.duration_since(*at) >= AUTO_SWITCH_WINDOW) {
-        state.window.pop_front();
-    }
-    state.backoff_until.retain(|_, until| *until > now);
+    prune_breaker(&mut state, now);
     Some(BreakerStatus {
-        total: state.total,
+        total: state.switch_times.len() as u32,
         session_max: AUTO_SWITCH_SESSION_MAX,
         window_count: state.window.len(),
         window_max: AUTO_SWITCH_WINDOW_MAX,
@@ -287,55 +351,73 @@ pub fn tiebreak_bps(origin: &str) -> Option<f64> {
     tb.play.or(tb.probe)
 }
 
-/* ── 自动切换熔断（保守阈值，Muse 2026-11-18）──────────────────
- * 进程期自动切换总上限 12 次：超过说明线路环境或探测判据在抖动，
- * 继续自动切只会反复打断播放；进程重启归零（新会话重新评估）。
- * 10 分钟窗口内最多 4 次：短时连切是抖动信号，窗口按时间滑动，
- * 到期自动恢复额度。单线退避 120 秒：刚被切走的线路短时内不许
- * 作为自动切换目标切回，防 A→B→A 乒乓；到期自动解除。 */
+/* ── 自动切换熔断（保守阈值，Muse 2026-11-18；整改 A2 修订，
+ * Muse 2026-11-19，Hark G2 P1-1）────────────────────────────
+ * 自动切换总上限 12 次、改为 24 小时时间衰减：24 小时内累计切满
+ * 12 次说明线路环境或探测判据在抖动，继续自动切只会反复打断
+ * 播放；但记录超 24 小时即过期、额度自动恢复（旧制只增不减，
+ * iOS 长驻进程达上限后只能重启 App 才恢复）。10 分钟窗口内最多
+ * 4 次：短时连切是抖动信号，窗口按时间滑动，到期自动恢复额度。
+ * 单线退避 120 秒：刚被切走的线路短时内不许作为自动切换目标切
+ * 回，防 A→B→A 乒乓；到期自动解除。
+ * urgent 豁免（当前线已确认故障的自愈路径）：跳过窗口计数与总
+ * 上限两道，只保留单线退避——死线面前「防抖动」让位于「先活过来」，
+ * 退避仍拦是防刚切走的线立刻被切回造成乒乓。 */
 const AUTO_SWITCH_SESSION_MAX: u32 = 12;
+const AUTO_SWITCH_TOTAL_WINDOW: Duration = Duration::from_secs(24 * 3600);
 const AUTO_SWITCH_WINDOW_MAX: usize = 4;
 const AUTO_SWITCH_WINDOW: Duration = Duration::from_secs(600);
 const LINE_BACKOFF: Duration = Duration::from_secs(120);
 
 #[derive(Default)]
 struct Breaker {
-    total: u32,
+    /// 每次自动切换的时刻（总上限衰减窗内计数，惰性过期）。
+    switch_times: VecDeque<Instant>,
     window: VecDeque<Instant>,
     backoff_until: HashMap<String, Instant>,
 }
 
 static BREAKER: Lazy<Mutex<Breaker>> = Lazy::new(|| Mutex::new(Breaker::default()));
 
-fn breaker_allows(state: &mut Breaker, target: &str, now: Instant) -> bool {
-    // 惰性过期 = 自动恢复：每次询问先清掉已过窗口的计数与已到期
-    // 的退避，不需要任何外部复位动作。
+/// 惰性过期 = 自动恢复：每次询问/记账前先清掉已过各自时间窗的
+/// 记录与已到期的退避，不需要任何外部复位动作。
+fn prune_breaker(state: &mut Breaker, now: Instant) {
     while matches!(state.window.front(), Some(at) if now.duration_since(*at) >= AUTO_SWITCH_WINDOW) {
         state.window.pop_front();
     }
-    state.backoff_until.retain(|_, until| *until > now);
-    if state.total >= AUTO_SWITCH_SESSION_MAX {
-        return false;
+    while matches!(state.switch_times.front(), Some(at) if now.duration_since(*at) >= AUTO_SWITCH_TOTAL_WINDOW) {
+        state.switch_times.pop_front();
     }
-    if state.window.len() >= AUTO_SWITCH_WINDOW_MAX {
-        return false;
+    state.backoff_until.retain(|_, until| *until > now);
+}
+
+fn breaker_allows(state: &mut Breaker, target: &str, now: Instant, urgent: bool) -> bool {
+    prune_breaker(state, now);
+    if !urgent {
+        if state.switch_times.len() >= AUTO_SWITCH_SESSION_MAX as usize {
+            return false;
+        }
+        if state.window.len() >= AUTO_SWITCH_WINDOW_MAX {
+            return false;
+        }
     }
     !state.backoff_until.contains_key(target)
 }
 
 fn breaker_note(state: &mut Breaker, from: &str, now: Instant) {
-    state.total = state.total.saturating_add(1);
+    state.switch_times.push_back(now);
     state.window.push_back(now);
     state
         .backoff_until
         .insert(from.to_string(), now + LINE_BACKOFF);
 }
 
-/// 自动切换落盘前询问熔断。锁失败按放行处理：熔断是保护不是门禁，
-/// 绝不能因自身故障把自动路径锁死到无路可走。
-pub fn auto_switch_allowed(target: &str) -> bool {
+/// 自动切换落盘前询问熔断。urgent=true 为当前线确认故障的自愈
+/// 路径，豁免窗口与总上限（见上方常量注释）。锁失败按放行处理：
+/// 熔断是保护不是门禁，绝不能因自身故障把自动路径锁死到无路可走。
+pub fn auto_switch_allowed(target: &str, urgent: bool) -> bool {
     match BREAKER.lock() {
-        Ok(mut state) => breaker_allows(&mut state, target, Instant::now()),
+        Ok(mut state) => breaker_allows(&mut state, target, Instant::now(), urgent),
         Err(_) => true,
     }
 }
@@ -487,6 +569,60 @@ mod tests {
     /* ── 飞行记录仪收口（Muse 2026-11-19 根治包，用户点名：诊断
      * 导出须含双账本摘要与熔断状态）：summary 拆键给原值、
      * breaker_status 与切换许可同口径惰性过期。 ── */
+    /* ── 整改 A5（Hark G2 P2-1）：记账键的 proxyMode 必须是测量时
+     * 捕获的模式，不是写入时读到的当前模式。 ── */
+    #[test]
+    fn throughput_records_under_captured_mode_not_current() {
+        let origin = uniq("mode-capture");
+        for _ in 0..3 {
+            record_throughput_with_mode(&origin, 7_000_000, crate::proxy::Mode::Custom);
+        }
+        // 测试进程当前模式为默认（system）：按当前模式查账应查不到，
+        // 样本只落在捕获的 custom 键下
+        assert_eq!(tiebreak_bps(&origin), None, "捕获模式≠当前模式时不应被当前键查到");
+        let entries = summary();
+        let e = entries.iter().find(|e| e.origin == origin).expect("汇总应含本条目");
+        assert_eq!(e.mode, "custom", "条目应记在测量时捕获的 proxyMode 键下");
+        assert_eq!(e.probe_samples, 3);
+        assert_eq!(e.probe_bps, Some(7_000_000.0));
+    }
+
+    /* ── 整改 A8（跨线契约，C 线报告按此字段名消费）：LedgerEntry
+     * 样本窗字段——playFirstAt/playUpdatedAt/probeUpdatedAt（epoch
+     * 毫秒）、playEnough/probeEnough（≥LEDGER_MIN_SAMPLES）、
+     * playStale（play 超 PLAY_FRESH 未更新）。字段名不许改。 ── */
+    #[test]
+    fn summary_reports_sample_window_fields() {
+        let origin = uniq("window-fields");
+        // 先建条目但不记吞吐：三时刻为空、样本不足、不 stale
+        record_event(&origin, LineEvent::Recovery);
+        let entries = summary();
+        let e = entries.iter().find(|e| e.origin == origin).expect("汇总应含本条目");
+        assert_eq!(e.play_first_at, None, "无 play 样本时 playFirstAt 为 null");
+        assert_eq!(e.play_updated_at, None);
+        assert_eq!(e.probe_updated_at, None);
+        assert!(!e.play_enough && !e.probe_enough, "无样本时 enough 为 false");
+        assert!(!e.play_stale, "无样本不算 stale（只是没数据）");
+        // 记满 3+3 样本：时刻非空、首≤末、enough 置位、刚更新不 stale
+        for _ in 0..3 {
+            record_playback(&origin, 6_000_000.0);
+            record_throughput(&origin, 3_000_000);
+        }
+        let entries = summary();
+        let e = entries.iter().find(|e| e.origin == origin).expect("汇总应含本条目");
+        let first = e.play_first_at.expect("record 后 playFirstAt 非空");
+        let updated = e.play_updated_at.expect("record 后 playUpdatedAt 非空");
+        assert!(updated >= first, "末样本时刻不早于首样本时刻");
+        assert!(first > 1_700_000_000_000, "应为 epoch 毫秒量级, got {first}");
+        assert!(e.probe_updated_at.is_some(), "record 后 probeUpdatedAt 非空");
+        assert!(e.play_enough && e.probe_enough, "满 3 样本 enough 置位");
+        assert!(!e.play_stale, "刚更新的 play 不 stale");
+        // 以 PLAY_FRESH 之后时刻汇总：play 过期 → playStale 置位
+        let later = summary_at(Instant::now() + PLAY_FRESH + Duration::from_secs(1));
+        let e = later.iter().find(|e| e.origin == origin).expect("汇总应含本条目");
+        assert!(e.play_stale, "play 超 PLAY_FRESH 未更新应判 stale");
+    }
+
     #[test]
     fn summary_splits_key_and_reports_both_ewmas() {
         let origin = uniq("summary");
@@ -516,28 +652,64 @@ mod tests {
         assert_eq!(after.window_max, AUTO_SWITCH_WINDOW_MAX);
     }
 
+    /* ── 整改 A2（Hark G2 P1-1）：urgent 豁免窗口/总上限（只保留单线
+     * 退避）＋总上限 24h 时间衰减。旧签名/旧语义下本组用例先红。 ── */
+    #[test]
+    fn breaker_urgent_bypasses_window_and_total_but_not_backoff() {
+        let now = Instant::now();
+        // 窗口记满（10 分钟内 4 次）：非 urgent 拦、urgent 放行
+        let mut s = Breaker::default();
+        for i in 0..AUTO_SWITCH_WINDOW_MAX {
+            breaker_note(&mut s, &format!("https://uw{i}.example"), now);
+        }
+        assert!(!breaker_allows(&mut s, "https://next.example", now, false), "窗口满非 urgent 应拦");
+        assert!(breaker_allows(&mut s, "https://next.example", now, true), "窗口满 urgent（当前线已挂）必须放行");
+        // 总上限记满（12 次）：非 urgent 拦、urgent 放行
+        let mut s2 = Breaker::default();
+        for i in 0..AUTO_SWITCH_SESSION_MAX {
+            breaker_note(&mut s2, &format!("https://ut{i}.example"), now);
+        }
+        assert!(!breaker_allows(&mut s2, "https://next2.example", now, false), "总上限满非 urgent 应拦");
+        assert!(breaker_allows(&mut s2, "https://next2.example", now, true), "总上限满 urgent 必须放行");
+        // urgent 不豁免单线退避：刚被切走的线路 120s 内不许切回
+        assert!(!breaker_allows(&mut s2, "https://ut0.example", now, true), "urgent 仍受单线退避约束");
+    }
+
+    #[test]
+    fn breaker_total_decays_with_time() {
+        let now = Instant::now();
+        let mut s = Breaker::default();
+        for i in 0..AUTO_SWITCH_SESSION_MAX {
+            breaker_note(&mut s, &format!("https://d{i}.example"), now);
+        }
+        assert!(!breaker_allows(&mut s, "https://z.example", now, false), "总上限满应拦");
+        let later = now + AUTO_SWITCH_TOTAL_WINDOW + Duration::from_secs(1);
+        assert!(breaker_allows(&mut s, "https://z.example", later, false), "总上限记录超衰减窗过期后非 urgent 应恢复");
+    }
+
     #[test]
     fn breaker_window_total_and_backoff() {
         let mut state = Breaker::default();
         let now = Instant::now();
-        assert!(breaker_allows(&mut state, "https://a.example", now));
+        assert!(breaker_allows(&mut state, "https://a.example", now, false));
         breaker_note(&mut state, "https://a.example", now);
         // 被切走的线路 120s 内不许切回
-        assert!(!breaker_allows(&mut state, "https://a.example", now));
-        assert!(breaker_allows(&mut state, "https://b.example", now));
+        assert!(!breaker_allows(&mut state, "https://a.example", now, false));
+        assert!(breaker_allows(&mut state, "https://b.example", now, false));
         // 窗口上限：10 分钟内记满 4 次后第 5 次不许
         for i in 0..3 {
             breaker_note(&mut state, &format!("https://w{i}.example"), now);
         }
-        assert!(!breaker_allows(&mut state, "https://c.example", now), "窗口满应拦");
+        assert!(!breaker_allows(&mut state, "https://c.example", now, false), "窗口满应拦");
         // 窗口过期后自动恢复（退避也一并到期）
         let later = now + AUTO_SWITCH_WINDOW + Duration::from_secs(121);
-        assert!(breaker_allows(&mut state, "https://a.example", later), "过期应自动恢复");
-        // 进程期总量上限独立于窗口
+        assert!(breaker_allows(&mut state, "https://a.example", later, false), "过期应自动恢复");
+        // 总量上限独立于窗口（12 笔记录间隔 10 分钟记账、均在 24h
+        // 衰减窗内，查询时刻亦在窗内 → 总量满应拦）
         let mut s2 = Breaker::default();
         for i in 0..AUTO_SWITCH_SESSION_MAX {
             breaker_note(&mut s2, &format!("https://t{i}.example"), now + AUTO_SWITCH_WINDOW * (i + 1));
         }
-        assert!(!breaker_allows(&mut s2, "https://z.example", now + AUTO_SWITCH_WINDOW * 99), "总量满应拦");
+        assert!(!breaker_allows(&mut s2, "https://z.example", now + AUTO_SWITCH_WINDOW * 99, false), "总量满应拦");
     }
 }
