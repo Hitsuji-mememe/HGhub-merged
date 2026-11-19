@@ -209,6 +209,14 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
       ? !settledEmptySources.has(postsSourceId)
       : true;
   const imageSources = sourcesForCategory("image", activeSources);
+  /* 里番（视频品类外部源）总览入口（Muse 2026-11-19
+   * fix330-riban-surfaces）：3.3.0 真机首验实锤同吃瓜旧病——注册表
+   * 已启用 ≠ 浏览面已接通：总览此前只有图片区有源入口列示，视频
+   * 品类源只能先进「视频」频道页再切源片到达，总览面完全缺席。
+   * 现与图片区同口径列示（active 注册表 category="video" 已启用
+   * 源、probe 带「未实测」标），点开推 cate="video:<源id>" 深链页
+   * （ChannelPage 镜像 image: 约定渲染 SourceBrowse）。 */
+  const videoSources = sourcesForCategory("video", activeSources);
 
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
@@ -222,7 +230,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             </Button>
           )}
           <h1 className="ios-page-title text-on">分类</h1>
-          <span className="text-[12px] text-mut">{CHANNELS.length + 2} 个频道</span>
+          <span className="text-[12px] text-mut">{CHANNELS.length + 3} 个频道</span>
         </div>
       </div>
 
@@ -347,6 +355,36 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
         </section>
         )}
 
+
+        {/* 视频源分区（Muse 2026-11-19 fix330-riban-surfaces）：
+            与图片分区同列示口径——只列 active 注册表 category=
+            "video" 的已启用源（sourcesForCategory 只返回 enabled，
+            maturity 徽标同图片区：blocked「暂不可用」/probe「未
+            实测」），点开推既有 channel 栈页（cate="video:<源id>"）
+            进该源浏览页（SourceBrowse）。空区隐藏同图片区：无已启
+            用视频源时整区不渲染。 */}
+        {videoSources.length > 0 && (
+        <section aria-label="视频源" className="mb-5 a-rise">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IAward size={18} strokeWidth={1.9} /></span>
+            <span role="heading" aria-level={2} className="block text-[16px] font-bold text-on leading-tight">视频源</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {videoSources.map((s) => (
+              <Button key={s.id} onClick={() => push({ kind: "channel", cate: `video:${s.id}`, name: s.displayName })}
+                className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 text-left pressable">
+                <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
+                {s.maturity === "blocked"
+                  ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">暂不可用</span>
+                  : s.maturity === "probe"
+                    ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">未实测</span>
+                    : null}
+                <IChevR size={14} />
+              </Button>
+            ))}
+          </div>
+        </section>
+        )}
 
         <div className="text-center text-[12px] text-dim pt-1">— 已展示全部频道 —</div>
       </div>
@@ -503,9 +541,10 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
   };
 
   useEffect(() => {
-    /* 图片源页（cate="image:<id>"）不走黄果频道接口，数据由
-     * SourceGallery 经适配器供给，本 effect 直接跳过。 */
-    if (cate.startsWith("image:")) return;
+    /* 图片源页（cate="image:<id>"）与视频源页（cate="video:<id>"）
+     * 不走黄果频道接口，数据由 SourceGallery/SourceBrowse 经适配
+     * 器供给，本 effect 直接跳过。 */
+    if (cate.startsWith("image:") || cate.startsWith("video:")) return;
     setRawPages([]); setPage(0); setPages(1);
     setServerSort("latest"); setOriginalCate("all"); setSearching(false);
     void loadMore(true, "latest", "all");
@@ -567,6 +606,37 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
             <SourcePendingNotice displayName={imageSource?.displayName ?? name} maturity={imageSource?.maturity ?? "blocked"} note={imageSource?.note} />
           ) : (
             <SourceGallery def={imageSource} />
+          )}
+        </div>
+      </div>
+    );
+  }
+  /* 视频源页（Muse 2026-11-19 fix330-riban-surfaces）：cate=
+   * "video:<源id>" 为分类总览视频源分区的入口约定（与 image:
+   * 同构、复用既有 channel 栈页，不新增路由 kind）。源不在
+   * active 注册表（如清单覆盖后停用）或 blocked 时维持诚实提示
+   * 页、不拉数据；其余经 SourceBrowse 走适配器真取数。 */
+  const videoSourceId = cate.startsWith("video:") ? cate.slice("video:".length) : null;
+  const videoSource = videoSourceId
+    ? sourcesForCategory("video", getActiveRegistry().sources).find((s) => s.id === videoSourceId)
+    : undefined;
+  if (videoSourceId) {
+    return (
+      <div className="ios-page absolute inset-0 bg-bg flex flex-col">
+        <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
+          <div className="ios-subpage-bar">
+            <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
+              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">视频 · 数据源：{videoSource?.displayName ?? videoSourceId}</div>
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 scroll-y pb-8">
+          {!videoSource || videoSource.maturity === "blocked" ? (
+            <SourcePendingNotice displayName={videoSource?.displayName ?? name} maturity={videoSource?.maturity ?? "blocked"} note={videoSource?.note} />
+          ) : (
+            <SourceBrowse def={videoSource} />
           )}
         </div>
       </div>

@@ -1640,6 +1640,34 @@
         "src/features/category/Category.tsx"
       ],
       "min": 3
+    },
+    {
+      "id": "fix330-riban-category-video-sources",
+      "item": "fix330-riban-surfaces 分类总览「视频源」区段（active 注册表 category=video 列示＋probe 未实测标）",
+      "symbol": "aria-label=\"视频源\"",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "min": 1
+    },
+    {
+      "id": "fix330-riban-channel-video-branch",
+      "item": "fix330-riban-surfaces ChannelPage video:<源id> 深链分支经 SourceBrowse 取数（blocked 走诚实提示）",
+      "symbol": "SourceBrowse def={videoSource}",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "min": 1
+    },
+    {
+      "id": "fix330-riban-copy-loader",
+      "item": "fix330-riban-surfaces 搜索副本加载核 loadSearchCopy（copyLoader 定义＋Search 生产消费；video/drama 先 detail 后 resolve）",
+      "symbol": "loadSearchCopy",
+      "files": [
+        "src/features/search/copyLoader.ts",
+        "src/features/search/Search.tsx"
+      ],
+      "min": 2
     }
   ]
 }
