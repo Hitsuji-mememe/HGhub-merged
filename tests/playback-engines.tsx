@@ -19,7 +19,7 @@ import { capRecordByFifo, scopedPlayKey, setCapped } from "../src/features/feed/
 import { prewarmRetryDue } from "../src/features/feed/prewarm";
 import { createFragThroughputReporter, originOf } from "../src/features/playback/playbackThroughput";
 import * as throughputModule from "../src/features/playback/playbackThroughput";
-import { recordIfCurrent, registerPlayerInstance, snapshot as ledgerSnapshot, unregisterPlayerInstance, validateLedgerIntegrity } from "../src/shared/diagnostics/eventLedger";
+import { createLedgerBinding, recordIfCurrent, registerPlayerInstance, snapshot as ledgerSnapshot, unregisterPlayerInstance, validateLedgerIntegrity } from "../src/shared/diagnostics/eventLedger";
 import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, lockHighestStartLevel, resolveAbrSeedBps } from "../src/features/playback/hlsConfig";
 import { isPlaybackPlaying, notePlaybackPlaying } from "../src/shared/diagnostics/playbackFacts";
 import Hls from "hls.js";
@@ -648,6 +648,35 @@ function run() {
     results.l_no_orphan_field = !("orphanedInstance" in i1);
   }
 
+  /* ── A 账本 (id,generation) 绑定证伪用例（最终版 A 线 P2-08，②实锤
+   * 待证伪）：同一播放器实例换源（generation 0→1）后，旧 HLS 实例的
+   * 迟到事件以其起源代次 0 到达——现绑定若把 generation 钉死在首记
+   * 值，gen1 事件会被记成 gen0（a_bind_gen1_tagged=0）、迟到事件会
+   * 被当正常事件入账（a_bind_late_rejected=true、droppedLate 不增）。
+   * 期望：gen1 事件记 gen1；迟到 gen0 在代次已推进后被拒收＋计数；
+   * 代次未推进时的同代迟到仍按起源代次入账（对照组）。 ── */
+  {
+    const before = ledgerSnapshot();
+    const b = createLedgerBinding();
+    results.a_bind_first_ok = b.record("fina.load", { tag: "gen0" }, 0);
+    results.a_bind_advance_ok = b.record("fina.load", { tag: "gen1" }, 1);
+    results.a_bind_late_rejected = b.record("fina.late_hls", { tag: "late-gen0" }, 0);
+    const after = ledgerSnapshot();
+    const evs = after.events.filter(e => e.name.startsWith("fina."));
+    const gen1 = evs.find(e => e.name === "fina.load" && (e.data as { tag?: string } | undefined)?.tag === "gen1");
+    results.a_bind_gen1_tagged = gen1 ? (gen1.data as { generation?: number }).generation ?? "missing" : "missing";
+    results.a_bind_late_not_in_window = !evs.some(e => e.name === "fina.late_hls");
+    results.a_bind_dropped_late_delta = after.droppedLate - before.droppedLate;
+    b.dispose();
+    const b2 = createLedgerBinding();
+    b2.record("fina.early", { tag: "a" }, 0);
+    results.a_bind_early_late_ok = b2.record("fina.early_late", { tag: "b" }, 0);
+    const after2 = ledgerSnapshot();
+    const earlyLate = after2.events.find(e => e.name === "fina.early_late");
+    results.a_bind_early_late_gen = earlyLate ? (earlyLate.data as { generation?: number }).generation ?? "missing" : "missing";
+    b2.dispose();
+  }
+
   /* ── W 接线级矩阵（fix2 B1）：createStallWatchdog 的真实升级链——
    * 判死→重建→再判死→会话降级→名额用尽报错，及三道门控（旧实例 /
    * 无意愿 / paused_by_user）与谓词救场。F6 测的是看门狗类本身与
@@ -940,6 +969,59 @@ import * as stallHealModule from "../src/features/feed/stallHeal";
     while (Date.now() - t0 < 6000 && !seen.includes(true)) await sleep(100);
     Object.assign(window, { __srTakeover: { waitingBeforeProbe, sawEngaged: seen.includes(true), seen: [...seen] } });
     root.unmount();
+  })();
+}
+
+/* ── A 播放内核核心探针（最终版 A 线，①用户点名架构债收敛）：
+ * usePlaybackKernel 的纯核心（createPlaybackKernelCore）＋facts 组装
+ * （buildPlaybackFacts）经动态 import 观测——基线无此模块时 loaded
+ * 为 false（红）。判别点：分片 ingest 的采样身份必须是正在播放的
+ * level（1）而非分片下载 level（0）；吞吐满 5 片按线路 origin 回写
+ * 中位数；notePlaying 受活动门控；facts 组装字段与 VideoSurface
+ * 现行发布口径一致。 ── */
+{
+  void (async () => {
+    const out: Record<string, unknown> = { loaded: false };
+    try {
+      const kernelSpec = "/src/features/playback/usePlaybackKernel.ts";
+      const km = await import(/* @vite-ignore */ kernelSpec);
+      out.loaded = typeof km.usePlaybackKernel === "function" && typeof km.createPlaybackKernelCore === "function";
+      if (out.loaded) {
+        const sent: [string, number][] = [];
+        const sampler = createSrDensitySampler();
+        const core = km.createPlaybackKernelCore({
+          sendThroughput: (o: string, b: number) => sent.push([o, b]),
+          ingestDensity: (frag, level) => sampler.ingest(frag, level),
+        });
+        core.setLineOrigin("https://line.example");
+        const fakeHls = {
+          currentLevel: 1,
+          levels: [
+            { frameRate: 30, videoCodec: "avc1.low", width: 640, height: 360, bitrate: 800_000 },
+            { frameRate: 30, videoCodec: "avc1.high", width: 1280, height: 720, bitrate: 2_500_000 },
+          ],
+        };
+        let info: ReturnType<typeof core.ingestFrag> = null;
+        for (let i = 0; i < 5; i++) {
+          info = core.ingestFrag(fakeHls, { frag: { stats: { loaded: 100_000, loading: { start: 0, end: 100 } }, duration: 4, level: 0 } });
+        }
+        out.frag_playing_level = info?.playingLevel ?? "missing";
+        out.frag_density_codec = sampler.current()?.codec ?? "missing";
+        out.throughput_sent = [...sent];
+        notePlaybackPlaying(false);
+        core.notePlaying(true, () => false);
+        out.playing_when_inactive = isPlaybackPlaying();
+        core.notePlaying(true, () => true);
+        out.playing_when_active = isPlaybackPlaying();
+        core.notePlaying(false, () => true);
+        out.playing_after_pause = isPlaybackPlaying();
+        out.facts = km.buildPlaybackFacts({
+          w: 1280, h: 720, density: sampler.current(), srMode: "crisp", engine: "hls.js",
+          firstRendition: "第 2/2 档", pipeline: "webgpu", srDemoteCount: 1, at: 123,
+        });
+      }
+    } catch { /* 基线无内核模块：loaded 保持 false */ }
+    Object.assign(window, { __finA: out });
   })();
 }
 

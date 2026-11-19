@@ -173,6 +173,17 @@ try {
   check("L retired instance events counted under new name", r.l_retired_counted, true);
   check("L orphanedInstance field removed", r.l_no_orphan_field, true);
 
+  // A — ledger (id,generation) binding after source change (P2-08 falsification)
+  check("A binding records first source event", r.a_bind_first_ok, true);
+  check("A binding records advanced-generation event", r.a_bind_advance_ok, true);
+  check("A binding tags advanced event with generation 1", r.a_bind_gen1_tagged, 1);
+  check("A binding rejects late old-generation event after advance", r.a_bind_late_rejected, false);
+  check("A binding keeps late event out of window", r.a_bind_late_not_in_window, true);
+  try { assert.ok(r.a_bind_dropped_late_delta >= 1, `want >=1, got ${r.a_bind_dropped_late_delta}`); report.passed.push("A binding counts late old-generation event as droppedLate"); }
+  catch { report.failed.push(`A binding counts late old-generation event as droppedLate: got ${r.a_bind_dropped_late_delta}, want >=1`); }
+  check("A binding accepts same-generation late event before advance", r.a_bind_early_late_ok, true);
+  check("A binding attributes pre-advance late event to origin generation", r.a_bind_early_late_gen, 0);
+
   // W — wiring-level stall escalation matrix (fix2 B1)
   check("W1 first stall retries in place", r.w1_first_stall_retry, ["append_stall"]);
   check("W1 attempt incremented", r.w1_attempt_after, 1);
@@ -199,6 +210,17 @@ try {
   check("KA user pause during transition: zero keepAlive plays in 1.2s window", ka.pausedPlays, 0);
   try { assert.ok(ka.resumedPlays >= 3, `want >=3, got ${ka.resumedPlays}`); report.passed.push("KA unpaused transition still resumes playback"); }
   catch { report.failed.push(`KA unpaused transition still resumes playback: got ${ka.resumedPlays}, want >=3`); }
+
+  await page.waitForFunction(() => (window).__finA !== undefined, null, { timeout: 15000 });
+  const fa = await page.evaluate(() => (window).__finA);
+  check("A kernel module loads (hook + pure core)", fa.loaded, true);
+  check("A kernel frag ingest uses playing level, not download level", fa.frag_playing_level, 1);
+  check("A kernel density codec comes from playing rendition", fa.frag_density_codec, "avc1.high");
+  check("A kernel throughput flushes at 5 frags keyed by line origin", fa.throughput_sent, [["https://line.example", 8000000]]);
+  check("A kernel notePlaying blocked while inactive", fa.playing_when_inactive, false);
+  check("A kernel notePlaying sets while active", fa.playing_when_active, true);
+  check("A kernel notePlaying clears on pause", fa.playing_after_pause, false);
+  check("A kernel facts assembly matches publish contract", fa.facts, { w: 1280, h: 720, bitrateBps: 2500000, fps: 30, codec: "avc1.high", srMode: "crisp", engine: "hls.js", firstRendition: "第 2/2 档", pipeline: "webgpu", srDemoteCount: 1, at: 123 });
 
   await writeFile(join(output, "report.json"), JSON.stringify({ report, results: r }, null, 2));
   if (report.failed.length) {
