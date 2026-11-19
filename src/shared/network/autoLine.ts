@@ -172,6 +172,11 @@ export async function pickLine(reason: string, force = false, urgent = false): P
     };
     recentRounds.push(lastRound);
     if (recentRounds.length > 5) recentRounds.splice(0, recentRounds.length - 5);
+    /* 熔断状态刷新（整改 A7，Hark G2 P2-3）：每轮落定都发
+     * hg:auto-line-changed——设置页 sync 据此把 lastPickRound 的
+     * breakerBlocked 落进 state 重渲染；拦截出现要上屏、后续轮次
+     * 不再拦截时也要及时消退，只在被拦时发事件会留下过期显示。 */
+    window.dispatchEvent(new Event("hg:auto-line-changed"));
     if (result.breakerBlocked) {
       logLine(`[line] auto(${reason}) breaker-blocked keep ${hostOf(result.base)}`);
       tracePlayback("line.breakerBlocked", { reason, line: hostOf(result.base) });
