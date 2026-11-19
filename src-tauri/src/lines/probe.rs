@@ -383,6 +383,17 @@ mod tests {
         assert_eq!(pending, Some((OTHER.to_string(), recorded, GEN)));
     }
 
+    /* 根治包回归（audit6 §二条 6 / §五 P0-B.5）：空目录判不健康。
+     * 旧实现 items 空数组 iter().all() 恒真、total 只验存在不验 >0，
+     * 空壳镜像能过健康检查进候选——本用例在旧代码上先红，修复后转绿。 */
+    #[test]
+    fn healthy_rejects_empty_directory() {
+        let empty = json!({"items": [], "pagination": {"page": 1, "pages": 0, "size": 1, "total": 0}});
+        assert!(!healthy_video_data(&empty), "空目录必须判不健康");
+        let zero_total = json!({"items": [{"id": 1, "title": "x"}], "pagination": {"page": 1, "pages": 1, "size": 1, "total": 0}});
+        assert!(!healthy_video_data(&zero_total), "total=0 必须判不健康");
+    }
+
     #[test]
     fn stale_generation_second_win_holds_and_rerecords() {
         // 记下胜者 -> 代次失效（手动操作调 invalidate_pending_confirm
