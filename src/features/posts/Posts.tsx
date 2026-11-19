@@ -20,6 +20,13 @@ import { getActiveRegistry } from "../sources/manifest";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from "../sources/SourceSwitcher";
 import { CommentsPanel } from "../feed/Panels";
 import { postHot } from "./postData";
+import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
+
+/* 导航重置判定（Muse 2026-11-19 3.2.1修复F9线）：只有帖子 id 真变化
+ * （新导航）才许整页重置（跳顶/清播放/清分段）；lineEpoch/accountScope
+ * 是线路与账号代次，与换帖无关——旧实现把两者绑在同一 effect 上，
+ * 播放期线路 epoch 一变就跳顶并撕掉正在播的 Player（用户实报两症状）。 */
+export const shouldResetPostForNav = (prevId: number | null, id: number): boolean => prevId !== id;
 
 /* ================= 吃瓜列表 ================= */
 export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean }) {
@@ -170,17 +177,41 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
     });
   };
 
+  const navResetForRef = useRef<number | null>(null);
+  const playRef = useRef(false);
+  playRef.current = play;
+  /* 点播瞬间滚动位置（F9 守卫）：封面 Button 卸载→Player 挂载的切换在
+   * WKWebView 上可能因焦点元素消失回滚顶；play 翻真后一帧内漂移则恢复
+   * 点击值，未漂移时为无操作。静默恢复，不抢焦点、不弹窗。 */
+  const playScrollRef = useRef<number | null>(null);
+  const restorePostScrollAfterPlay = () => {
+    const el = scrollRef.current;
+    const want = playScrollRef.current;
+    if (!el || want == null) return;
+    requestAnimationFrame(() => { if (Math.abs(el.scrollTop - want) > 2) el.scrollTop = want; });
+  };
+  useEffect(() => { if (play) restorePostScrollAfterPlay(); }, [play]);
+
   useEffect(() => {
     let alive = true;
-    setReadProgress(0);
-    scrollRef.current?.scrollTo(0, 0);
-    setPost(null);
-    setLoadedId(null);
+    /* F9 分家：导航重置只认 id 变化；epoch/账号代次变化只刷新数据，
+     * 滚动、播放态、分段全保留（分段由 playback effect 非空才替换）。
+     * 判读埋点 post_detail.load：真机看 nav_reset/line_epoch/was_playing
+     * 与 line.*、source.cleanup 的时序即可定责（见 evidence/f9）。 */
+    const navReset = shouldResetPostForNav(navResetForRef.current, id);
+    navResetForRef.current = id;
+    tracePlayback("post_detail.load", { nav_reset: navReset, line_epoch: lineEpoch, was_playing: playRef.current, scroll_top: Math.round(scrollRef.current?.scrollTop ?? -1) });
+    if (navReset) {
+      setReadProgress(0);
+      scrollRef.current?.scrollTo(0, 0);
+      setPost(null);
+      setLoadedId(null);
+      setPlay(false);
+      setSegs([]);
+      setSeg(0);
+    }
     setTagMenu(false);
     setErr(null);
-    setPlay(false);
-    setSegs([]);
-    setSeg(0);
     api.post(id)
       .then((p) => {
         if (!alive) return;
@@ -303,7 +334,7 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
                     if (seg < segs.length - 1) setSeg(seg + 1);
                   }} />
               ) : src ? (
-                <Button aria-label="播放视频" onClick={() => setPlay(true)} className="absolute inset-0 rounded-none">
+                <Button aria-label="播放视频" onClick={() => { playScrollRef.current = scrollRef.current?.scrollTop ?? null; setPlay(true); }} className="absolute inset-0 rounded-none">
                   <Img src={currentPost.cover} eager />
                     <span className="absolute inset-0 flex items-center justify-center">
                       <span className="w-14 h-14 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center elev-2">
@@ -320,7 +351,7 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
               {segs.length > 1 && (
                 <div role="group" aria-label="视频分段" className="flex items-center gap-2 px-4 py-3 overflow-x-auto">
                   {segs.map((_, i) => (
-                    <Button aria-label={`第 ${i + 1} 段`} aria-pressed={i === seg} key={i} onClick={() => { setSeg(i); setPlay(true); }}
+                    <Button aria-label={`第 ${i + 1} 段`} aria-pressed={i === seg} key={i} onClick={() => { playScrollRef.current = scrollRef.current?.scrollTop ?? null; setSeg(i); setPlay(true); }}
                       className="shrink-0 min-h-11 px-3 rounded-full text-[13px] font-semibold pressable"
                       style={i === seg
                         ? { background: "var(--p-primary)", color: "var(--p-on-primary)" }
