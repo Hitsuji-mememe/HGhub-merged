@@ -412,11 +412,13 @@ try {
         const barRect = () => page.evaluate(() => {
           // 全屏态 stage 本身也是 touchAction:none 的 inset-0 div 且在 DOM
           // 序靠前, 裸 find 会误中 stage (点→翻 clean、拖→舞台手势); 按
-          // 细条几何 (高 ≤24、宽 >80) 锁定真正的进度条 div。
+          // 细条几何锁定真正的进度条 div。上限 36: 最终版 B2 线把 scrub
+          // 热区按用户实报扩到 28px (视觉轨道仍 2.5px), 旧上限 24 系旧
+          // 22px 热区口径; 36 仍远小于 stage 尺寸, 判别力不变。
           const el = [...document.querySelectorAll("div")].find(d => {
             if (d.style.touchAction !== "none") return false;
             const r = d.getBoundingClientRect();
-            return (r.height >= 4 && r.height <= 24 && r.width > 80) || (r.width >= 4 && r.width <= 24 && r.height > 80);
+            return (r.height >= 4 && r.height <= 36 && r.width > 80) || (r.width >= 4 && r.width <= 36 && r.height > 80);
           });
           if (!el) return null;
           const r = el.getBoundingClientRect();
