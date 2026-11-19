@@ -52,7 +52,7 @@ export function SourcePendingNotice({ displayName, maturity, note }: { displayNa
       <div role="status" className="mx-4 mt-6 rounded-[18px] bg-s2 px-4 py-5 text-center">
         <div className="text-[14px] font-semibold text-on">{displayName}（暂不可用）</div>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-mut">
-          真站实测显示该站点当前不可达，暂不展示内容，也不会拿其他源的数据冒充。源保留在列表中：站点恢复、或远程清单推送新域名后即可用。
+          真站实测显示该站点当前不可达，暂不展示内容，也不会拿其他源的数据冒充。该源已保留在列表中，后续版本将重新评估开放。
         </p>
         {note && <p className="mt-1.5 text-[12px] leading-relaxed text-mut">实测记录：{note}</p>}
       </div>

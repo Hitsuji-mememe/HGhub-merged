@@ -172,4 +172,14 @@ assert.ok(
   "清单 baseUrls 全 https → 通过",
 );
 
+/* ── D3 blocked 文案改实（Muse 2026-11-19 整改，G5 P1-2）：
+ * applyManifest 只能改 enabled/baseUrls、改不了 maturity，「远程清单
+ * 推送新域名后即可用」是不可兑现承诺，必须删除；改为如实表述。 ── */
+{
+  const switcher = readFileSync(new URL("./SourceSwitcher.tsx", import.meta.url), "utf8");
+  assert.ok(!switcher.includes("远程清单推送新域名后即可用"), "blocked 文案不得承诺远程清单推送即恢复");
+  assert.ok(switcher.includes("后续版本将重新评估开放"), "blocked 文案改为不承诺自动恢复的如实表述");
+  assert.ok(switcher.includes("实测记录：{note}"), "blocked 文案保留 note 原文呈现");
+}
+
 console.log("registry.contract: all assertions passed");
