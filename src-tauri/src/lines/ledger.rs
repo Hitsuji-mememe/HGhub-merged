@@ -101,10 +101,10 @@ pub fn snapshot(origin: &str) -> Option<LineStats> {
     LEDGER.lock().ok()?.get(origin).cloned()
 }
 
-/// 账本决胜查询（供下一批接入 pick_ranked 同分决胜）：仅当吞吐样本
-/// 达到 LEDGER_MIN_SAMPLES 且 EWMA 为有限正数时返回 Some；样本不足
-/// 或数值异常一律返回 None，调用方据此自动忽略账本、回纯探测排序。
-#[allow(dead_code)]
+/// 账本决胜查询（fix2 Batch D 已接入 line_rank 置信度排序）：仅当
+/// 吞吐样本达到 LEDGER_MIN_SAMPLES 且 EWMA 为有限正数时返回 Some；
+/// 样本不足或数值异常一律返回 None，调用方据此自动忽略账本、
+/// 回纯探测排序。
 pub fn tiebreak_bps(origin: &str) -> Option<f64> {
     let stats = snapshot(origin)?;
     if stats.throughput_samples < LEDGER_MIN_SAMPLES {
@@ -170,6 +170,21 @@ pub fn auto_switch_allowed(target: &str) -> bool {
 pub fn note_auto_switch(from: &str, _to: &str) {
     if let Ok(mut state) = BREAKER.lock() {
         breaker_note(&mut state, from, Instant::now());
+    }
+}
+
+/// 单线退避查询（fix2 Batch D 硬排除用）：该线路是否正处于「刚被
+/// 自动切走」的退避期内。只看退避表、不看窗口/总量（那是切换许可
+/// 的事，不是候选资格的事）。惰性过期同 breaker_allows；锁失败按
+/// 不退避处理（排除是优化不是门禁，不许因账本故障把候选全清）。
+pub fn in_backoff(origin: &str) -> bool {
+    match BREAKER.lock() {
+        Ok(mut state) => {
+            let now = Instant::now();
+            state.backoff_until.retain(|_, until| *until > now);
+            state.backoff_until.contains_key(origin)
+        }
+        Err(_) => false,
     }
 }
 

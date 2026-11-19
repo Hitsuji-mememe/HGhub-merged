@@ -111,8 +111,8 @@ mod tests {
         // 无吞吐数据时仍按延迟选——原「fast 按延迟胜」语义在此延续。
         assert!(crate::line_rank::rank_lines(&[]).is_none());
         let unmeasured = [
-            crate::line_rank::LineMeasure { url: "https://slow.example".into(), tier: "mirror".into(), ms: 20, bps: None },
-            crate::line_rank::LineMeasure { url: "https://fast.example".into(), tier: "mirror".into(), ms: 8, bps: None },
+            crate::line_rank::LineMeasure { url: "https://slow.example".into(), tier: "mirror".into(), ms: 20, bps: None, hist_bps: None },
+            crate::line_rank::LineMeasure { url: "https://fast.example".into(), tier: "mirror".into(), ms: 8, bps: None, hist_bps: None },
         ];
         assert_eq!(
             crate::line_rank::rank_lines(&unmeasured).map(|w| w.url.as_str()),

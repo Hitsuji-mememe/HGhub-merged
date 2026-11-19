@@ -12,19 +12,29 @@
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 
-/// 一条候选的综合度量：延迟来自 lines::probe_hit，吞吐来自真实分片。
+/// 一条候选的综合度量：延迟来自 lines::probe_hit，吞吐来自真实分片，
+/// hist_bps 是账本里的历史吞吐 EWMA（真实播放样本 ≥3 才有值，
+/// fix2 Batch D 置信度排序输入）。
 #[derive(Clone, Debug)]
 pub struct LineMeasure {
     pub url: String,
     pub tier: String,
     pub ms: u64,
     pub bps: Option<u64>,
+    pub hist_bps: Option<f64>,
 }
 
 impl LineMeasure {
     fn json(&self) -> Value {
         json!({ "url": self.url, "tier": self.tier, "ms": self.ms,
-            "kbps": self.bps.map(|b| b / 1000) })
+            "kbps": self.bps.map(|b| b / 1000),
+            "hist_kbps": self.hist_bps.map(|b| (b / 1000.0) as u64) })
+    }
+
+    /// 参与分带的生效吞吐：本轮实测优先（实时证据压过历史），
+    /// 实测缺失时用历史 EWMA 估算（账本已用最小样本数把过关）。
+    fn effective_bps(&self) -> Option<f64> {
+        self.bps.map(|b| b as f64).or(self.hist_bps)
     }
 }
 
@@ -32,29 +42,71 @@ impl LineMeasure {
 /// 远大于此，带外差异才是真的快慢）。带内按延迟定胜负。
 const SAME_BAND_PERCENT: u64 = 80;
 
-/// 综合排名（纯函数，可注入假度量验证）：
+/// 综合排名（纯函数，可注入假度量验证）。fix2 Batch D 两阶段中的
+/// 第二阶段「置信度排序」（第一阶段硬排除在 pick_ranked 侧）：
 /// - 无候选 → None（调用方保持当前线路，即「全挂保留当前线」）；
-/// - 有吞吐数据时：先取吞吐带（≥最高值 ×80%），带内延迟最低者胜；
-///   延迟相同取先出现者（候选按主站优先构造）；
-/// - 无任何吞吐数据：整体按延迟最低者胜（旧规则）。
-/// 「吞吐高者胜」由带外淘汰实现：吞吐落后 20% 以上者无论延迟多低都不胜。
+/// - 生效吞吐（实测优先、历史 EWMA 兜底）取带（≥最高值 ×80%），
+///   带外淘汰——吞吐落后 20% 以上者无论延迟多低都不胜；
+/// - 带内按置信度定胜负：历史 EWMA 高者优先（持续真实播放吞吐
+///   比单次探测延迟更可信）；只有一方有历史时有者胜；都没有
+///   历史时回到延迟最低者胜；延迟相同取先出现者（主站优先）。
+/// - 无任何生效吞吐：有历史者按历史降序、无历史者按延迟，
+///   统一走同一比较器（历史缺失视为置信度最低）。
 pub fn rank_lines(measures: &[LineMeasure]) -> Option<&LineMeasure> {
     if measures.is_empty() {
         return None;
     }
-    let best_bps = measures.iter().filter_map(|m| m.bps).max();
-    let pool: Vec<&LineMeasure> = match best_bps {
+    let best = measures.iter().filter_map(|m| m.effective_bps()).fold(None::<f64>, |acc, b| {
+        Some(acc.map_or(b, |a: f64| a.max(b)))
+    });
+    let pool: Vec<&LineMeasure> = match best {
         Some(best) => {
-            let floor = best.saturating_mul(SAME_BAND_PERCENT) / 100;
+            let floor = best * (SAME_BAND_PERCENT as f64) / 100.0;
             let band: Vec<&LineMeasure> = measures
                 .iter()
-                .filter(|m| m.bps.is_some_and(|b| b >= floor))
+                .filter(|m| m.effective_bps().is_some_and(|b| b >= floor))
                 .collect();
             if band.is_empty() { measures.iter().collect() } else { band }
         }
         None => measures.iter().collect(),
     };
-    pool.into_iter().min_by_key(|m| m.ms)
+    pool.into_iter().min_by(|a, b| {
+        /* 置信度比较：hist 高者胜（用 partial_cmp，账本已保证有限
+         * 正数；万一混入非有限值按「无历史」处理，不许毒化排序）。 */
+        let ha = a.hist_bps.filter(|v| v.is_finite());
+        let hb = b.hist_bps.filter(|v| v.is_finite());
+        match (ha, hb) {
+            (Some(x), Some(y)) => y.partial_cmp(&x).unwrap_or(std::cmp::Ordering::Equal),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+        .then_with(|| a.ms.cmp(&b.ms))
+    })
+}
+
+/// 第一阶段「硬排除」（fix2 Batch D，纯函数可测）：剔除正处于
+/// 熔断退避期的候选（刚被自动切走，120s 内不许切回，防乒乓）。
+/// 两条护栏：当前线路永不排除（连续性保护——正在用的线哪怕在
+/// 退避表里也必须能参与排名留任）；排除后为空则整表回退未排除
+/// 集合（退避是优化不是门禁，绝不许把可用候选清成 all-down）。
+/// 不可达/连续失败已由 hits 输入契约与熔断窗口在上游处理；
+/// 「地理不符」在本系统无数据源（线路均为同一服务镜像），不设。
+pub fn apply_hard_exclusions(
+    ordered: &[(String, String, u64)],
+    current: Option<&str>,
+    in_backoff: impl Fn(&str) -> bool,
+) -> Vec<(String, String, u64)> {
+    let kept: Vec<(String, String, u64)> = ordered
+        .iter()
+        .filter(|(_, url, _)| Some(url.as_str()) == current || !in_backoff(url))
+        .cloned()
+        .collect();
+    if kept.is_empty() {
+        ordered.to_vec()
+    } else {
+        kept
+    }
 }
 
 /// 经候选线路拉首分片测吞吐（bps）。任何一步失败/超时返回 None，
@@ -155,6 +207,9 @@ pub async fn pick_ranked(hits: Vec<(String, String, u64)>, current: Option<&str>
     let round_started = Instant::now();
     let mut ordered = hits;
     ordered.sort_by_key(|(tier, _, ms)| (tier != "main", *ms));
+    /* 硬排除（fix2 Batch D 第一阶段）：退避期候选先出局再组池，
+     * 省下探测预算给真候选；护栏见 apply_hard_exclusions。 */
+    let ordered = apply_hard_exclusions(&ordered, current, crate::lines::ledger::in_backoff);
     let (mut pool, rotated) =
         select_pool(&ordered, current, ROTATE.load(std::sync::atomic::Ordering::SeqCst));
     if rotated {
@@ -168,7 +223,8 @@ pub async fn pick_ranked(hits: Vec<(String, String, u64)>, current: Option<&str>
         } else {
             probe_throughput(&url).await
         };
-        measures.push(LineMeasure { url, tier, ms, bps });
+        let hist_bps = crate::lines::ledger::tiebreak_bps(&url);
+        measures.push(LineMeasure { url, tier, ms, bps, hist_bps });
     }
     let candidates: Vec<Value> = measures.iter().map(LineMeasure::json).collect();
     match rank_lines(&measures) {
@@ -205,7 +261,56 @@ mod tests {
     use super::*;
 
     fn m(url: &str, ms: u64, bps: Option<u64>) -> LineMeasure {
-        LineMeasure { url: url.into(), tier: "mirror".into(), ms, bps }
+        LineMeasure { url: url.into(), tier: "mirror".into(), ms, bps, hist_bps: None }
+    }
+
+    fn mh(url: &str, ms: u64, bps: Option<u64>, hist: f64) -> LineMeasure {
+        LineMeasure { url: url.into(), tier: "mirror".into(), ms, bps, hist_bps: Some(hist) }
+    }
+
+    /* ── fix2 Batch D：置信度排序与硬排除 ─────────────────── */
+    #[test]
+    fn hist_breaks_same_band_by_confidence_not_latency() {
+        // 同带（实测吞吐差 10%）：延迟低者历史差 → 历史高者胜
+        let measures = vec![
+            mh("low-latency", 40, Some(3_600_000), 2_000_000.0),
+            mh("proven", 120, Some(4_000_000), 6_000_000.0),
+        ];
+        assert_eq!(rank_lines(&measures).map(|w| w.url.as_str()), Some("proven"));
+    }
+
+    #[test]
+    fn hist_substitutes_missing_fresh_measurement() {
+        // 一方本轮没测到吞吐但有历史画像：历史进带参与淘汰
+        let measures = vec![
+            m("fresh-slow", 30, Some(1_000_000)),
+            mh("hist-fast", 200, None, 5_000_000.0),
+        ];
+        assert_eq!(rank_lines(&measures).map(|w| w.url.as_str()), Some("hist-fast"));
+    }
+
+    #[test]
+    fn fresh_measurement_overrides_stale_history_for_banding() {
+        // 本轮实测很差（实时证据优先）：历史再好也进不了带
+        let measures = vec![
+            mh("degraded-now", 30, Some(500_000), 9_000_000.0),
+            m("steady", 90, Some(4_000_000)),
+        ];
+        assert_eq!(rank_lines(&measures).map(|w| w.url.as_str()), Some("steady"));
+    }
+
+    #[test]
+    fn exclusion_drops_backoff_but_never_current() {
+        let ordered = vec![h("a", 10), h("b", 20), h("c", 30)];
+        let kept = apply_hard_exclusions(&ordered, Some("b"), |u| u == "a" || u == "b");
+        assert_eq!(pool_urls(&kept), vec!["b", "c"]);
+    }
+
+    #[test]
+    fn exclusion_empty_result_falls_back_to_full_set() {
+        let ordered = vec![h("a", 10), h("b", 20)];
+        let kept = apply_hard_exclusions(&ordered, None, |_| true);
+        assert_eq!(kept.len(), 2, "全排除时必须回退未排除集合");
     }
 
     #[test]
@@ -292,4 +397,5 @@ mod tests {
         assert_eq!(pool_urls(&pool), vec!["a", "b", "c"]);
         assert!(!pool.iter().any(|(_, u, _)| u == "ghost"));
     }
+
 }
