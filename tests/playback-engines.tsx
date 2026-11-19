@@ -562,7 +562,7 @@ import { useFsKeepAlive } from "../src/features/feed/useFsKeepAlive";
   void (async () => {
     root.render(<Probe paused={false} />);
     await sleep(30);
-    trigger?.(); // 进全屏：调度六发（首发在 +50ms）
+    (trigger as (() => void) | null)?.(); // 进全屏：调度六发（首发在 +50ms）；断言绕 TS 对闭包内赋值的窄化误判（集成修复，Muse 2026-11-19）
     await sleep(15);
     state.pausedNow = true; // 用户在首发落地前暂停：六发必须全灭
     root.render(<Probe paused />); // paused 变化 → 清定时器
@@ -573,7 +573,7 @@ import { useFsKeepAlive } from "../src/features/feed/useFsKeepAlive";
     state.plays = 0;
     root.render(<Probe paused={false} />);
     await sleep(30);
-    trigger?.();
+    (trigger as (() => void) | null)?.();
     await sleep(1400);
     Object.assign(window, { __keepAlive: { pausedPlays, resumedPlays: state.plays } });
     root.unmount();
