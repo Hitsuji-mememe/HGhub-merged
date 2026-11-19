@@ -233,6 +233,7 @@ pub fn run() {
             api::lines::line_auto,
             api::lines::line_try_main,
             api::lines::line_health,
+            api::lines::line_record_playback,
             api::lines::proxy_state,
             api::lines::proxy_set,
             api::lines::proxy_test,

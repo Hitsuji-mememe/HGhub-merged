@@ -200,3 +200,14 @@ pub async fn line_try_main(state: State<'_, Api>) -> Result<Value, String> {
 pub async fn line_health() -> Result<Value, String> {
     Ok(crate::lines::health().await)
 }
+
+/// 真实播放吞吐回写账本（根治包 P0-B.2，audit6 §五）：前端
+/// VideoSurface 把分片实测聚合 bps（每 5 片中位数节流）经此命令
+/// 写入账本 play EWMA，与主动探测的 probe EWMA 分账。签名与前端
+/// api.lineRecordPlayback(origin, bps) 对齐（bps 为 f64 bit/s）；
+/// 非有限/非正值由账本层丢弃，本命令不因记账失败打断播放。
+#[tauri::command]
+pub async fn line_record_playback(origin: String, bps: f64) -> Result<(), String> {
+    crate::lines::ledger::record_playback(&origin, bps);
+    Ok(())
+}

@@ -1,16 +1,21 @@
-//! 选线被动记账与自动切换熔断（一期，Muse 2026-11-18）。
+//! 选线被动记账与自动切换熔断（一期，Muse 2026-11-18；根治包
+//! P0-B 改版，Muse 2026-11-19，audit6 §五 P0-B.2/条 7）。
 //!
-//! 账本：按线路 origin 分键，只记聚合数值——真实播放体验事件计数
-//! （卡顿 stall / 恢复 recovery / 降级 fallback）与吞吐 EWMA。吞吐
-//! 样本来自 auto_pick 的候选探测：line_rank 经生产媒体路拉真实首
-//! 分片测得的 kbps，由 probe::auto_pick 回写本账本。不记 URL、路径
-//! 或查询参数（仓规：日志不含秘密），账本本身也不落盘，进程期有效。
+//! 账本：按线路 origin × 代理模式（proxyMode）分键——代理开关是
+//! 本机最大的网络环境变量，家里 WiFi 与出门代理的吞吐画像不许混账
+//! （WiFi/蜂窝无可靠探测手段，明示不纳入）。只记聚合数值：真实播放
+//! 体验事件计数（卡顿 stall / 恢复 recovery / 降级 fallback）与两套
+//! 吞吐 EWMA——play（真实播放，VideoSurface 分片统计经
+//! line_record_playback 命令回写）与 probe（主动探测，auto_pick 候选
+//! 探测回写）。不记 URL、路径或查询参数（仓规：日志不含秘密），
+//! 账本本身也不落盘，进程期有效。
 //!
-//! 本期未挂分片主路径：media/segment 与 range_fetch 是起播必经路，
-//! 在其完成点挂钩会触碰主路径顺序，留待下一批单独评估；stall 的
-//! Rust 侧真实信号取 line_auto 的 urgent 入口（前端在播放卡顿/健康
-//! 连挂时以 urgent 触发自愈选线），fallback/recovery 取自动切换
-//! 真正落盘的那一刻。
+//! 排名消费口径（tiebreak）：play EWMA 有 ≥3 个真实样本且 30 分钟内
+//! 更新过 → 最高置信；过期的 play 降级为 probe 等级参与；probe EWMA
+//! ≥3 样本为次级。近 30 分钟 stall ≥3 的线路，账本生效吞吐打 8 折
+//! （只惩罚不奖励，防计数博弈）。stall 的 Rust 侧真实信号取
+//! line_auto 的 urgent 入口（前端在播放卡顿/健康连挂时以 urgent
+//! 触发自愈选线），fallback/recovery 取自动切换真正落盘的那一刻。
 //!
 //! 熔断：只拦自动切换（line_auto 落盘前），手动命令完全不经此路。
 //! 恢复全自动——窗口计数与单线退避都按时间惰性过期，下一次
@@ -28,8 +33,17 @@ use std::time::{Duration, Instant};
 pub const LEDGER_MIN_SAMPLES: u64 = 3;
 /// 吞吐 EWMA 平滑系数：新样本权重 0.3，旧值保留 0.7。
 const EWMA_ALPHA: f64 = 0.3;
-/// 账本最多记这么多条线路，满了之后新 origin 不再入账（防无界增长）。
+/// 账本最多记这么多条线路（键含环境维），满了之后新键不再入账
+/// （防无界增长）。
 const MAX_LINES: usize = 64;
+/// play EWMA 的新鲜期：超过 30 分钟未更新，降级为 probe 等级参与
+/// （防旧环境画像长期主导排名，audit6 P0-B.2）。
+const PLAY_FRESH: Duration = Duration::from_secs(30 * 60);
+/// stall 否决窗口与门槛：近 30 分钟 stall ≥3 次，账本生效吞吐打
+/// 8 折（audit6 P0-B.2）。
+const STALL_WINDOW: Duration = Duration::from_secs(30 * 60);
+const STALL_PENALTY_MIN: usize = 3;
+const STALL_PENALTY_FACTOR: f64 = 0.8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LineEvent {
@@ -38,79 +52,169 @@ pub enum LineEvent {
     Fallback,
 }
 
+/// 一套吞吐 EWMA（样本数＋当前值＋最近更新时刻）。
+#[derive(Clone, Debug, Default)]
+pub struct Ewma {
+    pub samples: u64,
+    pub bps: Option<f64>,
+    pub updated: Option<Instant>,
+}
+
+impl Ewma {
+    fn apply(&mut self, value: f64, now: Instant) {
+        if !(value.is_finite() && value > 0.0) {
+            return;
+        }
+        self.samples = self.samples.saturating_add(1);
+        let next = match self.bps {
+            Some(old) if old.is_finite() => old + EWMA_ALPHA * (value - old),
+            _ => value,
+        };
+        // 异常数值（溢出成 inf/NaN）直接丢弃整个 EWMA，回到无数据状态，
+        // 后续查询按样本不足处理（自动回退），绝不让坏值参与排序。
+        self.bps = if next.is_finite() { Some(next) } else { None };
+        self.updated = Some(now);
+    }
+
+    /// 达到最小样本数且为有限正数才算有效画像。
+    fn valid(&self) -> Option<f64> {
+        if self.samples < LEDGER_MIN_SAMPLES {
+            return None;
+        }
+        self.bps.filter(|v| v.is_finite() && *v > 0.0)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct LineStats {
     pub stall: u64,
     pub recovery: u64,
     pub fallback: u64,
-    pub throughput_samples: u64,
-    pub ewma_bps: Option<f64>,
+    /// 主动探测吞吐（auto_pick 回写）。
+    pub probe: Ewma,
+    /// 真实播放吞吐（line_record_playback 回写）。
+    pub play: Ewma,
+    /// stall 事件时刻（否决窗口用）：只保留窗口内的，惰性清理。
+    stall_times: VecDeque<Instant>,
 }
 
-fn apply_throughput(stats: &mut LineStats, bps: u64) {
-    if bps == 0 {
-        return;
+impl LineStats {
+    fn recent_stalls(&mut self, now: Instant) -> usize {
+        while matches!(self.stall_times.front(), Some(at) if now.duration_since(*at) >= STALL_WINDOW) {
+            self.stall_times.pop_front();
+        }
+        self.stall_times.len()
     }
-    let value = bps as f64;
-    if !value.is_finite() {
-        return;
-    }
-    stats.throughput_samples = stats.throughput_samples.saturating_add(1);
-    let next = match stats.ewma_bps {
-        Some(old) if old.is_finite() => old + EWMA_ALPHA * (value - old),
-        _ => value,
-    };
-    // 异常数值（溢出成 inf/NaN）直接丢弃整个 EWMA，回到无数据状态，
-    // 后续查询按样本不足处理（自动回退），绝不让坏值参与排序。
-    stats.ewma_bps = if next.is_finite() { Some(next) } else { None };
 }
 
-fn apply_event(stats: &mut LineStats, event: LineEvent) {
-    let counter = match event {
-        LineEvent::Stall => &mut stats.stall,
-        LineEvent::Recovery => &mut stats.recovery,
-        LineEvent::Fallback => &mut stats.fallback,
-    };
-    *counter = counter.saturating_add(1);
+fn apply_event(stats: &mut LineStats, event: LineEvent, now: Instant) {
+    match event {
+        LineEvent::Stall => {
+            stats.stall = stats.stall.saturating_add(1);
+            stats.recent_stalls(now);
+            stats.stall_times.push_back(now);
+        }
+        LineEvent::Recovery => stats.recovery = stats.recovery.saturating_add(1),
+        LineEvent::Fallback => stats.fallback = stats.fallback.saturating_add(1),
+    }
 }
 
 static LEDGER: Lazy<Mutex<HashMap<String, LineStats>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// 账本键：origin × 代理模式。代理模式取当前应用代理设置
+/// （system/custom/off）——环境切换后新样本自动落到新键，旧键画像
+/// 不再被查到（查询同样按当前模式组键）。
+fn ledger_key(origin: &str) -> String {
+    format!("{origin}\u{1f}{}", crate::proxy::mode().as_str())
+}
+
 fn with_entry<R>(origin: &str, f: impl FnOnce(&mut LineStats) -> R) -> Option<R> {
+    let key = ledger_key(origin);
     let mut map = LEDGER.lock().ok()?;
-    if !map.contains_key(origin) {
+    if !map.contains_key(&key) {
         if map.len() >= MAX_LINES {
             return None;
         }
-        map.insert(origin.to_string(), LineStats::default());
+        map.insert(key.clone(), LineStats::default());
     }
-    map.get_mut(origin).map(f)
+    map.get_mut(&key).map(f)
 }
 
+/// 主动探测吞吐回写（auto_pick 的候选探测结果，probe EWMA）。
+/// bps=0 由 Ewma::apply 拒绝（不计样本），条目本身照常建立——与
+/// 旧实现的可观察行为一致（snapshot 能看到条目、样本数为 0）。
 pub fn record_throughput(origin: &str, bps: u64) {
-    let _ = with_entry(origin, |stats| apply_throughput(stats, bps));
+    let now = Instant::now();
+    let _ = with_entry(origin, |stats| stats.probe.apply(bps as f64, now));
+}
+
+/// 真实播放吞吐回写（line_record_playback 命令，play EWMA）：
+/// 前端聚合的分片实测 bps（f64），非有限/非正一律丢弃。
+pub fn record_playback(origin: &str, bps: f64) {
+    let now = Instant::now();
+    let _ = with_entry(origin, |stats| stats.play.apply(bps, now));
 }
 
 pub fn record_event(origin: &str, event: LineEvent) {
-    let _ = with_entry(origin, |stats| apply_event(stats, event));
+    let now = Instant::now();
+    let _ = with_entry(origin, |stats| apply_event(stats, event, now));
 }
 
 #[allow(dead_code)]
 pub fn snapshot(origin: &str) -> Option<LineStats> {
-    LEDGER.lock().ok()?.get(origin).cloned()
+    LEDGER.lock().ok()?.get(&ledger_key(origin)).cloned()
 }
 
-/// 账本决胜查询（fix2 Batch D 已接入 line_rank 置信度排序）：仅当
-/// 吞吐样本达到 LEDGER_MIN_SAMPLES 且 EWMA 为有限正数时返回 Some；
-/// 样本不足或数值异常一律返回 None，调用方据此自动忽略账本、
-/// 回纯探测排序。
-pub fn tiebreak_bps(origin: &str) -> Option<f64> {
-    let stats = snapshot(origin)?;
-    if stats.throughput_samples < LEDGER_MIN_SAMPLES {
-        return None;
+/// 账本决胜查询（双 EWMA 版，line_rank 消费）：play 与 probe 两级
+/// 置信度分开返回，排名按 play ＞ 本轮实测 ＞ probe 的顺序决胜。
+/// - play：play EWMA 有效且 30 分钟内更新过；
+/// - probe：probe EWMA 有效，或过期的 play EWMA 降级至此级
+///   （两者都有时取大者——同为该级证据，取更能代表线路上限的）；
+/// - stall 否决：近 30 分钟 stall ≥3，两级一并打 8 折。
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Tiebreak {
+    pub play: Option<f64>,
+    pub probe: Option<f64>,
+}
+
+pub fn tiebreak(origin: &str) -> Tiebreak {
+    tiebreak_at(origin, Instant::now())
+}
+
+fn tiebreak_at(origin: &str, now: Instant) -> Tiebreak {
+    // 只读查询：不经 with_entry 建条目——查询本身不许消耗账本容量，
+    // 否则批量探测未入账线路会把空条目塞满 MAX_LINES。
+    let Some(mut stats) = snapshot(origin) else {
+        return Tiebreak::default();
+    };
+    let play_valid = stats.play.valid();
+    let fresh = stats
+        .play
+        .updated
+        .is_some_and(|at| now.duration_since(at) < PLAY_FRESH);
+    let (play, demoted) = match (play_valid, fresh) {
+        (Some(v), true) => (Some(v), None),
+        (Some(v), false) => (None, Some(v)),
+        _ => (None, None),
+    };
+    let probe = match (stats.probe.valid(), demoted) {
+        (Some(p), Some(d)) => Some(p.max(d)),
+        (Some(p), None) => Some(p),
+        (None, d) => d,
+    };
+    let mut out = Tiebreak { play, probe };
+    if stats.recent_stalls(now) >= STALL_PENALTY_MIN {
+        out.play = out.play.map(|v| v * STALL_PENALTY_FACTOR);
+        out.probe = out.probe.map(|v| v * STALL_PENALTY_FACTOR);
     }
-    stats.ewma_bps.filter(|v| v.is_finite() && *v > 0.0)
+    out
+}
+
+/// 单值口径（旧调用方/测试用）：play 优先、probe 兜底的生效吞吐。
+pub fn tiebreak_bps(origin: &str) -> Option<f64> {
+    let tb = tiebreak(origin);
+    tb.play.or(tb.probe)
 }
 
 /* ── 自动切换熔断（保守阈值，Muse 2026-11-18）──────────────────
@@ -228,8 +332,8 @@ mod tests {
         let origin = uniq("outlier");
         record_throughput(&origin, 0);
         let stats = snapshot(&origin).expect("条目应存在");
-        assert_eq!(stats.throughput_samples, 0, "bps=0 不计样本");
-        assert_eq!(stats.ewma_bps, None);
+        assert_eq!(stats.probe.samples, 0, "bps=0 不计样本");
+        assert_eq!(stats.probe.bps, None);
         record_throughput(&origin, 5_000_000);
         record_throughput(&origin, 5_000_000);
         record_throughput(&origin, 5_000_000);
@@ -237,7 +341,7 @@ mod tests {
         // u64 极值样本：EWMA 演进后仍须有限正数，不许把账本毒成 inf/NaN
         record_throughput(&origin, u64::MAX);
         let stats = snapshot(&origin).expect("条目应存在");
-        if let Some(v) = stats.ewma_bps {
+        if let Some(v) = stats.probe.bps {
             assert!(v.is_finite() && v > 0.0, "EWMA 必须保持有限正数, got {v}");
         }
         let _ = before;
@@ -254,7 +358,60 @@ mod tests {
         assert_eq!(stats.stall, 2);
         assert_eq!(stats.recovery, 1);
         assert_eq!(stats.fallback, 1);
-        assert_eq!(stats.throughput_samples, 0);
+        assert_eq!(stats.probe.samples, 0);
+        assert_eq!(stats.play.samples, 0);
+    }
+
+    /* ── 根治包 P0-B 双 EWMA（audit6 §五 P0-B.2）：play/probe 分账、
+     * play 过期降级、stall 窗口否决。tiebreak_at 注入时刻验证。 ── */
+    #[test]
+    fn play_and_probe_ledgers_are_separate() {
+        let origin = uniq("dual");
+        for _ in 0..3 {
+            record_playback(&origin, 9_000_000.0);
+            record_throughput(&origin, 4_000_000);
+        }
+        let tb = tiebreak(&origin);
+        assert_eq!(tb.play, Some(9_000_000.0), "play EWMA 独立成账");
+        assert_eq!(tb.probe, Some(4_000_000.0), "probe EWMA 独立成账");
+        // play 样本不足时不进 play 级（probe 侧同理）
+        let thin = uniq("dual-thin");
+        record_playback(&thin, 9_000_000.0);
+        record_playback(&thin, 9_000_000.0);
+        assert_eq!(tiebreak(&thin).play, None, "play <3 样本不许冒充画像");
+    }
+
+    #[test]
+    fn stale_play_demotes_to_probe_tier() {
+        let origin = uniq("demote");
+        for _ in 0..3 {
+            record_playback(&origin, 9_000_000.0);
+        }
+        let now = Instant::now();
+        let fresh = tiebreak_at(&origin, now);
+        assert_eq!(fresh.play, Some(9_000_000.0));
+        assert_eq!(fresh.probe, None);
+        let later = tiebreak_at(&origin, now + PLAY_FRESH + Duration::from_secs(1));
+        assert_eq!(later.play, None, "过期 play 不许继续占最高置信级");
+        assert_eq!(later.probe, Some(9_000_000.0), "过期 play 降级为 probe 级参与");
+    }
+
+    #[test]
+    fn recent_stalls_discount_tiebreak_by_twenty_percent() {
+        let origin = uniq("stall-penalty");
+        for _ in 0..3 {
+            record_playback(&origin, 10_000_000.0);
+        }
+        record_event(&origin, LineEvent::Stall);
+        record_event(&origin, LineEvent::Stall);
+        assert_eq!(tiebreak(&origin).play, Some(10_000_000.0), "stall <3 不罚");
+        record_event(&origin, LineEvent::Stall);
+        let tb = tiebreak(&origin);
+        assert_eq!(tb.play, Some(8_000_000.0), "近 30 分钟 stall ≥3 打 8 折");
+        // 窗口外的旧 stall 不计：以 31 分钟后查询，play 同时过期降级，
+        // 降级值不再被打折。
+        let later = tiebreak_at(&origin, Instant::now() + STALL_WINDOW + Duration::from_secs(60));
+        assert_eq!(later.probe, Some(10_000_000.0), "窗口外 stall 不再否决");
     }
 
     #[test]
