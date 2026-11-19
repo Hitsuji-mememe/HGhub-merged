@@ -85,10 +85,10 @@ mod tests {
     fn health_requires_real_unwrapped_feed_data() {
         let valid = json!({"items": [{"id": 12, "title": "video"}], "pagination": {"page": 1, "pages": 2, "size": 1, "total": 2}});
         assert!(healthy_video_data(&valid));
-        assert!(healthy_video_data(
-            &json!({"items": [], "pagination": {"page": 1, "pages": 0, "size": 1, "total": 0}})
-        ));
         for invalid in [
+            // 空目录判不健康（audit6 §二条 6 / §五 P0-B.5，契约变更适配：
+            // 旧断言曾许空 items＋total=0 为健康，空壳镜像可进候选，已废）。
+            json!({"items": [], "pagination": {"page": 1, "pages": 0, "size": 1, "total": 0}}),
             Value::Null,
             json!("<html>200 OK</html>"),
             json!({}),
@@ -111,8 +111,8 @@ mod tests {
         // 无吞吐数据时仍按延迟选——原「fast 按延迟胜」语义在此延续。
         assert!(crate::line_rank::rank_lines(&[]).is_none());
         let unmeasured = [
-            crate::line_rank::LineMeasure { url: "https://slow.example".into(), tier: "mirror".into(), ms: 20, bps: None, hist_bps: None },
-            crate::line_rank::LineMeasure { url: "https://fast.example".into(), tier: "mirror".into(), ms: 8, bps: None, hist_bps: None },
+            crate::line_rank::LineMeasure { url: "https://slow.example".into(), tier: "mirror".into(), ms: 20, bps: None, play_bps: None, probe_hist_bps: None, incomparable: false },
+            crate::line_rank::LineMeasure { url: "https://fast.example".into(), tier: "mirror".into(), ms: 8, bps: None, play_bps: None, probe_hist_bps: None, incomparable: false },
         ];
         assert_eq!(
             crate::line_rank::rank_lines(&unmeasured).map(|w| w.url.as_str()),

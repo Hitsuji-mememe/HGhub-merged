@@ -58,6 +58,9 @@ pub async fn get_with_dns_h(
     .map_err(|_| "请求超时".to_string())?
 }
 
+/// Range 响应体流式上限（分片档，与 net::edge::FETCH_BYTES_MAX 同值）。
+const RANGE_BODY_MAX_BYTES: usize = 16 * 1024 * 1024;
+
 /// 一次 Range 抓取的结果（状态码 / 总长 / 类型 / 字节）。
 pub struct RangeFetch {
     pub status: u16,
@@ -142,7 +145,18 @@ pub async fn fetch_range_direct(
         .get(reqwest::header::ETAG)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
-    let bytes = resp.bytes().await.map_err(|e| err_text(&e))?.to_vec();
+    // 流式上限（P2-13）：206 的体量由请求区间界定，但服务器忽略
+    // Range 回 200 全量体时旧实现 resp.bytes() 先全量入内存再判
+    // 失败。分片档上限 16MB，超限中断报错（外层回退逻辑接管）。
+    let mut resp = resp;
+    if resp.content_length().is_some_and(|n| n > RANGE_BODY_MAX_BYTES as u64) {
+        return Err(format!("响应体超过 {} 字节上限", RANGE_BODY_MAX_BYTES));
+    }
+    let mut body = crate::net::CappedBody::new(RANGE_BODY_MAX_BYTES);
+    while let Some(chunk) = resp.chunk().await.map_err(|e| err_text(&e))? {
+        body.push(&chunk)?;
+    }
+    let bytes = body.into_bytes();
     // fix(rust-audit): 206 此前只验状态+长度、从不核对 Content-Range 偏移。
     // 服务器（或重定向落点）若回了另一段同长度字节，拼片总长照样对得上，
     // 损坏分片会被当好片缓存/播出。这里要求 206 必带合法 Content-Range，
@@ -238,6 +252,15 @@ pub(crate) async fn fetch_segment_bytes(url: &str) -> Result<(Option<String>, Ve
     }
 }
 
+/// 跨片 total 一致性（P2-12 残留窄口，纯函数可测）：分片各自的
+/// Content-Range 合法不代表报的是同一个总长——探针说 total=100、
+/// 某片说 total=120 时拼出来是混版数据。双方都给出 total 且不
+/// 一致 → 整段判失败；分片没给 total 时跳过（无从核对，不因此
+/// 失败，与 ETag 的处理口径一致）。
+fn piece_total_consistent(probe_total: u64, piece_total: Option<u64>) -> bool {
+    piece_total.is_none_or(|t| t == probe_total)
+}
+
 /// 并行取回探针之后的剩余字节：剩余区间均分 RANGE_PARTS 段并发 Range GET，
 /// 逐段校验状态与长度，按序拼在探针字节之后；任一段不对整段判失败（外层回退）。
 async fn fetch_segment_parallel(
@@ -270,6 +293,12 @@ async fn fetch_segment_parallel(
         if piece.status != 206 || piece.bytes.len() as u64 != expected[idx] {
             return Err("并行分段长度或状态不对".into());
         }
+        // 跨片 total 交叉核对（P2-12 残留）：分片 Content-Range 的
+        // total 与探针 total 不一致 = 抓取途中资源换版/混源，整段
+        // 判失败（外层回退单连接全量），不拼混版数据。
+        if !piece_total_consistent(total, piece.total) {
+            return Err("并行分段 total 与探针不一致".into());
+        }
         // 跨片 ETag 一致性（Muse 2026-11-18）：每片的 Content-Range 各自合法，
         // 不代表来自同一资源版本——边缘节点若在抓取途中换版/混源，拼出来是
         // 长度全对的坏数据。探针与分片两边都给 ETag 且不一致 → 整段判失败，
@@ -289,4 +318,26 @@ async fn fetch_segment_parallel(
         return Err("并行拼接总长不对".into());
     }
     Ok((ctype, bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn piece_total_must_match_probe_total_when_present() {
+        assert!(piece_total_consistent(100, Some(100)));
+        assert!(!piece_total_consistent(100, Some(120)), "跨片 total 不一致必须判失败");
+        assert!(!piece_total_consistent(100, Some(80)));
+        // 分片没给 total：无从核对，跳过（不因此失败）
+        assert!(piece_total_consistent(100, None));
+    }
+
+    #[test]
+    fn content_range_parsing_keeps_total() {
+        assert_eq!(parse_content_range("bytes 0-65535/1234567"), Some((0, 65535, Some(1234567))));
+        assert_eq!(parse_content_range("bytes 0-65535/*"), Some((0, 65535, None)));
+        assert_eq!(parse_content_range_total("bytes 10-20/99"), Some(99));
+        assert_eq!(parse_content_range("items 0-1/2"), None);
+    }
 }

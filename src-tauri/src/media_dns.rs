@@ -1,4 +1,5 @@
 use crate::network_policy;
+use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -247,7 +248,51 @@ fn skip_name(packet: &[u8], mut pos: usize) -> Result<usize, String> {
     }
 }
 
-fn parse_udp_answers(packet: &[u8], id: u16, port: u16) -> Result<Resolution, String> {
+/// 解出 pos 处的域名（跟压缩指针，步数封顶同 skip_name），返回
+/// 点分名字与名字之后的位置。问题段与请求逐字节比对用（P2-14）。
+fn decode_name(packet: &[u8], mut pos: usize) -> Result<(String, usize), String> {
+    let mut name = String::new();
+    let mut end: Option<usize> = None;
+    let mut jumps = 0usize;
+    loop {
+        let byte = *packet.get(pos).ok_or("备用 DNS 响应无效")?;
+        match byte & 0xC0 {
+            0xC0 => {
+                let low = *packet.get(pos + 1).ok_or("备用 DNS 响应无效")? as usize;
+                if end.is_none() {
+                    end = Some(pos + 2);
+                }
+                jumps += 1;
+                if jumps > MAX_POINTER_JUMPS {
+                    return Err("备用 DNS 响应无效".into());
+                }
+                pos = ((byte as usize & 0x3F) << 8) | low;
+            }
+            0 => {
+                if byte == 0 {
+                    return Ok((name, end.unwrap_or(pos + 1)));
+                }
+                let start = pos + 1;
+                let stop = start + byte as usize;
+                let label = packet.get(start..stop).ok_or("备用 DNS 响应无效")?;
+                if !name.is_empty() {
+                    name.push('.');
+                }
+                name.push_str(&String::from_utf8_lossy(label));
+                pos = stop;
+            }
+            _ => return Err("备用 DNS 响应无效".into()),
+        }
+    }
+}
+
+fn parse_udp_answers(
+    packet: &[u8],
+    id: u16,
+    port: u16,
+    expected_host: &str,
+    expected_qtype: u16,
+) -> Result<Resolution, String> {
     let read_u16 = |pos: usize| -> Result<u16, String> {
         let bytes = packet.get(pos..pos + 2).ok_or("备用 DNS 响应无效")?;
         Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
@@ -259,6 +304,9 @@ fn parse_udp_answers(packet: &[u8], id: u16, port: u16) -> Result<Resolution, St
     if flags & 0x8000 == 0 || flags & 0x000F != 0 {
         return Err("备用 DNS 响应无效".into()); // 必须是响应且 RCODE = 0
     }
+    if flags & 0x7800 != 0 {
+        return Err("备用 DNS 响应无效".into()); // opcode 必须是标准查询（P2-14）
+    }
     if flags & 0x0200 != 0 {
         return Err("备用 DNS 响应被截断".into()); // TC：无 EDNS 时答案可能不全，不冒险用
     }
@@ -267,14 +315,21 @@ fn parse_udp_answers(packet: &[u8], id: u16, port: u16) -> Result<Resolution, St
     if ancount > MAX_ANSWER_RECORDS {
         return Err("备用 DNS 响应无效".into());
     }
-    let mut pos = 12usize;
-    for _ in 0..qdcount {
-        pos = skip_name(packet, pos)?;
-        if pos + 4 > packet.len() {
-            return Err("备用 DNS 响应无效".into());
-        }
-        pos += 4;
+    // 问题段必须与请求逐项一致（P2-14）：QDCOUNT 恰为 1、QNAME 与
+    //所查主机相同（大小写不敏感）、QTYPE 与所查类型相同、QCLASS=IN。
+    //旧实现只用 QDCOUNT 跳过问题段、不比对内容，伪造响应只要 ID 对
+    //上就能蒙混过关（ID 可预测性另见 resolve_udp 的种子说明）。
+    if qdcount != 1 {
+        return Err("备用 DNS 响应无效".into());
     }
+    let (qname, after_name) = decode_name(packet, 12)?;
+    if !qname.eq_ignore_ascii_case(expected_host)
+        || read_u16(after_name)? != expected_qtype
+        || read_u16(after_name + 2)? != 1
+    {
+        return Err("备用 DNS 响应无效".into());
+    }
+    let mut pos = after_name + 4;
     let mut addresses = Vec::new();
     let mut ttl = 30u64;
     for _ in 0..ancount {
@@ -358,13 +413,26 @@ async fn query_udp(id: u16, host: &str, qtype: u16, target_port: u16) -> Result<
         .map_err(|_| "备用 DNS 请求超时")?
         .map_err(|_| "备用 DNS 请求失败")?;
     buffer.truncate(received);
-    parse_udp_answers(&buffer, id, target_port)
+    parse_udp_answers(&buffer, id, target_port, host, qtype)
 }
 
 /// 向 223.5.5.5:53 直查 A 与 AAAA（并发各一次、不重试），合并可用答案。
 /// 只问一轮：调用方在全 fake 分支才进来，后面还有 DoH 兜底，不能在这里放大等待。
 pub(crate) async fn resolve_udp(host: &str, port: u16) -> Result<Resolution, String> {
-    static NEXT_ID: AtomicU16 = AtomicU16::new(0x4d32);
+    /* ID 种子（P2-14）：旧实现初值固定 0x4d32、步长固定 0x9e37，
+     * 是完全确定的等差序列，见过一次即可推全部后续。现种子取
+     * std RandomState 的哈希键（std 内部以 OS 随机源播种），进程内
+     * 仍以固定步长递增——如实说明：不可预测性来自种子保密，而非
+     * 序列本身；残余风险由三重围栏压住（socket 已 connect 到
+     * 223.5.5.5:53、内核按源地址＋临时端口过滤、答案地址还要过
+     * allowed_ip 卫生校验），综合定级低危（audit6 §七 P2-14）。 */
+    static NEXT_ID: Lazy<AtomicU16> = Lazy::new(|| {
+        use std::hash::{BuildHasher, Hasher};
+        let seed = std::collections::hash_map::RandomState::new()
+            .build_hasher()
+            .finish();
+        AtomicU16::new((seed & 0xFFFF) as u16)
+    });
     let seed = NEXT_ID.fetch_add(0x9e37, Ordering::Relaxed);
     let (a, aaaa) = tokio::join!(
         query_udp(seed, host, 1, port),
@@ -589,17 +657,27 @@ mod tests {
         answers.extend_from_slice(&[0xC0, 0x0C]);
         answers.extend_from_slice(&a_record([1, 2, 3, 4], 30));
         let packet = udp_response(0x1234, &answers, 2);
-        let result = parse_udp_answers(&packet, 0x1234, 443).unwrap();
+        let result = parse_udp_answers(&packet, 0x1234, 443, "example.com", 1).unwrap();
         assert_eq!(result.addresses, vec!["1.2.3.4:443".parse().unwrap()]);
         assert_eq!(result.ttl, Duration::from_secs(30));
         // ID 不符必须失败
-        assert!(parse_udp_answers(&packet, 0x9999, 443).is_err());
+        assert!(parse_udp_answers(&packet, 0x9999, 443, "example.com", 1).is_err());
+        // 问题段与请求不一致必须失败（P2-14）：主机名、查询类型、
+        // QDCOUNT、opcode 任一不符都整份作废。
+        assert!(parse_udp_answers(&packet, 0x1234, 443, "other.example", 1).is_err(), "QNAME 不符");
+        assert!(parse_udp_answers(&packet, 0x1234, 443, "example.com", 28).is_err(), "QTYPE 不符");
+        let mut two_questions = packet.clone();
+        two_questions[4..6].copy_from_slice(&2u16.to_be_bytes());
+        assert!(parse_udp_answers(&two_questions, 0x1234, 443, "example.com", 1).is_err(), "QDCOUNT 必须恰为 1");
+        let mut opcode_set = packet.clone();
+        opcode_set[2] |= 0x08; // opcode = 1（反向查询）
+        assert!(parse_udp_answers(&opcode_set, 0x1234, 443, "example.com", 1).is_err(), "opcode 必须为 0");
     }
 
     #[test]
     fn udp_answers_reject_fake_ip_and_pointer_loops() {
         let fake = udp_response(0x1234, &a_record([198, 20, 0, 11], 30), 1);
-        assert!(parse_udp_answers(&fake, 0x1234, 443).is_err());
+        assert!(parse_udp_answers(&fake, 0x1234, 443, "example.com", 1).is_err());
         // 第一答的名字指针指向自己（偏移 29 = 12 头 + 13 问题名 + 4 类型/类）
         let mut looped = vec![0xC0, 0x1D];
         looped.extend_from_slice(&1u16.to_be_bytes());
@@ -608,9 +686,9 @@ mod tests {
         looped.extend_from_slice(&4u16.to_be_bytes());
         looped.extend_from_slice(&[1, 2, 3, 4]);
         let packet = udp_response(0x1234, &looped, 1);
-        assert!(parse_udp_answers(&packet, 0x1234, 443).is_err());
+        assert!(parse_udp_answers(&packet, 0x1234, 443, "example.com", 1).is_err());
         // 截断的报文
-        assert!(parse_udp_answers(&packet[..10], 0x1234, 443).is_err());
+        assert!(parse_udp_answers(&packet[..10], 0x1234, 443, "example.com", 1).is_err());
     }
 
 

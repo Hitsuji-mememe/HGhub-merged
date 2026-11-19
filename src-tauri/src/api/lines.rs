@@ -165,31 +165,23 @@ pub async fn line_auto(state: State<'_, Api>, urgent: Option<bool>) -> Result<Va
     }))
 }
 
-/// 当前走的是镜像时，敲一次主站：通了就切回（可信会话保留并 rebase 到主站）。
-///
-/// 和 [`line_auto`] 的分工：[`line_auto`] 是「整体比一次」，要抓发布页；
-/// 这个只问一句「主站现在通不通」，代价一个请求，可以频繁调用。
+/// 主站健康探针（已收编，根治包 P0-B.3，audit6 §二条 5）：旧实现
+/// 单次 probe ok 即直接 set_base 切主站，绕过排名/两轮确认/熔断/
+/// 熔断记账——自动切换的单一切换权只许在 line_auto 一条路上。本
+/// 命令保留注册与返回形状（旧前端契约不破），但只探不切：前端
+/// check() 发现主站健康后改触发普通一轮 line_auto（reason
+/// main-return），主站作为候选进统一排名（同带优先），切换必经
+/// confirm_gate、熔断检查与 note_auto_switch 记账。
 #[tauri::command]
-pub async fn line_try_main(state: State<'_, Api>) -> Result<Value, String> {
+pub async fn line_try_main() -> Result<Value, String> {
     let selection = begin_line_selection()?;
     crate::net::refresh_client();
     let probe = crate::lines::try_main().await;
-    let mut switched = false;
     let generation = LINE_SELECTION.lock().map_err(|_| "线路选择锁失败")?;
-    let previous = base();
-    if *generation == selection && probe.get("ok").and_then(Value::as_bool).unwrap_or(false) {
-        let chosen = probe.get("base").and_then(Value::as_str).unwrap_or_default();
-        if !chosen.is_empty() && chosen != previous {
-            let next = crate::net::set_base(chosen)?;
-            crate::net::refresh_client();
-            switched = next != previous;
-            if switched { state.session.rebase_or_clear(&next, crate::session::rebase_trust); }
-        }
-    }
     Ok(json!({
-        "previous": previous,
+        "previous": base(),
         "base": crate::net::base(),
-        "switched": switched,
+        "switched": false,
         "probe": probe,
         "cancelled": *generation != selection,
     }))
@@ -199,4 +191,15 @@ pub async fn line_try_main(state: State<'_, Api>) -> Result<Value, String> {
 #[tauri::command]
 pub async fn line_health() -> Result<Value, String> {
     Ok(crate::lines::health().await)
+}
+
+/// 真实播放吞吐回写账本（根治包 P0-B.2，audit6 §五）：前端
+/// VideoSurface 把分片实测聚合 bps（每 5 片中位数节流）经此命令
+/// 写入账本 play EWMA，与主动探测的 probe EWMA 分账。签名与前端
+/// api.lineRecordPlayback(origin, bps) 对齐（bps 为 f64 bit/s）；
+/// 非有限/非正值由账本层丢弃，本命令不因记账失败打断播放。
+#[tauri::command]
+pub async fn line_record_playback(origin: String, bps: f64) -> Result<(), String> {
+    crate::lines::ledger::record_playback(&origin, bps);
+    Ok(())
 }

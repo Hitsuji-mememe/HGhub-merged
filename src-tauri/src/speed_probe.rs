@@ -10,6 +10,15 @@ use std::time::{Duration, Instant};
 /// A = 生产媒体路 edge::fetch_bytes；B = 临时裸 reqwest（显式禁代理、系统默认解析）。
 /// C 路（WebView 直连同一分片）在 TS 侧用返回的 seg_url 跑，三路同分片对照。
 /// 两路严禁并行（会互相污染带宽）；任何一步失败只回 {error}，自检其余部分照常。
+///
+/// B 路安全收口（根治包 P1-1，Muse 2026-11-19，audit6 §一/§五）：
+/// B 的「裸直连」是对照实验的本意（报告标注「直连」属实），但旧实现
+/// 有三处硬伤——目标零校验（清单指向内网也照连）、重定向默认跟随
+/// 不复检、响应体整段读入无上限。现：目标先过生产策略校验
+/// （network_policy::parse_target：scheme/主机/IP），重定向禁自动
+/// 跟随、逐跳 redirect_target 复检（≤5 跳），响应体流式累计
+/// 64MB 截断并在结果里标 b_truncated。B 仍不走代理/DNS 固定——
+/// 那是 A 路的被测属性，不是 B 的缺陷。
 pub async fn speed_ab_probe() -> Value {
     match tokio::time::timeout(Duration::from_secs(150), speed_ab_inner()).await {
         Ok(Ok(v)) => v,
@@ -63,35 +72,77 @@ async fn speed_ab_inner() -> Result<Value, String> {
         .map_err(|e| format!("A 路下载失败：{e}"))?;
     let a_ms = a_started.elapsed().as_millis() as u64;
 
-    let bare = reqwest::Client::builder()
-        .user_agent(crate::net::UA)
-        .no_proxy()
-        .timeout(Duration::from_secs(60))
-        .build()
-        .map_err(|e| format!("B 路客户端构建失败：{e}"))?;
     let b_started = Instant::now();
-    let resp = bare
-        .get(&seg_url)
-        .send()
-        .await
-        .map_err(|e| format!("B 路下载失败：{}", crate::net::err_text(&e)))?;
-    if !resp.status().is_success() {
-        return Err(format!("B 路下载失败：HTTP {}", resp.status()));
-    }
-    let b_bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("B 路读取失败：{}", crate::net::err_text(&e)))?;
+    let (b_bytes, b_truncated) = speed_b_direct(&seg_url).await?;
     let b_ms = b_started.elapsed().as_millis() as u64;
 
     Ok(json!({
         "host": host,
         "bytes": a_bytes.len(),
-        "b_bytes": b_bytes.len(),
+        "b_bytes": b_bytes,
+        "b_truncated": b_truncated,
         "a_ms": a_ms,
         "b_ms": b_ms,
         "seg_url": seg_url,
     }))
+}
+
+/// B 路响应体流式上限：分片正常在 MB 级，64MB 足够宽；超限截断并
+/// 标记（结果 b_truncated=true），不整段读入内存（audit6 §五）。
+const B_BODY_MAX_BYTES: usize = 64 * 1024 * 1024;
+
+/// B 路裸直连下载（P1-1 收口后）：目标先过生产策略校验；禁自动
+/// 重定向，逐跳用 network_policy::redirect_target 复检（禁 HTTPS
+/// 降级/内网目标，≤5 跳）；响应体流式累计、超 64MB 截断标记。
+/// 返回（读到的字节数， 是否被截断）。
+async fn speed_b_direct(seg_url: &str) -> Result<(usize, bool), String> {
+    let mut next = crate::network_policy::parse_target(seg_url)
+        .map_err(|e| format!("B 路目标未通过策略校验：{e}"))?;
+    let bare = reqwest::Client::builder()
+        .user_agent(crate::net::UA)
+        .no_proxy()
+        .timeout(Duration::from_secs(60))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("B 路客户端构建失败：{e}"))?;
+    for hop in 0..=5 {
+        let mut resp = bare
+            .get(next.clone())
+            .send()
+            .await
+            .map_err(|e| format!("B 路下载失败：{}", crate::net::err_text(&e)))?;
+        if resp.status().is_redirection() {
+            if hop == 5 {
+                return Err("B 路重定向次数超过限制".into());
+            }
+            let location = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|h| h.to_str().ok())
+                .ok_or("B 路重定向缺少有效 Location")?;
+            next = crate::network_policy::redirect_target(&next, location)
+                .map_err(|e| format!("B 路重定向未通过策略校验：{e}"))?;
+            continue;
+        }
+        if !resp.status().is_success() {
+            return Err(format!("B 路下载失败：HTTP {}", resp.status()));
+        }
+        let mut got = 0usize;
+        let mut truncated = false;
+        while let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| format!("B 路读取失败：{}", crate::net::err_text(&e)))?
+        {
+            if got + chunk.len() > B_BODY_MAX_BYTES {
+                truncated = true;
+                break;
+            }
+            got += chunk.len();
+        }
+        return Ok((got, truncated));
+    }
+    Err("B 路重定向次数超过限制".into())
 }
 
 /// 拉播放清单并解析第一个媒体分片的绝对地址；主清单跟一层子清单。

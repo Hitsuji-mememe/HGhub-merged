@@ -593,6 +593,9 @@ pub async fn diagnose() -> Value {
             "system_proxy": system_proxy_enabled(),
             "app_proxy_mode": crate::proxy::mode().as_str(),
             "app_proxy": crate::proxy::custom_url().as_deref().map(redact_proxy),
+            /* 会话落盘状态（P2-16）：最近一次 persist 的成败与阶段，
+             * 落盘失败不再无痕（另有 playback_log session.persist_failed）。 */
+            "session_persist": crate::session::persist_status(),
         },
         "runtime": {
             "os": std::env::consts::OS,
@@ -650,7 +653,9 @@ mod tests {
             }
             let mut body = vec![0; length];
             reader.read_exact(&mut body).unwrap();
-            let data = json!({"status":1,"data":{"items":[],"pagination":{"page":1,"size":1,"pages":0,"total":0}}}).to_string();
+            // 夹具须是真健康响应：空目录已判不健康（audit6 P0-B.5，
+            // healthy_video_data 契约变更），故给一条有效条目。
+            let data = json!({"status":1,"data":{"items":[{"id":1,"title":"fixture"}],"pagination":{"page":1,"size":1,"pages":1,"total":1}}}).to_string();
             write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{data}", data.len()).unwrap();
             (request, serde_json::from_slice::<Value>(&body).unwrap(), auth)
         });

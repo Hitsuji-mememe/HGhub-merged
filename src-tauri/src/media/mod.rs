@@ -9,7 +9,105 @@ mod image;
 mod response;
 mod segment;
 
+use std::collections::{HashMap, VecDeque};
 use tauri::http::Response;
+
+/// 带总字节预算的真 LRU（根治包 P2-13，Muse 2026-11-19）：旧实现
+/// 用 HashMap.keys().next() 删任意一条（迭代序与插入/访问无关，
+/// segment.rs 还误称其为 oldest）——热数据可被随机淘汰、冷数据可
+/// 长驻，且只有条数上限、没有总字节上限。本结构按访问序维护队列：
+/// get 命中即移到队尾，insert 后从队头（最久未访问）淘汰，直到
+/// 条数与总字节都回到预算内；单条大于总字节预算的不入缓存。
+pub(super) struct ByteLru<V> {
+    map: HashMap<String, (V, usize)>,
+    order: VecDeque<String>,
+    bytes: usize,
+    max_entries: usize,
+    max_bytes: usize,
+}
+
+impl<V: Clone> ByteLru<V> {
+    pub(super) fn new(max_entries: usize, max_bytes: usize) -> Self {
+        Self {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+            bytes: 0,
+            max_entries,
+            max_bytes,
+        }
+    }
+
+    pub(super) fn get(&mut self, key: &str) -> Option<V> {
+        let (value, _) = self.map.get(key)?.clone();
+        self.touch(key);
+        Some(value)
+    }
+
+    pub(super) fn insert(&mut self, key: String, value: V, size: usize) {
+        if size > self.max_bytes {
+            return;
+        }
+        if let Some((_, old_size)) = self.map.remove(&key) {
+            self.bytes -= old_size;
+            self.order.retain(|k| k != &key);
+        }
+        self.map.insert(key.clone(), (value, size));
+        self.bytes += size;
+        self.order.push_back(key);
+        while self.map.len() > self.max_entries || self.bytes > self.max_bytes {
+            let Some(victim) = self.order.pop_front() else { break };
+            if let Some((_, victim_size)) = self.map.remove(&victim) {
+                self.bytes -= victim_size;
+            }
+        }
+    }
+
+    pub(super) fn remove(&mut self, key: &str) -> Option<V> {
+        let (value, size) = self.map.remove(key)?;
+        self.bytes -= size;
+        self.order.retain(|k| k != key);
+        Some(value)
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.map.clear();
+        self.order.clear();
+        self.bytes = 0;
+    }
+
+    fn touch(&mut self, key: &str) {
+        self.order.retain(|k| k != key);
+        self.order.push_back(key.to_string());
+    }
+}
+
+#[cfg(test)]
+mod byte_lru_tests {
+    use super::*;
+
+    #[test]
+    fn evicts_least_recently_used_by_access_order_and_byte_budget() {
+        let mut lru = ByteLru::new(10, 100);
+        lru.insert("a".into(), 1, 40);
+        lru.insert("b".into(), 2, 40);
+        // 访问 a 后 b 成最久未用：再塞 40 字节应淘汰 b 而非 a
+        assert_eq!(lru.get("a"), Some(1));
+        lru.insert("c".into(), 3, 40);
+        assert_eq!(lru.get("a"), Some(1), "刚访问的 a 不许被淘汰");
+        assert_eq!(lru.get("b"), None, "最久未访问的 b 应被淘汰");
+        assert_eq!(lru.get("c"), Some(3));
+        // 条数预算同样按访问序淘汰
+        let mut by_count = ByteLru::new(2, usize::MAX);
+        by_count.insert("x".into(), 1, 1);
+        by_count.insert("y".into(), 2, 1);
+        by_count.insert("z".into(), 3, 1);
+        assert_eq!(by_count.get("x"), None);
+        // 单条大于总预算不入缓存
+        let mut tiny = ByteLru::new(10, 10);
+        tiny.insert("big".into(), 9, 11);
+        assert_eq!(tiny.get("big"), None);
+    }
+}
 
 #[cfg(test)]
 pub(crate) use response::fixture_response;
