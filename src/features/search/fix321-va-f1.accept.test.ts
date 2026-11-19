@@ -126,7 +126,11 @@ assert.ok(nativeHit.publishedAt !== undefined && fanoutHit.publishedAt === undef
 }
 
 /* ── 补充：同源同标题＋同封面、不同 ID（同内容被重复挂载为两个
- * 条目 id）——呈现层仍只出一张卡，两 ID 副本各留一份。 */
+ * 条目 id）——呈现层仍只出一张卡。
+ * 断言适配（3.2.2 集成，2026-11-19）：原「两 ID 副本各留一份」口径
+ * 已被用户真机裁定推翻（详情页同源双副本实报，fix322/play 问题 3：
+ * 同源 content 重复并卡不留第二副本、alsoOn 不重名），本组改验新
+ * 口径；同内容重复挂载的场景本身与「只出一张卡」断言不变。 */
 {
   const remounted: FanoutHit = {
     ...nativeHit, seq: 1,
@@ -134,7 +138,7 @@ assert.ok(nativeHit.publishedAt !== undefined && fanoutHit.publishedAt === undef
   };
   const groups = aggregateHits([nativeHit, remounted]);
   assert.equal(groups.post.length, 1, "同源同题同封面不同 ID：只出一张卡");
-  assert.equal(groups.post[0].copies.length, 2, "不同 ID 副本各留一份、不误删");
+  assert.equal(groups.post[0].copies.length, 1, "同源同内容重复：并卡不留第二副本（用户真机裁定）");
 }
 
 console.log("fix321-va-f1.accept: all assertions passed");
