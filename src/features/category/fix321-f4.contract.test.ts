@@ -7,6 +7,11 @@
  * 只 re-export 同一函数引用）、混合列表按性质分组（多集只入短剧
  * 组、单条仍入视频组）、Category 生产接线文本断言（总览分组＋
  * 视频频道分页过滤）。不访问真实网络。
+ * fix322 适配注记（契约变化、非削弱）：浏览面最终裁决升级为标记
+ * 优先的 partitionCardsByResolvedKind（见 fix322-kind.contract），
+ * 本文件的接线断言随之改绑新派生；kindForHuangguoVideo/
+ * partitionCardsByKind 降为卡-only 结构兜底原语、语义不变，其行
+ * 为断言原样保留。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -53,13 +58,14 @@ const finishedDrama = { id: 104, title: "完结剧集丙", score: 8.8, episode_c
   assert.deepEqual(partitionCardsByKind([]), { video: [], drama: [] }, "空列表分组恒两键空组");
 }
 
-/* ── 生产接线（文本断言，与 wiring-manifest fix321-f4-* 互证） ── */
+/* ── 生产接线（文本断言，与 wiring-manifest fix321-f4-* 互证；
+ * fix322 改绑：浏览面最终分组走统一裁决 partitionCardsByResolvedKind） ── */
 {
   const category = read("./Category.tsx");
-  assert.ok(category.includes("partitionCardsByKind"), "Category 浏览面调用共用分组");
+  assert.ok(category.includes("partitionCardsByResolvedKind"), "Category 浏览面调用统一裁决分组（fix322 标记线）");
   assert.ok(category.includes("originalKindGroups.video"), "分类总览视频区只渲染 video 组");
   assert.ok(category.includes("originalKindGroups.drama"), "分类总览短剧区合并 original 频道中的短剧组");
-  assert.ok(category.includes('partitionCardsByKind(rawItems).video'), "视频频道分页 incoming 先按性质过滤再入列表");
+  assert.ok(category.includes('partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video'), "视频频道分页 incoming 先经统一裁决过滤再入列表");
 }
 
 console.log("fix321-f4.contract: all assertions passed");

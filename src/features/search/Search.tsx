@@ -20,8 +20,8 @@ import type { SourceDetail } from "../sources/types";
 import { Player } from "../playback";
 import { fetchHealthSnapshot } from "../sources/adapters/fetchHealth.ts";
 import {
-  GLOBAL_SEARCH_TABS, aggregateHits, fanoutSearch, hasEpisodeStructureSignal,
-  loadWithFallback, orderCopiesForDisplay, searchKindForHuangguoVideo, structuralCompletenessOf,
+  GLOBAL_SEARCH_TABS, aggregateHits, fanoutSearch, kindSignalOfDetail,
+  loadWithFallback, needsCanonicalKindLookup, orderCopiesForDisplay, searchKindForHuangguoVideo, structuralCompletenessOf,
   type CopyAssessment, type CopyRef, type EpisodeStructureSignal, type FanoutHit, type GlobalSearchKind, type MergedHit,
 } from "./multiSourceSearch";
 
@@ -251,16 +251,21 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     ? Boolean(hgVideo && hgVideo.page < hgVideo.pages)
     : tab === "post" ? Boolean(hgPost && hgPost.page < hgPost.pages) : false;
 
-  /* ── F4b 补判：搜索载荷信号缺失的原生条目按 ID 查 Detail 规范信号 ──
-   * 只查信号缺失者（自带正计数者已可判定）；并发 4（同热搜标签补查
-   * 先例）；失败静默（不弹窗、不整页报错），条目保持 unknown 暂扣，
-   * 成功后经 hgCanonicalSignals 触发 groups 重归类到正确页签。
-   * 请求登记先行（成败都登记），同作用域内不重复查同一 ID。 */
+  /* ── F4b 补判＋fix322 标记升级：性质未决定的原生条目按 ID 查
+   * Detail 规范信号——触发门 needsCanonicalKindLookup（共用出处）：
+   * 无自带标记且集数 ≤1 者都查（搜索载荷恒无标记；1 集与普通视频
+   * 同形、必须靠 Detail 的 tracking 品类标记裁决，fix322 前只查
+   * 信号缺失者、单集短剧被结构直判放行进视频页签）；规范信号经
+   * kindSignalOfDetail 单点构造（集数＋品类标记，摘字段不许再丢
+   * 标记）。并发 4（同热搜标签补查先例）；失败静默（不弹窗、不整
+   * 页报错），条目保持 unknown 暂扣，成功后经 hgCanonicalSignals
+   * 触发 groups 重归类到正确页签。请求登记先行（成败都登记），
+   * 同作用域内不重复查同一 ID。 */
   useEffect(() => {
     if (!active || !hgVideo?.items.length) return;
     const queue = hgVideo.items.filter((v) => {
       const key = `${envKey}:${v.id}`;
-      return !hasEpisodeStructureSignal(v) && !kindLookupRequested.current.has(key);
+      return needsCanonicalKindLookup(v) && !kindLookupRequested.current.has(key);
     });
     if (!queue.length) return;
     queue.forEach((v) => kindLookupRequested.current.add(`${envKey}:${v.id}`));
@@ -271,7 +276,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
         const v = queue.shift()!;
         try {
           const d = await api.video(v.id);
-          if (d) loaded[`${envKey}:${v.id}`] = { total_episodes: d.total_episodes, episode_count: d.episode_count, episodes: d.episodes };
+          if (d) loaded[`${envKey}:${v.id}`] = kindSignalOfDetail(d);
         } catch { /* 静默：补不到保持 unknown 安全侧 */ }
       }
     };

@@ -695,8 +695,8 @@
     },
     {
       "id": "fix321-f4-browse-partition",
-      "item": "3.2.1修复F4线 分类浏览面共用 partitionCardsByKind 按性质分组（定义＋Category 消费）",
-      "symbol": "partitionCardsByKind",
+      "item": "3.2.1修复F4线 分类浏览面按性质分组（定义＋Category 消费）；fix322 升级：最终裁决改标记优先的 partitionCardsByResolvedKind（见 fix322-kind-* 条目），本条改绑新符号",
+      "symbol": "partitionCardsByResolvedKind",
       "files": [
         "src/shared/lib/contentKind.ts",
         "src/features/category/Category.tsx"
@@ -705,8 +705,8 @@
     },
     {
       "id": "fix321-f4-channel-kind-filter",
-      "item": "3.2.1修复F4线 视频频道分页 incoming 按性质剔除剧集组再入列表",
-      "symbol": "partitionCardsByKind(rawItems).video",
+      "item": "3.2.1修复F4线 视频频道分页 incoming 按性质剔除剧集组再入列表；fix322 升级：补判 Detail 品类标记后经统一裁决只入 video 组，本条改绑新符号",
+      "symbol": "partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video",
       "files": [
         "src/features/category/Category.tsx"
       ],
@@ -1171,6 +1171,50 @@
       "item": "吃瓜详情加载判读埋点 post_detail.load（注释口径＋trace 调用）",
       "min": 2,
       "symbol": "post_detail.load"
+    },
+    {
+      "id": "fix322-kind-marker-extraction",
+      "item": "fix322标记线 Detail 品类标记单点提取 kindSignalOfDetail（shared 定义＋Category/Search/useSearchResults 三面补判共用构造，摘字段不丢 tracking 标记）",
+      "symbol": "kindSignalOfDetail",
+      "files": [
+        "src/shared/lib/contentKind.ts",
+        "src/features/category/Category.tsx",
+        "src/features/search/Search.tsx",
+        "src/features/search/useSearchResults.ts"
+      ],
+      "min": 4
+    },
+    {
+      "id": "fix322-kind-lookup-gate",
+      "item": "fix322标记线 补判触发共用门 needsCanonicalKindLookup（无自带标记且集数 ≤1 才查 Detail；shared 定义＋三面消费）",
+      "symbol": "needsCanonicalKindLookup",
+      "files": [
+        "src/shared/lib/contentKind.ts",
+        "src/features/category/Category.tsx",
+        "src/features/search/Search.tsx",
+        "src/features/search/useSearchResults.ts"
+      ],
+      "min": 4
+    },
+    {
+      "id": "fix322-kind-resolver",
+      "item": "fix322标记线 统一裁决 resolveHuangguoKind（标记优先、结构决定性兜底、无标记单集 unknown；shared 定义＋搜索层 re-export 同源）",
+      "symbol": "resolveHuangguoKind",
+      "files": [
+        "src/shared/lib/contentKind.ts",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix322-kind-detail-tracking",
+      "item": "fix322标记线 Detail 类型声明 tracking.drama_type_id 品类标记契约（types 声明＋contentKind 提取消费）",
+      "symbol": "drama_type_id",
+      "files": [
+        "src/shared/api/types.ts",
+        "src/shared/lib/contentKind.ts"
+      ],
+      "min": 2
     }
   ]
 }
