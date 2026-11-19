@@ -1099,11 +1099,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     videoRef.current?.trace("seek.input.move", { input: "mobile_bar" });
     barSeekTo(e.clientX, e.clientY);
   };
-  const onBarUp = (e: React.PointerEvent<HTMLDivElement>) => {
+  const onBarUp = (e: React.PointerEvent<HTMLDivElement>, cancelled = false) => {
     if (!barScrub.current) return;
     barScrub.current = false;
     e.stopPropagation();
-    const pct = barDrag.current?.moved ? barPctAt(e.clientX, e.clientY) : null;
+    /* pointercancel 只清拖动态、不提交 seek（整改 B9，与主手势面 onUp(true) 口径一致） */
+    const pct = !cancelled && barDrag.current?.moved ? barPctAt(e.clientX, e.clientY) : null;
     barDrag.current = null;
     if (pct != null && duration) {
       const target = pct * duration;
@@ -1286,7 +1287,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     /* 分类只认解码/格式证据：旧正则的裸 mediaError 会把 bufferStalled/bufferFull
                        等非解码 fatal 也锁死（审计实测命中）；hls 串形如 mediaError/<details>，
                        原生串靠 mediaErrors 的 (decode)/(format) token 命中。 */
-                    const decodeErr = /bufferAppend|decode|SRC_NOT_SUPPORTED|format/i.test(m);
+                    const decodeErr = /decode|SRC_NOT_SUPPORTED|format/i.test(m);
                     if (decodeErr && preferHevc && hevcUrl && !hevcDeadKeys.has(hevcKey)) {
                       setHevcDeadKeys((prev) => new Set(prev).add(hevcKey));
                       toast("本集高清播不了，已切标准", "info");
@@ -1474,7 +1475,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     </div>
                     )}
                     <div data-feed-scrub-zone="true" ref={barRef} className="mx-4 mt-2 relative" style={{ height: 14, touchAction: "none" }}
-                      onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
+                      onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={(e) => onBarUp(e, true)}>
                       {/* 轨道：几乎看不见，只暗示可拖动 */}
                       <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full" style={{ background: "rgba(255,255,255,.1)" }}>
                         <PlaybackProgress clock={playbackClock} duration={duration} preview={barPct} className="h-full rounded-full"
@@ -1641,7 +1642,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           </div>
           <div className="px-4" style={{ height: 22 }}>
             <div data-feed-scrub-zone="true" ref={barRef} className="relative h-full" style={{ touchAction: "none" }}
-              onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
+              onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={(e) => onBarUp(e, true)}>
               <div className="absolute inset-x-0 bottom-[8px] h-[2.5px] rounded-full" style={{ background: "rgba(255,255,255,.3)" }}>
                 <PlaybackProgress clock={playbackClock} duration={duration} preview={barPct} className="h-full rounded-full bg-white" />
               </div>
