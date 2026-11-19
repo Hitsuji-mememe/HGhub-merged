@@ -9,7 +9,12 @@ import { nativeFallbackState, noteNativeFallback, playbackSource, resetNativeFal
 import { createStallWatchdog } from "../src/features/playback/stallWatchdogWiring";
 import { createSrPerfTracker, effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
 import { createSrDensitySampler } from "../src/features/playback/useSrDensity";
-import { evaluateSrGatesV2 } from "../src/shared/diagnostics/gpuProbe";
+import { evaluateSrGatesV2, runSrProbe, srProbeCacheKey } from "../src/shared/diagnostics/gpuProbe";
+import * as webgpuSrModule from "../src/features/playback/webgpuSr";
+import * as srCanvasModule from "../src/features/playback/SrCanvas";
+import SrCanvas from "../src/features/playback/SrCanvas";
+import * as webgpuCanvasModule from "../src/features/playback/WebGpuSrCanvas";
+import { registerSrProbeV2 } from "../src/features/playback/srProbe";
 import { capRecordByFifo, scopedPlayKey, setCapped } from "../src/features/feed/cacheMap";
 import { prewarmRetryDue } from "../src/features/feed/prewarm";
 import { createFragThroughputReporter, originOf } from "../src/features/playback/playbackThroughput";
@@ -341,6 +346,69 @@ function run() {
     results.b1_scope_only_same_content = pc.isScopeOnlyChange ? pc.isScopeOnlyChange("a:7:42:2", "a:8:42:2", "42:2", "42:2") : "missing";
     results.b1_scope_only_diff_content = pc.isScopeOnlyChange ? pc.isScopeOnlyChange("a:7:42:2", "a:8:43:1", "42:2", "43:1") : "missing";
     results.b1_scope_only_first_key = pc.isScopeOnlyChange ? pc.isScopeOnlyChange("", "a:8:42:2", "42:2", "42:2") : "missing";
+  }
+
+  /* ── B17-4 webgpuSr 降级门排除快速域（整改 B17-4）：纯状态机
+   * createSrDegradeGate——≥2x 域样本不入窗、退出清窗；正常域连续
+   * 两轮 30 帧均值超预算才 step。旧引擎内联判定无此导出且不排除
+   * 快速域，结果为 "missing"（红）。 ── */
+  {
+    const wg = webgpuSrModule as unknown as {
+      createSrDegradeGate?: () => { sample: (costMs: number, frameIntervalMs: number, fastRate: boolean) => "none" | "step" };
+    };
+    if (!wg.createSrDegradeGate) {
+      results.b17_gate_fast_domain_no_step = "missing";
+      results.b17_gate_step_at_31 = "missing";
+      results.b17_gate_window_restarts_after_fast = "missing";
+    } else {
+      const g1 = wg.createSrDegradeGate();
+      let fastStep = "none";
+      for (let i = 0; i < 100; i++) if (g1.sample(100, 33.3, true) === "step") fastStep = "step";
+      results.b17_gate_fast_domain_no_step = fastStep;
+      const g2 = wg.createSrDegradeGate();
+      let at30 = "none"; let at31 = "none";
+      for (let i = 1; i <= 31; i++) { const r = g2.sample(50, 33.3, false); if (i === 30) at30 = r; if (i === 31) at31 = r; }
+      results.b17_gate_step_at_31 = at30 === "none" && at31 === "step" ? "step" : `${at30}/${at31}`;
+      const g3 = wg.createSrDegradeGate();
+      for (let i = 0; i < 29; i++) g3.sample(50, 33.3, false);
+      g3.sample(100, 33.3, true);
+      let afterFast = "none";
+      for (let i = 0; i < 29; i++) if (g3.sample(50, 33.3, false) === "step") afterFast = "step";
+      results.b17_gate_window_restarts_after_fast = afterFast;
+    }
+  }
+
+  /* ── B17-2 WebGPU 档位回报口径（整改 B17-2）：呈现档 = srDemote
+   * (mode, degrade)——degrade 0 原档、1 降一档。旧组件只在首帧报一
+   * 次原 mode、无此导出，结果为 "missing"（红）。 ── */
+  {
+    const wc = webgpuCanvasModule as unknown as {
+      webgpuReportedMode?: (mode: string, degrade: 0 | 1 | 2) => string;
+    };
+    results.b17_reported_mode_degrade0 = wc.webgpuReportedMode ? wc.webgpuReportedMode("natural", 0) : "missing";
+    results.b17_reported_mode_degrade1 = wc.webgpuReportedMode ? wc.webgpuReportedMode("natural", 1) : "missing";
+  }
+
+  /* ── B17-3 死亡闩锁全局化（整改 B17-3）：note 后全部订阅者被通知
+   * 且闩锁置位。旧实现只有触发实例自知、无订阅导出，结果为
+   * "missing"（红）。测毕用测试复位口恢复闩锁，不污染后续探针。 ── */
+  {
+    const sc = srCanvasModule as unknown as {
+      subscribeWebgpuSessionDeath?: (fn: () => void) => () => void;
+      noteWebgpuSessionDeath?: () => void;
+      resetWebgpuSessionDeathForTests?: () => void;
+    };
+    if (!sc.subscribeWebgpuSessionDeath || !sc.noteWebgpuSessionDeath) {
+      results.b17_death_notifies_all = "missing";
+    } else {
+      let a = 0; let b = 0;
+      const offA = sc.subscribeWebgpuSessionDeath(() => { a += 1; });
+      sc.subscribeWebgpuSessionDeath(() => { b += 1; });
+      sc.noteWebgpuSessionDeath();
+      results.b17_death_notifies_all = a === 1 && b === 1 && srCanvasModule.isWebgpuSessionDead() ? "notified" : `a=${a},b=${b}`;
+      offA();
+      sc.resetWebgpuSessionDeathForTests?.();
+    }
   }
 
   /* ── C 超分判档（模拟源参数 + 真实采样锚点） ── */
@@ -841,6 +909,36 @@ import * as stallHealModule from "../src/features/feed/stallHeal";
     api!.clearKey(api!.keyFor(5, 1));
     const clearRemovesBoth = api!.getMain(api!.keyFor(5, 1)) === undefined && api!.getHevc(api!.keyFor(5, 1)) === undefined;
     Object.assign(window, { __b1: { migratedMain, migratedHevc, otherGone, skipBlocksMigration, clearRemovesBoth } });
+    root.unmount();
+  })();
+}
+
+/* ── B17-1 探针等待对齐＋接管探针（整改 B17-1/B17-5）：探针未完成
+ * 时挂载的 SrCanvas 处于等待态；随后注入 30 天内有效的持久化全过
+ * 结果（gatesPass＋recommendedPath=copy，不重跑探针 runner）→ 该面
+ * 必须经 onPipelineChange 报出 engaged=true（接管 WebGPU 路径）。
+ * 开关未翻（SR_MODEL_DEFAULT_ENABLED=false）或等待上限只有 ~40s
+ * 且无人替挂载面调 runSrProbe 时，engaged 永不为 true（红）。 ── */
+{
+  const seen: boolean[] = [];
+  const video = document.createElement("video");
+  const videoRef = { current: video as HTMLVideoElement | null };
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  void (async () => {
+    root.render(<SrCanvas videoRef={videoRef} mode="natural" onPipelineChange={(v) => { seen.push(v); }} />);
+    await sleep(300);
+    const waitingBeforeProbe = !seen.includes(true);
+    try {
+      registerSrProbeV2();
+      localStorage.setItem(srProbeCacheKey(), JSON.stringify({ at: new Date().toISOString(), gatesPass: true, recommendedPath: "copy" }));
+      await runSrProbe();
+    } catch { /* 注册/持久化异常时接管自然失败，结果如实为 false */ }
+    const t0 = Date.now();
+    while (Date.now() - t0 < 6000 && !seen.includes(true)) await sleep(100);
+    Object.assign(window, { __srTakeover: { waitingBeforeProbe, sawEngaged: seen.includes(true), seen: [...seen] } });
     root.unmount();
   })();
 }
