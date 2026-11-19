@@ -222,10 +222,20 @@ function checkResult(sourceId: string, over: Partial<SourceSelfCheckResult> = {}
   assert.ok(diag.includes("adapterParamsSegmentText("), "registryDiag 明细呈现参数来源");
   assert.ok(diag.includes("classifySourceFault("), "registryDiag 明细呈现故障类标注");
   const manifestSrc = read("./manifest.ts");
-  assert.ok(manifestSrc.includes('"3.2.1"'), "FALLBACK_APP_VERSION 与 package.json 3.2.1 同步");
+  // 契约适配（3.3.0 集成，2026-11-19）：原断言写死 "3.2.1"，版本 bump 后
+  // 必然假红；保护的行为是「FALLBACK_APP_VERSION 与 package.json 同步」，改为
+  // 动态读 package.json 版本断言，任何版本下都成立且不削弱覆盖（同 infra 线适配）。
+  const pkgVersion = (JSON.parse(read("../../../package.json")) as { version: string }).version;
+  assert.ok(manifestSrc.includes(`"${pkgVersion}"`), `FALLBACK_APP_VERSION 与 package.json ${pkgVersion} 同步`);
   // 覆盖面：内置注册表中 hls-site 源即本机制覆盖名单（枚举 >0）
   const covered = getBuiltinRegistry().filter((s) => s.adapter.template === "hls-site");
-  assert.ok(covered.length >= 10, `hls-site 覆盖源应为两位数，实际 ${covered.length}`);
+  // 契约适配（3.3.0 集成，2026-11-19）：原断言「两位数」基于瘦身前 52 源注册表；
+  // 3.2.2 瘦身后保留集 hls-site 源为个位数。保护的行为是「机制覆盖名单＝注册表
+  // hls-site 全集、枚举非空且含保留里番/图片源」，改按保留集实名断言，不削弱覆盖。
+  assert.ok(covered.length >= 3, `hls-site 覆盖源应为保留集全集，实际 ${covered.length}`);
+  for (const id of ["hanime-tv", "pornpics", "hentaihaven"]) {
+    assert.ok(covered.some((s) => s.id === id), `hls-site 覆盖名单应含 ${id}`);
+  }
 }
 
 /* ── 诊断段文本 ── */
