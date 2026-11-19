@@ -88,8 +88,10 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
 {
   const plan = buildSelfCheckPlan(getBuiltinRegistry(), {}, NOW);
   const ids = plan.map((s) => s.id);
-  for (const id of ["huangguo", "91video", "swag", "pornpics"]) {
-    assert.ok(ids.includes(id), `已启用源 ${id} 在自检名单`);
+  // 覆盖口径（2026-11-19 20:22 产品瘦身定版）：验收例源以保留集为准——
+  // 黄果＋吃瓜（黑料）＋图片（CosplayTele/PornPics）＋里番（Hanime.tv/Rule34Video）。
+  for (const id of ["huangguo", "feedheiliao", "cosplaytele", "pornpics", "hanime-tv", "rule34video"]) {
+    assert.ok(ids.includes(id), `保留集已启用源 ${id} 在自检名单`);
   }
   for (const id of ["jabletv", "missav", "iwara"]) {
     assert.ok(!ids.includes(id), `未启用源 ${id} 不进自检名单`);
@@ -111,12 +113,12 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
 /* ── (c) 频率上限：结果未过期（TTL 内）不重探、过期才重探 ── */
 {
   const fresh: SourceSelfCheckResult = {
-    sourceId: "swag", at: NOW - 1000, listOk: true, itemCount: 3,
+    sourceId: "pornpics", at: NOW - 1000, listOk: true, itemCount: 3,
     listFailure: null, detail: "ok", detailFailure: null, requests: 2,
   };
   const stale = { ...fresh, at: NOW - SELF_CHECK_TTL_MS - 1 };
-  assert.ok(!buildSelfCheckPlan(getBuiltinRegistry(), { swag: fresh }, NOW).some((s) => s.id === "swag"), "TTL 内不重探");
-  assert.ok(buildSelfCheckPlan(getBuiltinRegistry(), { swag: stale }, NOW).some((s) => s.id === "swag"), "过期后重探");
+  assert.ok(!buildSelfCheckPlan(getBuiltinRegistry(), { pornpics: fresh }, NOW).some((s) => s.id === "pornpics"), "TTL 内不重探");
+  assert.ok(buildSelfCheckPlan(getBuiltinRegistry(), { pornpics: stale }, NOW).some((s) => s.id === "pornpics"), "过期后重探");
 }
 
 /* ── (c) 预算：每源最多 2 请求（列表 1＋详情 1），失败形态分开记 ── */
@@ -167,7 +169,7 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   const storage = fakeStorage();
   bindSelfCheckStorage(storage);
   const r: SourceSelfCheckResult = {
-    sourceId: "swag", at: NOW, listOk: false, itemCount: 0,
+    sourceId: "pornpics", at: NOW, listOk: false, itemCount: 0,
     listFailure: "解析为空", detail: "skipped", detailFailure: null, requests: 1,
   };
   saveSelfCheckResult(r);
@@ -175,8 +177,8 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   bindSelfCheckStorage(null);
   bindSelfCheckStorage(storage); // 重绑同一存储 = 模拟进程重启后读盘
   const back = getSelfCheckResults();
-  assert.equal(back.swag?.listFailure, "解析为空", "重启后自检结果仍可读");
-  assert.equal(back.swag?.at, NOW, "最近自检时间落盘");
+  assert.equal(back.pornpics?.listFailure, "解析为空", "重启后自检结果仍可读");
+  assert.equal(back.pornpics?.at, NOW, "最近自检时间落盘");
   bindSelfCheckStorage(null);
 }
 
@@ -184,21 +186,21 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
 {
   const sources = [
     { id: "huangguo", stableId: "source-001" },
-    { id: "swag", stableId: "source-013" },
-    { id: "91video", stableId: "source-003" },
+    { id: "pornpics", stableId: "source-015" },
+    { id: "hanime-tv", stableId: "source-006" },
   ];
   const results: Record<string, SourceSelfCheckResult> = {
-    swag: { sourceId: "swag", at: NOW, listOk: false, itemCount: 0, listFailure: "解析为空", detail: "skipped", detailFailure: null, requests: 1 },
+    pornpics: { sourceId: "pornpics", at: NOW, listOk: false, itemCount: 0, listFailure: "解析为空", detail: "skipped", detailFailure: null, requests: 1 },
     huangguo: { sourceId: "huangguo", at: NOW, listOk: true, itemCount: 12, listFailure: null, detail: "ok", detailFailure: null, requests: 2 },
   };
   const lines = selfCheckDiagLines(sources, results);
   const joined = lines.join("\n");
   assert.ok(joined.includes("最近自检"), "自检行标注最近自检口径（与本会话取页分开）");
-  assert.ok(joined.includes("source-013"), "失败源以稳定编号出自检行");
+  assert.ok(joined.includes("source-015"), "失败源以稳定编号出自检行");
   assert.ok(joined.includes("解析为空"), "自检行含失败形态");
   assert.ok(joined.includes("source-001"), "成功源同样出自检行");
   assert.ok(joined.includes("未自检 1"), "无结果源计入未自检（不冒充未发生）");
-  const seg = selfCheckSegmentText(results.swag);
+  const seg = selfCheckSegmentText(results.pornpics);
   assert.ok(seg.includes("最近自检") && seg.includes("解析为空"), "App 内明细段含口径与失败形态");
   const diag = read("./registryDiag.ts");
   assert.ok(diag.includes("selfCheckDiagLines("), "导出路径 sourceHealthLines 消费自检行构建器");
