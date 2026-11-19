@@ -312,12 +312,27 @@ pub async fn fetch_page_text_with_headers(
     Ok(String::from_utf8_lossy(&body.into_bytes()).into_owned())
 }
 
+/// fetch_bytes 的默认流式上限（分片档，P2-13 资源类分档：分片
+/// 16MB/图片 8MB/清单与 API 4MB）：旧实现 resp.bytes() 整段读入、
+/// 无 Content-Length 预检也无分块上限，服务器回全量体时内存峰值
+/// 不受控。现统一流式累计、超限中断报错。
+pub const FETCH_BYTES_MAX: usize = 16 * 1024 * 1024;
+
 /// 拉原始字节（图片 / m3u8 / 分片），保留重定向后的最终 URL。
 pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String> {
     fetch_bytes_with_url(url).await.map(|(_, ctype, bytes)| (ctype, bytes))
 }
 
+/// 同 fetch_bytes，按调用方资源类指定流式上限（如图片 8MB）。
+pub async fn fetch_bytes_capped(url: &str, max_bytes: usize) -> Result<(Option<String>, Vec<u8>), String> {
+    fetch_bytes_with_url_cap(url, max_bytes).await.map(|(_, ctype, bytes)| (ctype, bytes))
+}
+
 pub async fn fetch_bytes_with_url(url: &str) -> Result<(String, Option<String>, Vec<u8>), String> {
+    fetch_bytes_with_url_cap(url, FETCH_BYTES_MAX).await
+}
+
+async fn fetch_bytes_with_url_cap(url: &str, max_bytes: usize) -> Result<(String, Option<String>, Vec<u8>), String> {
     let request = NEXT_REQUEST.fetch_add(1, Ordering::Relaxed);
     let resource = crate::playback_log::resource_id(url);
     let mut attempt = 0;
@@ -343,7 +358,7 @@ pub async fn fetch_bytes_with_url(url: &str) -> Result<(String, Option<String>, 
             let mut status = None;
             let mut headers_ms = None;
             let result = async {
-                let resp = get_with_dns(&url, Duration::from_secs(20), None, Some(&referer), using_public_dns).await?;
+                let mut resp = get_with_dns(&url, Duration::from_secs(20), None, Some(&referer), using_public_dns).await?;
                 status = Some(resp.status().as_u16());
                 headers_ms = Some(started.elapsed().as_millis() as u64);
                 if !resp.status().is_success() {
@@ -355,8 +370,14 @@ pub async fn fetch_bytes_with_url(url: &str) -> Result<(String, Option<String>, 
                     .get(reqwest::header::CONTENT_TYPE)
                     .and_then(|v| v.to_str().ok())
                     .map(|s| s.to_string());
-                let bytes = resp.bytes().await.map_err(|e| err_text(&e))?.to_vec();
-                Ok((final_url, ctype, bytes))
+                if resp.content_length().is_some_and(|n| n > max_bytes as u64) {
+                    return Err(format!("响应体超过 {} 字节上限", max_bytes));
+                }
+                let mut body = CappedBody::new(max_bytes);
+                while let Some(chunk) = resp.chunk().await.map_err(|e| err_text(&e))? {
+                    body.push(&chunk)?;
+                }
+                Ok((final_url, ctype, body.into_bytes()))
             }.await;
             if using_public_dns {
                 if let Ok(mut routes) = MEDIA_DNS_ROUTES.lock() {

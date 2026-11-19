@@ -58,6 +58,9 @@ pub async fn get_with_dns_h(
     .map_err(|_| "请求超时".to_string())?
 }
 
+/// Range 响应体流式上限（分片档，与 net::edge::FETCH_BYTES_MAX 同值）。
+const RANGE_BODY_MAX_BYTES: usize = 16 * 1024 * 1024;
+
 /// 一次 Range 抓取的结果（状态码 / 总长 / 类型 / 字节）。
 pub struct RangeFetch {
     pub status: u16,
@@ -142,7 +145,18 @@ pub async fn fetch_range_direct(
         .get(reqwest::header::ETAG)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
-    let bytes = resp.bytes().await.map_err(|e| err_text(&e))?.to_vec();
+    // 流式上限（P2-13）：206 的体量由请求区间界定，但服务器忽略
+    // Range 回 200 全量体时旧实现 resp.bytes() 先全量入内存再判
+    // 失败。分片档上限 16MB，超限中断报错（外层回退逻辑接管）。
+    let mut resp = resp;
+    if resp.content_length().is_some_and(|n| n > RANGE_BODY_MAX_BYTES as u64) {
+        return Err(format!("响应体超过 {} 字节上限", RANGE_BODY_MAX_BYTES));
+    }
+    let mut body = crate::net::CappedBody::new(RANGE_BODY_MAX_BYTES);
+    while let Some(chunk) = resp.chunk().await.map_err(|e| err_text(&e))? {
+        body.push(&chunk)?;
+    }
+    let bytes = body.into_bytes();
     // fix(rust-audit): 206 此前只验状态+长度、从不核对 Content-Range 偏移。
     // 服务器（或重定向落点）若回了另一段同长度字节，拼片总长照样对得上，
     // 损坏分片会被当好片缓存/播出。这里要求 206 必带合法 Content-Range，

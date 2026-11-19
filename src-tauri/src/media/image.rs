@@ -1,6 +1,7 @@
 //! Image cache and AES-128-CBC cover decryption.
 
-use crate::net::fetch_bytes;
+use super::ByteLru;
+use crate::net::fetch_bytes_capped;
 use aes::cipher::{BlockDecrypt, KeyInit};
 use aes::Aes128;
 use once_cell::sync::Lazy;
@@ -10,8 +11,10 @@ use std::sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex, Weak};
 const IMG_KEY: &[u8] = b"f5d965df75336270";
 const IMG_IV: &[u8] = b"97b60394abc2fbe1";
 
-static IMG_CACHE: Lazy<Mutex<HashMap<String, Arc<Vec<u8>>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+/// 封面缓存（P2-13）：真 LRU＋总字节预算 32MB＋单条上限 8MB——旧制
+/// 只有 240 条条数上限、无单条/总字节上限，异常大图单条即可顶穿。
+static IMG_CACHE: Lazy<Mutex<ByteLru<Arc<Vec<u8>>>>> =
+    Lazy::new(|| Mutex::new(ByteLru::new(IMG_CACHE_MAX, IMG_CACHE_BUDGET_BYTES)));
 type ImageResult = Result<(String, Arc<Vec<u8>>), String>;
 type ImageLoad = tokio::sync::OnceCell<ImageResult>;
 // 背景、视频 poster 和详情可能同时请求同一张图，共享下载和解密。
@@ -20,6 +23,9 @@ static IMG_LOADING: Lazy<Mutex<HashMap<(u64, String), Weak<ImageLoad>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static IMG_GENERATION: AtomicU64 = AtomicU64::new(0);
 const IMG_CACHE_MAX: usize = 240;
+const IMG_CACHE_BUDGET_BYTES: usize = 32 * 1024 * 1024;
+/// 图片类下载上限（P2-13 资源类分档：分片 16MB/图片 8MB/清单 4MB）。
+const IMG_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 /* ───────────────────────── AES ───────────────────────── */
 
@@ -78,7 +84,7 @@ pub async fn load_image(url: &str) -> ImageResult {
     let req_scope = crate::net::request_scope();
     let generation = IMG_GENERATION.load(Ordering::Acquire);
     let cache_key = format!("{}:{}:{generation}:{url}", u8::from(req_scope.strict), req_scope.generation);
-    if let Some(hit) = IMG_CACHE.lock().unwrap().get(&cache_key).cloned() {
+    if let Some(hit) = IMG_CACHE.lock().unwrap().get(&cache_key) {
         let kind = image_kind(&hit).unwrap_or("image/jpeg");
         return Ok((kind.to_string(), hit));
     }
@@ -99,11 +105,11 @@ pub async fn load_image(url: &str) -> ImageResult {
 
 async fn download_image(url: &str, cache_key: &str, req_scope: crate::net::RequestScope, generation: u64) -> ImageResult {
     // 缓存检查与领取任务之间，另一请求可能已完成。
-    if let Some(hit) = IMG_CACHE.lock().unwrap().get(cache_key).cloned() {
+    if let Some(hit) = IMG_CACHE.lock().unwrap().get(cache_key) {
         let kind = image_kind(&hit).unwrap_or("image/jpeg");
         return Ok((kind.to_string(), hit));
     }
-    let (_, bytes) = fetch_bytes(url).await?;
+    let (_, bytes) = fetch_bytes_capped(url, IMG_MAX_BYTES).await?;
     let plain = if image_kind(&bytes).is_some() {
         bytes
     } else {
@@ -111,14 +117,13 @@ async fn download_image(url: &str, cache_key: &str, req_scope: crate::net::Reque
         strip_padding(dec)
     };
     let kind = image_kind(&plain).ok_or_else(|| "封面格式无效".to_string())?.to_string();
+    let len = plain.len();
     let arc = Arc::new(plain);
     let mut cache = IMG_CACHE.lock().unwrap();
     // 清缓存或切换配置代次后，旧下载可完成当前显示，但不再把结果写回新一代缓存。
     if IMG_GENERATION.load(Ordering::Acquire) == generation && crate::net::request_scope() == req_scope {
-        if cache.len() >= IMG_CACHE_MAX {
-            if let Some(key) = cache.keys().next().cloned() { cache.remove(&key); }
-        }
-        cache.insert(cache_key.to_string(), arc.clone());
+        // 淘汰在 ByteLru 内：访问序 LRU＋总字节预算（P2-13）。
+        cache.insert(cache_key.to_string(), arc.clone(), len);
     }
     Ok((kind, arc))
 }
