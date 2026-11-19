@@ -8,11 +8,11 @@ import { createRoot } from "react-dom/client";
 import { AlbumViewer } from "../src/features/sources/AlbumViewer";
 import "../src/index.css";
 
-const images = [
-  "https://fixture.invalid/album/1.jpg",
-  "https://fixture.invalid/album/2.jpg",
-  "https://fixture.invalid/album/3.jpg",
-];
+/* 张数经 ?n= 注入（默认 3 与既有场景同形态；缩略图条场景传 n=146
+ * 复现真机大图集——条手势隔离/快速定位/跟随同步只在大图集下成立）。 */
+const nParam = Number(new URLSearchParams(location.search).get("n"));
+const count = Number.isFinite(nParam) && nParam >= 1 ? Math.min(300, Math.floor(nParam)) : 3;
+const images = Array.from({ length: count }, (_, i) => `https://fixture.invalid/album/${i + 1}.jpg`);
 
 function App() {
   const [index, setIndex] = useState(0);
