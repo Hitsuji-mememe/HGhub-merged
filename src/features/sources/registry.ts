@@ -81,7 +81,7 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/watch/", detailPath: "/watch/{id}" } },
     baseUrls: ["https://www.redgifs.com"],
     enabled: true, order: 27, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测（官方 API 亦可达时改走 API）",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：官网为 SPA 壳、SSR 无条目；官方 API 实测 /v2/auth/temporary 返回 200 发临时令牌、但 /v2/gifs/search 带令牌仍 401，且 fetchPage 契约不支持 Authorization header——须取页契约支持 header（或令牌注入）后才可接 → probe",
   },
   {
     id: "rule34video", displayName: "Rule34Video", kind: "video", category: "video",
