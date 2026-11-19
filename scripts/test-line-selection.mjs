@@ -275,20 +275,34 @@ try {
     await page.waitForFunction(() => window.lineSelectionSnapshot?.ready);
     await page.evaluate(() => {
       window.lineSelectionFixture.autoMode = "confirm-pending";
-      window.lineSelectionControls.setConfirmDelayForTests(300);
+      /* 确认延迟须越过 pickLine 的 15s 非强制冷却（生产 20s 同理），
+       * 否则确认轮会被冷却挡下、与计时器隔离问题混淆。 */
+      window.lineSelectionControls.setConfirmDelayForTests(16_000);
     });
     const beforeConfirm = (await calls(page, "line_auto")).length;
     await page.evaluate(() => window.lineSelectionControls.pickLine("fixture-confirm", true));
     await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 1);
-    /* 关闭→重开：旧 confirm 计时器必须被清 + epoch 过期，重开的手动轮后不得再多发 */
+    /* 正向用例（整改 A1，Hark G2 P0-1）：confirm-pending 轮次落定后，
+     * 确认计时器必须真的在延迟后发出第二轮 pickLine("confirm")——旧实现
+     * 里确认计时器与健康调度共用注册表、被同轮 finally 的 schedule()
+     * 清掉，此等待必然超时（恒红），修复后到点必达。 */
+    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 2, { timeout: 25_000 });
+    const confirmRound = await page.evaluate(async () => {
+      const mod = await import("/src/shared/network/autoLine.ts");
+      return { rounds: mod.recentPickRounds().length, reason: mod.lastPickRound()?.reason ?? null };
+    });
+    assert.ok(confirmRound.rounds >= 2, "confirm round must be recorded as a real second round");
+    assert.equal(confirmRound.reason, "confirm-pending", "second round is the confirm round (fixture stays confirm-pending)");
+    /* 关闭→重开：第二轮排下的 confirm 计时器必须随 epoch 失效，重开的
+     * 手动轮后、越过原确认时刻也不得多发一轮。 */
     await page.evaluate(async () => {
       await window.lineSelectionControls.setAutoLine(false);
       window.lineSelectionFixture.autoMode = "success";
       await window.lineSelectionControls.setAutoLine(true);
     });
-    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 2);
-    await new Promise(r => setTimeout(r, 800));
-    assert.equal((await calls(page, "line_auto")).length, beforeConfirm + 2, "stale confirm timer must not fire an extra line_auto");
+    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 3);
+    await new Promise(r => setTimeout(r, 17_000));
+    assert.equal((await calls(page, "line_auto")).length, beforeConfirm + 3, "stale confirm timer must not fire an extra line_auto");
     assert.equal((await calls(page, "line_try_main")).length, 0, "line_try_main wrapper removed");
     /* breakerBlocked：被熔断拦截的一轮要进 lastPickRound 供诊断/设置页明示 */
     await page.evaluate(() => { window.lineSelectionFixture.autoMode = "breaker"; });
