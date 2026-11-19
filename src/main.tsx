@@ -13,6 +13,10 @@ import { scheduleGpuProbe } from "./shared/diagnostics/gpuProbe";
 import { registerSrProbeV2 } from "./features/playback/srProbe";
 import { hasAcceptedAgreement } from "./shared/storage/usageAgreement";
 import { setFetchPage } from "./features/sources/adapters/fetchPage";
+import { recordFetchResult } from "./features/sources/adapters/fetchHealth";
+import { getRegistryInfo } from "./features/sources/manifest";
+import { sourceHealthLines } from "./features/sources/registryDiag";
+import { registerSourceRegistryProvider, registerSourceHealthProvider } from "./shared/diagnostics/sourceRegistry";
 
 const loadAcceptedApp = () => import("./app/AcceptedApp");
 const AcceptedApp = lazy(loadAcceptedApp);
@@ -21,8 +25,31 @@ installPlaybackPageEvents();
 
 /* 多源取页通道接线（Muse 2026-11-19 根治包）：Rust source_fetch 命令已落地
  * （生产网络栈：目标校验/DNS 固定/逐跳重定向复检＋4MB 上限），在此一处注入，
- * 全部源适配器经 fetchPage 取页生效；契约见 features/sources/adapters/fetchPage.ts。 */
-setFetchPage((url) => invoke<string>("source_fetch", { url }));
+ * 全部源适配器经 fetchPage 取页生效；契约见 features/sources/adapters/fetchPage.ts。
+ * 飞行记录仪收口（同日）：包装层逐次埋点取页健康（成败/错误类别/耗时入
+ * fetchHealth＋统一时间线 source.fetch），源在用户网络下的健康状态从
+ * 诊断导出直接可见；埋点失败不影响取页（recordFetchResult 内部吞异常）。 */
+setFetchPage(async (url) => {
+  const t0 = performance.now();
+  try {
+    const html = await invoke<string>("source_fetch", { url });
+    recordFetchResult(url, true, Math.round(performance.now() - t0));
+    return html;
+  } catch (e) {
+    recordFetchResult(url, false, Math.round(performance.now() - t0), String(e));
+    throw e;
+  }
+});
+
+/* 源注册表诊断接线（Muse 2026-11-19 根治包·飞行记录仪收口）：注册表
+ * 本体在 features/sources，诊断报告在 shared——经 provider 钩子注入
+ * 版本串与每源健康行，报告的「状态快照」节据此呈现清单版本＋每源
+ * maturity/生效 origin/最近取页，shared 不反向依赖 features。 */
+registerSourceRegistryProvider(() => {
+  const info = getRegistryInfo();
+  return `清单 v${info.manifestVersion} · 来源 ${info.registrySource} · 内置 ${info.builtinCount} 源`;
+});
+registerSourceHealthProvider(() => sourceHealthLines());
 
 /* 运行期错误统一落到 debug.log，便于自查 */
 function report(kind: string, msg: string) {

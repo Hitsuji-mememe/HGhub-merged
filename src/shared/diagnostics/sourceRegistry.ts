@@ -16,3 +16,22 @@ export function sourceRegistryVersion(): string {
     return "内置注册表（版本读取失败）";
   }
 }
+
+/* 每源健康行 provider（Muse 2026-11-19 根治包·飞行记录仪收口）：
+ * 报告的「源健康」需要结构化数据（每源 maturity＋生效 origin＋最近
+ * 取页结果），而数据本体在 features/sources——与版本 provider 同
+ * 模式：启动处注册格式化函数，shared 只消费字符串行，不反向依赖
+ * features。未注册时返回空数组，报告如实标注未接。 */
+let healthProvider: (() => string[]) | null = null;
+
+export function registerSourceHealthProvider(fn: () => string[]): void {
+  healthProvider = fn;
+}
+
+export function sourceHealthLines(): string[] {
+  try {
+    return healthProvider?.() ?? [];
+  } catch {
+    return [];
+  }
+}
