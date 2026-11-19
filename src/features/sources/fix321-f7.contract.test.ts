@@ -88,10 +88,12 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
 {
   const plan = buildSelfCheckPlan(getBuiltinRegistry(), {}, NOW);
   const ids = plan.map((s) => s.id);
-  for (const id of ["huangguo", "91video", "swag", "pornpics"]) {
+  /* 断言适配（3.2.2 瘦身）：名单收口到保留集（91video/swag/jabletv/
+   * missav 已摘除注册表），资格口径不变。 */
+  for (const id of ["huangguo", "hanime-tv", "rule34video", "pornpics"]) {
     assert.ok(ids.includes(id), `已启用源 ${id} 在自检名单`);
   }
-  for (const id of ["jabletv", "missav", "iwara"]) {
+  for (const id of ["hanime1", "iwara"]) {
     assert.ok(!ids.includes(id), `未启用源 ${id} 不进自检名单`);
   }
   for (const id of ["meiridasai", "xiuren", "danbooru"]) {
@@ -101,7 +103,8 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   // （换现行域名 51cg1.com、maturity=probe、enabled=true），不再属 blocked 名单；
   // 原断言保护的「blocked 不探测」由上面三源接棒，本行改验解封后的新事实。
   assert.ok(ids.includes("51chigua"), "51chigua 已解 blocked（F2b），进自检名单");
-  assert.ok(!ids.includes("myfans"), "preview 源不进自检名单");
+  /* myfans 已于 3.2.2 瘦身摘除：注册表内已无 preview 源，preview
+   * 排除口径由下方合成 def 断言接棒（覆盖不降）。 */
   assert.equal(selfCheckEligible(fakeDef("x", { maturity: "preview" })), false, "preview 成熟度不合格");
   assert.equal(selfCheckEligible(fakeDef("x", { adapter: { template: "none" } })), false, "无适配器模板不合格");
   assert.equal(selfCheckEligible(fakeDef("x", { adapter: { template: "preview-only" } })), false, "preview-only 模板不合格");
@@ -111,12 +114,12 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
 /* ── (c) 频率上限：结果未过期（TTL 内）不重探、过期才重探 ── */
 {
   const fresh: SourceSelfCheckResult = {
-    sourceId: "swag", at: NOW - 1000, listOk: true, itemCount: 3,
+    sourceId: "hanime-tv", at: NOW - 1000, listOk: true, itemCount: 3,
     listFailure: null, detail: "ok", detailFailure: null, requests: 2,
   };
   const stale = { ...fresh, at: NOW - SELF_CHECK_TTL_MS - 1 };
-  assert.ok(!buildSelfCheckPlan(getBuiltinRegistry(), { swag: fresh }, NOW).some((s) => s.id === "swag"), "TTL 内不重探");
-  assert.ok(buildSelfCheckPlan(getBuiltinRegistry(), { swag: stale }, NOW).some((s) => s.id === "swag"), "过期后重探");
+  assert.ok(!buildSelfCheckPlan(getBuiltinRegistry(), { "hanime-tv": fresh }, NOW).some((s) => s.id === "hanime-tv"), "TTL 内不重探");
+  assert.ok(buildSelfCheckPlan(getBuiltinRegistry(), { "hanime-tv": stale }, NOW).some((s) => s.id === "hanime-tv"), "过期后重探");
 }
 
 /* ── (c) 预算：每源最多 2 请求（列表 1＋详情 1），失败形态分开记 ── */

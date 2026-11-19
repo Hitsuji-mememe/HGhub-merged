@@ -300,21 +300,6 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
           </div>
         </section>
 
-        {/* 预览专区（条目5）：myfans 单列分组，条目一律标注「仅预览」，不入正式源 */}
-        <section aria-label="预览专区" className="mb-5 a-rise">
-          <div className="flex items-center gap-3 mb-3">
-            <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IFlame size={18} strokeWidth={1.9} /></span>
-            <span role="heading" aria-level={2} className="block text-[16px] font-bold text-on leading-tight">预览专区</span>
-          </div>
-          {sourcesForCategory("preview", activeSources).map((s) => (
-            <Button key={s.id} onClick={() => { void api.openUrl(s.baseUrls[0]).catch(() => {}); }}
-              className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 text-left pressable">
-              <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
-              <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">仅预览</span>
-            </Button>
-          ))}
-          <p className="mt-2 text-[12px] text-mut">仅公开预览，完整内容回原站付费查看。</p>
-        </section>
 
         <div className="text-center text-[12px] text-dim pt-1">— 已展示全部频道 —</div>
       </div>

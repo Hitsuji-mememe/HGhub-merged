@@ -84,13 +84,21 @@ const def = (id: string) => {
   assert.ok(res.streams[0].url.endsWith("f9001.jpg"), "danbooru resolve=file_url");
 }
 
-/* ── preview-only（myfans def） ── */
+/* ── preview-only 模板（断言适配，3.2.2 瘦身）：唯一使用方 myfans 已
+ * 摘除注册表，模板工厂留仓——覆盖移交合成 def（模板行为不变式：
+ * 条目标注仅预览、resolve 明确拒绝），断言内容不变。 ── */
 {
-  const a = createPreviewOnlyAdapter(def("myfans"));
+  const synthetic = {
+    id: "preview-synthetic", displayName: "预览合成源", kind: "video", category: "preview",
+    adapter: { template: "preview-only", params: {} }, baseUrls: ["https://example.com"],
+    enabled: true, order: 999, maturity: "preview",
+    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+  } as Parameters<typeof createPreviewOnlyAdapter>[0];
+  const a = createPreviewOnlyAdapter(synthetic);
   const list = await a.list(1, 20);
-  assert.equal(list.items[0].previewOnly, true, "myfans 条目标注仅预览");
+  assert.equal(list.items[0].previewOnly, true, "preview-only 条目标注仅预览");
   assert.ok(list.items[0].tags.includes("仅预览"));
-  await assert.rejects(() => a.resolve("preview-root"), /仅预览/, "myfans resolve 明确拒绝");
+  await assert.rejects(() => a.resolve("preview-root"), /仅预览/, "preview-only resolve 明确拒绝");
 }
 
 console.log("adapters.contract: all assertions passed");

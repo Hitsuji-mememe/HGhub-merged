@@ -23,10 +23,44 @@ import { setFetchPage } from "./adapters/fetchPage.ts";
 import { createChiguaAdapter, createHlsSiteAdapter, createRedgifsAdapter, createSwagAdapter } from "./adapters/templates.ts";
 
 const fx = (name: string) => readFileSync(new URL(`./adapters/fixtures/${name}`, import.meta.url), "utf8");
+/* 断言适配（3.2.2 瘦身）：肉视频/SWAG/RedGifs/FC2 已摘除注册表，
+ * 适配器与校准参数留仓——四源改用与删除前注册表功能字段逐字一致
+ * 的夹具 def 守适配器解析覆盖（note 只保留被断言的性质），断言
+ * 内容不变；保留源仍走注册表 def。 */
+const FIXTURE_DEFS: Record<string, unknown> = {
+  rouvideo: {
+    id: "rouvideo", displayName: "肉视频", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/home", itemLinkPattern: "/v/", detailPath: "/v/{id}", streamUrlTemplate: "/api/hls/{id}" } },
+    baseUrls: ["https://rou.video"], enabled: true, order: 20, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    note: "fix321-F2b 校准：取流走站内 /api/hls/<id> 代理端点（历史注册表条目）",
+  },
+  swag: {
+    id: "swag", displayName: "SWAG", kind: "video", category: "video",
+    adapter: { template: "swag-api", params: {} },
+    baseUrls: ["https://swag.live", "https://api.swag.live"], enabled: true, order: 25, maturity: "probe",
+    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    note: "fix321-F2b 校准：免登录数据通道已接通（历史注册表条目）",
+  },
+  redgifs: {
+    id: "redgifs", displayName: "RedGifs", kind: "video", category: "video",
+    adapter: { template: "redgifs-api", params: {} },
+    baseUrls: ["https://www.redgifs.com", "https://api.redgifs.com"], enabled: true, order: 27, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    note: "fix321-F2b 校准：官方 API 临时令牌链已接通（历史注册表条目）",
+  },
+  fc2: {
+    id: "fc2", displayName: "FC2", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/ranking/article/weekly?page={page}", itemLinkPattern: "/article_search.php?id=", detailPath: "/article/{id}/" } },
+    baseUrls: ["https://adult.contents.fc2.com"], enabled: true, order: 29, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    note: "fix321-F2b 校准：销量榜列表＋作品页（历史注册表条目）",
+  },
+};
 const def = (id: string) => {
-  const d = getBuiltinRegistry().find((s) => s.id === id);
-  assert.ok(d, `registry has ${id}`);
-  return d;
+  const d = getBuiltinRegistry().find((s) => s.id === id) ?? FIXTURE_DEFS[id];
+  assert.ok(d, `registry/fixture has ${id}`);
+  return d as ReturnType<typeof getBuiltinRegistry>[number];
 };
 
 /* ── 肉视频：取流 = 站内代理端点 /api/hls/<id>（插件 videos() 与

@@ -6,7 +6,7 @@
  *     合成停用源枚举（Category 实际渲染输入即这两函数的输出）；
  * (C) 假成功空页走工厂分发路径（含 F2 契约未覆盖的 chigua
  *     列表、SWAG 全过滤、RedGifs 空结果三条路径）；
- * (E) 搜索扇出资格门全量枚举（F2b 新模板源必须仍被 probe 门排除）；
+ * (E) 搜索扇出资格门全量枚举（2026-11-19 20:48 裁定后为搜索段结构门，见节内适配注记）；
  * (F) 51吃瓜解 blocked／黑料网毕业的内置面三面一致（诊断/浏览/搜索）；
  * (G) 详情打开路径经工厂逐源走 list→resolve/detail。
  * 已知缺口（清单覆盖层把 API origin 顶掉等）不在本文件断言，见
@@ -46,10 +46,31 @@ import type { SourceDef } from "./types.ts";
 
 const fx = (name: string) => readFileSync(new URL(`./adapters/fixtures/${name}`, import.meta.url), "utf8");
 const reg = getBuiltinRegistry();
+/* 断言适配（3.2.2 瘦身）：rouvideo/swag/redgifs/fc2 已摘除注册表、
+ * 适配器留仓，四源改用与删除前注册表功能字段逐字一致的夹具 def
+ * 守工厂路径覆盖，断言内容不变；保留源仍走注册表 def。 */
+const FIXTURE_DEFS: Record<string, unknown> = {
+  rouvideo: { id: "rouvideo", displayName: "肉视频", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/home", itemLinkPattern: "/v/", detailPath: "/v/{id}", streamUrlTemplate: "/api/hls/{id}" } },
+    baseUrls: ["https://rou.video"], enabled: true, order: 20, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false }, note: "历史注册表条目" },
+  swag: { id: "swag", displayName: "SWAG", kind: "video", category: "video",
+    adapter: { template: "swag-api", params: {} },
+    baseUrls: ["https://swag.live", "https://api.swag.live"], enabled: true, order: 25, maturity: "probe",
+    capabilities: { search: false, episodes: false, hevc: false, comments: false }, note: "历史注册表条目" },
+  redgifs: { id: "redgifs", displayName: "RedGifs", kind: "video", category: "video",
+    adapter: { template: "redgifs-api", params: {} },
+    baseUrls: ["https://www.redgifs.com", "https://api.redgifs.com"], enabled: true, order: 27, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false }, note: "历史注册表条目" },
+  fc2: { id: "fc2", displayName: "FC2", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/ranking/article/weekly?page={page}", itemLinkPattern: "/article_search.php?id=", detailPath: "/article/{id}/" } },
+    baseUrls: ["https://adult.contents.fc2.com"], enabled: true, order: 29, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false }, note: "历史注册表条目" },
+};
 const def = (id: string) => {
-  const d = reg.find((s) => s.id === id);
-  assert.ok(d, `registry has ${id}`);
-  return d;
+  const d = reg.find((s) => s.id === id) ?? FIXTURE_DEFS[id];
+  assert.ok(d, `registry/fixture has ${id}`);
+  return d as SourceDef;
 };
 
 /* ── (A) 频道映射：全量枚举，成员资格必须恰等于不变量谓词
@@ -62,13 +83,13 @@ const def = (id: string) => {
   const video = sourcesForChannel("original", reg);
   const expectVideo = reg.filter((s) => s.enabled && s.category === "video");
   assert.deepEqual(video.map((s) => s.id), expectVideo.map((s) => s.id), "视频频道名单＝谓词全量枚举");
-  for (const id of ["xvideos", "hanime-tv", "swag", "rouvideo", "pornhub", "91video", "redgifs", "fc2"]) {
+  for (const id of ["hanime-tv", "rule34video"]) {
     assert.ok(!drama.some((s) => s.id === id), `用户实报 offender ${id} 不在短剧切源名单`);
   }
   /* 合成双向：停用的 episodes 源不得入、启用的 episodes 源必须入
    * （证明按字段判定而非硬编码排除名单） */
   const mk = (id: string, enabled: boolean, episodes: boolean): SourceDef => ({
-    ...def("xvideos"), id, enabled, capabilities: { search: true, episodes, hevc: false, comments: false },
+    ...def("rule34video"), id, enabled, capabilities: { search: true, episodes, hevc: false, comments: false },
   });
   const synth = [mk("vd-drama-off", false, true), mk("vd-drama-on", true, true), mk("vd-nodrama", true, false)];
   const sd = sourcesForChannel("ai-duanju", synth);
@@ -119,16 +140,23 @@ const def = (id: string) => {
   await assert.rejects(() => rg!.list(1, 20), SourceParseEmptyError, "RedGifs 空结果集抛 SourceParseEmptyError");
 }
 
-/* ── (E) 扇出交叉：F2b 全部校准源仍被三段门排除；纳入集恰为
- * F5 钉死的 7 个 stable 源（黄果含内，生产侧另经 EXCLUDE_NATIVE 摘除） ── */
+/* ── (E) 扇出交叉（裁定变更适配，用户 2026-11-19 20:48）：扇出门
+ * 已由 F5 三段齐全门放宽为搜索段结构门——保留源具备搜索段一律进
+ * 扇出（probe/blocked 成熟度不再在搜索入口扣留，可播性后移详情/
+ * 起播解析）；无搜索段的源（吃瓜模板/无适配器）仍出局。纳入集恰
+ * 为保留集内 enabled∧有搜索段的 7 源。 ── */
 {
-  for (const id of ["rouvideo", "swag", "redgifs", "fc2", "51chigua", "feedheiliao", "hanime-tv", "pornpics"]) {
+  for (const id of ["51chigua", "feedheiliao", "meiridasai"]) {
     const p = searchPolicyFor(def(id));
-    assert.equal(p.include, false, `F2b 校准源 ${id} 不进搜索扇出（probe 成熟度门）`);
+    assert.equal(p.include, false, `吃瓜源 ${id} 无搜索段、不进扇出（结构门）`);
+  }
+  for (const id of ["hanime-tv", "pornpics", "xiuren", "danbooru"]) {
+    const p = searchPolicyFor(def(id));
+    assert.equal(p.include, true, `保留源 ${id} 具备搜索段即进扇出（成熟度 ${def(id).maturity} 不再预扣）`);
   }
   const included = reg.filter((s) => searchPolicyFor(s).include).map((s) => s.id).sort();
-  assert.deepEqual(included, ["91video", "cosplaytele", "fyptt", "huangguo", "pornhub", "rule34video", "xvideos"],
-    "扇出纳入集＝7 个三段齐全 stable 源、无 F2b 模板源混入");
+  assert.deepEqual(included, ["cosplaytele", "danbooru", "hanime-tv", "huangguo", "pornpics", "rule34video", "xiuren"],
+    "扇出纳入集＝保留集内具备搜索段的 7 源（20:48 裁定口径）");
 }
 
 /* ── (F) 51吃瓜解 blocked＋黑料网毕业：内置面三面一致 ── */

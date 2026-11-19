@@ -2,9 +2,14 @@
  * 内置源注册表（Muse 2026-11-19 根治包·多源线 条目2；2026-11-19
  * 用户新口径修订：保留＋全目录导入）。
  *
- * 构成：命名源 24（正式 16 + 探路 5 + myfans 预览 + FC2 用户点名
- * ＋黑料网 fix321-F2b 自目录导入毕业）＋目录导入源（catalog.ts，
- * Hentai-Park 目录机械导入、单独成文）。
+ * 构成：命名源 12＋目录导入源 6（catalog.ts）。
+ * 2026-11-19 20:22 用户产品瘦身定版（3.2.2 集成批执行）：定位收窄为
+ * 短剧为主、吃瓜其次、图片顺带、视频只留里番——普通视频源全部、
+ * myfans 预览专区与其余停用杂源已自注册表摘除（App 内不得出现；
+ * 适配器源码留仓不删，远程清单 v3 同步只含保留源）。保留集：黄果、
+ * 51吃瓜网、黑料网、每日大赛、秀人网、CosplayTele、Danbooru、
+ * PornPics、目录图片类（PixiBB/NudeCosplay/yande.re/Gelbooru/Pixiv）、
+ * Hanime.tv、Hanime1、Iwara、Rule34Video、HentaiHaven。
  *
  * 成熟度口径（诚实标注，2026-11-19 真站实测后更新）：
  * - 黄果 stable：仓内既有 native 通道、现行生产源；
@@ -15,8 +20,8 @@
  *   保留在切换列表可见、标「暂不可用」，点开为诚实提示页、不拉数据、
  *   不假数据；远程清单仍可 enabled=false 整体下线（熔断位不变）；
  * - 运行时取页通道（Rust 通用取页命令）已接入，见 adapters/fetchPage.ts；
- * - 探路 5：2026-11-19 探测实测全降级（tools/source-probe/results.md），enabled=false、不在列表；
- * - myfans preview：仅预览专区单列，不入正式源。
+ * - 探路保留 2（Hanime1/Iwara，里番）：探测降级、enabled=false、
+ *   无适配器，待保留源接通批立项校准后启用。
  */
 import type { SourceDef } from "./types.ts";
 import { CATALOG_SOURCES } from "./catalog.ts";
@@ -36,34 +41,6 @@ export const NAMED_SOURCES: SourceDef[] = [
     note: "现行生产源：帖子板块 remen-chigua + 视频线路 /api，包既有 api 调用不重写",
   },
   {
-    id: "rouvideo", displayName: "肉视频", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/home", itemLinkPattern: "/v/", detailPath: "/v/{id}", streamUrlTemplate: "/api/hls/{id}" } },
-    baseUrls: ["https://rou.video"],
-    enabled: true, order: 20, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站复核（2026-11-19 fix321-F2，本机出口参考）：根路径为 18+ 年龄门无条目、列表在 /home、条目锚点为 /v/<id>（卡片含 img 与标题文本），模板已按真站校准（旧 /?page= + /video/ 与真站结构完全不符、恒解析为空）、真站结构夹具解析出条目；详情页 SSR 无流地址（<video> 无 src、走站内 API 未定位）→ 列表已通、取流未证，仍 probe。fix321-F2b 取流校准：站内流端点已定位——GET /api/v/<id> 详情 API 与 /api/hls/<id> 站内 HLS 代理端点（Hentai-Park rouvideo 插件 videos() 与真站前端 chunk 双证据），resolve 改走 streamUrlTemplate 拼 /api/hls/<id>、不回详情页找 m3u8；住宅出口四级验收全通（source-verify-20261119），App 侧未真机验 → 代码就绪未验证、仍 probe",
-  },
-  {
-    id: "91video", displayName: "91视频", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/index.php?page={page}", itemLinkPattern: "/view_video.php", detailPath: "/view_video.php?viewkey={id}" } },
-    baseUrls: ["https://91porn.com"],
-    enabled: true, order: 21, maturity: "stable",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：过 18+ 声明页后 index.php 列表解析 24 条、详情页 <source> mp4 直链（ccm.91p52.com）可提取；分页 ?page= 为该站经典参数、未逐页验",
-  },
-  {
-    id: "pornhub", displayName: "Pornhub", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/video?page={page}", itemLinkPattern: "/view_video.php", detailPath: "/view_video.php?viewkey={id}" } },
-    baseUrls: ["https://www.pornhub.com"],
-    enabled: true, order: 22, maturity: "stable",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：/video?page=1 列表可解析、详情 mediaDefinitions JSON 含多档 HLS master.m3u8（\\/ 转义形态、解析层已还原复验）；详情页含年龄/登录提示文案但内容与流均免登录可达",
-  },
-  {
-    id: "xvideos", displayName: "XVideos", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/", itemLinkPattern: "/video.", detailPath: "/video.{id}" } },
-    baseUrls: ["https://www.xvideos.com"],
-    enabled: true, order: 23, maturity: "stable",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：新版条目 URL 形态 /video.<hash>/slug、首页解析 60 条、详情 setVideoHLS 实测 m3u8（另有 setVideoUrlHigh/Low mp4）；旧列表参数 /?k=&p= 返回 500 已弃；分页路径未验、当前 listPath 只出首页",
-  },
-  {
     id: "hanime-tv", displayName: "Hanime.tv", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/", itemLinkPattern: "/videos/hentai/", detailPath: "/videos/hentai/{id}" } },
     baseUrls: ["https://hanime.tv"],
@@ -71,39 +48,11 @@ export const NAMED_SOURCES: SourceDef[] = [
     capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：首页 SSR 解析 68 条（/browse 是品牌/标签索引页、已改走首页）；详情页 SSR 无 m3u8/mp4、流走站内 api/v11 内部接口（页面见 search_hvs/api_base_url 痕迹）未验证 → probe；残留：分页路径与取流接口。fix321-F2 本机复核（本机出口参考）：首页锚点 /videos/hentai/<slug> 与现模板一致、真站结构夹具解析出条目，列表结构无问题；真机取页失败在本机出口未复现（本机 200），属出口/取页层差异、非解析问题。fix321-F2b 取流深查：取流链结构已定位（Hentai-Park hanime 插件证据）——guest API（guest.freeanimehentai.net/api/v11）＋播放器 handshake：先取 ct.hanime.tv CSRF 令牌，再以 AES-256-GCM 加密信封 POST auth.hanime.tv/api/v11/handshake（x-signature 签名头），响应经 x-token 头回加密信封解密得 /hls/<画质>/ 流表；本仓取页契约仅 GET 且 Origin/签名头不在放行列 → 结构已明、通道不通，本批不接；住宅出口验收首页/列表通、第 4 级未确认到播放源（未确认，不排除验收手段局限）→ 维持 probe",
   },
   {
-    id: "swag", displayName: "SWAG", kind: "video", category: "video",
-    adapter: { template: "swag-api", params: {} },
-    baseUrls: ["https://swag.live", "https://api.swag.live"],
-    enabled: true, order: 25, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "fix321-F2b 校准（推翻旧定性）：旧 note「API 须带登录会话、无免登录通道」系机房出口结论，已被住宅出口四级验收全通（source-verify-20261119）＋本机出口实测推翻——免登录数据通道已定位并接通：api.swag.live/feeds/shorts_curated（302 跳规范 feed 后 200、JSON 数组）＋逐条 /messages/<id> 补标题/封面（metadata.thumbnail_url 挂 public.swag.live），只收免费短视频（sfw=false/type=short/unlockPrice=0），结构据 Hentai-Park swag_shortvideo 插件、本机实测互证，夹具解析出条目；流为 AES-128 加密 HLS（清单 key URI 为 mock.url 占位、真钥须带 X-Client-ID/X-Session-ID 会话头向 API 换取并重写清单）超本仓播放栈 → resolve 诚实为空、取流未证；App 侧未真机验 → 代码就绪未验证、仍 probe。fix321-F2 旧复核（SSR 无条目锚点、解析为空落显式失败态）仍成立于 HTML 通道、与 API 通道并存记录",
-  },
-  {
-    id: "fyptt", displayName: "Fyptt", kind: "video", category: "video",
-    adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
-    baseUrls: ["https://fyptt.to"],
-    enabled: true, order: 26, maturity: "stable",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：本站为 WP 站、/wp-json/wp/v2/posts 列表与详情实测可达；正文嵌 fypttstr.php 播放器 iframe、其实测含 mp4 直链（stream.fyptt.to、令牌时效内有效）、wp-rest resolve 已支持 iframe 跟进",
-  },
-  {
-    id: "redgifs", displayName: "RedGifs", kind: "video", category: "video",
-    adapter: { template: "redgifs-api", params: {} },
-    baseUrls: ["https://www.redgifs.com", "https://api.redgifs.com"],
-    enabled: true, order: 27, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "fix321-F2b 校准：官方 API 令牌链已接通——GET api.redgifs.com/v2/auth/temporary 取匿名临时令牌（本机实测 200 发令牌）→ Bearer 调 /v2/gifs/search（列表）与 /v2/gifs/<id>（详情/流，urls.hd 优先 mp4），结构据 Hentai-Park redgifs 插件、夹具解析出条目与流；取页契约卡点已解：Rust source_fetch 对 Authorization 改为仅 api.redgifs.com origin 定向放行（匿名临时令牌、非用户凭据；其余 origin 仍丢弃，见 src-tauri/src/api/source.rs）。残留：本机出口带令牌调 search 仍 401，响应体明示 WrongSender（令牌与签发方绑定、本机代理出口 IP 轮换使签发与调用不同源）——App 内签发与调用同出口不触发此限；住宅出口四级验收全通（source-verify-20261119）证明站与令牌链在住宅网络成立；App 侧未真机验 → 代码就绪未验证、仍 probe",
-  },
-  {
     id: "rule34video", displayName: "Rule34Video", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/latest-updates/{page}/", itemLinkPattern: "/video/", detailPath: "/video/{id}/" } },
     baseUrls: ["https://rule34video.com"],
     enabled: true, order: 28, maturity: "stable",
     capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：/latest-updates/1/ 解析 23 条、详情 KVS 播放器配置含 360–1080p 多档 mp4 直链（get_file、带 acctoken）、解析层取最高档离线复验通过",
-  },
-  {
-    id: "fc2", displayName: "FC2", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/ranking/article/weekly?page={page}", itemLinkPattern: "/article_search.php?id=", detailPath: "/article/{id}/" } },
-    baseUrls: ["https://adult.contents.fc2.com"],
-    enabled: true, order: 29, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "fix321-F2b 校准（普通视频源待遇，用户定性 kind/category=video、不单独成档）：按真站结构校准——列表=销量榜 /ranking/article/weekly（本机实测 200、卡片锚点 /article_search.php?id=<id>、h3 标题＋缩略图，夹具解析出条目）、详情=作品页 /article/<id>/（本机实测 200、标题/样品图可达）；与目录 metadataOnly 定性对账：住宅出口四级验收全通指站与作品页可达成立，但 FC2 为 PPV 付费作品、无免费流形态（插件 catalog-fc2 同口径：只有排行榜＋作品资料、无 videos 段）→ resolve 诚实为空；App 侧未真机验 → 代码就绪未验证、仍 probe",
   },
   {
     id: "51chigua", displayName: "51吃瓜网", kind: "post", category: "posts",
@@ -156,25 +105,7 @@ export const NAMED_SOURCES: SourceDef[] = [
     capabilities: { search: true, episodes: false, hevc: false, comments: false },
     network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：/posts.json 以 iOS 与桌面两种 UA 均返回 403 Cloudflare「Just a moment」challenge 页（本机出口 IP 被拦）；danbooru-api 适配器已就绪、换出口复测通过即可升 stable",
   },
-  /* ── 探路 5：2026-11-19 探测全降级，enabled=false、不写适配器 ── */
-  {
-    id: "jabletv", displayName: "JableTV", kind: "video", category: "video",
-    adapter: { template: "none" }, baseUrls: ["https://jable.tv"],
-    enabled: false, order: 50, maturity: "probe", capabilities: NO_CAPS, network: PROBE_NET,
-    note: "探路降级：代理出口 Cloudflare 403 challenge（tools/source-probe/results.md）",
-  },
-  {
-    id: "missav", displayName: "MissAV", kind: "video", category: "video",
-    adapter: { template: "none" }, baseUrls: ["https://missav.ws"],
-    enabled: false, order: 51, maturity: "probe", capabilities: NO_CAPS, network: PROBE_NET,
-    note: "探路降级：代理出口 Cloudflare 403 / 连接中断（tools/source-probe/results.md）",
-  },
-  {
-    id: "tikporn", displayName: "Tik.porn", kind: "video", category: "video",
-    adapter: { template: "none" }, baseUrls: ["https://tik.porn"],
-    enabled: false, order: 52, maturity: "probe", capabilities: NO_CAPS, network: PROBE_NET,
-    note: "探路降级：代理出口 Cloudflare 403 Attention Required（tools/source-probe/results.md）",
-  },
+  /* ── 探路保留 2（里番）：探测降级，enabled=false、不写适配器 ── */
   {
     id: "hanime1", displayName: "Hanime1", kind: "video", category: "video",
     adapter: { template: "none", params: {} }, baseUrls: ["https://hanime1.me"],
@@ -187,15 +118,6 @@ export const NAMED_SOURCES: SourceDef[] = [
     adapter: { template: "none" }, baseUrls: ["https://www.iwara.tv"],
     enabled: false, order: 54, maturity: "probe", capabilities: NO_CAPS, network: PROBE_NET,
     note: "探路降级：代理出口 Cloudflare 403 / 传输中断（tools/source-probe/results.md）。fix321-F2b 据实更新（本批撤下施工、只记状态）：住宅出口四级验收全通（source-verify-20261119）——站点可用、旧 403 系机房/代理出口定性；本站有公开 API 形态（api.iwara.tv，插件 iwara.js 有结构证据），但本仓尚无适配器（template=none）、未启用，待单独立项校准",
-  },
-  /* ── 预览专区（单列，不入正式源） ── */
-  {
-    id: "myfans", displayName: "myfans（仅预览）", kind: "mixed", category: "preview",
-    adapter: { template: "preview-only" },
-    baseUrls: ["https://myfans.jp"],
-    enabled: true, order: 90, maturity: "preview",
-    capabilities: NO_CAPS, network: PROBE_NET,
-    note: "仅公开预览、完整内容回原站付费；条目一律标注「仅预览」",
   },
 ];
 

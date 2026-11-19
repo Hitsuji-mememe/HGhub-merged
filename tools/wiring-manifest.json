@@ -827,7 +827,7 @@
     },
     {
       "id": "fix321-f5-chain-gate",
-      "item": "3.2.1 F5线 三段齐全门判定 missingSearchSegments（定义＋searchPolicyFor 消费）",
+      "item": "3.2.1 F5线→3.2.2 裁定变更：扇出门判定 missingSearchSegments（定义＋searchPolicyFor 消费；语义已由三段齐全门改为搜索段结构门）",
       "symbol": "missingSearchSegments",
       "files": [
         "src/features/search/multiSourceSearch.ts"
@@ -835,9 +835,9 @@
       "min": 2
     },
     {
-      "id": "fix321-f5-override-gated",
-      "item": "3.2.1 F5线 INCLUDE_OVERRIDE 只在三段门后生效（常量定义＋searchPolicyFor 门后消费）",
-      "symbol": "INCLUDE_OVERRIDE",
+      "id": "fix322-search-segment-templates",
+      "item": "3.2.2 扇出放宽（用户 20:48 裁定）：SEARCH_TEMPLATES 搜索段结构门（定义＋missingSearchSegments 消费；旧 INCLUDE_OVERRIDE 已退役，本条目由其改判）",
+      "symbol": "SEARCH_TEMPLATES",
       "files": [
         "src/features/search/multiSourceSearch.ts"
       ],

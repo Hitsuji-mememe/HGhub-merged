@@ -7,9 +7,12 @@
  *   kindForSourceDef/kindForHuangguoVideo 口径），永不按源分段；
  * - 扇出范围与权重按分层总表落搜索层口径（searchPolicyFor），
  *   不改注册表本身；权重只作排序/副本选择的最后 tiebreak，
- *   不冒充单条内容的质量证明（裁定第 1/5 条）；扇出资格另受三段
- *   齐全门约束（3.2.1 修复 F5 线，见 missingSearchSegments）：三段
- *   未验通的源权重照落表、但不进扇出，INCLUDE_OVERRIDE 不得绕过；
+ *   不冒充单条内容的质量证明（裁定第 1/5 条）；扇出资格只看搜索
+ *   段结构（见 missingSearchSegments）：保留源具备搜索段即进扇出
+ *   （用户 2026-11-19 20:48 裁定放宽，取代 3.2.1 F5 三段齐全门——
+ *   源已砍到保留集、重复压力低，可播性改在详情/起播时解析与兜底，
+ *   不再在搜索入口按验通状态预先扣留；maturity 仍是验通状态的
+ *   诚实记录，由展示与 F7 自检消费，不冒充已验通）；
  * - 搜索调度（裁定第 5 条）：单源超时＋每源结果上限、渐进呈现
  *   （onPartial 先到先显；(热度,权重,seq) 全序保证已显条目相对
  *   顺序不被新到结果打乱＝稳定插入）、相关性（热度）优先于源
@@ -43,50 +46,49 @@ export const GLOBAL_SEARCH_TABS: readonly { kind: GlobalSearchKind; label: strin
 
 /* ── 来源权重（分层总表落搜索层；总表未覆盖者中性 40） ── */
 const PRIMARY_WEIGHTS: Record<string, number> = {
-  huangguo: 100, "51chigua": 100, redgifs: 100, shorties: 100, supjav: 100, pornpics: 100, missav: 100,
+  huangguo: 100, "51chigua": 100, pornpics: 100,
 };
 const SUPPLEMENT_WEIGHTS: Record<string, number> = {
-  feedheiliao: 60, av123: 60, "rouvideo-drama": 60, tikporn: 60, jabletv: 60,
+  feedheiliao: 60,
 };
 /** 每日大赛补充次档（用户 2026-11-19 17:35 改判：升补充、默认启用、权重在黑料网之下）。 */
 const SUPPLEMENT_LOW_WEIGHTS: Record<string, number> = { meiridasai: 50 };
-/** 默认禁用/暂缓/观察：保留注册、不进搜索默认范围。 */
-const OFF_IDS = new Set(["drama91", "huangdou", "xiuren", "myfans"]);
-/** 总表点名默认启用：在三段齐全者中覆盖注册表 enabled 的搜索层纳入
- * （3.2.1 修复 F5 线收紧：override 不得绕过下方三段门——D3 时代它曾
- * 绕过 enabled/capabilities/blocked，把只有骨架模板的源放进扇出，
- * 搜得出≠播得了，见 fix321-f5.contract.test.ts）。注册表本身的启用
- * 与域名动作走清单 v2，不在本层。 */
-const INCLUDE_OVERRIDE = new Set(["51chigua", "feedheiliao", "meiridasai", "shorties", "supjav", "av123", "rouvideo-drama"]);
+/* 旧 OFF_IDS（搜索层默认禁用表）与 INCLUDE_OVERRIDE（点名越过
+ * enabled 纳入表）已于 3.2.2 退役：瘦身后 OFF 成员或删或按 20:48
+ * 裁定进扇出、override 成员均无搜索段使 override 永不触发——新口
+ * 径下纳入只由「具备搜索段＋enabled」决定，不再有名单特例。 */
 export const NEUTRAL_WEIGHT = 40;
 
-/* ── 扇出资格：三段齐全门（3.2.1 修复 F5 线，用户实报 Shorties 搜得出
- * 播不了＋封面全占位后立） ──
- * 资格＝适配器三段（搜索＋详情＋取流）都有真实现，缺一段即出局；源不
- * 删、频道浏览不受此限，只管搜索扇出（与 F2 线口径一致）。
- * 「真实现」的可测口径（源粒度认定，因注册表证据本身是源粒度的）：
- * ① 模板在 CHAIN_TEMPLATES 内——工厂真能实例化出带 search/detail/
- *    resolve 的适配器（none→null、preview-only 无 search 且 resolve
- *    明确拒绝，均不算）；② capabilities.search 为真（搜索段声明）；
- * ③ maturity="stable"——types.ts 定义即「真站实测三段全通」，probe=
- *    部分未证、blocked/preview 自不在内；④ note 不含「未按真站校准」
- *    （目录导入通用骨架标记，防被误标 stable 时兜底）。
- * 结构上有方法≠真实现：hls-site 骨架对任何源都生成三方法，Shorties
- * 正是这样混进扇出的——故认定只认验通标记，不认方法存在性。 */
+/* ── 扇出资格：搜索段结构门（用户 2026-11-19 20:48 裁定，取代
+ * 3.2.1 F5 三段齐全门） ──
+ * 资格＝具备搜索段：适配器模板真有 search 方法（工厂结构事实，
+ * 见 SEARCH_TEMPLATES）且注册表 capabilities.search 声明为真。
+ * 不再要求 maturity=stable／参数已校准等验通条件——源已砍到保留
+ * 集、重复压力低，可播性改在详情/起播时解析与兜底（线路故障转
+ * 移已有），不在搜索入口预先扣留。验通状态仍如实记在 maturity
+ * 与 F7 自检里（展示口径不变，不把未验通标成已验通）；频道浏览
+ * 不受此门影响。 */
 export type SearchSegment = "search" | "detail" | "play";
-const CHAIN_TEMPLATES = new Set(["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api"]);
+/** 工厂真有 search 方法的模板（adapters/templates.ts 结构事实：
+ * native-huangguo/chigua/hls-site/wp-rest/danbooru-api/redgifs-api
+ * 有 search；swag-api 只有 list/detail/resolve；preview-only 无
+ * search 且 resolve 明确拒绝；none 无适配器）。 */
+const SEARCH_TEMPLATES = new Set(["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "redgifs-api"]);
+const DETAIL_PLAY_TEMPLATES = new Set([...SEARCH_TEMPLATES, "swag-api"]);
 
-/** 未获真实现认定的段（三段全列或空）：认定须四条同时成立，任一不
- * 成立则三段均不获认定（卡点段逐源写在注册表 note 里）。 */
+/** 结构上缺失的段（只判实现存在性、不判验通）：none 三段全缺；
+ * preview-only 缺 search/play；其余模板 detail/play 恒有，search
+ * 缺 iff 模板无 search 方法或注册表未声明 capabilities.search。 */
 export function missingSearchSegments(def: SourceDef): SearchSegment[] {
-  const skeleton = (def.note ?? "").includes("未按真站校准");
-  const verified = CHAIN_TEMPLATES.has(def.adapter.template)
-    && def.capabilities.search
-    && def.maturity === "stable"
-    && !skeleton;
-  return verified ? [] : ["search", "detail", "play"];
+  const t = def.adapter.template;
+  if (t === "preview-only") return ["search", "play"];
+  const missing: SearchSegment[] = [];
+  if (!SEARCH_TEMPLATES.has(t) || !def.capabilities.search) missing.push("search");
+  if (!DETAIL_PLAY_TEMPLATES.has(t)) missing.push("detail", "play");
+  return missing;
 }
 
+/** 结构三段齐全（实现都在；不等于已验通，验通看 maturity）。 */
 export function hasCompleteSearchChain(def: SourceDef): boolean {
   return missingSearchSegments(def).length === 0;
 }
@@ -105,14 +107,11 @@ export function searchPolicyFor(def: SourceDef): SearchPolicy {
   if (id in PRIMARY_WEIGHTS) { weight = PRIMARY_WEIGHTS[id]; tier = "primary"; }
   else if (id in SUPPLEMENT_WEIGHTS) { weight = SUPPLEMENT_WEIGHTS[id]; tier = "supplement"; }
   else if (id in SUPPLEMENT_LOW_WEIGHTS) { weight = SUPPLEMENT_LOW_WEIGHTS[id]; tier = "supplement-low"; }
-  if (OFF_IDS.has(id)) return { include: false, weight: 0, tier: "off", reason: "分层总表默认禁用/暂缓/观察，不进搜索默认范围" };
-  const missing = missingSearchSegments(def);
-  if (missing.length > 0) {
-    return { include: false, weight, tier, reason: `三段不齐（缺 ${missing.join("/")} 真实现）：不进搜索扇出（源保留、频道浏览不受此限）` };
+  if (missingSearchSegments(def).includes("search")) {
+    return { include: false, weight, tier, reason: "无搜索段（模板无 search 实现或注册表未声明）：不进搜索扇出（源保留、频道浏览不受此限）" };
   }
-  if (INCLUDE_OVERRIDE.has(id)) return { include: true, weight, tier, reason: "分层总表点名默认启用且三段齐全（搜索层纳入，注册表动作走清单 v2）" };
   if (!def.enabled) return { include: false, weight, tier, reason: "未启用" };
-  return { include: true, weight, tier, reason: "已启用且三段齐全（总表未覆盖者中性纳入）" };
+  return { include: true, weight, tier, reason: "已启用且具备搜索段（可播性不在搜索入口预判：详情/起播时解析、失败走线路故障转移）" };
 }
 
 /* ── 归类（用户 2026-11-19 17:43 原则：按内容性质、不按媒体格式） ──
@@ -124,11 +123,10 @@ export function searchPolicyFor(def: SourceDef): SearchPolicy {
  * ④ 其余独立单条视频 → 视频。
  * 边界：单集短剧（仅 1 集）在原生侧无结构信号可辨，归视频（如实
  * 限制，不臆造判据）；外部 post 源条目即使详情带视频也不改类。 */
-const DRAMA_SOURCE_IDS = new Set(["rouvideo-drama", "drama91", "huangdou"]);
 export function kindForSourceDef(def: SourceDef): GlobalSearchKind {
   if (def.category === "image" || def.kind === "image") return "image";
   if (def.category === "posts" || def.kind === "post") return "post";
-  if (DRAMA_SOURCE_IDS.has(def.id)) return "drama";
+  /* 外部专用短剧源已于 3.2.2 瘦身全删，短剧只来自黄果归类（③ 的分集结构判定在原生 VideoCard 侧）。 */
   return "video";
 }
 /* 黄果 VideoCard 归类（有分集结构→短剧、其余→视频）实现见文件头

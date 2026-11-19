@@ -13,12 +13,12 @@ import { CATALOG_SOURCES } from "./catalog.ts";
 import { MANIFEST_CACHE_KEY, applyManifest, getRegistryInfo, resolveRegistry, validateManifest } from "./manifest.ts";
 import { TEMPLATE_IDS } from "./adapters/templates.ts";
 
+/* 2026-11-19 瘦身定版（3.2.2 集成批，契约变化适配）：命名源只保留
+ * 12（黄果＋吃瓜三源＋图片三源＋里番五源中的命名部分），普通视频
+ * 全部、myfans、FC2 与停用杂源已摘除，断言随之收口到保留集。 */
 const CORE_IDS = [
-  "huangguo", "rouvideo", "91video", "pornhub", "xvideos", "hanime-tv", "swag", "fyptt",
-  "redgifs", "rule34video", "51chigua", "meiridasai", "xiuren", "pornpics", "cosplaytele",
-  "danbooru", "jabletv", "missav", "tikporn", "hanime1", "iwara", "myfans",
-  /* fix321-F2b：黑料网自目录导入毕业为命名源（契约变化适配） */
-  "feedheiliao",
+  "huangguo", "hanime-tv", "rule34video", "51chigua", "feedheiliao", "meiridasai",
+  "xiuren", "pornpics", "cosplaytele", "danbooru", "hanime1", "iwara",
 ];
 
 /* ── 注册表完整性 ── */
@@ -26,8 +26,12 @@ const CORE_IDS = [
   const ids = new Set(BUILTIN_SOURCES.map((s) => s.id));
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
   for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
-  assert.ok(ids.has("fc2"), "FC2（用户点名）在册");
-  assert.equal(NAMED_SOURCES.length, CORE_IDS.length + 1, "命名源 = 核心（含 F2b 毕业的黑料网） + FC2");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 瘦身保留集 12");
+  /* 瘦身负向不变量：被删源不得回流注册表（App 内不得出现）。 */
+  for (const goneId of ["rouvideo", "91video", "pornhub", "xvideos", "swag", "fyptt", "redgifs", "fc2",
+    "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91"]) {
+    assert.ok(!ids.has(goneId), `瘦身删除源 ${goneId} 不在册`);
+  }
   assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
   for (const s of CATALOG_SOURCES) {
     assert.equal(s.enabled, false, `目录源 ${s.id} 默认未启用（远程清单可按 id 启用）`);
@@ -50,14 +54,11 @@ const CORE_IDS = [
       }
     }
   }
-  for (const probeId of ["jabletv", "missav", "tikporn", "hanime1", "iwara"]) {
+  for (const probeId of ["hanime1", "iwara"]) {
     const s = BUILTIN_SOURCES.find((x) => x.id === probeId)!;
     assert.equal(s.enabled, false, `${probeId} 探测未过 enabled=false`);
     assert.equal(s.maturity, "probe");
   }
-  const myfans = BUILTIN_SOURCES.find((x) => x.id === "myfans")!;
-  assert.equal(myfans.maturity, "preview");
-  assert.equal(myfans.category, "preview");
   assert.equal(getBuiltinRegistry()[0].id, "huangguo", "order 第一顺位为黄果");
 }
 
@@ -65,25 +66,25 @@ const CORE_IDS = [
 assert.equal(validateManifest(null), null);
 assert.equal(validateManifest({ manifestVersion: "x" }), null);
 assert.equal(validateManifest({ manifestVersion: 2, minAppVersion: "2.0.0", sources: [{ id: 1 }] }), null);
-assert.ok(validateManifest({ manifestVersion: 2, minAppVersion: "2.0.0", sources: [{ id: "swag", enabled: false }] }));
+assert.ok(validateManifest({ manifestVersion: 2, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: false }] }));
 
 /* ── 三段回退 ── */
 const memStorage = () => {
   const m = new Map<string, string>();
   return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); }, map: m };
 };
-const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ id: "swag", enabled: false }] };
+const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: false }] };
 
 { // 远程好清单 → remote 生效 + 写 last-good + 熔断位生效
   const st = memStorage();
   const r = await resolveRegistry({ fetcher: async () => goodManifest, storage: st, appVersion: "2.2.0" });
   assert.equal(r.source, "remote");
   assert.equal(r.manifestVersion, 7);
-  assert.equal(r.sources.find((s) => s.id === "swag")!.enabled, false, "远程熔断下线 swag");
+  assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, false, "远程熔断下线 hanime-tv");
   assert.ok(st.map.has(MANIFEST_CACHE_KEY), "好清单写入 last-good");
   const info = getRegistryInfo();
   assert.equal(info.manifestVersion, 7);
-  assert.equal(info.sources.find((s) => s.id === "swag")!.origin, "https://swag.live", "getRegistryInfo 生效 origin");
+  assert.equal(info.sources.find((s) => s.id === "hanime-tv")!.origin, "https://hanime.tv", "getRegistryInfo 生效 origin");
 }
 { // 坏清单 → last-good
   const st = memStorage();
@@ -96,15 +97,15 @@ const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ i
   const r = await resolveRegistry({ fetcher: async () => { throw new Error("net down"); }, storage: memStorage(), appVersion: "2.2.0" });
   assert.equal(r.source, "builtin");
   assert.equal(r.sources.length, BUILTIN_SOURCES.length);
-  assert.equal(r.sources.find((s) => s.id === "swag")!.enabled, true, "内置口径 swag enabled");
+  assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, true, "内置口径 hanime-tv enabled");
 }
 { // minAppVersion 高于当前 → 不生效 → 内置
   const r = await resolveRegistry({
-    fetcher: async () => ({ manifestVersion: 9, minAppVersion: "9.9.9", sources: [{ id: "swag", enabled: false }] }),
+    fetcher: async () => ({ manifestVersion: 9, minAppVersion: "9.9.9", sources: [{ id: "hanime-tv", enabled: false }] }),
     storage: memStorage(), appVersion: "2.2.0",
   });
   assert.equal(r.source, "builtin");
-  assert.equal(r.sources.find((s) => s.id === "swag")!.enabled, true);
+  assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, true);
 }
 { // applyManifest 不增删源
   const merged = applyManifest(getBuiltinRegistry(), validateManifest(goodManifest)!);
@@ -118,17 +119,17 @@ const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ i
 import { readFileSync } from "node:fs";
 import { getActiveRegistry } from "./manifest.ts";
 import { sourcesForCategory } from "./registry.ts";
-{ // fake fetcher 把 pornhub 熔断 → active 表与 UI getter 同步反映
+{ // fake fetcher 把 rule34video 熔断 → active 表与 UI getter 同步反映
   const st = memStorage();
   const r = await resolveRegistry({
-    fetcher: async () => ({ manifestVersion: 11, minAppVersion: "2.0.0", sources: [{ id: "pornhub", enabled: false }] }),
+    fetcher: async () => ({ manifestVersion: 11, minAppVersion: "2.0.0", sources: [{ id: "rule34video", enabled: false }] }),
     storage: st, appVersion: "2.2.0",
   });
   assert.equal(r.source, "remote");
-  assert.equal(getActiveRegistry().sources.find((s) => s.id === "pornhub")!.enabled, false, "active 表反映远程熔断");
+  assert.equal(getActiveRegistry().sources.find((s) => s.id === "rule34video")!.enabled, false, "active 表反映远程熔断");
   const uiVideo = sourcesForCategory("video", getActiveRegistry().sources);
-  assert.ok(!uiVideo.some((s) => s.id === "pornhub"), "UI 消费 getter（active 表）不再列出被熔断源");
-  assert.ok(sourcesForCategory("video").some((s) => s.id === "pornhub"), "对照：内置表口径仍含 pornhub（证明覆盖来自 active 而非内置变更）");
+  assert.ok(!uiVideo.some((s) => s.id === "rule34video"), "UI 消费 getter（active 表）不再列出被熔断源");
+  assert.ok(sourcesForCategory("video").some((s) => s.id === "rule34video"), "对照：内置表口径仍含 pornhub（证明覆盖来自 active 而非内置变更）");
 }
 { // 接线文本断言：三处 UI 读 active 表 + 订阅事件；main 启动调用 resolveRegistry
   const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -142,36 +143,36 @@ import { sourcesForCategory } from "./registry.ts";
  * 本地 last-good 时不生效、不覆盖缓存；相等/更高才接受。 ── */
 { // 远程 v3 < last-good v7 → 用 last-good，缓存不被覆盖
   const st = memStorage();
-  st.setItem(MANIFEST_CACHE_KEY, JSON.stringify(goodManifest)); // v7：swag 熔断
+  st.setItem(MANIFEST_CACHE_KEY, JSON.stringify(goodManifest)); // v7：hanime-tv 熔断
   const r = await resolveRegistry({
-    fetcher: async () => ({ manifestVersion: 3, minAppVersion: "2.0.0", sources: [{ id: "swag", enabled: true }] }),
+    fetcher: async () => ({ manifestVersion: 3, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: true }] }),
     storage: st, appVersion: "2.2.0",
   });
   assert.equal(r.source, "last-good", "低版本远程清单被防回滚拒绝");
   assert.equal(r.manifestVersion, 7);
-  assert.equal(r.sources.find((s) => s.id === "swag")!.enabled, false, "仍按 last-good 的熔断位");
+  assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, false, "仍按 last-good 的熔断位");
   assert.equal(JSON.parse(st.map.get(MANIFEST_CACHE_KEY)!).manifestVersion, 7, "last-good 缓存未被低版本覆盖");
 }
 { // 远程 v7 == last-good v7 → 接受远程
   const st = memStorage();
   st.setItem(MANIFEST_CACHE_KEY, JSON.stringify(goodManifest));
   const r = await resolveRegistry({
-    fetcher: async () => ({ manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ id: "swag", enabled: true }] }),
+    fetcher: async () => ({ manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: true }] }),
     storage: st, appVersion: "2.2.0",
   });
   assert.equal(r.source, "remote", "同版本远程清单可接受");
-  assert.equal(r.sources.find((s) => s.id === "swag")!.enabled, true);
+  assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, true);
 }
 
 /* ── D7 明文 http 起点收口（Muse 2026-11-19 整改，G5 P1-4 前半）：
  * 远程/缓存清单的 baseUrls 只许 https；内置注册表不经 validateManifest、
  * 不受影响（已 grep 核实内置 baseUrls 全 https 且校验仅用于清单路径）。 ── */
 assert.equal(
-  validateManifest({ manifestVersion: 8, minAppVersion: "2.0.0", sources: [{ id: "swag", baseUrls: ["http://swag.live"] }] }),
+  validateManifest({ manifestVersion: 8, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", baseUrls: ["http://hanime.tv"] }] }),
   null, "清单 baseUrls 含 http → 整份丢弃",
 );
 assert.ok(
-  validateManifest({ manifestVersion: 8, minAppVersion: "2.0.0", sources: [{ id: "swag", baseUrls: ["https://swag.live"] }] }),
+  validateManifest({ manifestVersion: 8, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", baseUrls: ["https://hanime.tv"] }] }),
   "清单 baseUrls 全 https → 通过",
 );
 

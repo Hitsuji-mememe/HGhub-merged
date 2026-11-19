@@ -64,6 +64,28 @@ function assertFetchableCovered(sources: SourceDef[], allow: Set<string>, label:
 
 const builtin = getBuiltinRegistry();
 
+/* 断言适配（3.2.2 瘦身）：swag/redgifs 已摘除注册表，但 swag-api/
+ * redgifs-api 模板与 G1 白名单派生机制留仓在用——两源改用与删除
+ * 前注册表功能字段逐字一致的夹具 def 组成测试注册表，G1 证伪形
+ * 态与断言强度不变；保留源仍走 builtin 注册表。 */
+const FIXTURE_DEFS = [
+  {
+    id: "swag", displayName: "SWAG", kind: "video", category: "video",
+    adapter: { template: "swag-api", params: {} },
+    baseUrls: ["https://swag.live", "https://api.swag.live"], enabled: true, order: 25, maturity: "probe",
+    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    network: { mode: "probe-required" }, note: "历史注册表条目（3.2.2 瘦身摘除）",
+  },
+  {
+    id: "redgifs", displayName: "RedGifs", kind: "video", category: "video",
+    adapter: { template: "redgifs-api", params: {} },
+    baseUrls: ["https://www.redgifs.com", "https://api.redgifs.com"], enabled: true, order: 27, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    network: { mode: "probe-required" }, note: "历史注册表条目（3.2.2 瘦身摘除）",
+  },
+] as unknown as SourceDef[];
+const testRegistry = [...builtin, ...FIXTURE_DEFS];
+
 /* ── 声明层：跟模板走的写死常数（代码级事实） ── */
 assert.deepEqual(TEMPLATE_FETCH_ORIGINS["swag-api"], ["https://api.swag.live"], "swag-api 模板声明取页 origin = api.swag.live");
 assert.deepEqual(TEMPLATE_FETCH_ORIGINS["redgifs-api"], ["https://api.redgifs.com"], "redgifs-api 模板声明取页 origin = api.redgifs.com");
@@ -72,12 +94,12 @@ assert.deepEqual(templateFetchOrigins("none"), [], "none 模板无取页 origin"
 
 /* ── A. builtin 落定：白名单枚举覆盖 + 两源适配器实跑请求 ⊆ 白名单 ── */
 {
-  const allow = new Set(sourceFetchAllowlistOrigins(builtin));
+  const allow = new Set(sourceFetchAllowlistOrigins(testRegistry));
   assert.ok(allow.has("https://api.swag.live"), "[builtin] api.swag.live 在白名单内");
   assert.ok(allow.has("https://api.redgifs.com"), "[builtin] api.redgifs.com 在白名单内");
-  assertFetchableCovered(builtin, allow, "builtin");
+  assertFetchableCovered(testRegistry, allow, "builtin");
   for (const id of ["swag", "redgifs"] as const) {
-    const d = builtin.find((s) => s.id === id)!;
+    const d = testRegistry.find((s) => s.id === id)!;
     const origins = await requestedOrigins(d, stubs[id]);
     assert.ok(origins.size > 0, `[builtin] ${id} 适配器实跑有请求（非真空断言）`);
     for (const o of origins) assert.ok(allow.has(o), `[builtin] ${id} 适配器请求 origin ${o} 必须在生产白名单内`);
@@ -96,7 +118,7 @@ assert.deepEqual(templateFetchOrigins("none"), [], "none 模板无取页 origin"
     ],
   });
   assert.ok(m, "v1 形态清单 schema 有效");
-  const active = applyManifest(builtin, m!);
+  const active = applyManifest(testRegistry, m!);
   const swagActive = active.find((s) => s.id === "swag")!;
   assert.deepEqual(swagActive.baseUrls, ["https://swag.live"], "前置事实：清单覆盖后 swag baseUrls 只剩根域（API origin 已被顶掉）");
   const allow = new Set(sourceFetchAllowlistOrigins(active));
@@ -115,31 +137,31 @@ assert.deepEqual(templateFetchOrigins("none"), [], "none 模板无取页 origin"
 /* ── C. 防回归参数化：任一已启用源的 baseUrls 被清单削到只剩首个
  * 根域时，其模板声明 origin 仍必须在白名单内；全源同时削同样成立。 ── */
 {
-  for (const s of builtin) {
+  for (const s of testRegistry) {
     if (!fetchable(s) || templateFetchOrigins(s.adapter.template).length === 0) continue;
     const m = validateManifest({
       manifestVersion: 9, minAppVersion: "3.0.0",
       sources: [{ id: s.id, enabled: true, baseUrls: [s.baseUrls[0]] }],
     });
     assert.ok(m, `参数化清单（${s.id}）schema 有效`);
-    const allow = new Set(sourceFetchAllowlistOrigins(applyManifest(builtin, m!)));
+    const allow = new Set(sourceFetchAllowlistOrigins(applyManifest(testRegistry, m!)));
     for (const o of templateFetchOrigins(s.adapter.template)) {
       assert.ok(allow.has(o), `[参数化·${s.id}] 模板声明 origin ${o} 被清单覆盖削掉时测试必红——现仍须在白名单内`);
     }
   }
   const stripAll = validateManifest({
     manifestVersion: 9, minAppVersion: "3.0.0",
-    sources: builtin.filter(fetchable).map((s) => ({ id: s.id, enabled: true, baseUrls: [s.baseUrls[0]] })),
+    sources: testRegistry.filter(fetchable).map((s) => ({ id: s.id, enabled: true, baseUrls: [s.baseUrls[0]] })),
   });
   assert.ok(stripAll, "全源削根域清单 schema 有效");
-  assertFetchableCovered(applyManifest(builtin, stripAll!), new Set(sourceFetchAllowlistOrigins(applyManifest(builtin, stripAll!))), "全源削根域");
+  assertFetchableCovered(applyManifest(testRegistry, stripAll!), new Set(sourceFetchAllowlistOrigins(applyManifest(testRegistry, stripAll!))), "全源削根域");
 }
 
 /* ── D. 收紧口径：未启用／blocked 源的 origin 不放行 ── */
 {
   const allow = new Set(sourceFetchAllowlistOrigins(builtin));
   assert.ok(!allow.has("https://sexy.pixibb.com"), "未启用目录源（pixibb）origin 不在白名单内");
-  assert.ok(!allow.has("https://jable.tv"), "未启用探路源（jabletv）origin 不在白名单内");
+  assert.ok(!allow.has("https://hanime1.me"), "未启用探路源（hanime1）origin 不在白名单内");
   assert.ok(!allow.has("https://meiridasai.com"), "blocked 源（meiridasai）origin 不在白名单内");
   assert.ok(!allow.has("https://xiuren.com"), "blocked 源（xiuren）origin 不在白名单内");
   assert.ok(!allow.has("https://danbooru.donmai.us"), "blocked 源（danbooru）origin 不在白名单内");
@@ -148,11 +170,11 @@ assert.deepEqual(templateFetchOrigins("none"), [], "none 模板无取页 origin"
     manifestVersion: 9, minAppVersion: "3.0.0",
     sources: [{ id: "swag", enabled: false, baseUrls: ["https://swag.live"] }],
   });
-  const allowOff = new Set(sourceFetchAllowlistOrigins(applyManifest(builtin, off!)));
+  const allowOff = new Set(sourceFetchAllowlistOrigins(applyManifest(testRegistry, off!)));
   assert.ok(!allowOff.has("https://api.swag.live"), "swag 被清单下线后 api.swag.live 不再放行");
   assert.ok(!allowOff.has("https://swag.live"), "swag 被清单下线后 swag.live 不再放行");
   /* 合成 blocked／停用 def 单独派生 → 空名单 */
-  const redgifs = builtin.find((s) => s.id === "redgifs")!;
+  const redgifs = testRegistry.find((s) => s.id === "redgifs")!;
   assert.deepEqual(sourceFetchAllowlistOrigins([{ ...redgifs, maturity: "blocked" }]), [], "blocked def 不派生任何 origin");
   assert.deepEqual(sourceFetchAllowlistOrigins([{ ...redgifs, enabled: false }]), [], "停用 def 不派生任何 origin");
 }

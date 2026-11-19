@@ -35,11 +35,13 @@ const def = (id: string) => {
     assert.equal(s.capabilities.episodes, true, `短剧频道源 ${s.id} 必须有分集能力（真实品类映射）`);
     assert.equal(s.enabled, true, "频道列表只列已启用源");
   }
-  for (const id of ["xvideos", "hanime-tv", "swag", "rouvideo", "pornhub", "91video", "redgifs", "fc2"]) {
+  /* 断言适配（3.2.2 瘦身）：名单收口到保留集——保留的 video 源
+   * （里番）同样无分集能力、不进短剧列表，且仍在「视频」频道。 */
+  for (const id of ["hanime-tv", "rule34video"]) {
     assert.ok(!drama.some((s) => s.id === id), `${id} 无短剧品类映射、不进短剧频道切源列表`);
   }
   const original = sourcesForChannel("original", getBuiltinRegistry());
-  for (const id of ["xvideos", "hanime-tv", "swag", "rouvideo"]) {
+  for (const id of ["hanime-tv", "rule34video"]) {
     assert.ok(original.some((s) => s.id === id), `${id} 仍在「视频」频道切源列表（其他频道不受影响）`);
   }
   const category = read("../category/Category.tsx");
@@ -57,10 +59,18 @@ const def = (id: string) => {
   assert.ok(diag.includes("sourceHealthDetailLinesInApp"), "管理/诊断明细面仍保留全量源（含未启用）");
 }
 
-/* ── (c) 肉视频：真站 /home 卡片锚点 /v/<id>（根路径为年龄门） ── */
+/* ── (c) 肉视频：真站 /home 卡片锚点 /v/<id>（根路径为年龄门）。
+ * 断言适配（3.2.2 瘦身）：源已摘除注册表、适配器与校准参数留仓，
+ * 改用与删除前注册表逐字一致的内联 def 守解析覆盖，断言不变。 ── */
 {
   setFetchPage(async () => fx("real-rouvideo-home.html"));
-  const a = createHlsSiteAdapter(def("rouvideo"));
+  const a = createHlsSiteAdapter({
+    id: "rouvideo", displayName: "肉视频", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/home", itemLinkPattern: "/v/", detailPath: "/v/{id}", streamUrlTemplate: "/api/hls/{id}" } },
+    baseUrls: ["https://rou.video"], enabled: true, order: 20, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    network: { mode: "probe-required" },
+  } as unknown as ReturnType<typeof def>);
   const list = await a.list(1, 20);
   assert.ok(list.items.length >= 2, `肉视频真站结构解析出条目（实得 ${list.items.length}）`);
   assert.ok(list.items[0].href.includes("/v/"), "肉视频条目 href 为真站 /v/<id> 形态");
@@ -99,9 +109,15 @@ const def = (id: string) => {
 for (const [id, fixture, pattern] of [["swag", "real-swag-home.html", "/video/"], ["redgifs", "real-redgifs-home.html", "/watch/"]] as const) {
   setFetchPage(async () => fx(fixture));
   const a = createHlsSiteAdapter({
-    ...def(id),
+    /* 断言适配（3.2.2 瘦身）：两源已摘除注册表，内联 def 只供本节
+     * 锚点模板空解析语义（baseUrls 取删除前注册表值），断言不变。 */
+    id, displayName: id, kind: "video", category: "video",
+    baseUrls: [id === "swag" ? "https://swag.live" : "https://www.redgifs.com"],
+    enabled: true, order: 0, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    network: { mode: "probe-required" },
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: pattern, detailPath: "/x/{id}" } },
-  });
+  } as unknown as ReturnType<typeof def>);
   let caught: unknown = null;
   try { await a.list(1, 20); } catch (e) { caught = e; }
   assert.ok(caught instanceof SourceParseEmptyError, `${id} 解析为空抛 SourceParseEmptyError（显式失败态）`);

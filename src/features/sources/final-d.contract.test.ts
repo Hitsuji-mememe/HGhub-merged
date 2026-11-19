@@ -128,7 +128,7 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
  * 不静默回落） ── */
 {
   setFetchPage(async () => { throw new Error("fixture net down"); });
-  const def = getBuiltinRegistry().find((s) => s.id === "pornhub")!;
+  const def = getBuiltinRegistry().find((s) => s.id === "rule34video")!; // 断言适配（3.2.2 瘦身）：pornhub 已摘除，同模板保留源接替
   const adapter = createHlsSiteAdapter(def);
   await assert.rejects(() => adapter.list(1, 20), /fixture net down/, "取数失败如实抛错");
 }

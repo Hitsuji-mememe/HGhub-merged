@@ -4,12 +4,16 @@
  * 任务书即维护者对新增测试的授权（AGENTS 不变量 11）。
  * 运行：node src/features/search/fix321-f5.contract.test.ts
  *
- * 钉住的口径——搜索扇出资格＝三段齐全（见 multiSourceSearch.ts 的
- * missingSearchSegments）：搜索段（capabilities.search 为真且模板真有
- * search）、详情段与取流段（模板真有 detail/resolve 且 maturity=stable
- * ——types.ts 定义 stable=真站实测三段全通、probe=部分未证）、且模板
- * 参数非未校准骨架（note 不含「未按真站校准」）。INCLUDE_OVERRIDE 只
- * 能在三段齐全者中生效，不得再绕过三段门。源不删、频道浏览不受此限。
+ * 钉住的口径（2026-11-19 20:48 用户裁定变更，本文件随之适配）——
+ * 搜索扇出资格＝搜索段结构门（见 multiSourceSearch.ts 的
+ * missingSearchSegments）：模板真有 search 方法且 capabilities.
+ * search 为真、且源已启用，即进扇出；maturity（验通状态）与参数
+ * 校准状态不再在搜索入口预判（源已砍到保留集、重复压力低，可播
+ * 性改在详情/起播时解析与兜底）。3.2.1 的 F5 三段齐全门（须
+ * maturity=stable＋参数已校准、INCLUDE_OVERRIDE 门后生效）已被
+ * 本裁定取代，OFF_IDS/INCLUDE_OVERRIDE 一并退役。本文件原 F5
+ * 断言中与结构事实相关的部分（缺段判定、静默出局、Shorties 断链
+ * 夹具证据）继续有效，验通门相关断言按新口径改写并逐处标注。
  *
  * Shorties 断链证据（真站抓取，2026-11-19 本机 curl，参考级）：
  * 模板 search 硬编码 /?s={q}&paged={page}（WordPress 式）请求
@@ -34,6 +38,16 @@ import {
 } from "./multiSourceSearch.ts";
 
 const fx = (name: string) => readFileSync(new URL(`../sources/adapters/fixtures/${name}`, import.meta.url), "utf8");
+/* 断言适配（3.2.2 瘦身）：shorties 已摘除注册表，其断链夹具证据守
+ * 的是 hls-site 模板在该参数下的解析产物——改用与删除前目录条目
+ * 逐字一致的内联 def，断言内容不变。 */
+const SHORTIES_DEF = {
+  id: "shorties", displayName: "Pornhub Shorties", kind: "video", category: "video",
+  adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
+  baseUrls: ["https://www.pornhub.com/shorties"], enabled: false, order: 115, maturity: "probe",
+  capabilities: { search: false, episodes: false, hevc: false, comments: false },
+  network: { mode: "probe-required" }, note: "目录导入·未实测（历史条目）",
+} as unknown as SourceDef;
 const def = (id: string): SourceDef => {
   const d = getBuiltinRegistry().find((s) => s.id === id);
   assert.ok(d, `registry has ${id}`);
@@ -76,65 +90,63 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
   assert.ok(missingSearchSegments(previewOnly).includes("search"), "preview-only 无 search 方法 → 缺搜索段");
   assert.equal(searchPolicyFor(previewOnly).include, false, "仅预览源：不进扇出");
 
+  /* 裁定变更适配：probe 只记验通状态、不再让结构段失效——三段
+   * 实现都在即无缺段、进扇出（可播性后移详情/起播解析）。 */
   const unverified = mkDef({ maturity: "probe", note: "真站实测：详情无流、取流接口未验证 → probe（合成夹具）" });
-  assert.ok(missingSearchSegments(unverified).includes("detail"), "probe（未验通）→ 详情段不算真实现");
-  assert.ok(missingSearchSegments(unverified).includes("play"), "probe（未验通）→ 取流段不算真实现");
-  assert.equal(searchPolicyFor(unverified).include, false, "三段未验通：不进扇出（搜得出≠播得了）");
+  assert.deepEqual(missingSearchSegments(unverified), [], "probe（未验通）→ 结构段仍齐全（验通状态不预判）");
+  assert.equal(searchPolicyFor(unverified).include, true, "未验通但具备搜索段：进扇出（20:48 裁定）");
 
   const skeleton = mkDef({ maturity: "probe", capabilities: { ...NO_CAPS }, note: SKELETON_NOTE });
-  assert.ok(missingSearchSegments(skeleton).includes("search"), "未校准骨架 → 缺搜索段");
-  assert.equal(searchPolicyFor(skeleton).include, false, "未校准骨架源：不进扇出");
+  assert.ok(missingSearchSegments(skeleton).includes("search"), "未声明 capabilities.search → 缺搜索段（与参数校准状态无关）");
+  assert.equal(searchPolicyFor(skeleton).include, false, "无搜索段声明：不进扇出");
 
+  /* 裁定变更适配：blocked 是验通状态而非结构缺段——具备搜索段
+   * 且已启用的源一律进扇出（失败在扇出层如实留痕、不预扣）。 */
   const blocked = mkDef({ maturity: "blocked", note: "真站实测 blocked（合成夹具）" });
-  assert.equal(searchPolicyFor(blocked).include, false, "blocked：不进扇出");
+  assert.equal(searchPolicyFor(blocked).include, true, "blocked 但具备搜索段且已启用：进扇出（20:48 裁定「一律」）");
 }
 
-/* ── INCLUDE_OVERRIDE 只能在三段齐全者中生效，不得绕过三段门 ── */
+/* ── INCLUDE_OVERRIDE／OFF_IDS 已退役（20:48 裁定）：名单特例
+ * 不复存在——旧 override 成员与任何源同规则：enabled=false 即出
+ * 局（不再有越过 enabled 的纳入），有搜索段＋enabled 即纳入。 ── */
 {
-  const overrideComplete = mkDef({ id: "supjav", enabled: false });
-  assert.equal(searchPolicyFor(overrideComplete).include, true, "override 源三段齐全时：enabled=false 仍可经 override 进扇出");
-  const overrideSkeleton = mkDef({
-    id: "shorties", enabled: false, maturity: "probe", capabilities: { ...NO_CAPS },
-    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
-    note: SKELETON_NOTE,
-  });
-  assert.equal(searchPolicyFor(overrideSkeleton).include, false, "override 源缺段时：override 不得绕过三段门");
+  const formerOverrideOff = mkDef({ id: "51chigua", enabled: false });
+  assert.equal(searchPolicyFor(formerOverrideOff).include, false, "旧 override 成员 enabled=false：无特例、出局");
+  const formerOffNowIn = mkDef({ id: "xiuren", enabled: true, maturity: "blocked" });
+  assert.equal(searchPolicyFor(formerOffNowIn).include, true, "旧 OFF 成员（秀人）具备搜索段：按通则进扇出、无名单特判");
 }
 
-/* ── 注册表全量遍历：扇出名单恰为三段验通的 7 源 ── */
+/* ── 注册表全量遍历：扇出名单恰为保留集内具备搜索段的 7 源 ── */
 {
   const included = getBuiltinRegistry().filter((d) => searchPolicyFor(d).include).map((d) => d.id);
   assert.deepEqual(
     included,
-    ["huangguo", "91video", "pornhub", "xvideos", "fyptt", "rule34video", "cosplaytele"],
-    "扇出名单=三段全通源（与 2026-11-19 真站实测 7 个可用源一致）",
+    ["huangguo", "hanime-tv", "rule34video", "xiuren", "pornpics", "cosplaytele", "danbooru"],
+    "扇出名单=保留集内 enabled∧具备搜索段（注册表序）",
   );
 
-  /* 基线（修复前）曾进扇出、因缺段被移出的 13 源：逐源断言出局＋缺段非空 */
-  const removed: Record<string, SearchSegment[]> = {
-    rouvideo: ["detail", "play"],        // probe：列表数据接口未定位
-    "hanime-tv": ["detail", "play"],     // probe：详情无流、取流接口未验证
-    swag: ["detail", "play"],            // probe：SSR 无条目、取流需登录态
-    redgifs: ["detail", "play"],         // probe：官方 API 401、取页契约不支持 header
-    fc2: ["search", "detail", "play"],   // 未实测＋通用骨架未校准
-    "51chigua": ["search", "detail", "play"], // blocked＋NO_CAPS（旧 override 绕过）
-    meiridasai: ["search", "detail", "play"], // blocked＋NO_CAPS（旧 override 绕过）
-    pornpics: ["detail", "play"],        // probe：SSR 无图集锚点、前端渲染
-    feedheiliao: ["search", "detail", "play"], // 目录骨架＋NO_CAPS（旧 override 绕过）
-    av123: ["search", "detail", "play"],       // 目录骨架＋NO_CAPS（旧 override 绕过）
-    supjav: ["search", "detail", "play"],      // 目录骨架＋NO_CAPS（旧 override 绕过）
-    shorties: ["search", "detail", "play"],    // 目录骨架＋NO_CAPS（旧 override 绕过）
-    "rouvideo-drama": ["search", "detail", "play"], // 目录骨架＋NO_CAPS（旧 override 绕过）
+  /* 出局的保留源逐源断言：无搜索段（吃瓜模板/无适配器）或未启用 */
+  const excludedSearch: Record<string, SearchSegment[]> = {
+    "51chigua": ["search"],       // chigua 模板无 search 方法
+    feedheiliao: ["search"],      // 同上
+    meiridasai: ["search"],       // 同上＋未声明
+    hanime1: ["search", "detail", "play"], // template=none 无适配器
+    iwara: ["search", "detail", "play"],   // 同上
   };
-  for (const [id, segs] of Object.entries(removed)) {
+  for (const [id, segs] of Object.entries(excludedSearch)) {
     const p = searchPolicyFor(def(id));
-    assert.equal(p.include, false, `${id} 因缺段移出扇出`);
-    assert.ok(p.reason.includes("三段"), `${id} 出局理由标明三段门`);
+    assert.equal(p.include, false, `${id} 无搜索段出局`);
+    assert.ok(p.reason.includes("无搜索段"), `${id} 出局理由标明结构门`);
     const missing = missingSearchSegments(def(id));
     for (const s of segs) assert.ok(missing.includes(s), `${id} 缺段含 ${s}（实际 ${missing.join("/")}）`);
   }
-  /* 被移出的源注册保留（不删源）：仍在注册表里、频道浏览口径不受扇出门影响 */
-  for (const id of Object.keys(removed)) assert.ok(def(id), `${id} 注册保留`);
+  for (const id of ["pixibb", "nudecosplay", "yandere", "gelbooru", "hentaihaven", "pixiv"]) {
+    assert.equal(searchPolicyFor(def(id)).include, false, `目录源 ${id} 未启用出局`);
+  }
+  /* 出局源注册保留（不删源）：仍在注册表里、频道浏览不受扇出门影响 */
+  for (const id of [...Object.keys(excludedSearch), "pixibb", "nudecosplay", "yandere", "gelbooru", "hentaihaven", "pixiv"]) {
+    assert.ok(def(id), `${id} 注册保留`);
+  }
 }
 
 /* ── 扇出行为：缺段源静默不搜（不发请求、不记失败），齐全源照常 ── */
@@ -151,17 +163,17 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
     },
   });
   const failures: string[] = [];
-  await fanoutSearch("静默", [def("shorties"), def("pornhub")], (d) => stub(d.id), {
+  await fanoutSearch("静默", [def("51chigua"), def("huangguo")], (d) => stub(d.id), {
     onFailure: (sid) => { failures.push(sid); },
   });
-  assert.deepEqual(searchedByAdapter, ["pornhub"], "扇出只真搜三段齐全源（shorties 未被调用）");
+  assert.deepEqual(searchedByAdapter, ["huangguo"], "扇出只真搜具备搜索段的源（51吃瓜无搜索段未被调用）");
   assert.deepEqual(failures, [], "缺段源是资格出局、不是失败：不留失败痕（静默性）");
 }
 
 /* ── Shorties 断链夹具（真站 HTML 节录）：模板 search 产物全是建议词＋占位封面 ── */
 {
   setFetchPage(async () => fx("pornhub-homepage-trending.html"));
-  const a = createHlsSiteAdapter(def("shorties"));
+  const a = createHlsSiteAdapter(SHORTIES_DEF);
   const r = await a.search!("3p", 1, 20);
   assert.ok(r.items.length > 0, "模板 search 在首页节录上仍能「搜出」条目（问题不在零结果）");
   for (const it of r.items) {
@@ -173,13 +185,13 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
   const page = fx("pornhub-shorties-json.html");
   assert.ok(page.includes("JSON_SHORTIES"), "真站 shorties 条目数据在 JSON_SHORTIES 内嵌 JS 里");
   setFetchPage(async () => page);
-  const a = createHlsSiteAdapter(def("shorties"));
+  const a = createHlsSiteAdapter(SHORTIES_DEF);
   /* 断言适配（协调者合并 F2 时）：F2 的 SourceParseEmptyError 已把
    * 「取到页解析零条目」从静默空列表改为显式抛错——零条目这一事实
    * 不变，呈现形态按新契约断言（抛错即证解析零条目）。 */
   await assert.rejects(() => a.list(1, 20), /解析失败|SourceParseEmptyError|未解析到条目/,
     "锚点模板对真站 shorties 页解析零条目（详情/取流段同样无从谈起）");
-  assert.equal(searchPolicyFor(def("shorties")).include, false, "Shorties 处置：移出搜索扇出（源保留）");
+  assert.equal(searchPolicyFor(SHORTIES_DEF).include, false, "Shorties 处置口径不变：无搜索段声明、不进扇出（3.2.2 起源已摘除注册表）");
 }
 
 console.log("fix321-f5.contract: all assertions passed");
