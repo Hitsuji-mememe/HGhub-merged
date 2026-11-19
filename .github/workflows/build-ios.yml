@@ -32,6 +32,12 @@ jobs:
           # 默认 save-if 只在默认分支保存：本仓构建都在合并分支 dispatch，
           # 不显式打开就永远只读旧缓存、每次冷编（Muse 2026-11-18 提速修复）。
           save-if: true
+      # sccache（fix2 C3 实验，Muse 2026-11-19）：GHA 后端经
+      # sccache-action 注入本作业环境；真正让 Xcode 的 Build Rust
+      # Code 阶段用上它的是后面 patch-ios-sccache.mjs（把设置写进
+      # 阶段脚本本身），单靠这里 export 进不到 xcodebuild 阶段。
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
       - run: pnpm install --frozen-lockfile
 
       - name: 生成 iOS 工程（带横竖屏 + ATS）
@@ -50,11 +56,27 @@ jobs:
             /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$plist"
           done
 
+      - name: sccache 注入 Xcode 构建阶段（fix2 C3 实验）
+        shell: bash
+        run: |
+          # 后端凭证只经 $RUNNER_TEMP 运行时文件传递给阶段脚本，
+          # 不写进仓库与生成工程（工程文件只留 source 动作本身）。
+          {
+            echo "export SCCACHE_GHA_ENABLED=${SCCACHE_GHA_ENABLED:-true}"
+            echo "export ACTIONS_CACHE_URL=${ACTIONS_CACHE_URL:-}"
+            echo "export ACTIONS_RUNTIME_TOKEN=${ACTIONS_RUNTIME_TOKEN:-}"
+          } > "$RUNNER_TEMP/sccache-env.sh"
+          node scripts/patch-ios-sccache.mjs "$RUNNER_TEMP/sccache-env.sh"
+          sccache --show-stats || true
+
       - name: 构建并打包 ipa
         shell: bash
         env:
           APP_VERSION: ${{ github.run_number }}
-        run: bash scripts/build-ios-unsigned.sh "$APP_VERSION"
+        run: |
+          bash scripts/build-ios-unsigned.sh "$APP_VERSION"
+          echo "── sccache stats after build ──"
+          sccache --show-stats || true
 
       - uses: actions/upload-artifact@v7
         with:
