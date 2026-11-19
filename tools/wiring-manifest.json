@@ -336,6 +336,60 @@
         "src-tauri/src/lines/ledger.rs"
       ],
       "min": 2
+    },
+    {
+      "id": "fin-d-manifest-url",
+      "item": "最终版D线 条目6 清单改址常量（manifest.ts 定义＋registry 解析消费）",
+      "files": [
+        "src/features/sources/manifest.ts"
+      ],
+      "symbol": "REMOTE_MANIFEST_URL",
+      "min": 2
+    },
+    {
+      "id": "fin-d-create-adapter-browse",
+      "item": "最终版D线 外部视频源浏览页生产调用 createAdapter",
+      "files": [
+        "src/features/sources/SourceBrowse.tsx"
+      ],
+      "symbol": "createAdapter",
+      "min": 2
+    },
+    {
+      "id": "fin-d-create-adapter-gallery",
+      "item": "最终版D线 图片图集页生产调用 createAdapter",
+      "files": [
+        "src/features/sources/SourceGallery.tsx"
+      ],
+      "symbol": "createAdapter",
+      "min": 2
+    },
+    {
+      "id": "fin-d-source-browse-mounted",
+      "item": "最终版D线 ChannelPage 非黄果视频分支挂载 SourceBrowse",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "SourceBrowse",
+      "min": 2
+    },
+    {
+      "id": "fin-d-source-gallery-mounted",
+      "item": "最终版D线 ChannelPage 图片分支挂载 SourceGallery",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "SourceGallery",
+      "min": 2
+    },
+    {
+      "id": "fin-d-image-category",
+      "item": "最终版D线 条目8 图片分区经 sourcesForCategory(image) 列源",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "sourcesForCategory(\"image\"",
+      "min": 1
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",

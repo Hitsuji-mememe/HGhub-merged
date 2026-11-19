@@ -12,8 +12,11 @@
 import { BUILTIN_SOURCES, getBuiltinRegistry } from "./registry.ts";
 import type { SourceDef } from "./types.ts";
 
-/** 远程清单 URL：全仓唯一集中点，改地址只改这一行。 */
-export const REMOTE_MANIFEST_URL = "https://hghubx.pages.dev/sources-manifest.json";
+/** 远程清单 URL：全仓唯一集中点，改地址只改这一行。
+ * 2026-11-19 最终版 D 线改址：旧 hghubx.pages.dev 项目不存在（DNS 不
+ * 解析、悬空地址，根治包照上游项目名想当然所致），改走新建的
+ * hghub-registry.pages.dev 托管；CSP 五处口径同步放行该 origin。 */
+export const REMOTE_MANIFEST_URL = "https://hghub-registry.pages.dev/sources-manifest.json";
 export const MANIFEST_CACHE_KEY = "hghubx_sources_manifest_last_good";
 /** 不反向依赖 shared/api（其顶层含 Tauri/navigator 副作用）：版本号由
  * resolveRegistry 入参注入，未注入时用此兜底（与 package.json 同步）。 */

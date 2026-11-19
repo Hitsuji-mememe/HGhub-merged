@@ -34,7 +34,9 @@ export function InplaceSearch({ kind, postLabel = "吃瓜帖", scope, onOpenVide
   const items = result?.kind === "video" ? result.items as VideoCard[] : [];
   const posts = result?.kind === "post" ? result.items as Post[] : [];
   const count = result?.items.length ?? 0;
-  const videoLabel = scope === "original" ? "原创" : "短剧";
+  /* 显示名与频道改名一致（Muse 2026-11-19 最终版 D 线，①用户亲定
+   * 条目7）：cate="original" 频道已改名「视频」，scope id 不变。 */
+  const videoLabel = scope === "original" ? "视频" : "短剧";
   const label = kind === "post" ? postLabel : videoLabel;
   useDialogFocusTrap(true, rootRef, onClose);
   const submit = (keyword: string) => {
