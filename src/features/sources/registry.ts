@@ -45,8 +45,8 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     id: "pornhub", displayName: "Pornhub", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/video?page={page}", itemLinkPattern: "/view_video.php", detailPath: "/view_video.php?viewkey={id}" } },
     baseUrls: ["https://www.pornhub.com"],
-    enabled: true, order: 22, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+    enabled: true, order: 22, maturity: "stable",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：/video?page=1 列表可解析、详情 mediaDefinitions JSON 含多档 HLS master.m3u8（\\/ 转义形态、解析层已还原复验）；详情页含年龄/登录提示文案但内容与流均免登录可达",
   },
   {
     id: "xvideos", displayName: "XVideos", kind: "video", category: "video",
