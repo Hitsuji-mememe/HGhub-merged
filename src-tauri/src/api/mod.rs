@@ -8,6 +8,7 @@ pub(crate) mod feed;
 pub(crate) mod interact;
 pub(crate) mod lines;
 pub(crate) mod platform;
+pub(crate) mod source;
 pub(crate) mod update;
 pub(crate) mod video;
 
@@ -21,6 +22,8 @@ pub use interact::*;
 pub use lines::*;
 #[allow(unused_imports)]
 pub use platform::*;
+#[allow(unused_imports)]
+pub use source::*;
 #[allow(unused_imports)]
 pub use update::*;
 #[allow(unused_imports)]

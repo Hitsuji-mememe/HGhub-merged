@@ -222,6 +222,7 @@ pub fn run() {
             api::platform::security_set,
             api::platform::debug_log,
             api::platform::net_diag,
+            api::source::source_fetch,
             api::lines::line_state,
             api::lines::line_set,
             api::lines::line_custom_set,

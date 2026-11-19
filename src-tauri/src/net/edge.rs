@@ -1,4 +1,4 @@
-use super::client::{client_for, get_with_dns};
+use super::client::{client_for, get_with_dns, get_with_headers};
 use super::line::{base, normalize_base, trusted_auth_origin};
 use super::redact::{err_text, heal_client};
 use super::{MEDIA_DNS_ROUTES, NEXT_EDGE, NEXT_REQUEST};
@@ -244,6 +244,74 @@ pub async fn edge(
     }
 }
 
+/// 多源适配器取页的响应体上限：与清单/API 同档（4MB，audit6 P2-13 口径）。
+pub const PAGE_TEXT_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+/// 流式累计器：逐块追加，累计超过上限立即报错中断，不整段读入内存。
+pub(crate) struct CappedBody {
+    buf: Vec<u8>,
+    cap: usize,
+}
+
+impl CappedBody {
+    pub(crate) fn new(cap: usize) -> Self {
+        Self { buf: Vec::new(), cap }
+    }
+
+    pub(crate) fn push(&mut self, chunk: &[u8]) -> Result<(), String> {
+        if self.buf.len() + chunk.len() > self.cap {
+            return Err(format!("响应体超过 {} 字节上限", self.cap));
+        }
+        self.buf.extend_from_slice(chunk);
+        Ok(())
+    }
+
+    pub(crate) fn into_bytes(self) -> Vec<u8> {
+        self.buf
+    }
+}
+
+/// 多源适配器取页（audit6 模块化与源注册表节）：只走生产网络栈——
+/// get_with_dns 内含 parse_target_with_mode 目标校验（禁内网/回环/内部
+/// 主机名）、DNS 固定与逐跳重定向复检，本函数不另开任何旁路客户端；
+/// 响应体流式累计、上限 4MB 超限报错；正文按 UTF-8 lossy 返回。
+pub async fn fetch_page_text(url: &str) -> Result<String, String> {
+    fetch_page_text_with_headers(url, &[]).await
+}
+
+/// 同 fetch_page_text，另带适配器请求头（如 Referer/User-Agent）。
+/// 头在此处先校验：名称/值必须能解析为合法 HTTP 头（禁控制字符与
+/// CRLF 注入）；Host 与 Content-Length 不许覆盖——前者由目标 URL 与
+/// DNS 固定决定、后者由实际请求体决定，覆盖都会破坏生产栈契约。
+pub async fn fetch_page_text_with_headers(
+    url: &str,
+    headers: &[(String, String)],
+) -> Result<String, String> {
+    let mut validated: Vec<(String, String)> = Vec::with_capacity(headers.len());
+    for (name, value) in headers {
+        let parsed_name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
+            .map_err(|_| format!("请求头名称无效：{name}"))?;
+        if parsed_name == reqwest::header::HOST || parsed_name == reqwest::header::CONTENT_LENGTH {
+            return Err(format!("请求头不许覆盖：{name}"));
+        }
+        reqwest::header::HeaderValue::from_str(value)
+            .map_err(|_| format!("请求头值无效：{name}"))?;
+        validated.push((name.clone(), value.clone()));
+    }
+    let mut resp = get_with_headers(url, Duration::from_secs(20), &validated).await?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    if resp.content_length().is_some_and(|n| n > PAGE_TEXT_MAX_BYTES as u64) {
+        return Err(format!("响应体超过 {} 字节上限", PAGE_TEXT_MAX_BYTES));
+    }
+    let mut body = CappedBody::new(PAGE_TEXT_MAX_BYTES);
+    while let Some(chunk) = resp.chunk().await.map_err(|e| err_text(&e))? {
+        body.push(&chunk)?;
+    }
+    Ok(String::from_utf8_lossy(&body.into_bytes()).into_owned())
+}
+
 /// 拉原始字节（图片 / m3u8 / 分片），保留重定向后的最终 URL。
 pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String> {
     fetch_bytes_with_url(url).await.map(|(_, ctype, bytes)| (ctype, bytes))
@@ -310,4 +378,40 @@ pub async fn fetch_bytes_with_url(url: &str) -> Result<(String, Option<String>, 
         }
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /* 多源取页的目标校验走生产栈 parse_target_with_mode：内网/回环/
+     * 本机主机名在发出任何请求前就被拒（字面 IP 与 localhost 都不
+     * 需要真实网络即可判定）。 */
+    #[tokio::test]
+    async fn page_text_rejects_private_and_loopback_targets() {
+        for raw in [
+            "http://127.0.0.1/admin",
+            "https://192.168.1.1/page",
+            "https://10.0.0.5/page",
+            "https://[::1]/page",
+            "https://localhost/page",
+            "https://nas.local/page",
+        ] {
+            assert!(fetch_page_text(raw).await.is_err(), "{raw} 必须被目标校验拒绝");
+        }
+    }
+
+    /* 流式上限：恰好 4MB 可过，累计越线立即报错（分块到达也一样）。 */
+    #[test]
+    fn capped_body_enforces_streaming_limit() {
+        let mut body = CappedBody::new(PAGE_TEXT_MAX_BYTES);
+        body.push(&vec![0u8; PAGE_TEXT_MAX_BYTES - 1]).unwrap();
+        body.push(&[1]).unwrap();
+        assert_eq!(body.buf.len(), PAGE_TEXT_MAX_BYTES);
+        assert!(body.push(&[1]).is_err(), "越线一块必须报错");
+        let mut small = CappedBody::new(8);
+        assert!(small.push(&[0u8; 9]).is_err(), "单块越线必须报错");
+        small.push(&[0u8; 8]).unwrap();
+        assert_eq!(small.into_bytes().len(), 8);
+    }
 }

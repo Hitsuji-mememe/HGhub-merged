@@ -78,7 +78,7 @@ pub(crate) use client::{
     build_client, doh_resolver_client, proxy_active, request_scope, ProxyRoute, RequestScope,
 };
 pub use crate::net_diag::{diagnose, proxy_state, test_proxy};
-pub use edge::{edge, fetch_bytes, fetch_bytes_with_url};
+pub use edge::{edge, fetch_bytes, fetch_bytes_with_url, fetch_page_text, fetch_page_text_with_headers};
 pub(crate) use edge::edge_redirect_target;
 pub use line::{
     base, bind_base, is_custom_line, normalize_base, set_base, set_custom_base,

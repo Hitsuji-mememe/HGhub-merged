@@ -294,6 +294,28 @@ pub(super) async fn get_with_dns(
     referer: Option<&str>,
     public_dns: bool,
 ) -> Result<reqwest::Response, String> {
+    get_with_dns_h(raw, timeout, accept, referer, public_dns, &[]).await
+}
+
+/// 同 get_with_dns，另加调用方请求头（多源适配器取页用）：逐跳重定向
+/// 时每跳都带上，与 get_with_dns 共用同一实现，不另开旁路客户端。
+/// headers 必须已由调用方校验为合法 HeaderName/HeaderValue 串。
+pub(super) async fn get_with_headers(
+    raw: &str,
+    timeout: Duration,
+    headers: &[(String, String)],
+) -> Result<reqwest::Response, String> {
+    get_with_dns_h(raw, timeout, None, None, false, headers).await
+}
+
+async fn get_with_dns_h(
+    raw: &str,
+    timeout: Duration,
+    accept: Option<&str>,
+    referer: Option<&str>,
+    public_dns: bool,
+    extra_headers: &[(String, String)],
+) -> Result<reqwest::Response, String> {
     tokio::time::timeout(timeout, async {
         let policy_error = |phase: &str, error: String| {
             crate::playback_log::record("network.target_failed", json!({"resource": crate::playback_log::resource_id(raw), "phase": phase, "error_kind": crate::playback_log::error_kind(&error)}));
@@ -310,6 +332,9 @@ pub(super) async fn get_with_dns(
             }
             if let Some(value) = referer {
                 request = request.header("Referer", value);
+            }
+            for (name, value) in extra_headers {
+                request = request.header(name.as_str(), value.as_str());
             }
             let response = request.send().await.map_err(|e| err_text(&e))?;
             if !matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
