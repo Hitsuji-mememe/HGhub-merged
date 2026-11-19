@@ -286,12 +286,61 @@ export function diagnosticSelfChecks(facts: PlaybackFacts | null, flow: FlowResu
   }
   if (facts?.srMode && !facts.pipeline) fails.push("超分判档与实际管线未成对出现");
   const snap = ledgerSnapshot();
-  const linked = validateLedgerIntegrity(snap).instanceLinked;
-  if (facts && linked === 0 && snap.droppedLate === 0) fails.push("事件账本未见播放器实例事件（接线缺失）");
   const integ = validateLedgerIntegrity(snap);
-  if (integ.seqGaps > 0) fails.push(`事件账本序号缺口 ${integ.seqGaps}`);
-  if (integ.seqDuplicates > 0) fails.push(`事件账本序号重复 ${integ.seqDuplicates}`);
+  /* ③④换真判据（Muse 2026-11-19 整改 C8，G4 P2-1）：旧③依赖恒 0
+   * 的 droppedLate、旧④查单线程单调计数器的序号缺口/重复，两项都
+   * 结构性恒过。现③＝有当前播放事实（playbackFacts）但账本内无任何
+   * media 事件 → 接线缺失（真机会失败：镜像断线时 facts 仍在发布）；
+   * ④＝账本计数对齐：recorded 必须等于保留窗口条数＋窗口外截断数，
+   * 且与导出尾段条数口径一致，对不上即账本自洽性破裂。 */
+  if (facts && !snap.events.some(e => e.name.startsWith("media."))) {
+    fails.push("有当前播放事实但账本内无 media 事件（账本接线缺失）");
+  }
+  if (snap.recorded !== snap.events.length + integ.truncated) {
+    fails.push(`事件账本计数不对齐（已记 ${snap.recorded} ≠ 窗口 ${snap.events.length} + 截断 ${integ.truncated}）`);
+  }
   return fails;
+}
+
+/* ── 导出 ID 化辅助（Muse 2026-11-19 整改 C8）──────────────────
+ * 频道稳定编号：channel-01=ai-duanju（剧集频道）、channel-02=
+ * original（主内容频道）——两频道数据源不同、不得合并（主代理裁定）。 */
+export function channelLabel(list: string): string {
+  if (list.includes("ai-duanju")) return "channel-01（剧集频道）";
+  if (list.includes("original")) return "channel-02（主内容频道）";
+  return list;
+}
+
+/* 最近一次报告构建时的线路 host→编号映射，供导出尾段替换复用。 */
+let lastLineIdByHost = new Map<string, string>();
+
+/* 通用域名 TLD 白名单：点分事件名（web.media.playing 等）与文件名
+ * 不在此列，不会被误伤；真实 host 的 TLD 覆盖常见集合。 */
+const GENERIC_TLDS = new Set(["com", "net", "org", "io", "tv", "me", "co", "cn", "ai", "app", "dev", "xyz", "cc", "live", "to", "info", "site", "online", "club", "vip", "pro", "gg", "invalid", "local"]);
+
+/** 导出文本 host 替换：先用已知映射（线路编号）替换，再把残余的
+ * 域名形 token（尾段 TLD 在白名单内）按首现顺序编号为 host-NN——
+ * 保证日志尾/事件尾不带任何域名出门。源业务名不在此处理（源段已
+ * 在 registryDiag 层 ID 化，日志尾只含 host）。 */
+export function redactExportText(text: string, known: Map<string, string>): string {
+  let out = text;
+  for (const [host, id] of known) {
+    if (!host) continue;
+    out = out.split(host).join(id);
+  }
+  out = out.replace(/ai-duanju/g, "channel-01").replace(/original/g, "channel-02");
+  const generic = new Map<string, string>();
+  let seq = 0;
+  out = out.replace(/[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g, (m) => {
+    const tld = m.split(".").pop()?.toLowerCase() ?? "";
+    if (!GENERIC_TLDS.has(tld)) return m;
+    const hit = generic.get(m);
+    if (hit) return hit;
+    const id = `host-${String(++seq).padStart(2, "0")}`;
+    generic.set(m, id);
+    return id;
+  });
+  return out;
 }
 
 /* ── 一键导出补全（audit6 诊断节）：报告＋日志尾＋探针结果＋源注册表
@@ -304,12 +353,31 @@ export async function buildFullDiagnosticExport(): Promise<string> {
     const raw = await playbackLogApi.read();
     logTail = raw ? raw.slice(-8000) : "（暂无日志）";
   } catch { /* 保持失败文案 */ }
+  /* 日志尾先过 host→编号替换再附（整改 C8）：映射来自账本 origin/
+   * 当前 base/固定线路（lastLineIdByHost），残余域名走通用编号。 */
+  logTail = redactExportText(logTail, lastLineIdByHost);
   const probe = getSrProbeResult();
+  /* 账本事件本体进导出（diag-audit #3）：尾段印最近 64 条的
+   * seq/ts/instanceId/generation/事件名，同样过 host 替换。 */
+  let ledgerTail = "（账本不可用）";
+  try {
+    const snap = ledgerSnapshot();
+    ledgerTail = snap.events.length
+      ? snap.events.slice(-64).map(e => {
+          const gen = e.data && typeof e.data === "object" ? (e.data as Json).generation : undefined;
+          return `#${e.seq} ${e.ts} ${e.instanceId ?? "-"} gen=${gen ?? "-"} ${e.name}`;
+        }).join("\n")
+      : "（账本暂无事件）";
+  } catch { /* 保持失败文案 */ }
+  ledgerTail = redactExportText(ledgerTail, lastLineIdByHost);
   const parts = [
     report,
     "",
     "══ 探针结果（JSON） ══",
     probe ? JSON.stringify(probe, null, 2) : "（无探针结果）",
+    "",
+    "══ 账本事件（尾 64 条） ══",
+    ledgerTail,
     "",
     "══ 播放日志（尾 8000 字符） ══",
     logTail,
@@ -328,7 +396,26 @@ api.proxyState(),
 const diag = diagR.status === "fulfilled"? obj(diagR.value): {};
 const lineState = lineStateR.status === "fulfilled"? obj(lineStateR.value): {};
 const currentBase = str(lineState.base) || str(diag.base);
-const currentHost = currentBase? hostOf(currentBase): "-";
+/* 线路稳定编号（Muse 2026-11-19 整改 C8）：按账本顺序 line-01…，
+ * 其后当前线路、固定线路、探测结果按遇序补号；导出全文以编号代
+ * host（零域名口径）。映射同时存入模块级 lastLineIdByHost，供一键
+ * 导出的日志尾 host 替换复用。 */
+const lineIdByHost = new Map<string, string>();
+let lineSeq = 0;
+const lineIdFor = (urlOrHost: string): string => {
+const host = hostOf(urlOrHost);
+const hit = lineIdByHost.get(host);
+if (hit) return hit;
+const id = `line-${String(++lineSeq).padStart(2, "0")}`;
+lineIdByHost.set(host, id);
+return id;
+};
+for (const e of (Array.isArray(lineState.ledger)? lineState.ledger.map(obj): [])) {
+const origin = str(e.origin);
+if (origin) lineIdFor(origin);
+}
+const currentLineId = currentBase? lineIdFor(currentBase): null;
+lastLineIdByHost = lineIdByHost;
 
 /* 各固定线路延迟：用 line_probe（只测不切），候选 = 固定线路 + 当前线路。
    候选条数与不可达数单独计数入报告（2026-11-18 晚审计修正：原版只列
@@ -347,7 +434,7 @@ probeCount = list.length;
 probeDown = list.filter(h => obj(h).ok!== true).length;
 probeText = list.map(h => {
 const hit = obj(h);
-const name = hit.url === currentBase? `${hostOf(str(hit.url))}(当前)`: hostOf(str(hit.url));
+const name = hit.url === currentBase? `${lineIdFor(str(hit.url))}(当前)`: lineIdFor(str(hit.url));
 return hit.ok === true? `${name} ${num(hit.ms)?? "?"}ms`: `${name} 不可达`;
 }).join(" · ") || "无结果";
 } catch {
@@ -392,7 +479,9 @@ lines.push(`构建：${BUILD_STAMP}`);
  * 缓存/账号会话/导航/网络/错误，不是已知问题清单；新增子系统
  * 接入统一时间线才算完成（模块化验收项）。原则入报告头，让读者
  * 按此口径判读覆盖面与缺口。 */
-lines.push("诊断原则：全量飞行记录仪——统一时间线覆盖播放/选线/超分/源/缓存/账号会话/导航/网络/错误，为未知问题回溯而建；新增子系统接入统一时间线才算完成。");
+/* 报告头口径（整改 C8，G4 P2-5）：不把目标写成现状——已接入与未
+ * 接入如实分列（据 diag-audit-20261119 接入矩阵）。 */
+lines.push("诊断原则：全量飞行记录仪（目标）——已接入：播放/选线/超分/Feed 分页与封面/缓存计数/网络（生成时现跑探测）/错误；未接入：源取页观测链（无触发者，见源总览三态）、账号会话生命周期事件、注册表变更事件。覆盖面按此判读，不把目标当现状。");
 try {
 const snap = ledgerSnapshot();
 const integrity = validateLedgerIntegrity(snap);
@@ -412,7 +501,7 @@ if (scFails.length) lines.push(`口径自检未过：${scFails.join("；")}`);
 lines.push("");
 lines.push("── 结论 ──────────────────────────");
 lines.push(`网络：${diagR.status === "fulfilled"? shortVerdict(diag): "诊断失败（net_diag 不可用）"}`);
-lines.push(`当前线路：${currentHost}（自动选线 ${autoLineEnabled()? "开": "关"}）`);
+lines.push(`当前线路：${currentLineId?? "未知（无当前线路）"}（自动选线 ${autoLineEnabled()? "开": "关"}）`);
 lines.push(`各线延迟${probeCount!= null? `（候选 ${probeCount} 条）`: ""}：${probeText}`);
 lines.push(`分片吞吐：${speedText}`);
 /* 起播数字后标注信号来源（fix2 A4）：playing 代理回落要让读者知道
@@ -447,7 +536,7 @@ else lines.push("会话降级：未发生");
 const round = lastPickRound();
 if (round && Date.now() - round.at < 10 * 60_000) {
 const measuredText = round.measured.length
-? round.measured.map(m => `${m.host} ${m.kbps != null? `${(m.kbps / 8000).toFixed(1)} MB/s`: "吞吐未测"}·${m.ms}ms`).join(" · ")
+? round.measured.map(m => `${lineIdFor(m.host)} ${m.kbps != null? `${(m.kbps / 8000).toFixed(1)} MB/s`: "吞吐未测"}·${m.ms}ms`).join(" · ")
 : "无";
 lines.push(`镜像覆盖（${Math.max(0, Math.round((Date.now() - round.at) / 1000))} 秒前选线轮次）：发布 ${round.published?? "?"} 条 · 探测 ${round.probed?? "?"} 条（可达 ${round.okCount?? "?"}） · 吞吐实测 ${round.measured.length} 条：${measuredText}`);
 }
@@ -459,7 +548,7 @@ const rounds = recentPickRounds();
 if (rounds.length > 1) {
 lines.push(`选线近轮（最近 ${rounds.length} 轮，旧→新）：`);
 for (const r of rounds) {
-lines.push(`· ${new Date(r.at).toLocaleTimeString("zh-CN", { hour12: false })} 落定 ${hostOf(r.base)} · 决胜 ${r.reason} · 候选 ${r.probed?? "?"} 条 · 可达 ${r.okCount?? "?"}${r.breakerBlocked? " · 本轮熔断拦截": ""}`);
+lines.push(`· ${new Date(r.at).toLocaleTimeString("zh-CN", { hour12: false })} 落定 ${lineIdFor(r.base)} · 决胜 ${r.reason} · 候选 ${r.probed?? "?"} 条 · 可达 ${r.okCount?? "?"}${r.breakerBlocked? " · 本轮熔断拦截": ""}`);
 }
 }
 }
@@ -495,7 +584,7 @@ lines.push(`超分：判档 ${facts.srMode} · 实际管线 ${facts.pipeline?? "
 lines.push("当前集源：无（尚未播放）");
 }
 if (flow && flow.demoteCount > 0) lines.push(`超分降档：本会话 ${flow.demoteCount} 次（帧成本超标自动降档——发热/功耗问题先看这个数）`);
-lines.push(`选线现状：当前 ${currentHost}${round && Date.now() - round.at < 10 * 60_000? `；最近轮次探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}${flow? `；本会话切线 ${flow.lineSwitchCount} 次${flow.confirmPendingCount > 0? ` · 两轮确认待确认 ${flow.confirmPendingCount} 次`: ""}`: ""}`);
+lines.push(`选线现状：当前 ${currentLineId?? "未知"}${round && Date.now() - round.at < 10 * 60_000? `；最近轮次探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}${flow? `；本会话切线 ${flow.lineSwitchCount} 次${flow.confirmPendingCount > 0? ` · 两轮确认待确认 ${flow.confirmPendingCount} 次`: ""}`: ""}`);
 lines.push("");
 lines.push("── 状态快照 ──────────────────────");
 /* 状态快照（飞行记录仪收口）：各子系统当前状态汇总，与时间线流水
@@ -506,14 +595,28 @@ const ps = proxyStateR.status === "fulfilled"? obj(proxyStateR.value): {};
 const env = obj(diag.env);
 const sp = obj(env.session_persist);
 const persistText = Object.keys(sp).length === 0? "未记录": sp.ok === true? `成功${str(sp.at)? `（${str(sp.at)}）`: ""}`: `失败（阶段 ${str(sp.stage) || "未知"}）`;
-lines.push(`环境：代理模式 ${str(ps.mode) || "未知"}${str(ps.effective)? ` · 生效 ${str(ps.effective)}`: ""} · session 落盘 ${persistText}`);
+/* 代理生效地址不入导出（整改 C8 零 host 口径）：只报是否生效。 */
+lines.push(`环境：代理模式 ${str(ps.mode) || "未知"}${str(ps.effective)? " · 生效中（地址不入导出）": ""} · session 落盘 ${persistText}`);
 const brk = obj(lineState.breaker);
 if (Object.keys(brk).length) lines.push(`熔断：进程期自动切换 ${num(brk.total)?? "?"} / ${num(brk.sessionMax)?? "?"} · 10 分钟窗口 ${num(brk.windowCount)?? "?"} / ${num(brk.windowMax)?? "?"} · 退避中 ${num(brk.backoffLines)?? "?"} 条`);
 const ledgerEntries = Array.isArray(lineState.ledger)? lineState.ledger.map(obj): [];
 if (ledgerEntries.length) {
 const fmtBps = (v: unknown) => { const n = num(v); return n == null? "—": `${(n / 8_000_000).toFixed(1)} MB/s`; };
 for (const e of ledgerEntries) {
-lines.push(`账本[${hostOf(str(e.origin))} · ${str(e.mode) || "?"}]：play ${fmtBps(e.playBps)}（${num(e.playSamples)?? 0} 样本） · probe ${fmtBps(e.probeBps)}（${num(e.probeSamples)?? 0} 样本） · 卡顿 ${num(e.stall)?? 0} · 恢复 ${num(e.recovery)?? 0} · 降级 ${num(e.fallback)?? 0}`);
+/* 账本行扩印（整改 C8，消费 A 线新字段 playFirstAt/playUpdatedAt/
+ * probeUpdatedAt/playEnough/probeEnough/playStale，epoch ms）：字段
+ * 缺失（A 线未合入）时不印，不冒充。 */
+const timeOf = (v: number | null) => v == null? "?": new Date(v).toLocaleTimeString("zh-CN", { hour12: false });
+const extras: string[] = [];
+const firstAt = num(e.playFirstAt);
+const playUpd = num(e.playUpdatedAt);
+const probeUpd = num(e.probeUpdatedAt);
+if (firstAt != null || playUpd != null) extras.push(`样本窗 ${timeOf(firstAt)}–${timeOf(playUpd)}`);
+if (probeUpd != null) extras.push(`探测更新 ${timeOf(probeUpd)}`);
+if (e.playEnough === false) extras.push("播放样本不足");
+if (e.probeEnough === false) extras.push("探测样本不足");
+if (e.playStale === true) extras.push("播放样本已过期");
+lines.push(`账本[${lineIdFor(str(e.origin))} · ${str(e.mode) || "?"}]：play ${fmtBps(e.playBps)}（${num(e.playSamples)?? 0} 样本） · probe ${fmtBps(e.probeBps)}（${num(e.probeSamples)?? 0} 样本） · 卡顿 ${num(e.stall)?? 0} · 恢复 ${num(e.recovery)?? 0} · 降级 ${num(e.fallback)?? 0}${extras.length? ` · ${extras.join(" · ")}`: ""}`);
 }
 } else {
 lines.push("账本：无条目（本会话尚无线路吞吐/事件记录）");
@@ -561,12 +664,12 @@ lines.push("无记录（本会话未打开任何分页列表）");
 /* 按列表隔离逐行输出（fix2.1 批三#10）：多列表同会话不再混算 */
 for (const l of summary.lists) {
 const failText = l.lastFail? ` · 最近失败 ${l.lastFail}`: "";
-lines.push(`分页[${l.list}]：已加载至第 ${l.loadedPages} 页 · 终态 ${l.lastState?? "未知"}${failText}`);
+lines.push(`分页[${channelLabel(l.list)}]：已加载至第 ${l.loadedPages} 页 · 终态 ${l.lastState?? "未知"}${failText}`);
 }
 const reasons = Object.entries(snap.image.byReason).map(([k, v]) => `${k} ${v}`).join(" · ");
 lines.push(`封面：已显示 ${snap.image.displayed} · 终局失败 ${snap.image.failed}${reasons? `（${reasons}）`: ""} · 在途峰值 ${snap.image.inFlightPeak}`);
 const recent = snap.events.filter(e => e.kind.startsWith("page.")).slice(-4);
-for (const e of recent) lines.push(`· ${e.kind} ${JSON.stringify(e.data)}`);
+for (const e of recent) lines.push(`· ${e.kind} ${redactExportText(JSON.stringify(e.data), lineIdByHost)}`);
 }
 } catch {
 lines.push("读取失败（纯旁路，不影响本报告其余内容）");
