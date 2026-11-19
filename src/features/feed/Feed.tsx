@@ -139,9 +139,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      集数列表（只有「共 X 集」元信息），重复源就是这条落点记忆，
      故删除：选集只由选集钮到达、评论只由抽屉页签到达（播放面评论
      入口已随右栏撤销）、内容恒落详情，三入口互不重复。 */
-  /* 续播：拿到时长后再 seek 一次（只对进入时那一条生效） */
+  /* 续播：拿到时长后再 seek 一次（只对进入时那一条生效）。键用内容键
+     id:ep（顺藤检出 S1，随整改 B1）：旧作用域键在挂载后切线即与新
+     playKey 永不相等、续播静默丢失，与自愈接回同病。 */
   const resumeRef = useRef<{ key: string; t: number } | null>(
-    startTime && startTime > 1 ? { key: `${accountScope}:${store.lineEpoch}:${videoIds[startIndex]}:${startEp || 1}`, t: startTime } : null,
+    startTime && startTime > 1 ? { key: `${videoIds[startIndex]}:${startEp || 1}`, t: startTime } : null,
   );
   /* 观看进度：onTime 里节流写回 store，卸载时再兜一次 */
   const liveRef = useRef({ id: 0, ep: 1, dur: 0, t: 0, permissionKey: "", accountScope: "" });
@@ -330,7 +332,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       playbackClock.publish(healT);
     }
     const r = resumeRef.current;
-    if (r && r.key === playKey && r.t > 1 && (!d || r.t < d - 3)) {
+    if (r && r.key === contentKey && r.t > 1 && (!d || r.t < d - 3)) {
       resumeRef.current = null;
       videoRef.current?.seek(r.t, "history_resume");
       playbackClock.publish(r.t);
