@@ -94,9 +94,13 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   for (const id of ["jabletv", "missav", "iwara"]) {
     assert.ok(!ids.includes(id), `未启用源 ${id} 不进自检名单`);
   }
-  for (const id of ["51chigua", "meiridasai", "xiuren", "danbooru"]) {
+  for (const id of ["meiridasai", "xiuren", "danbooru"]) {
     assert.ok(!ids.includes(id), `blocked 源 ${id} 不进自检名单（blocked 本就不拉数据）`);
   }
+  // 契约适配（基础设施批集成，2026-11-19）：51chigua 已被 fix321-F2b 解 blocked
+  // （换现行域名 51cg1.com、maturity=probe、enabled=true），不再属 blocked 名单；
+  // 原断言保护的「blocked 不探测」由上面三源接棒，本行改验解封后的新事实。
+  assert.ok(ids.includes("51chigua"), "51chigua 已解 blocked（F2b），进自检名单");
   assert.ok(!ids.includes("myfans"), "preview 源不进自检名单");
   assert.equal(selfCheckEligible(fakeDef("x", { maturity: "preview" })), false, "preview 成熟度不合格");
   assert.equal(selfCheckEligible(fakeDef("x", { adapter: { template: "none" } })), false, "无适配器模板不合格");
