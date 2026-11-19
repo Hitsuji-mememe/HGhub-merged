@@ -11,6 +11,7 @@ import { CollectionLink, CollectionLinks } from "../../shared/ui/CollectionLink"
 import { InplaceSearch } from "../search/InplaceSearch";
 import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import { dedupedIncoming } from "../../shared/lib/dedup";
+import { partitionCardsByKind } from "../../shared/lib/contentKind";
 import { traceFeed } from "../../shared/lib/feedTrace";
 import { Empty } from "../../shared/ui/ui";
 import { IAward, IBack, IChevR, IFilm, IFlame, IGrid, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
@@ -78,8 +79,11 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
         if (requestEpoch !== lineEpochRef.current) { retryKeys.current.add(key); return; }
         if (mounted.current) setPosts(result?.items || []);
       } else {
+        /* 「视频」频道（original）内混排多集剧集，预览按内容性质
+         * 分组（F4 线）：窗口放大到 20 条再分组，视频区取 video 组
+         * 前 8、drama 组补入短剧区，避免过滤后预览饿死。 */
         const result = key === "original"
-          ? await api.originalVideos("all", 1, 8, "new")
+          ? await api.originalVideos("all", 1, 20, "new")
           : await api.category(key, 1, 8, "latest");
         if (requestEpoch !== lineEpochRef.current) { retryKeys.current.add(key); return; }
         if (mounted.current) setRows(m => ({ ...m, [key]: result?.items || [] }));
@@ -118,6 +122,12 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
     void loadPreview("posts");
   }, [lineEpoch, loadPreview]);
 
+  /* 性质分组（Muse 2026-11-19 3.2.1 修复 F4 线，与搜索共用
+   * shared/lib/contentKind 判定）：总览视频区只出 video 组；
+   * original 频道里的 drama 组条目补入短剧区（按 id 去重），
+   * 多集条目在总览只归短剧一处、不在两区重复出现。 */
+  const originalKindGroups = partitionCardsByKind(rows["original"] || []);
+
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
       <div className="ios-page-heading shrink-0 px-4">
@@ -150,7 +160,12 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
         </CollectionLinks>
 
         {CHANNELS.map((c, ci) => {
-          const list = rows[c.cate] || [];
+          const rawList = rows[c.cate] || [];
+          const list = c.cate === "original"
+            ? originalKindGroups.video.slice(0, 8)
+            : c.cate === "ai-duanju"
+              ? [...rawList, ...originalKindGroups.drama.filter((d) => !rawList.some((x) => x.id === d.id))]
+              : rawList;
           const ChannelIcon = c.Icon;
           return (
             <section key={c.cate} aria-label={c.name} className="mb-6 a-rise" style={{ animationDelay: `${Math.min(ci * 50, 300)}ms` }}>
@@ -335,11 +350,18 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
         ? api.originalVideos(originalCateOverride, next, 20, originalSort(originalCateOverride))
         : api.category(cate, next, 20, sortOverride));
       if (seq !== requestSeq.current) return;
+      const rawItems = res?.items || [];
+      /* 性质过滤（F4 线）：「视频」频道服务端分页内混排剧集与单条，
+       * incoming 先按共用判定剔除 drama 组再入列表。分页取舍：过滤
+       * 只作用于入列表的条目，page/pages 仍按服务端原值推进与终止
+       * （见下方 setPages），单页可见数可少于 20、整页被滤光时哨兵/
+       * 加载更多继续翻下一服务端页，不提前到底也不死循环。 */
+      const incomingItems = cate === "original" ? partitionCardsByKind(rawItems).video : rawItems;
       setPageItems((prev) => {
         const base = reset ? [] : prev;
         /* pageItems 是分页数组：新页 = 相对全部已加载页去重后的 incoming
          * （dedupedIncoming 与 appendDeduped 同一实现，页内重复同步入 seen） */
-        return [...base, dedupedIncoming(base.flat(), res?.items || [], (x) => x.id)];
+        return [...base, dedupedIncoming(base.flat(), incomingItems, (x) => x.id)];
       });
       setDisplayedFilter(filterKey(sortOverride, originalCateOverride));
       setPage(next);
@@ -350,7 +372,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
        * 时新筛选继承旧总页数、状态行页数与可翻页判断双双失真。 */
       setPages(res?.pagination?.pages ?? ((res?.items?.length ?? 0) > 0 ? Math.max(reset ? 1 : pages, next) : next));
       setErr(null);
-      traceFeed("page.success", { list: `channel:${cate}`, page: next, received: res?.items?.length ?? 0, pages: res?.pagination?.pages ?? null, ms: Date.now() - startedAt });
+      traceFeed("page.success", { list: `channel:${cate}`, page: next, received: rawItems.length, kindFiltered: rawItems.length - incomingItems.length, pages: res?.pagination?.pages ?? null, ms: Date.now() - startedAt });
     } catch (e) {
       traceFeed("page.fail", { list: `channel:${cate}`, page: reset ? 1 : page + 1, reason: "error", message: (e as Error).message || "加载失败" });
       if (seq === requestSeq.current) { lastFailAt.current = Date.now(); setErr((e as Error).message || "加载失败"); }
