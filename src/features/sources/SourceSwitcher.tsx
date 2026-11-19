@@ -66,10 +66,11 @@ export function SourceSwitcher({ options, value, onChange, ariaLabel }: {
 
 /** 非黄果源的诚实提示（按成熟度分化，用户保留口径）：
  * blocked＝站点实测不可达——保留在列表、点开只给证据与状态，不拉
- * 数据、不拿别源内容冒充；其余（probe/stable）＝本分类的外部源
+ * 数据、不拿别源内容冒充；其余（probe/stable）＝该分类的外部源
  * 浏览页尚未接通时暂不展示内容（视频/图片分类已于 2026-11-19
- * 最终版 D 线接通 SourceBrowse/SourceGallery，不再走本提示；
- * 本提示现行用于 blocked 全部与吃瓜帖分类的非黄果源）。 */
+ * 最终版 D 线接通 SourceBrowse/SourceGallery、吃瓜帖分类已于
+ * 3.3.0 接通批接通 SourcePosts，三分类均不再走本提示；
+ * 本提示现行只用于 blocked 全部）。 */
 export function SourcePendingNotice({ displayName, maturity, note }: { displayName: string; maturity?: SourceMaturity; note?: string }) {
   if (maturity === "blocked") {
     return (

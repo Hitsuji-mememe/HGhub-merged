@@ -115,7 +115,16 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
     resolve: (id) => htmlResolve(def, id),
     async search(q, page, size) {
       const base = def.baseUrls[0];
-      const html = await fetchPage(absUrl(base, `/?s=${encodeURIComponent(q)}&paged=${page}`));
+      /* 搜索路径按源校准（Muse 2026-11-19 3.3.0 接通批·吃瓜线）：
+       * params.searchPath 存在时按真站形态拼（{q} 已编码、{page} 页码；
+       * 51吃瓜/每日大赛实证为 Typecho 形态 /search/{q}/{page}/——站点
+       * 对 /?s= 的重写会吞掉 paged 参数、恒回第一页，故不走默认形）；
+       * 未声明的源维持 WordPress 式默认形 /?s=&paged= 不变。 */
+      const searchPath = str(params, "searchPath", "");
+      const path = searchPath
+        ? fill(searchPath, { q: encodeURIComponent(q), page })
+        : `/?s=${encodeURIComponent(q)}&paged=${page}`;
+      const html = await fetchPage(absUrl(base, path));
       const all = parseAnchorList(html, base, def.id, itemLinkPattern);
       return { items: all.slice(0, size), pagination: pageOf(all.length, page, size) };
     },
@@ -131,7 +140,11 @@ export function createChiguaAdapter(def: SourceDef): SourceAdapter {
       const d = await htmlDetail(def, id);
       const base = def.baseUrls[0];
       const html = await fetchPage(absUrl(base, id));
-      const bodyMatch = /<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(html) ?? /<div\b[^>]*class="[^"]*(?:entry-content|post-content|article-content)[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?:<footer|<aside)/i.exec(html);
+      /* 正文容器三形态：通用 <article>／entry-content 系 div／黑料网
+       * editormd-preview 容器（Muse 2026-11-19 3.3.0 接通批·吃瓜线：
+       * 该站正文 SSR 在 editormd-preview 内、旧两式恒捕获不到；捕获
+       * 至正文后的 detail-blockquote 推荐段之前终止）。 */
+      const bodyMatch = /<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(html) ?? /<div\b[^>]*class="[^"]*(?:entry-content|post-content|article-content)[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?:<footer|<aside)/i.exec(html) ?? /<div\b[^>]*class="[^"]*editormd-preview[^"]*"[^>]*>([\s\S]*?)<div\b[^>]*class="[^"]*detail-blockquote/i.exec(html);
       return { ...d, contentHtml: bodyMatch?.[1] };
     },
   };

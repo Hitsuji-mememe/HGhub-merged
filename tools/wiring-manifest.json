@@ -1446,6 +1446,44 @@
       ],
       "symbol": "fpsSource",
       "min": 3
+    },
+    {
+      "id": "fix330-chigua-posts-route",
+      "item": "3.3.0吃瓜线 吃瓜浏览面统一路由判定 resolvePostsBrowse（定义＋Posts/Category 两消费面）",
+      "files": [
+        "src/features/sources/postsRoute.ts",
+        "src/features/posts/Posts.tsx",
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "resolvePostsBrowse",
+      "each": true
+    },
+    {
+      "id": "fix330-chigua-create-adapter-posts",
+      "item": "3.3.0吃瓜线 吃瓜帖浏览页生产调用 createAdapter",
+      "files": [
+        "src/features/sources/SourcePosts.tsx"
+      ],
+      "symbol": "createAdapter",
+      "min": 2
+    },
+    {
+      "id": "fix330-chigua-sourceposts-mounted-posts",
+      "item": "3.3.0吃瓜线 Posts 页 browse 分支挂载 SourcePosts",
+      "files": [
+        "src/features/posts/Posts.tsx"
+      ],
+      "symbol": "SourcePosts",
+      "min": 2
+    },
+    {
+      "id": "fix330-chigua-sourceposts-mounted-category",
+      "item": "3.3.0吃瓜线 分类总览吃瓜预览挂载 SourcePosts（compact）",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "SourcePosts",
+      "min": 2
     }
   ]
 }

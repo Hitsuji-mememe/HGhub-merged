@@ -70,9 +70,13 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
  * 被删源的权重断言随源退场，保留源按新门改判纳入值。 ── */
 {
   const p = (id: string) => searchPolicyFor(def(id));
-  assert.deepEqual([p("51chigua").include, p("51chigua").weight], [false, 100], "51吃瓜主力：权重最高仍落表，无搜索段不纳入");
+  /* 断言适配（3.3.0 接通批·吃瓜线，2026-11-19）：51chigua/meiridasai
+   * 已按真站形态接线搜索段（caps.search=true），纳入值 false→true；
+   * 权重落表不变（100/50 与三层递减关系不动）；feedheiliao 经实证
+   * 无 GET 搜索段，维持不纳入。 */
+  assert.deepEqual([p("51chigua").include, p("51chigua").weight], [true, 100], "51吃瓜主力：权重最高落表，搜索段已接线纳入（3.3.0）");
   assert.deepEqual([p("feedheiliao").include, p("feedheiliao").weight], [false, 60], "黑料网补充：权重仍落表，无搜索段不纳入");
-  assert.deepEqual([p("meiridasai").include, p("meiridasai").weight], [false, 50], "每日大赛：权重在黑料网之下仍落表，无搜索段不纳入");
+  assert.deepEqual([p("meiridasai").include, p("meiridasai").weight], [true, 50], "每日大赛：权重在黑料网之下落表，搜索段已接线纳入（3.3.0）");
   assert.ok(p("51chigua").weight > p("feedheiliao").weight && p("feedheiliao").weight > p("meiridasai").weight, "吃瓜三层权重严格递减");
   assert.deepEqual([p("pornpics").include, p("pornpics").weight], [true, 100], "PornPics 写真主力：权重仍落表，具备搜索段纳入（成熟度不预扣）");
   assert.deepEqual([p("xiuren").include, p("xiuren").weight], [true, 40], "秀人网：中性权重，具备搜索段纳入（旧 OFF 表已退役）");

@@ -38,11 +38,20 @@ const CORE_IDS = [
     assert.equal(s.maturity, "probe", `目录源 ${s.id} 一律 probe`);
     assert.ok(s.note?.includes("目录导入·未实测"), `目录源 ${s.id} 注记诚实标注未实测`);
   }
-  /* fix321-F2b：51chigua 换域名 51cg1.com 后解 blocked（契约变化适配） */
-  for (const blockedId of ["meiridasai", "xiuren", "danbooru"]) {
+  /* fix321-F2b：51chigua 换域名 51cg1.com 后解 blocked（契约变化适配）。
+   * 3.3.0 接通批续适配：meiridasai 换备用镜像 mrds66 后解 blocked
+   * （住宅四级全通＋本机四级实证），blocked 接棒由 xiuren/danbooru
+   * 两源承担、口径不变；meiridasai 改验解封后新事实（probe＋新主域）。 */
+  for (const blockedId of ["xiuren", "danbooru"]) {
     const s = BUILTIN_SOURCES.find((x) => x.id === blockedId)!;
     assert.equal(s.maturity, "blocked");
     assert.equal(s.enabled, true, `${blockedId} blocked 保留口径：列表可见、点开诚实提示`);
+  }
+  {
+    const s = BUILTIN_SOURCES.find((x) => x.id === "meiridasai")!;
+    assert.equal(s.maturity, "probe", "meiridasai 已解 blocked（3.3.0 接通批）");
+    assert.equal(s.baseUrls[0], "https://www.mrds66.com", "meiridasai 主域为 mrds66（与清单 v3 一致）");
+    assert.equal(s.enabled, true, "meiridasai enabled");
   }
   for (const s of BUILTIN_SOURCES) {
     assert.ok(s.displayName && s.baseUrls.length && /^https?:\/\//.test(s.baseUrls[0]), `${s.id} 基址齐全`);
