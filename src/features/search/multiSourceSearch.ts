@@ -71,9 +71,10 @@ export const NEUTRAL_WEIGHT = 40;
 export type SearchSegment = "search" | "detail" | "play";
 /** 工厂真有 search 方法的模板（adapters/templates.ts 结构事实：
  * native-huangguo/chigua/hls-site/wp-rest/danbooru-api/redgifs-api
- * 有 search；swag-api 只有 list/detail/resolve；preview-only 无
+ * 有 search；fix330 接通批新增 iwara-api/hanime1/hentaihaven-api
+ * 三模板均有 search；swag-api 只有 list/detail/resolve；preview-only 无
  * search 且 resolve 明确拒绝；none 无适配器）。 */
-const SEARCH_TEMPLATES = new Set(["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "redgifs-api"]);
+const SEARCH_TEMPLATES = new Set(["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "redgifs-api", "iwara-api", "hanime1", "hentaihaven-api"]);
 const DETAIL_PLAY_TEMPLATES = new Set([...SEARCH_TEMPLATES, "swag-api"]);
 
 /** 结构上缺失的段（只判实现存在性、不判验通）：none 三段全缺；

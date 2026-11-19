@@ -161,7 +161,10 @@ assert.deepEqual(templateFetchOrigins("none"), [], "none 模板无取页 origin"
 {
   const allow = new Set(sourceFetchAllowlistOrigins(builtin));
   assert.ok(!allow.has("https://sexy.pixibb.com"), "未启用目录源（pixibb）origin 不在白名单内");
-  assert.ok(!allow.has("https://hanime1.me"), "未启用探路源（hanime1）origin 不在白名单内");
+  /* 断言适配（fix330 接通批）：hanime1 已启用 → 其 origin 按派生
+   * 通则进白名单（正向新事实）；「未启用不放行」的负向保护由
+   * pixibb（上行）与下方合成停用 def 断言接棒，口径不变。 */
+  assert.ok(allow.has("https://hanime1.me"), "fix330 已启用源（hanime1）origin 在白名单内");
   assert.ok(!allow.has("https://meiridasai.com"), "blocked 源（meiridasai）origin 不在白名单内");
   assert.ok(!allow.has("https://xiuren.com"), "blocked 源（xiuren）origin 不在白名单内");
   assert.ok(!allow.has("https://danbooru.donmai.us"), "blocked 源（danbooru）origin 不在白名单内");

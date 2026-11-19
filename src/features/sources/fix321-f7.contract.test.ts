@@ -93,8 +93,11 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   for (const id of ["huangguo", "hanime-tv", "rule34video", "pornpics"]) {
     assert.ok(ids.includes(id), `已启用源 ${id} 在自检名单`);
   }
-  for (const id of ["hanime1", "iwara"]) {
-    assert.ok(!ids.includes(id), `未启用源 ${id} 不进自检名单`);
+  /* 断言适配（fix330 接通批）：hanime1/iwara 已启用 → 按资格通则
+   * 进自检名单；「未启用不进名单」的保护由合成 def 断言接棒
+   * （selfCheckEligible 对 enabled=false 恒 false，见 healthCheck）。 */
+  for (const id of ["hanime1", "iwara", "hentaihaven"]) {
+    assert.ok(ids.includes(id), `fix330 已启用源 ${id} 在自检名单`);
   }
   for (const id of ["meiridasai", "xiuren", "danbooru"]) {
     assert.ok(!ids.includes(id), `blocked 源 ${id} 不进自检名单（blocked 本就不拉数据）`);

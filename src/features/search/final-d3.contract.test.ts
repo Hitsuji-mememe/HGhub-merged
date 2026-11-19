@@ -79,7 +79,10 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   assert.deepEqual([p("danbooru").include, p("danbooru").weight], [true, 40], "Danbooru：中性权重，具备搜索段纳入（blocked 只记验通状态）");
   assert.deepEqual([p("rule34video").include, p("rule34video").weight], [true, 40], "总表未覆盖的已启用源：中性 40 纳入");
   assert.deepEqual([p("cosplaytele").include, p("cosplaytele").weight], [true, 40], "CosplayTele 维持现状：中性纳入");
-  assert.equal(p("hanime1").include, false, "Hanime1 无适配器（无搜索段）：不纳入");
+  /* 断言适配（fix330 接通批）：Hanime1 已写带 search 的专用适配器
+   * 并启用 → 按结构门通则纳入（中性权重 40），原「无适配器不纳入」
+   * 事实已被接通批取代。 */
+  assert.deepEqual([p("hanime1").include, p("hanime1").weight], [true, 40], "Hanime1 接通批后：具备搜索段纳入（中性 40）");
 }
 
 /* ── 扇出聚合：多源夹具结果都在、按种类分键、源名标注、混排 ── */
@@ -282,8 +285,17 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   /* 断言适配（Muse 2026-11-19 fix321-F2）：肉视频参数已按真站校准
    * 为 /v/<id>，通用骨架 search 数据流改用参数同形态的 FC2 def。
    * 再适配（fix321-F2b）：FC2 已按真站销量榜校准，通用骨架 search
-   * 数据流再移交参数同形态的目录源 hentaihaven def，断言内容不变。 */
-  const a = createHlsSiteAdapter(def("hentaihaven"));
+   * 数据流再移交参数同形态的目录源 hentaihaven def，断言内容不变。
+   * 再适配（fix330 接通批）：hentaihaven 已改专用模板，通用骨架
+   * search 数据流改用与原目录条目功能字段逐字一致的合成 def
+   * （id 仍 hentaihaven），断言内容不变。 */
+  const a = createHlsSiteAdapter({
+    id: "hentaihaven", displayName: "HentaiHaven", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
+    baseUrls: ["https://hentaihaven.xxx/"], enabled: false, order: 105, maturity: "probe",
+    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    network: { mode: "probe-required" }, note: "历史目录条目参数（fix330 适配合成 def）",
+  } as unknown as SourceDef);
   assert.ok(a.search, "hls-site 适配器有 search");
   const r = await a.search!("夹具", 1, 20);
   assert.equal(r.items.length, 2, "hls search 解析出夹具条目");

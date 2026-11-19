@@ -63,6 +63,7 @@
 | 2026-11-19 | 频道列全量源、解析为空冒充真空：无品类映射的源点进去必然空/失败，取到页解析 0 条目还显示「已取数，但列表为空」的假成功空页 | 3.2.0 真机首验「大量不可用」：短剧频道把全部 video 源列成切源片；肉视频/PornPics 模板参数与真站结构三处不符（列表路径/链接图案/只认双引号属性）恒解析为空；SWAG/RedGifs 无 SSR 条目同走假空页 | 频道切源必须按品类映射过滤（registry 字段判定、不按源名列名单）；HTML 解析 0 条目一律显式失败（SourceParseEmptyError 走列表层 err 通道），真空与解析失败分开；模板参数校准必须以真站结构夹具为准（本机 curl 抓取摘录），不凭通用骨架想当然 | `src/features/sources/registry.ts` sourcesForChannel；`adapters/templates.ts` SourceParseEmptyError；`adapters/parse.ts` 单引号属性；`src/features/sources/fix321-f2.contract.test.ts`（真站夹具五源） |
 
 | 2026-11-19 | 机房/代理出口的站点定性不可靠：五站被判「需登录/不可达/无通道」，住宅出口四级验收全部推翻 | 3.2.1 F2b：SWAG 旧 note 断言 api 需登录态、Iwara/FC2 等按机房 403 定性，住宅出口（用户 PC Chrome）实测四级全通；RedGifs 令牌 401 亦是本机代理出口 IP 轮换的 WrongSender（令牌绑签发方）、非链路不通 | 出口相关的站点结论（可达性/登录要求/令牌有效性）必须标注出口类型，机房/代理出口只作参考、不得据此写死 note 定性或降级处置；定性以住宅出口验收为准，适配器校准以插件/真站结构证据施工、状态最高标「代码就绪未验证」待真机 | `src/features/sources/registry.ts` F2b 逐源 note；`src/features/sources/fix321-f2b.contract.test.ts`；`~/workspace/hghub/source-verify-20261119.md` |
+| 2026-11-19 | 取流签名头是第二种定向头：通用头白名单会静默丢弃站点协议签名，取流段在生产链恒失败而契约注入层看不见 | fix330 接通批：Iwara 取流须带 X-Version 签名头请求 fileUrl，Rust `filter_source_headers` 的四头白名单会把它静默丢弃（契约测试经 setFetchPage 注入、绕过 Rust 过滤，施工侧无感）——同 F2c「注入绕过白名单」盲区 | 适配器需要白名单外的头时，按 RedGifs Authorization 先例做 host 定向放行（协议事实钉死的 host 集合、非凭据头、其余 origin 一律丢弃＋Rust 单测钉住），不扩通用头通道；新头落地必须同时有 Rust 侧测试与接线条目 | `src-tauri/src/api/source.rs` X_VERSION_SCOPED_ORIGINS 与 header_x_version_scoped_to_iwara_file_hosts 测试；`src/features/sources/fix330-new-adapters.contract.test.ts` 签名值对照 |
 
 新回归的追加方式：
 

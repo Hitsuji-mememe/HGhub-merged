@@ -144,7 +144,8 @@ const def = (id: string) => {
  * 已由 F5 三段齐全门放宽为搜索段结构门——保留源具备搜索段一律进
  * 扇出（probe/blocked 成熟度不再在搜索入口扣留，可播性后移详情/
  * 起播解析）；无搜索段的源（吃瓜模板/无适配器）仍出局。纳入集恰
- * 为保留集内 enabled∧有搜索段的 7 源。 ── */
+ * 为保留集内 enabled∧有搜索段的源（fix330 接通批后 10 源：新增
+ * hanime1/iwara/hentaihaven 三源均带 search 段并启用，断言适配）。 ── */
 {
   for (const id of ["51chigua", "feedheiliao", "meiridasai"]) {
     const p = searchPolicyFor(def(id));
@@ -155,8 +156,8 @@ const def = (id: string) => {
     assert.equal(p.include, true, `保留源 ${id} 具备搜索段即进扇出（成熟度 ${def(id).maturity} 不再预扣）`);
   }
   const included = reg.filter((s) => searchPolicyFor(s).include).map((s) => s.id).sort();
-  assert.deepEqual(included, ["cosplaytele", "danbooru", "hanime-tv", "huangguo", "pornpics", "rule34video", "xiuren"],
-    "扇出纳入集＝保留集内具备搜索段的 7 源（20:48 裁定口径）");
+  assert.deepEqual(included, ["cosplaytele", "danbooru", "hanime-tv", "hanime1", "hentaihaven", "huangguo", "iwara", "pornpics", "rule34video", "xiuren"],
+    "扇出纳入集＝保留集内具备搜索段的 10 源（20:48 裁定口径＋fix330 接通批三源）");
 }
 
 /* ── (F) 51吃瓜解 blocked＋黑料网毕业：内置面三面一致 ── */

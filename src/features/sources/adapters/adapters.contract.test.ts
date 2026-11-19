@@ -41,10 +41,19 @@ const def = (id: string) => {
  * 同形态的 FC2 def，断言内容不变。
  * 再适配（fix321-F2b）：FC2 已按真站销量榜校准（/ranking/article/
  * weekly + /article_search.php?id=），通用骨架覆盖再移交参数同形态
- * 的目录源 hentaihaven def，断言内容不变。 */
+ * 的目录源 hentaihaven def，断言内容不变。
+ * 再适配（fix330 接通批）：hentaihaven 已改专用模板 hentaihaven-api，
+ * 通用骨架覆盖改用与原目录条目功能字段逐字一致的内联合成 def，
+ * 断言内容不变；专用模板覆盖见 fix330-new-adapters 契约。 */
 {
   setFetchPage(async (url) => (url.includes("/video/") && !url.endsWith("?page=1") && url.includes("aaa") ? fx("hls-detail.html") : url.includes("/video/aaa-1") ? fx("hls-detail.html") : fx("hls-list.html")));
-  const a = createHlsSiteAdapter(def("hentaihaven"));
+  const a = createHlsSiteAdapter({
+    id: "hentaihaven", displayName: "HentaiHaven", kind: "video", category: "video",
+    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
+    baseUrls: ["https://hentaihaven.xxx/"], enabled: false, order: 105, maturity: "probe",
+    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    network: { mode: "probe-required" }, note: "历史目录条目参数（fix330 适配合成 def）",
+  } as Parameters<typeof createHlsSiteAdapter>[0]);
   const list = await a.list(1, 20);
   assert.equal(list.items.length, 2, "hls list 2 条");
   assert.equal(list.items[1].title, "夹具视频二");

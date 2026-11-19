@@ -1339,6 +1339,66 @@
       ],
       "symbol": "hghubx_adapter_params_v1",
       "min": 1
+    },
+    {
+      "id": "fix330-iwara-api-adapter",
+      "item": "3.3.0接通批新适配器线 Iwara 公开 API 适配器 createIwaraAdapter（模板定义＋工厂分发）",
+      "symbol": "createIwaraAdapter",
+      "files": [
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/adapters/index.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix330-hanime1-adapter",
+      "item": "3.3.0接通批新适配器线 Hanime1 专用 HTML 适配器 createHanime1Adapter（模板定义＋工厂分发）",
+      "symbol": "createHanime1Adapter",
+      "files": [
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/adapters/index.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix330-hentaihaven-api-adapter",
+      "item": "3.3.0接通批新适配器线 HentaiHaven 目录 API 适配器 createHentaihavenAdapter（模板定义＋工厂分发）",
+      "symbol": "createHentaihavenAdapter",
+      "files": [
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/adapters/index.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix330-iwara-shared-origin",
+      "item": "3.3.0接通批新适配器线 Iwara API origin 单一常数 IWARA_API_ORIGIN（声明定义＋模板声明表＋适配器回落消费）",
+      "symbol": "IWARA_API_ORIGIN",
+      "files": [
+        "src/features/sources/adapters/fetchOrigins.ts",
+        "src/features/sources/adapters/templates.ts"
+      ],
+      "min": 3
+    },
+    {
+      "id": "fix330-iwara-xversion-scoped",
+      "item": "3.3.0接通批新适配器线 Rust source_fetch 对 X-Version 仅 Iwara 文件 host 定向放行 X_VERSION_SCOPED_ORIGINS（定义＋过滤消费）",
+      "symbol": "X_VERSION_SCOPED_ORIGINS",
+      "files": [
+        "src-tauri/src/api/source.rs"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix330-fanout-new-templates",
+      "item": "3.3.0接通批新适配器线 搜索扇出模板集纳入 iwara-api/hanime1/hentaihaven-api（SEARCH_TEMPLATES 定义＋missingSearchSegments 消费）",
+      "symbol": "hentaihaven-api",
+      "files": [
+        "src/features/search/multiSourceSearch.ts",
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/adapters/fetchOrigins.ts"
+      ],
+      "min": 3
     }
   ]
 }
