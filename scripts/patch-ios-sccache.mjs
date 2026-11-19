@@ -15,13 +15,20 @@
  *
  * 用法：node scripts/patch-ios-sccache.mjs <sccache-env.sh 绝对路径>
  */
-import { readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const envFile = process.argv[2];
 if (!envFile) {
   console.error("用法：node scripts/patch-ios-sccache.mjs <sccache-env.sh 绝对路径>");
   process.exit(2);
+}
+/* env 文件由 workflow 在调用本脚本前写入；缺失说明 workflow 步骤
+ * 顺序被改坏，此时阶段脚本会静默降级成本地缓存——响亮失败，
+ * 不要静默无效（Muse 2026-11-19 热跑验证后补强）。 */
+if (!existsSync(envFile)) {
+  console.error(`sccache env 文件不存在：${envFile}（workflow 应先写入 $RUNNER_TEMP/sccache-env.sh）`);
+  process.exit(1);
 }
 const appleDir = "src-tauri/gen/apple";
 const projects = readdirSync(appleDir).filter((n) => n.endsWith(".xcodeproj"));
@@ -36,6 +43,7 @@ const original = readFileSync(pbxPath, "utf8");
  * shellScript = "...."; 段，含 cargo 的即补丁目标。 */
 const segmentRe = /shellScript = "((?:[^"\\]|\\.)*)";/g;
 let patched = 0;
+let alreadyPatched = 0;
 const prefix =
   `[ -f \\"${envFile}\\" ] && . \\"${envFile}\\"; ` +
   `export RUSTC_WRAPPER=sccache; export CARGO_INCREMENTAL=0; `;
@@ -44,10 +52,16 @@ const out = original.replace(segmentRe, (whole, body) => {
    * `pnpm tauri ios xcode-script ...`（内部再起 cargo），脚本里
    * 没有字面 "cargo"——两种形态都认，前缀 env 由子进程继承。 */
   if (!body.includes("cargo") && !body.includes("xcode-script")) return whole;
-  if (body.includes("RUSTC_WRAPPER")) return whole;
+  if (body.includes("RUSTC_WRAPPER")) { alreadyPatched += 1; return whole; }
   patched += 1;
   return `shellScript = "${prefix}${body}";`;
 });
+if (patched === 0 && alreadyPatched > 0) {
+  /* 重复运行不重复插入；此前会误报「未找到阶段」并 exit 1，
+   * 错误信息与真实原因不符（Muse 2026-11-19 本地实测发现）。 */
+  console.log(`already patched (${alreadyPatched} shell script phase(s)) in ${pbxPath}`);
+  process.exit(0);
+}
 if (patched === 0) {
   console.error("未找到含 cargo 的 shellScript 阶段，补丁未生效");
   /* 诊断：把所有阶段脚本的开头打出来，下一轮按真实内容改匹配。 */
