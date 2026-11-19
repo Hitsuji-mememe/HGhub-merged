@@ -76,12 +76,19 @@ export function headingText(fragment: string): string {
 /** 封面兜底（fix321-F2b）：部分真站卡片不用 <img> 承封面——51吃瓜
  * post-card 背景在 div 的 x-bg-loader-url、黑料网 video-item 封面在
  * img 的 z-image-loader-url（无 src）；img 系属性取不到时按这两种
- * 懒加载属性兜底。 */
+ * 懒加载属性兜底。
+ * 第三载体（Muse 2026-11-20 fix331/covers-header，3.3.1 真机首验
+ * 问题①）：source-005 卡片封面不在任何属性上，只由内联脚本调用
+ * loadBannerDirect('<直址>', '', el, ...) 的第一字符串参数承载
+ * （2026-11-20 本机抓真站列表页实测形态）；前两级落空时按此兜底。
+ * 只认 http(s) 直址、单双引号通吃。 */
 export function firstCoverSrc(fragment: string): string {
   const img = firstImgSrc(fragment);
   if (img) return img;
   const m = /\b(?:x-bg-loader-url|z-image-loader-url)=(["'])([^"']+)\1/i.exec(fragment);
-  return m ? decodeEntities(m[2]) : "";
+  if (m) return decodeEntities(m[2]);
+  const s = /\bloadBannerDirect\(\s*(["'])(https?:\/\/[^"']+)\1/i.exec(fragment);
+  return s ? decodeEntities(s[2]) : "";
 }
 
 export function allImgSrcs(html: string): string[] {

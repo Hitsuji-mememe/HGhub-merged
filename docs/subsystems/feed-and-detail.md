@@ -137,6 +137,39 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   rootMargin 600px、eager 图为挂载时）起算——img 是 lazy，视口外
   根本不发请求，旧实现自挂载起算会把离屏封面的 attempt 依次烧光、
   回滚进来只见永久失败占位。
+- 封面地址载体与空封面口径（Muse 2026-11-20 fix331/covers-header）：
+  列表封面地址载体不止 img 属性与 loader 属性——个别源的卡片封面
+  只存在于内联脚本调用的第一参数（`loadBannerDirect('<直址>', …)`，
+  source-005 真站形态），`firstCoverSrc` 三级载体依次取（img 属性 →
+  loader 属性 → 脚本直址，只认 http(s)）；三级全落空即无封面，
+  `parseAnchorList` 不许再用 `absUrl(base, "")` 把空串补成站点根
+  地址冒充封面（假地址经本地路由拉回 HTML 页、解码必失败、整屏
+  终局占位——3.3.1 真机 source-005 整屏 HG 的根因）。证伪：
+  `fix331-covers.contract.test.ts`＋真站形态夹具
+  `fixtures/chigua-list-banner-script.html`；f5 契约里钉旧产物形态
+  的一处断言已按新口径改写（断链裁定不变）。
+- 图片失败留痕段位（同批）：`Img` 可选 `surface` 段位（source-posts/
+  source-browse/posts-native 等调用面自报），`feedTrace` 聚合按段位
+  分桶（displayed/failed/byReason），逐图事件带包装前地址指纹
+  （host#长度）与终局标记；诊断导出「Feed 分页与封面」节印段位分桶
+  ＋最近终局失败逐图行（段位/指纹/形态/attempt/耗时档）——此前导出
+  只有全局聚合，某面封面失败在诊断里等于不存在。与图集面共用同一
+  image 事件口径，不另起格式。契约 `fix331-image-trace.contract.test.ts`。
+- 外部源详情页头让位（同批）：频道页（ChannelPage）在 `video:` 与
+  「频道内切外部源」两分支渲染外层页头，其内 SourceBrowse 详情自带
+  内层页头——详情打开时外层必须让位（`onDetailOpenChange` 回报、
+  ChannelPage 据此整块隐藏外层页头），否则双层页头双返回键同屏
+  （3.3.1 真机图 1）。详情在本页内呈、非压栈页，让位归宿主。
+  证伪：`scripts/test-channel-header.mjs` 页头层数断言（旧码红于
+  详情态外层未让位）。
+- 设备链模拟门（同批，验收口径）：封面类修复的通过证据须走
+  `scripts/test-list-covers.mjs`——真实本地 /img 路由语义（上游
+  20s/三试退避/终局 502/去重缓存）＋延迟注入四模型判别：代理量级
+  延迟（600ms TTFB）＋并发＝零终局失败；瞬时 reset 型拒绝被路由
+  三试＋Img 三试全数吸收（44% 重置率仍零终局失败）；持续拒绝
+  （30s 惩罚窗）才穿透且终局失败全为 network（与 3.3.1 真机
+  「45 终局失败全 network、零 timeout」签名一致）；上游悬挂则全
+  timeout（反签名）。组件级/直连快网通过只算本地初验。
 - 横向手势仲裁（fix2.1，fix322/play 修订，fix330/gesture-back 一致
   性批再修订）：App 链式手势优先级——输入/横滚区起手（整体不触
   发，弹层内同规则）> 播放器手势面/进度条区中部起手（fix322 新增

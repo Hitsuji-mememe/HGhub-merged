@@ -11,8 +11,10 @@ function ScoreBadge({ score }: { score: number }) {
   </span> : null;
 }
 
-export function MediaCard({ title, cover, subtitle, badge, progress, score, priority = false, onOpen, blockedReason }: {
+export function MediaCard({ title, cover, subtitle, badge, progress, score, priority = false, onOpen, blockedReason, surface }: {
   title: string; cover: string; subtitle?: string; badge?: string; progress?: string; score?: number; priority?: boolean; onOpen: () => void; blockedReason?: string | null;
+  /* 段位（fix331/covers-header）：透传给 Img 的失败留痕归属。 */
+  surface?: string;
 }) {
   if (blockedReason) return <Button onClick={onOpen} className="ios-poster" aria-label="该内容命中屏蔽标签，查看提示">
     <span className="ios-poster-art flex flex-col items-center justify-center gap-3 px-3 text-center text-mut">
@@ -26,7 +28,7 @@ export function MediaCard({ title, cover, subtitle, badge, progress, score, prio
   const hasScore = typeof score === "number" && Number.isFinite(score) && score > 0;
   return <Button onClick={onOpen} className="ios-poster" aria-label={title}>
     <span className={`ios-poster-art${badge ? " has-poster-badge" : ""}${hasScore ? " has-score-badge" : ""}`}>
-      <Img src={cover} alt="" eager={priority} />
+      <Img src={cover} alt="" eager={priority} surface={surface} />
       {badge && <span className="ios-poster-badge">{badge}</span>}
       {hasScore && <ScoreBadge score={score} />}
       {progress && <span className="ios-poster-progress"><IPlayF size={12} />{progress}</span>}

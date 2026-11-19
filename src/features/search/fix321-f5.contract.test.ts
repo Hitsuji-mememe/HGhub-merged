@@ -18,8 +18,10 @@
  * Shorties 断链证据（真站抓取，2026-11-19 本机 curl，参考级）：
  * 模板 search 硬编码 /?s={q}&paged={page}（WordPress 式）请求
  * pornhub.com → 301 跳首页；首页中 itemLinkPattern "/video/" 唯一命中
- * 的是热门搜索建议词锚点（无 img）→ 条目封面被 absUrl(base,"") 填成
- * base 本身（HTML 页 URL）→ 图片解码失败呈 HG 占位；点开后 detail/
+ * 的是热门搜索建议词锚点（无 img）→ 条目无封面（2026-11-19 当时
+ * absUrl(base,"") 把空封面填成 base 本身冒充封面、解码失败呈 HG；
+ * 该产物形态已于 2026-11-20 被 fix331/covers-header 空串守卫根修，
+ * 下方断言已按新形态改写，断链裁定不变）；点开后 detail/
  * resolve 取的是建议词搜索页，全页首个 mp4 是无关视频的兜底文件。
  * 真站 /shorties 页条目只在 JSON_SHORTIES 内嵌 JS 数据里、锚点为 0，
  * 且该站无 shorties 服务端搜索入口——搜索段无真实现可补，移出扇出。
@@ -189,7 +191,12 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
   assert.ok(r.items.length > 0, "模板 search 在首页节录上仍能「搜出」条目（问题不在零结果）");
   for (const it of r.items) {
     assert.ok(it.externalId.includes("/video/search?search="), "条目实为热门搜索建议词链接、不是视频详情页");
-    assert.equal(it.cover, "https://www.pornhub.com/shorties", "无 img 锚点封面被 absUrl(base,\"\") 填成 base 本身（HTML 页 URL）→ 解码失败呈 HG 占位");
+    /* 封面产物形态已被根修取代（Muse 2026-11-20 fix331/covers-header）：
+     * 旧断言钉的是 absUrl(base,"") 把无封面填成 base 本身（HTML 页
+     * URL）冒充封面 → 解码失败呈 HG；现 parseAnchorList 空串守卫后
+     * 无封面诚实为空串。Shorties 断链裁定（条目实为建议词链接、搜
+     * 索段无真实现、移出扇出）不依赖封面形态、维持不变。 */
+    assert.equal(it.cover, "", "无 img 锚点条目现无封面（旧形态＝absUrl 填 base 冒充封面，已被 fix331 空串守卫根修）");
   }
 }
 {

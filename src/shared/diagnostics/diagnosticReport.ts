@@ -725,6 +725,33 @@ lines.push(`分页[${channelLabel(l.list)}]：已加载至第 ${l.loadedPages} �
 }
 const reasons = Object.entries(snap.image.byReason).map(([k, v]) => `${k} ${v}`).join(" · ");
 lines.push(`封面：已显示 ${snap.image.displayed} · 终局失败 ${snap.image.failed}${reasons? `（${reasons}）`: ""} · 在途峰值 ${snap.image.inFlightPeak}`);
+/* 段位分桶＋逐图终局失败留痕（Muse 2026-11-20 fix331/covers-header）：
+ * 3.3.1 真机诊断只有全局一行（159/45），失败无法归属到面、逐图无
+ * 行——源列表/图集的失败在报告里等于不存在，定位只能靠用户截图。
+ * 现按 Img 段位分桶续印，并把最近 6 条终局失败逐图印出（段位/源
+ * host 指纹/形态/attempt/耗时档；不带完整 URL，守日志不变量）。
+ * 与 gallery-device 线共用同一 image 事件口径（ev/final/surface/
+ * origin 字段），不另起格式。 */
+const imgSurfaceLabels: Record<string, string> = {
+"source-posts": "外部源·吃瓜列表",
+"source-browse": "外部源·视频列表",
+"posts-native": "原生吃瓜列表",
+};
+for (const [surface, b] of Object.entries(snap.image.bySurface)) {
+if (!b.displayed && !b.failed) continue;
+const rs = Object.entries(b.byReason).map(([k, v]) => `${k} ${v}`).join(" · ");
+lines.push(`封面[${imgSurfaceLabels[surface] ?? surface}]：已显示 ${b.displayed} · 终局失败 ${b.failed}${rs? `（${rs}）`: ""}`);
+}
+const imgMsBucket = (ms: unknown): string => {
+const n = typeof ms === "number" && Number.isFinite(ms)? ms: null;
+return n === null? "耗时未记": n < 1000? "<1s": n < 5000? "1–5s": n < 20000? "5–20s": "≥20s";
+};
+const imgFinalFails = snap.events.filter(e => e.kind === "image" && (e.data.ev === "failed" || e.data.ev === "error") && e.data.final === true).slice(-6);
+for (const e of imgFinalFails) {
+const d = e.data;
+const surface = typeof d.surface === "string" && d.surface? d.surface: "未标注";
+lines.push(`· 图片失败[${imgSurfaceLabels[surface] ?? surface}] ${String(d.origin ?? d.url ?? "")} · ${String(d.reason ?? "?")} · attempt ${Number(d.attempt ?? 0) + 1} · ${imgMsBucket(d.ms)}`);
+}
 const recent = snap.events.filter(e => e.kind.startsWith("page.")).slice(-4);
 for (const e of recent) lines.push(`· ${e.kind} ${redactExportText(JSON.stringify(e.data), lineIdByHost)}`);
 }

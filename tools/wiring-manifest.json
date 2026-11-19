@@ -1725,6 +1725,45 @@
         "src/features/sources/adapters/hanimeApi.ts"
       ],
       "min": 2
+    },
+    {
+      "id": "fix331-covers-banner-script",
+      "item": "fix331/covers-header 列表封面第三载体：firstCoverSrc 在 img/loader 属性落空时识别内联脚本 loadBannerDirect 第一参数直址（source-005 真站形态）",
+      "files": [
+        "src/features/sources/adapters/parse.ts"
+      ],
+      "symbol": "loadBannerDirect",
+      "min": 2
+    },
+    {
+      "id": "fix331-covers-empty-cover-guard",
+      "item": "fix331/covers-header 封面空串守卫：parseAnchorList 无载体时 cover 保持空串，不许 absUrl 补成站点根地址冒充封面",
+      "files": [
+        "src/features/sources/adapters/templates.ts"
+      ],
+      "symbol": "coverSrc ? absUrl(base, coverSrc)",
+      "min": 1
+    },
+    {
+      "id": "fix331-header-yield",
+      "item": "fix331/covers-header 外部视频详情页头让位：SourceBrowse onDetailOpenChange 回报详情开合，ChannelPage 据 browseDetailOpen 隐藏外层页头（video: 与频道切源两分支）",
+      "files": [
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "onDetailOpenChange",
+      "min": 3
+    },
+    {
+      "id": "fix331-image-surface-trace",
+      "item": "fix331/covers-header 图片失败留痕段位：feedTrace 聚合 bySurface 分桶＋Img surface/origin/final 逐图事件，诊断导出按段位印分桶与终局失败行",
+      "files": [
+        "src/shared/lib/feedTrace.ts",
+        "src/shared/ui/ui.tsx",
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "symbol": "bySurface",
+      "min": 3
     }
   ]
 }

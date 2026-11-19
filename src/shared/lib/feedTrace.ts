@@ -38,26 +38,53 @@ export function urlFingerprint(url: string): string {
 
 /* —— 封面图状态聚合（A3 状态机计数，供诊断报告读） —— */
 export type ImageFailReason = "timeout" | "network" | "decode" | "cancelled";
+/* 段位（Muse 2026-11-20 fix331/covers-header）：图片失败此前只有
+ * 全局计数——3.3.1 真机诊断实锤「封面已显示 159 · 终局失败 45」无
+ * 法归属到面（Feed/源列表/图集混算），源列表与图集的失败在报告里
+ * 等于不存在。现 Img 可经 surface 标段位，聚合按段位分桶，全局总
+ * 数口径不变；未标段位的旧调用归「未标注」。与 gallery-device 线
+ * 共用同一 image 事件/聚合口径，不另起格式。 */
+export const IMAGE_SURFACE_UNSET = "未标注";
+export type ImageSurfaceStats = {
+  displayed: number;
+  failed: number;
+  byReason: Partial<Record<ImageFailReason, number>>;
+};
 const imageStats = {
   displayed: 0,
   failed: 0,
   byReason: {} as Partial<Record<ImageFailReason, number>>,
   inFlightPeak: 0,
+  bySurface: {} as Record<string, ImageSurfaceStats>,
 };
 let imageInFlight = 0;
+
+function surfaceBucket(surface?: string): ImageSurfaceStats {
+  const key = surface || IMAGE_SURFACE_UNSET;
+  let b = imageStats.bySurface[key];
+  if (!b) {
+    b = { displayed: 0, failed: 0, byReason: {} };
+    imageStats.bySurface[key] = b;
+  }
+  return b;
+}
 
 export function imageStarted(): void {
   imageInFlight++;
   if (imageInFlight > imageStats.inFlightPeak) imageStats.inFlightPeak = imageInFlight;
 }
-export function imageDisplayed(): void {
+export function imageDisplayed(surface?: string): void {
   if (imageInFlight > 0) imageInFlight--;
   imageStats.displayed++;
+  surfaceBucket(surface).displayed++;
 }
-export function imageFailed(reason: ImageFailReason): void {
+export function imageFailed(reason: ImageFailReason, surface?: string): void {
   if (imageInFlight > 0) imageInFlight--;
   imageStats.failed++;
   imageStats.byReason[reason] = (imageStats.byReason[reason] ?? 0) + 1;
+  const b = surfaceBucket(surface);
+  b.failed++;
+  b.byReason[reason] = (b.byReason[reason] ?? 0) + 1;
 }
 export function imageRetry(): void {
   if (imageInFlight > 0) imageInFlight--;
@@ -69,9 +96,13 @@ export type FeedTraceSnapshot = {
 };
 
 export function feedTraceSnapshot(): FeedTraceSnapshot {
+  const bySurface: Record<string, ImageSurfaceStats> = {};
+  for (const [k, v] of Object.entries(imageStats.bySurface)) {
+    bySurface[k] = { displayed: v.displayed, failed: v.failed, byReason: { ...v.byReason } };
+  }
   return {
     events: [...events],
-    image: { ...imageStats, byReason: { ...imageStats.byReason }, inFlight: imageInFlight },
+    image: { ...imageStats, byReason: { ...imageStats.byReason }, bySurface, inFlight: imageInFlight },
   };
 }
 

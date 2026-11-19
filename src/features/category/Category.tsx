@@ -306,7 +306,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
           {postsSourceId === "huangguo" ? (
           <FilteredContent items={posts} scopeKey="posts">{visible => <div className="scroll-x flex gap-3 snap-x" role="group" aria-label="吃瓜内容预览">
             {visible.map((post) => (
-              <div key={post.id} className="ios-row-card"><MediaCard title={post.title} cover={post.cover}
+              <div key={post.id} className="ios-row-card"><MediaCard title={post.title} cover={post.cover} surface="posts-native"
                 subtitle={`${fmt(post.hot)} 次浏览`} onOpen={() => push({ kind: "post", id: post.id })} /></div>
             ))}
             {!posts.length && <PreviewStatus name="吃瓜" loading={loading.posts !== false} error={errors.posts} onRetry={() => void loadPreview("posts")} />}
@@ -441,6 +441,11 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
     ? channelSourceId
     : "huangguo";
   const channelSource = sourcesForChannel(cate, getActiveRegistry().sources).find((s) => s.id === effectiveChannelSourceId);
+  /* 外部视频详情开合（Muse 2026-11-20 fix331/covers-header）：SourceBrowse
+   * 详情自带页头，打开时本页外层页头让位（问题②双层标题栏）；频道/
+   * 切源变化时复位，避免残留隐藏态把列表页头吞掉。 */
+  const [browseDetailOpen, setBrowseDetailOpen] = useState(false);
+  useEffect(() => { setBrowseDetailOpen(false); }, [cate, effectiveChannelSourceId]);
   const [serverSort, setServerSort] = useState<(typeof CHANNEL_SORTS)[number]["value"]>("latest");
   const [originalCate, setOriginalCate] = useState<(typeof ORIGINAL_CATES)[number]["value"]>("all");
   /* 原始页落座＋渲染期分组（Muse 2026-11-19 fix330/ui-fixes，
@@ -623,20 +628,22 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
   if (videoSourceId) {
     return (
       <div className="ios-page absolute inset-0 bg-bg flex flex-col">
-        <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
-          <div className="ios-subpage-bar">
-            <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
-              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">视频 · 数据源：{videoSource?.displayName ?? videoSourceId}</div>
+        {!browseDetailOpen && (
+          <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
+            <div className="ios-subpage-bar">
+              <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
+                <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">视频 · 数据源：{videoSource?.displayName ?? videoSourceId}</div>
+              </div>
             </div>
           </div>
-        </div>
+        )}
         <div className="flex-1 scroll-y pb-8">
           {!videoSource || videoSource.maturity === "blocked" ? (
             <SourcePendingNotice displayName={videoSource?.displayName ?? name} maturity={videoSource?.maturity ?? "blocked"} note={videoSource?.note} />
           ) : (
-            <SourceBrowse def={videoSource} />
+            <SourceBrowse def={videoSource} onDetailOpenChange={setBrowseDetailOpen} />
           )}
         </div>
       </div>
@@ -649,21 +656,23 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
   if (effectiveChannelSourceId !== "huangguo") {
     return (
       <div className="ios-page absolute inset-0 bg-bg flex flex-col">
-        <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
-          <div className="ios-subpage-bar">
-            <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
-              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">数据源：{channelSource?.displayName ?? effectiveChannelSourceId}</div>
+        {!browseDetailOpen && (
+          <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
+            <div className="ios-subpage-bar">
+              <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
+                <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">数据源：{channelSource?.displayName ?? effectiveChannelSourceId}</div>
+              </div>
             </div>
+            <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={effectiveChannelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
           </div>
-          <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={effectiveChannelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
-        </div>
+        )}
         <div className="flex-1 scroll-y pb-8">
           {!channelSource || channelSource.maturity === "blocked" ? (
             <SourcePendingNotice displayName={channelSource?.displayName ?? effectiveChannelSourceId} maturity={channelSource?.maturity} note={channelSource?.note} />
           ) : (
-            <SourceBrowse def={channelSource} />
+            <SourceBrowse def={channelSource} onDetailOpenChange={setBrowseDetailOpen} />
           )}
         </div>
       </div>
