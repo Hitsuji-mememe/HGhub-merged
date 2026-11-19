@@ -13,6 +13,14 @@ export type PlaybackFacts = {
   codec?: string;
   /** 当前生效超分档位（effectiveSrMode 结果）。 */
   srMode: string;
+  /** 首分片 rendition（audit6 P0-A 第 1 层）：如「第 3/4 档 · 1280x720 ·
+   * 4500kbps」；原生路径为实际分辨率＋不可控标注。未知时缺失。 */
+  firstRendition?: string;
+  /** 实际呈现管线（audit6 P0-A 第 2 层）：webgpu / webgl-crisp /
+   * webgl-natural / svg-natural / none——与判档分开记，不许混报。 */
+  pipeline?: string;
+  /** 本源超分降档次数（性能降档阶梯累计）。 */
+  srDemoteCount?: number;
   /** 播放引擎（hls.js / native）。 */
   engine?: string;
   at: number;

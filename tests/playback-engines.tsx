@@ -7,7 +7,9 @@
 import { AppendStallWatchdog, type StallClock } from "../src/features/playback/appendStallWatchdog";
 import { nativeFallbackState, noteNativeFallback, playbackSource, resetNativeFallbackForTests } from "../src/features/playback/mediaTransport";
 import { createStallWatchdog } from "../src/features/playback/stallWatchdogWiring";
-import { effectiveSrMode, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
+import { effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
+import { createSrDensitySampler } from "../src/features/playback/useSrDensity";
+import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, lockHighestStartLevel, resolveAbrSeedBps } from "../src/features/playback/hlsConfig";
 
 class FakeClock implements StallClock {
   now = 0;
@@ -290,6 +292,45 @@ function run() {
   results.u_filter_webgl_presenting = srVideoFilterMode({ srPref: "auto", srMode: "crisp", canvasMode: "crisp", svgFallback: false }) ?? null;
   results.u_filter_demoted_off = srVideoFilterMode({ srPref: "auto", srMode: "crisp", canvasMode: "off", svgFallback: false }) ?? null;
   results.u_filter_svg_fallback = srVideoFilterMode({ srPref: "auto", srMode: "cinema", canvasMode: "cinema", svgFallback: true }) ?? null;
+  /* ── U2 off 原因矩阵（audit6 P0-A 第 2 层）：judged 真 off、demoted/
+   * unavailable SVG 保底；呈现管线枚举与判档分离 ── */
+  results.u2_judged_true_off = srVideoFilterMode({ srPref: "auto", srMode: "off", canvasMode: "off", svgFallback: false, canvasOffReason: "judged" }) ?? null;
+  results.u2_demoted_floor = srVideoFilterMode({ srPref: "auto", srMode: "crisp", canvasMode: "off", svgFallback: false, canvasOffReason: "demoted" }) ?? null;
+  results.u2_unavailable_floor = srVideoFilterMode({ srPref: "auto", srMode: "natural", canvasMode: "off", svgFallback: false, canvasOffReason: "unavailable" }) ?? null;
+  results.u2_pipeline_svg = presentationPipeline({ webgpuEngaged: false, canvasMode: "off", filterMode: "natural" });
+  results.u2_pipeline_none = presentationPipeline({ webgpuEngaged: false, canvasMode: "off", filterMode: undefined });
+  results.u2_pipeline_webgl = presentationPipeline({ webgpuEngaged: false, canvasMode: "crisp", filterMode: undefined });
+  results.u2_pipeline_webgpu = presentationPipeline({ webgpuEngaged: true, canvasMode: "crisp", filterMode: undefined });
+
+  /* ── S 共享密度采样器（audit6 P0-A 第 2 层）：中位数口径、换 level
+   * 重采、显式重置（换源/换线共用同一 reset 面） ── */
+  {
+    const sampler = createSrDensitySampler();
+    const lvl = { frameRate: 30, videoCodec: "avc1.640028" };
+    sampler.ingest({ loaded: 100_000, duration: 2, level: 0 }, lvl); // 400kbps
+    sampler.ingest({ loaded: 300_000, duration: 2, level: 0 }, lvl); // 1.2Mbps
+    const third = sampler.ingest({ loaded: 200_000, duration: 2, level: 0 }, lvl); // 800kbps → 中位数 800k
+    results.s_median = third?.bitrateBps ?? null;
+    results.s_fps_codec = [third?.fps ?? null, third?.codec ?? null];
+    const switched = sampler.ingest({ loaded: 500_000, duration: 2, level: 1 }, { frameRate: 60, videoCodec: "hvc1.1.6" });
+    results.s_level_switch_resamples = switched?.bitrateBps ?? null; // 换 level 后单样本即新中位数 2Mbps
+    sampler.reset();
+    results.s_reset_clears = sampler.current();
+  }
+
+  /* ── H HLS 工厂（audit6 P0-A 第 1 层）：播种值、回退默认、锁最高档、
+   * 首分片档位格式 ── */
+  results.h_seed_from_round = resolveAbrSeedBps({ measured: [{ kbps: 1200 }, { kbps: 4500 }, { kbps: null }] });
+  results.h_seed_empty = resolveAbrSeedBps(null);
+  results.h_config_seeded = createHlsPlayerConfig({ ios: true, startPosition: -1, seedBps: 4_500_000 }).abrEwmaDefaultEstimate;
+  results.h_config_fallback = createHlsPlayerConfig({ ios: false, startPosition: -1, seedBps: null }).abrEwmaDefaultEstimate;
+  results.h_default_estimate = ABR_DEFAULT_ESTIMATE_BPS;
+  {
+    const fake = { levels: [{}, {}, {}, {}], startLevel: -1 } as unknown as Parameters<typeof lockHighestStartLevel>[0] & { startLevel: number };
+    const locked = lockHighestStartLevel(fake);
+    results.h_lock_highest = [locked, (fake as { startLevel: number }).startLevel];
+  }
+  results.h_first_rendition = formatFirstRendition({ index: 4, total: 4, width: 1920, height: 1080, bitrate: 8_000_000 });
 
   /* ── W 接线级矩阵（fix2 B1）：createStallWatchdog 的真实升级链——
    * 判死→重建→再判死→会话降级→名额用尽报错，及三道门控（旧实例 /

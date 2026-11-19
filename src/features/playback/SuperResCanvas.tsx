@@ -273,16 +273,42 @@ export function srPerfStep(
  *   且用户没关 → SVG natural 保底，默认增强档不缺席；
  * - WebGL 正在呈现（canvasMode!=="off"）→ 无滤镜，canvas 独占呈现，
  *   绝不叠加双重处理。 */
+export type CanvasOffReason = "judged" | "demoted" | "unavailable";
+
 export function srVideoFilterMode(args: {
   srPref: SrPref;
   srMode: SuperResMode;
   canvasMode: SuperResMode;
   svgFallback: boolean;
+  /** canvasMode==="off" 的原因（Muse 2026-11-19 根治包，audit6 P0-A
+   * 第 2 层）：judged＝判档认为源够好 → 真 off、无滤镜（旧实现一律挂
+   * SVG natural「冒充」natural 档）；demoted/unavailable＝管线撑不住/
+   * 不可用 → SVG natural 保底，呈现管线标识记 svg-natural。缺省时按
+   * srMode 推导（off→judged、其余→demoted），新调用方应显式传。 */
+  canvasOffReason?: CanvasOffReason;
 }): SuperResMode | undefined {
   if (args.svgFallback) return args.srMode;
   if (args.srPref === "off") return undefined;
-  if (args.canvasMode === "off") return "natural";
+  if (args.canvasMode === "off") {
+    const reason = args.canvasOffReason ?? (args.srMode === "off" ? "judged" : "demoted");
+    if (reason === "judged") return undefined;
+    return "natural";
+  }
   return undefined;
+}
+
+/** 实际呈现管线枚举（audit6 P0-A 第 2 层）：诊断与设置页只消费这个
+ * 口径，不再拿判档冒充管线。filter 挂载（SVG 保底）优先记 svg-natural。 */
+export function presentationPipeline(args: {
+  webgpuEngaged: boolean;
+  canvasMode: SuperResMode;
+  filterMode: SuperResMode | undefined;
+}): "webgpu" | "webgl-crisp" | "webgl-natural" | "svg-natural" | "none" {
+  if (args.filterMode) return "svg-natural";
+  if (args.webgpuEngaged) return "webgpu";
+  if (args.canvasMode === "crisp") return "webgl-crisp";
+  if (args.canvasMode === "natural") return "webgl-natural";
+  return "none";
 }
 
 /**

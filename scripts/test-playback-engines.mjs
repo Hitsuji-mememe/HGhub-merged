@@ -105,11 +105,30 @@ try {
   check("U1 streak restarts after neutral", r.u_promote_streak_restarts, "none");
   check("U1 three consecutive good windows promote", r.u_promote_after_3_good, "promote");
   check("U1 demote capped at floor", r.u_demote_at_floor, [2, "none"]);
-  check("U1 floor is natural when auto-off", r.u_filter_auto_off, "natural");
+  check("U1 auto-off without reason defaults to judged (true off)", r.u_filter_auto_off, null);
   check("U1 no floor when user explicitly off", r.u_filter_pref_off, null);
   check("U1 no filter while WebGL presenting", r.u_filter_webgl_presenting, null);
   check("U1 floor engages when perf-demoted to off", r.u_filter_demoted_off, "natural");
   check("U1 svg fallback keeps mode filter", r.u_filter_svg_fallback, "cinema");
+
+  check("U2 judged off is true off (no filter)", r.u2_judged_true_off, null);
+  check("U2 demoted off keeps SVG floor", r.u2_demoted_floor, "natural");
+  check("U2 unavailable off keeps SVG floor", r.u2_unavailable_floor, "natural");
+  check("U2 pipeline names SVG floor honestly", r.u2_pipeline_svg, "svg-natural");
+  check("U2 pipeline none when judged off", r.u2_pipeline_none, "none");
+  check("U2 pipeline webgl-crisp", r.u2_pipeline_webgl, "webgl-crisp");
+  check("U2 pipeline webgpu wins over webgl", r.u2_pipeline_webgpu, "webgpu");
+  check("S sampler median of first 3 frags", r.s_median, 800_000);
+  check("S sampler carries fps+codec", r.s_fps_codec, [30, "avc1.640028"]);
+  check("S sampler resamples on level switch", r.s_level_switch_resamples, 2_000_000);
+  check("S sampler reset clears density", r.s_reset_clears, null);
+  check("H seed takes max measured kbps as bps", r.h_seed_from_round, 4_500_000);
+  check("H seed null without round", r.h_seed_empty, null);
+  check("H config uses seeded estimate", r.h_config_seeded, 4_500_000);
+  check("H config falls back to default estimate", r.h_config_fallback, 500_000);
+  check("H default estimate is hls.js 500kbps", r.h_default_estimate, 500_000);
+  check("H start level locks highest", r.h_lock_highest, [3, 3]);
+  check("H first rendition format", r.h_first_rendition, "第 4/4 档 · 1920x1080 · 8000kbps");
 
   // W — wiring-level stall escalation matrix (fix2 B1)
   check("W1 first stall retries in place", r.w1_first_stall_retry, ["append_stall"]);
