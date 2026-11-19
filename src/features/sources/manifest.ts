@@ -55,7 +55,10 @@ export function validateManifest(raw: unknown): SourcesManifest | null {
     if (!isRecord(entry) || typeof entry.id !== "string" || !entry.id) return null;
     if (entry.enabled !== undefined && typeof entry.enabled !== "boolean") return null;
     if (entry.baseUrls !== undefined) {
-      if (!Array.isArray(entry.baseUrls) || entry.baseUrls.some((u) => typeof u !== "string" || !/^https?:\/\//.test(u))) return null;
+      /* 只许 https 起点（Muse 2026-11-19 整改 D7，G5 P1-4）：清单是我方
+       * 自有通道，http 明文起点可被中间人篡改，一律整份丢弃。内置注册表
+       * 不经本校验、不受影响。 */
+      if (!Array.isArray(entry.baseUrls) || entry.baseUrls.some((u) => typeof u !== "string" || !/^https:\/\//.test(u))) return null;
     }
     sources.push({ id: entry.id, enabled: entry.enabled as boolean | undefined, baseUrls: entry.baseUrls as string[] | undefined });
   }

@@ -160,4 +160,16 @@ import { sourcesForCategory } from "./registry.ts";
   assert.equal(r.sources.find((s) => s.id === "swag")!.enabled, true);
 }
 
+/* ── D7 明文 http 起点收口（Muse 2026-11-19 整改，G5 P1-4 前半）：
+ * 远程/缓存清单的 baseUrls 只许 https；内置注册表不经 validateManifest、
+ * 不受影响（已 grep 核实内置 baseUrls 全 https 且校验仅用于清单路径）。 ── */
+assert.equal(
+  validateManifest({ manifestVersion: 8, minAppVersion: "2.0.0", sources: [{ id: "swag", baseUrls: ["http://swag.live"] }] }),
+  null, "清单 baseUrls 含 http → 整份丢弃",
+);
+assert.ok(
+  validateManifest({ manifestVersion: 8, minAppVersion: "2.0.0", sources: [{ id: "swag", baseUrls: ["https://swag.live"] }] }),
+  "清单 baseUrls 全 https → 通过",
+);
+
 console.log("registry.contract: all assertions passed");
