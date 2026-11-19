@@ -3,20 +3,37 @@
  * 播放器手势面内的横拖 seek 全程不得触发全局链（pop/切页签），
  * 与 AlbumViewer 缩略图条同类病、同口径。用户真机实报（3.2.1）：
  * 播放器里往右划调进度，整个画面被划出去（栈页 pop）。
- * 用例 = 真实手势序列（起点祖先链＋上下文 → 起点分类 → 位移 →
- * 链裁决）：seek 三例为缺陷回归（旧实现分别裁出 pop/切页签/pop）；
- * 其余为既有链行为防回归（普通栈页 pop、fs/输入框/横滚区/左缘
- * 让行、详情信息区左划下一条、页签链序、方向锁定）。
  * 运行：node src/app/gestureChain.contract.test.ts
+ *
+ * fix330/gesture-back 一轮扩展（用户 3.3.0 真机实报「滑动返回容易
+ * 误触」）：旧链全屏任意位置布防、锥角 1.8 过松、只看终点净位移。
+ * 收紧：边缘锚（返回类左缘/前进类右缘 24px）＋锥角 2.5＋过程方向
+ * 锁（途中纵向占优即被滚动认领、整触摸作废）。误触组即此轮产物。
+ *
+ * fix330/gesture-back 二轮扩展（一致性批，用户追加实报「有很多地
+ * 方它压根不生效，两个极端」＋「证明不了就删」裁定）：3.3.0 时全
+ * App 三套边缘返回判定并存（本链、Feed 面内 20/22px+28px 锁定+
+ * 64px 触发、DialogFrame 20/22px+64px 且无内容豁免、guide 类弹
+ * 层没有），且本链监听挂 main 区、portal 弹层内触摸根本到达不
+ * 了。定版统一：判定收敛 shared/lib/gestureGate.ts 一处、触发只
+ * 剩本链一处（监听挂 #root 覆盖弹层）、返回动作合并为
+ * { type:"back" } 由 glue 走与硬件返回键完全同序的统一返回序
+ * （runBack → 退全屏 → 文档全屏 → 退栈 → 回上一页签；旧
+ * { type:"pop" } 与页签后退动作就此合并，落点由 glue 按上下文
+ * 裁决）。Feed 面/DialogFrame 的自带判定已删（Feed 只留起点归
+ * 属让行）。失效组＝此前无手势/异规则的面在新实现上逐条成立
+ * （基线 4cf7454 上逐条为 null，证伪探针实跑入线报告）；误触组
+ * 与豁免组保证统一不以放松门控为代价。
  */
 import assert from "node:assert/strict";
-import { classifyChainStart, decideChainSwipe, type ChainAncestor, type ChainStartContext } from "./gestureChain.ts";
+import { chainMoveVerticalClaim, classifyChainStart, decideChainSwipe, type ChainAncestor, type ChainStart, type ChainStartContext } from "./gestureChain.ts";
 
-function swipe(ancestors: ChainAncestor[], ctx: Partial<ChainStartContext> & { clientX?: number }, dx: number, dy: number) {
+function swipe(ancestors: ChainAncestor[], ctx: Partial<ChainStartContext> & { clientX?: number }, dx: number, dy: number, opts?: { claimed?: boolean }) {
   const full: ChainStartContext = {
-    fs: false, loginOpen: false, tab: "home", stackDepth: 0, topKind: undefined, clientX: 200, ...ctx,
+    fs: false, loginOpen: false, tab: "home", stackDepth: 0, topKind: undefined, clientX: 200, viewportWidth: 393, ...ctx,
   };
-  const start = classifyChainStart(ancestors, full);
+  const start: ChainStart = classifyChainStart(ancestors, full);
+  if (opts?.claimed) start.scrollClaimed = true;
   return decideChainSwipe(start, dx, dy, { tab: full.tab, topKind: full.topKind });
 }
 
@@ -24,49 +41,152 @@ const PLAIN: ChainAncestor[] = [{ tagName: "DIV" }, { tagName: "SECTION" }, { ta
 const STAGE: ChainAncestor[] = [{ tagName: "DIV", playerSurface: true }, { tagName: "SECTION" }, { tagName: "MAIN" }];
 const SCRUB: ChainAncestor[] = [{ tagName: "DIV", feedScrubZone: true }, { tagName: "DIV", feedInfoZone: true }, { tagName: "SECTION" }];
 const INFO: ChainAncestor[] = [{ tagName: "DIV", feedInfoZone: true }, { tagName: "SECTION" }, { tagName: "MAIN" }];
+/* 弹层内起点（Modal/Sheet/Guide/InplaceSearch 的共同形态：祖先含
+ * role="dialog"；弹层经 portal 挂 #root 直下，监听挂 #root 后可达） */
+const DIALOG: ChainAncestor[] = [{ tagName: "DIV" }, { tagName: "DIV", role: "dialog" }, { tagName: "DIV" }];
+const DIALOG_SCROLL: ChainAncestor[] = [{ tagName: "DIV", hScrollable: true }, { tagName: "DIV", role: "dialog" }, { tagName: "DIV" }];
+const DIALOG_INPUT: ChainAncestor[] = [{ tagName: "INPUT" }, { tagName: "DIV", role: "dialog" }, { tagName: "DIV" }];
 
-/* ── 缺陷回归：seek 横拖不得被外层链抢走 ── */
+/* ── 缺陷回归（fix322）：seek 横拖不得被外层链抢走 ── */
 assert.equal(
   swipe(STAGE, { tab: "home", stackDepth: 1, topKind: "feed" }, 120, 10), null,
-  "栈内 Feed 页播放面起手右划 seek（dx=120）：链不得 pop（旧实现把整个画面划出去）",
+  "栈内 Feed 页播放面中部起手右划 seek（dx=120）：链不得返回（旧实现把整个画面划出去）",
 );
 assert.equal(
   swipe(STAGE, { tab: "home", stackDepth: 0 }, -120, 8), null,
-  "首页播放面起手左划 seek（dx=-120）：链不得切去搜索页签",
+  "首页播放面中部起手左划 seek（dx=-120）：链不得切去搜索页签",
 );
 assert.equal(
   swipe(SCRUB, { tab: "home", stackDepth: 1, topKind: "settings" }, 120, 6), null,
-  "栈页进度条区起手右划拖进度（dx=120）：链不得 pop",
+  "栈页进度条区中部起手右划拖进度（dx=120）：链不得返回",
 );
 
-/* ── 既有链行为防回归 ── */
-assert.deepEqual(
-  swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings" }, 120, 10), { type: "pop" },
-  "普通栈页面起手右划：仍 pop 返回",
-);
-assert.equal(swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings", fs: true }, 120, 10), null, "全屏起手：链不触发");
+/* ── 误触组：旧实现逐条触发、新实现逐条不触发 ── */
 assert.equal(
-  swipe([{ tagName: "INPUT" }, { tagName: "DIV" }], { tab: "search", stackDepth: 0 }, -120, 5), null,
+  swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 200 }, 120, 10), null,
+  "误触①栈页中部起手右划（dx=120）：旧实现 pop、新实现无边缘锚不触发",
+);
+assert.equal(
+  swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "gallery", clientX: 180 }, 100, 6), null,
+  "误触②图集页主图区中部起手右划翻上一张（dx=100）：旧实现 pop 抢走翻页、新实现不触发（舞台边缘归属另在 AlbumViewer 侧同口径让行）",
+);
+assert.equal(
+  swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 120, 55), null,
+  "误触③左缘起手斜滑（dx=120,dy=55，过旧 1.8 锥角、未过新 2.5 锥角）：旧实现 pop、新实现不触发",
+);
+assert.equal(
+  swipe(PLAIN, { tab: "search", stackDepth: 0, clientX: 200 }, -120, 5), null,
+  "误触④搜索页中部起手左划：旧实现切去分类页签、新实现无右缘锚不触发",
+);
+assert.equal(
+  swipe(PLAIN, { tab: "category", stackDepth: 0, clientX: 200 }, 120, 5), null,
+  "误触⑤分类页中部起手右划：旧实现回搜索页签、新实现无左缘锚不触发",
+);
+assert.equal(
+  swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 140, 10, { claimed: true }), null,
+  "误触⑥左缘起手但途中已被纵向滚动认领（终点 dx=140,dy=10）：旧实现只看终点净位移 pop、新实现过程方向锁作废",
+);
+assert.equal(
+  swipe(DIALOG, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 200 }, 120, 10), null,
+  "误触⑦弹层内中部起手右划：弹层内同样只有边缘起手才许返回动作",
+);
+assert.equal(
+  swipe(DIALOG_SCROLL, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 130, 8), null,
+  "误触⑧弹层内横滚内容上边缘起手：横滑内容豁免在弹层内同样成立（DialogFrame 旧自带判定无此豁免、会误关弹层）",
+);
+assert.equal(
+  swipe(DIALOG_INPUT, { tab: "search", stackDepth: 0, clientX: 10 }, 130, 8), null,
+  "误触⑨弹层内输入框上边缘起手：输入豁免在弹层内同样成立",
+);
+
+/* ── 失效组：此前无手势/异规则的面，新实现逐条成立（基线逐条 null） ── */
+assert.deepEqual(
+  swipe(DIALOG, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 130, 8), { type: "back" },
+  "失效①Modal/Sheet 内左缘右滑：基线链监听挂 main 区收不到 portal 触摸、只剩 DialogFrame 异规则（64px/1.5/无豁免）代行；新实现统一门控触发 back、由 runBack 关最上层弹层",
+);
+assert.deepEqual(
+  swipe(DIALOG, { tab: "home", stackDepth: 0, fs: true, clientX: 10 }, 130, 8), { type: "back" },
+  "失效②Guide 弹层（全屏播放器教练层）内左缘右滑：基线 guide 类被 DialogFrame 显式排除、无任何手势返回，且链被 fs+dialog 双重封锁；新实现触发 back",
+);
+assert.deepEqual(
+  swipe(STAGE, { tab: "home", stackDepth: 1, topKind: "feed", clientX: 10 }, 130, 8), { type: "back" },
+  "失效③栈内 Feed 面左缘右滑：基线链整体让行、靠 Feed 自带判定（28px 锁定/64px）代行；新实现由链统一触发 back（Feed 只做归属让行）",
+);
+assert.deepEqual(
+  swipe(STAGE, { tab: "home", stackDepth: 0, fs: true, clientX: 10 }, 130, 8), { type: "back" },
+  "失效④全屏 Feed 面左缘右滑退全屏：基线链被 fs 封锁、靠 Feed 自带判定代行；新实现触发 back、返回序中退全屏一步落点",
+);
+assert.deepEqual(
+  swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 385 }, -130, 8), { type: "back" },
+  "失效⑤普通栈页右缘左滑返回：基线本链独缺此项（只有 Feed 面/DialogFrame 有双缘），新实现双缘同义成立",
+);
+assert.deepEqual(
+  swipe(STAGE, { tab: "home", stackDepth: 1, topKind: "feed", clientX: 385 }, -130, 8), { type: "back" },
+  "失效⑥栈内 Feed 面右缘左滑：与⑤同一不变量（双缘同义不分面）",
+);
+assert.deepEqual(
+  swipe(DIALOG, { tab: "search", stackDepth: 0, clientX: 10 }, 130, 8), { type: "back" },
+  "失效⑦InplaceSearch（role=dialog 的页内搜索层）左缘右滑：基线被 role=dialog 整体挡死、手势返回会退整页而非先关搜索；新实现触发 back、runBack 先关搜索层（与硬件返回同序）",
+);
+
+/* ── 正例组：统一后各面正经边缘滑动仍稳定触发 ── */
+assert.deepEqual(
+  swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 8 }, 130, 40), { type: "back" },
+  "正例①普通栈页左缘起手带轻微斜度右划（dx=130,dy=40，过 2.5 锥角）：仍触发 back（方向门不误杀正经边缘滑）",
+);
+assert.deepEqual(
+  swipe(PLAIN, { tab: "search", stackDepth: 0, clientX: 10 }, 120, 5), { type: "back" },
+  "正例②搜索页左缘右划：触发 back（落点＝回首页由 glue 返回序裁决，与硬件返回同序；旧动作 {tab:home} 已合并）",
+);
+assert.deepEqual(
+  swipe(PLAIN, { tab: "home", stackDepth: 0, clientX: 385 }, -120, 5), { type: "tab", tab: "search" },
+  "正例③链首右缘左划：仍去搜索页签（前进链不变）",
+);
+assert.deepEqual(
+  swipe(PLAIN, { tab: "search", stackDepth: 0, clientX: 385 }, -120, 5), { type: "tab", tab: "category" },
+  "正例④搜索页右缘左划：仍去分类页签",
+);
+assert.deepEqual(
+  swipe(PLAIN, { tab: "profile", stackDepth: 0, clientX: 385 }, -120, 5), { type: "pushSettings" },
+  "正例⑤我的页右缘左划：仍进设置（链序不变）",
+);
+assert.deepEqual(
+  swipe(INFO, { tab: "home", stackDepth: 1, topKind: "feed", clientX: 200 }, -120, 10), { type: "detailNext" },
+  "正例⑥栈顶 Feed 详情信息区中部左划：仍切下一条（detailNext 原语义定锚不变）",
+);
+assert.deepEqual(
+  swipe(INFO, { tab: "home", stackDepth: 1, topKind: "feed", clientX: 385 }, -130, 8), { type: "back" },
+  "正例⑦详情信息区右缘起手左滑：边缘返回优先于 detailNext（归属先于内容动作）",
+);
+assert.equal(
+  swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 60, 4), null,
+  "正例⑧左缘起手短距离扫过（dx=60 未过 72 距离门）：不触发（距离门防回归）",
+);
+
+/* ── 既有豁免防回归 ── */
+assert.equal(swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings", fs: true }, 120, 10), null, "全屏中部起手：链不触发（scrub 独占）");
+assert.equal(
+  swipe([{ tagName: "INPUT" }, { tagName: "DIV" }], { tab: "search", stackDepth: 0, clientX: 10 }, -120, 5), null,
   "输入框起手：链不触发",
 );
 assert.equal(
-  swipe([{ tagName: "DIV", hScrollable: true }, { tagName: "DIV" }], { tab: "search", stackDepth: 0 }, -120, 5), null,
+  swipe([{ tagName: "DIV", hScrollable: true }, { tagName: "DIV" }], { tab: "search", stackDepth: 0, clientX: 10 }, -120, 5), null,
   "横滚区起手：链不触发",
 );
-assert.equal(
-  swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "feed", clientX: 10 }, 120, 5), null,
-  "栈内 Feed 左缘起手：归 Feed 边缘返回，链不 pop（既有让行）",
-);
+assert.equal(swipe(PLAIN, { tab: "home", stackDepth: 0, clientX: 200 }, 120, 5), null, "链首中部右划无动作");
 assert.deepEqual(
-  swipe(INFO, { tab: "home", stackDepth: 1, topKind: "feed" }, -120, 10), { type: "detailNext" },
-  "栈顶 Feed 详情信息区左划：仍切下一条",
+  swipe(PLAIN, { tab: "home", stackDepth: 0, clientX: 10 }, 120, 5), { type: "back" },
+  "链首左缘右滑：触发 back（glue 返回序只消费面板/全屏、无可退时空转；旧版恒无动作、面板开着时滑不掉）",
 );
 assert.equal(
-  swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings" }, 100, 80), null,
-  "纵向占优位移（dx=100,dy=80 未过 1.8 方向锁）：链不触发",
+  swipe(PLAIN, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 100, 80), null,
+  "纵向占优位移（dx=100,dy=80 未过方向门）：链不触发",
 );
-assert.deepEqual(swipe(PLAIN, { tab: "search", stackDepth: 0 }, 120, 5), { type: "tab", tab: "home" }, "搜索页右划回首页（链序不变）");
-assert.deepEqual(swipe(PLAIN, { tab: "profile", stackDepth: 0 }, -120, 5), { type: "pushSettings" }, "我的页左划进设置（链序不变）");
-assert.equal(swipe(PLAIN, { tab: "home", stackDepth: 0 }, 120, 5), null, "链首（播放器页）右划无动作");
+
+/* ── 过程方向锁谓词（glue 的 touchmove 采样口径） ── */
+assert.equal(chainMoveVerticalClaim(10, 30), true, "位移 30 且纵向占优：滚动认领");
+assert.equal(chainMoveVerticalClaim(30, 10), false, "横向占优：不认领");
+assert.equal(chainMoveVerticalClaim(5, 8), false, "未过认领距离（抖动区）：不认领");
+assert.equal(chainMoveVerticalClaim(60, 30), false, "纵向位移虽大但未占优：不认领");
 
 console.log("gestureChain.contract: all assertions passed");

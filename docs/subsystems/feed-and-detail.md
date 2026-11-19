@@ -137,23 +137,47 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   rootMargin 600px、eager 图为挂载时）起算——img 是 lazy，视口外
   根本不发请求，旧实现自挂载起算会把离屏封面的 attempt 依次烧光、
   回滚进来只见永久失败占位。
-- 横向手势仲裁（fix2.1，fix322/play 修订）：App 链式手势优先级——
-  输入/横滚区/dialog 起手 > 播放器手势面/进度条区起手（fix322 新增
-  让行）> 全屏 scrub 独占 > 单击/双击/长按（播放器表面内部仲裁）>
-  栈页右划 pop（300ms 冷却防连退）> 详情页左划下一条。起点分类与
-  终点裁决在 `src/app/gestureChain.ts`（纯函数＋契约测试），App.tsx
-  只留 DOM 胶水。fix322 根因：面内横拖 seek 的位移（≥72px）与链的
-  方向锁天然重叠，旧仲裁只让行左缘 24px、且误判两者「不重叠」——
-  栈内 Feed 页中部右划 seek 被 pop（整个画面划出去）、首页左划
-  seek 被切页签、进度条区起手只被 detailNext 的否定条件引用而不
-  挡 pop。定版口径＝手势按起点归属隔离（与 AlbumViewer 缩略图条
-  同口径）：`data-player-surface`（Feed 手势面）或
-  `data-feed-scrub-zone` 起手时本链整体不触发，面内手势由 Feed
-  表面自理；取舍：首页自视频区起手的链式切页签失效，离 home 走
-  顶栏/页签钮。左划下一条仅在栈顶 feed 页、起手落在详情信息区
-  （`data-feed-info-zone`，视频控制层/图文帖信息块）且不在进度条区
-  （`data-feed-scrub-zone`）时经 `detailNext` 通道触发，语义与桌面
-  onNext 一致（先下一集、后下一条）。
+- 横向手势仲裁（fix2.1，fix322/play 修订，fix330/gesture-back 一致
+  性批再修订）：App 链式手势优先级——输入/横滚区起手（整体不触
+  发，弹层内同规则）> 播放器手势面/进度条区中部起手（fix322 新增
+  让行）> 全屏中部 scrub 独占 > 单击/双击/长按（播放器表面内部
+  仲裁）> 边缘返回 > 详情页左划下一条。起点分类与终点裁决在
+  `src/app/gestureChain.ts`（纯函数＋契约测试），App.tsx 只留 DOM
+  胶水；门控常量与边缘返回判定在 `src/shared/lib/gestureGate.ts`
+  （全 App 唯一判定源）。fix322 根因：面内横拖 seek 的位移
+  （≥72px）与链的方向锁天然重叠，旧仲裁只让行左缘 24px、且误判
+  两者「不重叠」——栈内 Feed 页中部右划 seek 被 pop（整个画面划
+  出去）、首页左划 seek 被切页签、进度条区起手只被 detailNext 的
+  否定条件引用而不挡 pop。定版口径＝手势按起点归属隔离（与
+  AlbumViewer 缩略图条同口径）：`data-player-surface`（Feed 手势
+  面）或 `data-feed-scrub-zone` 中部起手时本链不接管、面内手势由
+  Feed 表面自理；取舍：首页自视频区起手的链式切页签失效，离
+  home 走顶栏/页签钮。左划下一条仅在栈顶 feed 页、起手落在详情
+  信息区（`data-feed-info-zone`，视频控制层/图文帖信息块）且不在
+  进度条区（`data-feed-scrub-zone`）时经 `detailNext` 通道触发，
+  语义与桌面 onNext 一致（先下一集、后下一条）。
+  fix330/gesture-back 一致性批（3.3.1，用户实报「不单单是误触，
+  而且有很多地方它压根不生效，两个极端」）：此前全 App 三套边缘
+  返回判定并存（本链全屏布防/72px/锥角 1.8、Feed 面内 20/22px+
+  28px 锁定+64px 触发、DialogFrame 20/22px+64px 且无内容豁免、
+  guide 类弹层没有），且本链监听挂 main 区、portal 弹层内触摸根
+  本到达不了。定版：①判定一处——边缘锚（左右缘各 24px，双缘同
+  义）＋距离门 72px＋锥角 2.5＋过程方向锁（途中纵向占优即被滚动
+  认领），全部出自 gestureGate.ts；②触发一处——本链监听改挂
+  React 根容器（#root），弹层（祖先含 role="dialog"）内触摸可
+  达、只许返回动作；Feed 面与 DialogFrame 的自带判定已删（Feed
+  只保留起点归属：边缘起手不 scrub/pan/hold、未成手势的边缘拖
+  动吞掉；DialogFrame 只保留 runBack 动作登记，guide 类由此首
+  次获得手势返回）；③动作同序——返回动作统一为
+  `{ type:"back" }`，glue 走与硬件返回键/Escape 完全同序的分发
+  （runBack 注册制 → 退全屏 → 文档全屏 → 退栈 300ms 冷却 → 回
+  上一页签；手势不退出应用），InplaceSearch 等弹层由此先于退页
+  被关闭（旧手势直 pop 与硬件序分叉消除）；④归属补齐——
+  AlbumViewer 舞台边缘起手不翻页（与 Feed scrub 同口径，旧版频
+  道页内边缘右滑翻页与 pop 同时成立；结构审计 C⑤ 点名），独立
+  Player 面无横拖手势（seek 是 range 输入框、归输入豁免）不设
+  标记。契约（gestureChain.contract.test.ts）按面覆盖误触组/
+  失效组/正例组，基线证伪探针逐条旧红新绿见线报告。
 - 右侧动作栏（2026-11-18 用户再裁定，恢复同日撤下的版本）：喜欢/收藏/
   评论三钮 + 计数沿上游原样回到移动端与桌面右侧栏——此前判「游客用不上」
   是错的，用户明确用得上。但不做常驻覆层：整栏跟随控制层显隐（移动端

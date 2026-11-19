@@ -4,13 +4,13 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "re
 import { useStore, type Page, type Tab } from "../shared/model/store";
 import { selfTest } from "../shared/api/api";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
-import { runBack } from "../shared/lib/back";
+import { runBack, backHeldByStartup } from "../shared/lib/back";
 import { runDetailNext } from "../shared/lib/detailNext";
 import { exitDocumentFullscreen, getFullscreenElement } from "../shared/lib/fullscreen";
 import Home from "../features/feed/Home";
 import { ToastHost } from "../shared/ui/ui";
 import { tracePlayback } from "../shared/diagnostics/playbackDiagnostics";
-import { classifyChainStart, decideChainSwipe, type ChainAncestor } from "./gestureChain";
+import { chainMoveVerticalClaim, classifyChainStart, decideChainSwipe, type ChainAncestor, type ChainStart } from "./gestureChain";
 import { IGrid, IGridF, IHome, IHomeF, ISearch, IUser, IUserF } from "../shared/ui/icons";
 
 // Local chunks load on first visit; visited tabs stay mounted as before.
@@ -156,42 +156,73 @@ function AppBody() {
      播放器中部左划进搜索（与顶栏〈、放大镜同落搜索，〈落点已在
      Feed.goBack 改齐）；搜索右划回播放器、左划去分类；分类右划回搜索、
      左划去我的；我的右划回分类、左划进设置（推栈）；栈页（设置/吃瓜/
-     详情/频道/栈内 Feed 等全部）右划一律 pop 返回上一级、左划无动作
-     （2026-11-19 fix2 A1 补齐，此前只有设置页能滑回）。链首（播放器）
-     右划无动作。
+     详情/频道/栈内 Feed 等全部）边缘右划/右缘左划返回上一级
+     （2026-11-19 fix2 A1 补齐栈页右划，此前只有设置页能滑回；
+     fix330/gesture-back 起全部动作须边缘起手、栈页左划补右缘
+     返回，见下「触发门控」）。链首（播放器）边缘右划走统一返回
+     序：只消费面板/全屏，无可退时无动作。
      与播放器既有手势的冲突处理（以本链为准的除外，提交说明记账）：
-     播放器左缘 24px 起手的右划仍归边缘返回手势（关面板/退全屏），
-     本链只接中部起手；全屏（fs）中不触发本链；纵向滚动靠方向锁定
-     （|dx|≥72 且 |dx|>|dy|×1.8）不误触；局部横滚区域（overflow-x 可滚
-     的 chips 行/卡片行）、输入框、打开的 dialog/sheet 内起手不触发。
+     全 App 边缘返回只有本链一处触发（fix330/gesture-back 一致性
+     批）：播放器面内边缘起手归本链（Feed 只做归属让行——不
+     scrub/pan/hold，不再自行判定触发）；全屏（fs）中部不触发、
+     边缘起手经返回序退全屏；局部横滚区域（overflow-x 可滚的
+     chips 行/卡片行）、输入框内起手不触发（弹层内同规则）；打开
+     的 dialog/sheet 内起手只许返回动作、由最上层弹层先消费。
      底部页签保留作直接跳达，与本链并存。
+     触发门控（fix330/gesture-back，用户 3.3.0 真机实报「滑动返回
+     容易误触」＋二轮「很多地方压根不生效，两个极端」）：首轮只
+     收紧本链（边缘锚＋锥角 2.5＋过程方向锁）治了误触一头；二轮
+     按「证明不了就删」裁定做全量一致性——判定收敛到 shared/lib/
+     gestureGate.ts 一处（详见其文件头）：返回类动作（栈页返回、
+     页签右划回上一级）须左缘 24px 内起手、栈页右缘左划同为返回
+     （双缘同义），前进类页签动作须右缘 24px 内起手；方向锥角
+     |dx|≥|dy|×2.5；过程方向锁——touchmove 途中纵向占优即被滚动
+     认领、本次触摸内作废（全程 passive、不劫持滚动）；detailNext
+     仍以详情信息区为起点锚。监听挂 #root 覆盖 portal 弹层，
+     返回动作走与硬件返回键完全同序的统一返回序（见 onEnd）。
      手势仲裁优先级（Muse 2026-11-19 fix2.1 批四#12 定版，fix322/play
-     修订，高→低）：
-     ①输入框/横滚区/dialog 起手——本链整体不触发（上方 walk）；
+     修订，fix330/gesture-back 一致性批再修订，高→低）：
+     ①输入框/横滚区起手——本链整体不触发（上方 walk；弹层内同
+       规则）；dialog 起手不再整体封锁（监听挂 #root 后弹层触摸
+       可达本链）：只许返回动作、由 runBack 最上层弹层先消费；
      ①′播放器手势面（data-player-surface）/进度条区
-       （data-feed-scrub-zone）起手——本链整体不触发（fix322 新增：
-       面内横拖即 seek 本身、位移 ≥72 与链方向锁重叠，旧版只让行
-       左缘 24px，面内 seek 被 pop/切页签抢走、整个画面被划出去；
-       起点分类与裁决见 gestureChain.ts＋其契约测试）；
-     ②全屏 scrub 独占——fs 时本链不触发，横拖只归进度条；
+       （data-feed-scrub-zone）起手——中部起手本链不接管（fix322：
+       面内横拖即 seek 本身、位移 ≥72 与链方向门重叠）；边缘起手
+       归本链返回，Feed 面只做归属让行（起点分类与裁决见
+       gestureChain.ts＋其契约测试）；
+     ②全屏 scrub 独占——fs 时中部起手本链不触发、横拖只归进度
+       条；边缘起手经统一返回序退全屏；
      ③单击/双击/长按互斥——由播放器表面手势（mobileGestures）内部
        按位移与时长仲裁（横拖 seek 不在此列，归 ①′）；
-     ④栈页右划返回——本链 pop，带 300ms 冷却防连退两层；
+     ④边缘返回——本链 { type:"back" } 走统一返回序（弹层/面板 →
+       退全屏 → 文档全屏 → 退栈 300ms 冷却 → 回上一页签），双缘
+       同义；全 App 不再有第二处边缘返回判定（Feed 面内与
+       DialogFrame 的自带判定已删）；
      ⑤详情页左划下一条——仅栈顶 feed 页、起手落在详情信息区
        （data-feed-info-zone）且不在进度条区（data-feed-scrub-zone）
-       时，经 detailNext 通道切下一集/下一条；其余栈页左划无动作。 */
+       时，经 detailNext 通道切下一集/下一条；边缘返回优先于它。 */
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
-    let start: { x: number; y: number; blocked: boolean; inInfo: boolean; inScrub: boolean } | null = null;
+    /* 监听挂 React 根容器（#root）而非 main 区（fix330/gesture-back
+       一致性批）：弹层经 portal 挂在 #root 直下（全屏时挂全屏元素、
+       仍在 #root 子树内），挂 main 区时弹层内触摸根本到达不了本
+       链——3.3.0 时弹层返回只能靠 DialogFrame 自带的另一套判定
+       （20/22px、64px/1.5、无内容豁免，guide 类还没有；已删）。
+       同节点原生监听不受 React 合成事件 stopPropagation 影响
+       （stopPropagation 不拦同节点监听器），面内 React 层的
+       stopPropagation 点（SR 画布/菜单等）不会饿死本链；#root
+       缺失时退回 main 区（旧覆盖面）。 */
+    const rootEl = document.getElementById("root") ?? el;
+    let start: ({ x: number; y: number } & ChainStart) | null = null;
     /* 起点分类与终点裁决在 gestureChain.ts（纯函数＋契约测试）；此处
-       只做 DOM walk 产出祖先描述符与副作用分发（pop 300ms 冷却防连
-       退两层，fix2.1 批四#12）。 */
+       只做 DOM walk 产出祖先描述符、touchmove 采样过程方向锁与副
+       作用分发（返回走统一返回序、退栈带 300ms 冷却防连退两层）。 */
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) { start = null; return; }
       const t = e.touches[0];
       const ancestors: ChainAncestor[] = [];
-      for (let n = e.target as Element | null; n && n !== el; n = n.parentElement) {
+      for (let n = e.target as Element | null; n && n !== rootEl; n = n.parentElement) {
         const s = getComputedStyle(n);
         ancestors.push({
           tagName: n.tagName,
@@ -207,8 +238,18 @@ function AppBody() {
          * gestureChain 的字段保留待 UI 线后续收敛（见 account 线报告）。 */
         fs, loginOpen: false, tab, stackDepth: stack.length,
         topKind: stack[stack.length - 1]?.kind, clientX: t.clientX,
+        viewportWidth: window.innerWidth,
       });
       start = { x: t.clientX, y: t.clientY, ...c };
+    };
+    /* 过程方向锁（fix330/gesture-back）：passive 采样，不 preventDefault、
+       不劫持滚动；途中纵向占优即标记认领，onEnd 裁决时整体作废。 */
+    const onMove = (e: TouchEvent) => {
+      const s = start;
+      if (!s || s.scrollClaimed) return;
+      const t = e.touches[0];
+      if (!t) return;
+      if (chainMoveVerticalClaim(t.clientX - s.x, t.clientY - s.y)) s.scrollClaimed = true;
     };
     const onEnd = (e: TouchEvent) => {
       const s = start;
@@ -220,12 +261,30 @@ function AppBody() {
         tab, topKind: stack[stack.length - 1]?.kind,
       });
       if (!action) return;
-      if (action.type === "pop") {
-        const now = Date.now();
-        if (now - lastChainPopAt.current >= 300) {
-          lastChainPopAt.current = now;
-          pop();
+      /* 启动门（开场动画/协议层）覆盖期：手势整体让行——返回序在
+         持有期被 runBack 闸住只消费不分发，前进类动作不经 runBack，
+         须在此显式让行（fix330/gesture-back）。 */
+      if (backHeldByStartup()) return;
+      if (action.type === "back") {
+        /* 统一返回序：与硬件返回键/Escape 完全同序（back.ts 注册制
+           ＋ App backRef）——弹层/面板先消费 → 退沉浸全屏 → 退文档
+           全屏 → 退栈（300ms 冷却只作用于退栈一步，防连退两层）
+           → 回上一页签；手势不退出应用（backRef 末步的 exit 不
+           在此列）。落点按上下文裁决，不在本链写死 pop。 */
+        if (runBack()) return;
+        if (fs) { setFs(false); return; }
+        if (getFullscreenElement()) { void exitDocumentFullscreen().catch(() => {}); return; }
+        if (stack.length) {
+          const now = Date.now();
+          if (now - lastChainPopAt.current >= 300) {
+            lastChainPopAt.current = now;
+            pop();
+          }
+          return;
         }
+        if (tab === "profile") setTab("category");
+        else if (tab === "category") setTab("search");
+        else if (tab === "search") setTab("home");
       } else if (action.type === "detailNext") {
         runDetailNext();
       } else if (action.type === "tab") {
@@ -234,13 +293,15 @@ function AppBody() {
         push({ kind: "settings" });
       }
     };
-    el.addEventListener("touchstart", onStart, { passive: true });
-    el.addEventListener("touchend", onEnd, { passive: true });
+    rootEl.addEventListener("touchstart", onStart, { passive: true });
+    rootEl.addEventListener("touchmove", onMove, { passive: true });
+    rootEl.addEventListener("touchend", onEnd, { passive: true });
     return () => {
-      el.removeEventListener("touchstart", onStart);
-      el.removeEventListener("touchend", onEnd);
+      rootEl.removeEventListener("touchstart", onStart);
+      rootEl.removeEventListener("touchmove", onMove);
+      rootEl.removeEventListener("touchend", onEnd);
     };
-  }, [tab, stack, fs, setTab, pop, push]);
+  }, [tab, stack, fs, setTab, setFs, pop, push]);
 
   /* clean 是播放器沉浸态、只属于 home（Muse 2026-11-18 真机 bug）：
      沉浸态下链式手势可直接离 home（手势不要求先唤醒控件），clean 不清

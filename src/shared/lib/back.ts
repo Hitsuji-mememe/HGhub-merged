@@ -16,6 +16,13 @@ export function holdBackForStartup(): () => void {
   return () => { if (!released) { released = true; startupHolds = Math.max(0, startupHolds - 1); } };
 }
 
+/** 启动门持有中（开场动画/协议层覆盖已挂载的 App）：手势层据此
+ * 整体让行——runBack 在持有期只消费不分发，前进类手势动作不经
+ * runBack，须由手势 glue 显式查此探针（fix330/gesture-back）。 */
+export function backHeldByStartup(): boolean {
+  return startupHolds > 0;
+}
+
 /** Dialogs can nest; dismiss the newest overlay before a player panel or page. */
 export function registerOverlayBack(h: Handler) {
   const entry = { handle: h };
