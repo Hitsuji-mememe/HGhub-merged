@@ -43,7 +43,7 @@ try {
   await page.goto(origin);
   const nav = page.getByRole("navigation", { name: "主导航" });
   await nav.waitFor();
-  await page.waitForFunction(() => window.__IOS_UI_FIXTURE__.hasHardwareBack());
+  await page.waitForFunction(() => window.__IOS_UI_FIXTURE__?.hasHardwareBack());
   await nav.getByRole("button", { name: "分类", exact: true }).click();
   await page.getByRole("button").filter({ has: page.getByText("专题", { exact: true }) }).click();
   await page.getByRole("heading", { name: "专题", exact: true }).waitFor();

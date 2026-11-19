@@ -77,7 +77,7 @@ const getLogs = page => page.evaluate(async () => { await window.playerSeekFixtu
 // 本地 VOD HLS fixture：testsrc2 + 正弦音轨。size 决定横屏（320x180）或竖屏（360x640）源。
 const generateHlsFixture = (dir, size) => execFileSync(process.env.FFMPEG_PATH || "ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", `testsrc2=size=${size}:rate=15`, "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "90", "-c:v", "libx264", "-preset", "ultrafast", "-g", "30", "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-c:a", "aac", "-f", "hls", "-hls_time", "2", "-hls_playlist_type", "vod", "-hls_segment_filename", join(dir, "seg%03d.ts"), join(dir, "list.m3u8")], { timeout: 60000, stdio: "pipe" });
 async function waitLog(page, event, source) {
-  await page.waitForFunction(({ event, source }) => window.playerSeekFixture.logs.some(e => e.event === event && (!source || e.data.source === source)), { event, source });
+  await page.waitForFunction(({ event, source }) => window.playerSeekFixture?.logs.some(e => e.event === event && (!source || e.data.source === source)), { event, source });
   return getLogs(page);
 }
 async function clickProgress(page, fraction) {
@@ -502,7 +502,7 @@ async function seekChecks(page, legacy) {
   const preview = await page.getByRole("slider", { name: "播放进度" }).inputValue();
   assert(Math.abs(Number(preview) - 40.5) < .5, "Seekbar must preview the target before release");
   await page.mouse.up();
-  await page.waitForFunction(n => window.playerSeekFixture.logs.slice(n).some(e => e.event === "seek.resumed"), before);
+  await page.waitForFunction(n => window.playerSeekFixture?.logs.slice(n).some(e => e.event === "seek.resumed"), before);
   logs = (await getLogs(page)).slice(before);
   const drags = logs.filter(e => e.event === "seek.request" && e.data.source === `${legacy ? "legacy" : "desktop"}_drag`);
   assert.equal(drags.length, 1, "A whole drag must commit exactly one seek on release");
@@ -531,7 +531,7 @@ async function seekChecks(page, legacy) {
   const keyboardBefore = logs.length;
   await page.getByRole("slider", { name: "播放进度" }).focus();
   await page.keyboard.press("ArrowRight");
-  await page.waitForFunction(n => window.playerSeekFixture.logs.slice(n).some(e => e.event === "seek.ready"), keyboardBefore);
+  await page.waitForFunction(n => window.playerSeekFixture?.logs.slice(n).some(e => e.event === "seek.ready"), keyboardBefore);
   assert((await getLogs(page)).slice(keyboardBefore).some(e => e.event === "seek.request" && e.data.source.endsWith("_keyboard")), "Native keyboard seek must still work");
   assert(await page.locator("video").evaluate(v => v.paused), "Keyboard seek must preserve pause");
   if (!legacy) await speedMenuKeyboardChecks(page, true);
@@ -579,7 +579,7 @@ async function lifecyclePlayerCheck(page, legacy) {
     await page.evaluate(async () => { await window.playerSeekFixture.setLogging(true); window.playerSeekFixture.setActive(false); });
     await page.waitForFunction(() => document.querySelector('input[aria-label="播放进度"]').disabled);
     release();
-    await page.waitForFunction(() => window.playerSeekFixture.engineState().levels > 0);
+    await page.waitForFunction(() => window.playerSeekFixture?.engineState().levels > 0);
     await page.waitForTimeout(350);
     const state = await page.locator("video").evaluate(v => ({ time: v.currentTime, paused: v.paused, ready: v.readyState }));
     const logs = await getLogs(page);
@@ -592,7 +592,7 @@ async function lifecyclePlayerCheck(page, legacy) {
     await page.locator(legacy ? ".post-player" : ".player-root").hover();
     await page.getByRole("button", { name: "暂停", exact: true }).click();
     await page.evaluate(() => window.playerSeekFixture.setActive(false));
-    await page.waitForFunction(() => !window.playerSeekFixture.engineState().loading);
+    await page.waitForFunction(() => !window.playerSeekFixture?.engineState().loading);
     await page.evaluate(() => window.playerSeekFixture.setActive(true));
     await page.waitForFunction(() => !document.querySelector('input[aria-label="播放进度"]').disabled);
     assert(await page.locator("video").evaluate(v => v.paused), "Manual pause must survive page reactivation");
@@ -600,7 +600,7 @@ async function lifecyclePlayerCheck(page, legacy) {
     await page.waitForFunction(() => !document.querySelector("video").paused);
     await page.locator("video").evaluate(v => v.pause());
     await page.evaluate(() => window.playerSeekFixture.setActive(false));
-    await page.waitForFunction(() => !window.playerSeekFixture.engineState().loading);
+    await page.waitForFunction(() => !window.playerSeekFixture?.engineState().loading);
     await page.evaluate(() => window.playerSeekFixture.setActive(true));
     await page.waitForFunction(() => !document.querySelector('input[aria-label="播放进度"]').disabled);
     assert(await page.locator("video").evaluate(v => v.paused), "Native/PiP pause must survive page reactivation");
@@ -652,7 +652,7 @@ async function proxyRecoveryCheck(page) {
       await intercepted;
       await page.evaluate(() => window.playerSeekFixture.setLogging(true));
       release();
-      await page.waitForFunction(() => window.playerSeekFixture.logs.some(e => e.event === "hls.error" && e.data.detail === "manifestLoadError" && e.data.fatal));
+      await page.waitForFunction(() => window.playerSeekFixture?.logs.some(e => e.event === "hls.error" && e.data.detail === "manifestLoadError" && e.data.fatal));
       assert.equal(await page.locator("video").evaluate(v => v.currentTime), 0, "Fault must prevent initial playback");
       broken = false;
       await page.evaluate(() => window.dispatchEvent(new Event("hg:proxy-changed")));
@@ -664,7 +664,7 @@ async function proxyRecoveryCheck(page) {
       await page.waitForFunction(() => !document.querySelector("video").seeking && document.querySelector("video").readyState >= 2);
       const before = (await getLogs(page)).filter(e => e.event === "proxy.restored").length;
       await page.evaluate(() => window.dispatchEvent(new Event("hg:proxy-changed")));
-      await page.waitForFunction(before => window.playerSeekFixture.logs.filter(e => e.event === "proxy.restored").length > before, before);
+      await page.waitForFunction(before => window.playerSeekFixture?.logs.filter(e => e.event === "proxy.restored").length > before, before);
       await page.waitForFunction(() => document.querySelector("video").readyState >= 2);
       const paused = await page.locator("video").evaluate(v => ({ paused: v.paused, time: v.currentTime, sameElement: v === window.__proxyVideo }));
       assert(paused.paused && Math.abs(paused.time - 20) < 0.5 && paused.sameElement, `Pause/position must survive: ${JSON.stringify(paused)}`);
@@ -672,7 +672,7 @@ async function proxyRecoveryCheck(page) {
       // Hidden pages reload metadata but must not start playing until reactivated.
       await page.evaluate(() => window.playerSeekFixture.setActive(false));
       await page.evaluate(() => window.dispatchEvent(new Event("hg:proxy-changed")));
-      await page.waitForFunction(() => window.playerSeekFixture.engineState().levels > 0);
+      await page.waitForFunction(() => window.playerSeekFixture?.engineState().levels > 0);
       assert(await page.locator("video").evaluate(v => v.paused), "Hidden retry must stay paused");
       await page.evaluate(() => window.playerSeekFixture.setActive(true));
       await page.waitForFunction(() => document.querySelector("video").readyState >= 2);
@@ -682,7 +682,7 @@ async function proxyRecoveryCheck(page) {
       const playingAt = await page.locator("video").evaluate(v => v.currentTime);
       const playingRetries = (await getLogs(page)).filter(e => e.event === "proxy.restored").length;
       await page.evaluate(() => window.dispatchEvent(new Event("hg:proxy-changed")));
-      await page.waitForFunction(before => window.playerSeekFixture.logs.filter(e => e.event === "proxy.restored").length > before, playingRetries);
+      await page.waitForFunction(before => window.playerSeekFixture?.logs.filter(e => e.event === "proxy.restored").length > before, playingRetries);
       await page.waitForFunction(time => !document.querySelector("video").paused && document.querySelector("video").currentTime >= time, playingAt);
       if (!legacy) {
         await page.evaluate(() => window.dispatchEvent(new Event("hg:line-changed")));
@@ -770,7 +770,7 @@ async function explicitRecoveryCheck(page) {
       });
       for (let attempt = 1; attempt <= 4; attempt += 1) {
         await page.evaluate(() => window.playerSeekFixture.failMedia());
-        await page.waitForFunction(attempt => window.playerSeekFixture.mediaRecoveryCalls === attempt, attempt);
+        await page.waitForFunction(attempt => window.playerSeekFixture?.mediaRecoveryCalls === attempt, attempt);
       }
       await page.evaluate(() => window.playerSeekFixture.failMedia());
       await retry.waitFor();

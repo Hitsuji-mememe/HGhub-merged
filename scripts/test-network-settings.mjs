@@ -119,12 +119,12 @@ try {
     assert.equal((await calls(page, "line_custom_set")).length, 0);
     await input.fill("https://custom.fixture.invalid");
     await dialog.getByRole("button", { name: "保存镜像" }).click();
-    await page.waitForFunction(() => window.networkSettingsFixture.custom && window.lineSelectionSnapshot.lineEpoch > 0);
+    await page.waitForFunction(() => window.networkSettingsFixture?.custom && window.lineSelectionSnapshot?.lineEpoch > 0);
     assert.equal(await page.evaluate(() => window.lineSelectionControls.autoLineEnabled()), false);
     assert.equal(await page.evaluate(() => window.lineSelectionSnapshot.user), null);
     assert.equal(await input.inputValue(), "https://custom.fixture.invalid");
     await dialog.getByRole("button", { name: "恢复主站" }).click();
-    await page.waitForFunction(() => window.networkSettingsFixture.base === "https://main.fixture.invalid");
+    await page.waitForFunction(() => window.networkSettingsFixture?.base === "https://main.fixture.invalid");
     assert.equal(await input.inputValue(), "");
     assert.equal((await calls(page, "line_reset")).length, 1);
     report.passed.push("Custom HTTPS validation, saved line reflected, manual mode persists, cross-origin user cleared, reset restores main; existing published rows retained");
@@ -142,8 +142,8 @@ try {
     const input = dialog.getByRole("textbox", { name: "镜像地址" });
     await page.waitForFunction(() => document.querySelector("#custom-line-address")?.value === "https://custom.fixture.invalid");
     await dialog.getByRole("button", { name: "保存镜像" }).click();
-    await page.waitForFunction(() => window.networkSettingsFixture.lineChanges === 1);
-    await page.waitForFunction(() => window.lineSelectionSnapshot.user?.id === 9);
+    await page.waitForFunction(() => window.networkSettingsFixture?.lineChanges === 1);
+    await page.waitForFunction(() => window.lineSelectionSnapshot?.user?.id === 9);
     assert.equal(await page.evaluate(() => window.lineSelectionSnapshot.user?.id), 9);
     await dialog.getByRole("button", { name: "关闭", exact: true }).click();
     await row(page, "播放源").click();
@@ -171,7 +171,7 @@ try {
     assert.equal(await input.getAttribute("type"), "password");
     await page.evaluate(() => { window.networkSettingsFixture.holdTest = true; });
     await dialog.getByRole("button", { name: "测试连接" }).click();
-    await page.waitForFunction(() => !!window.networkSettingsFixture.releaseTest);
+    await page.waitForFunction(() => !!window.networkSettingsFixture?.releaseTest);
     assert.equal(await input.isDisabled(), true);
     assert.equal(await dialog.getByRole("button", { name: "保存代理" }).isDisabled(), true);
     await page.evaluate(() => { window.networkSettingsFixture.releaseTest(); });
@@ -188,8 +188,8 @@ try {
     await dialog.waitFor({ state: "hidden" });
     assert.equal(await page.evaluate(() => window.networkSettingsFixture.proxyChanges), 1);
     assert.equal(await page.evaluate(() => window.networkSettingsFixture.lineChanges), 0);
-    await page.waitForFunction(() => window.lineSelectionSnapshot.lineEpoch > 0);
-    await page.waitForFunction(() => window.lineSelectionSnapshot.user?.id === 9);
+    await page.waitForFunction(() => window.lineSelectionSnapshot?.lineEpoch > 0);
+    await page.waitForFunction(() => window.lineSelectionSnapshot?.user?.id === 9);
     assert.equal(await page.evaluate(() => window.lineSelectionSnapshot.user?.id), 9);
     report.passed.push("Proxy load failure blocks actions; retry works; address concealed; test blocks edits/save; edits clear stale result; failed save retains draft; successful save emits proxy-only event and preserves user");
     await row(page, "代理访问").click();
@@ -210,7 +210,7 @@ try {
     const dialog = page.getByRole("dialog", { name: "代理访问" });
     await page.evaluate(() => { window.networkSettingsFixture.holdTest = true; });
     await dialog.getByRole("button", { name: "测试连接" }).click();
-    await page.waitForFunction(() => !!window.networkSettingsFixture.releaseTest);
+    await page.waitForFunction(() => !!window.networkSettingsFixture?.releaseTest);
     await page.evaluate(() => { window.dispatchEvent(new Event("hg:line-changed")); window.networkSettingsFixture.releaseTest(); });
     await dialog.getByText("线路已更新，请重新检测当前线路", { exact: true }).waitFor();
     assert.equal(await dialog.getByText("可用 · 42ms", { exact: true }).count(), 0);

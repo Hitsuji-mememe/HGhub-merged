@@ -154,7 +154,7 @@ try {
     assert.equal(await dialog.getByText("recommended.fixture.invalid", { exact: true }).count(), 0);
     assert.equal((await calls(page, "line_mirrors")).length, 1);
     await dialog.getByRole("button").filter({ hasText: "mirror-one.fixture.invalid" }).click();
-    await page.waitForFunction(() => window.lineSelectionFixture.base === "https://mirror-one.fixture.invalid" && window.lineSelectionSnapshot.lineEpoch === 1 && window.lineSelectionSnapshot.user?.id === 17);
+    await page.waitForFunction(() => window.lineSelectionFixture?.base === "https://mirror-one.fixture.invalid" && window.lineSelectionSnapshot?.lineEpoch === 1 && window.lineSelectionSnapshot?.user?.id === 17);
     assert.equal(await page.evaluate(() => window.lineSelectionFixture.lineChanged), 1);
     assert.equal(await page.evaluate(() => window.lineSelectionSnapshot.user?.id), 17);
     assert.deepEqual((await calls(page, "line_set")).map(call => call.args), [{ url: MIRROR }]);
@@ -189,7 +189,7 @@ try {
     const toggle = page.getByRole("switch", { name: "自动选择线路", exact: true });
     assert.equal(await toggle.getAttribute("aria-checked"), "false");
     await toggle.click();
-    await page.waitForFunction(() => window.lineSelectionFixture.base === "https://mirror-one.fixture.invalid");
+    await page.waitForFunction(() => window.lineSelectionFixture?.base === "https://mirror-one.fixture.invalid");
     assert.equal(await toggle.getAttribute("aria-checked"), "true");
     assert.equal(await page.evaluate(key => localStorage.getItem(key), NEW_KEY), "on");
     await sourceButton(page).getByText("mirror-one.fixture.invalid", { exact: true }).waitFor();
@@ -205,7 +205,7 @@ try {
 
   {
     const { context, page } = await open({ [NEW_KEY]: "on" });
-    await page.waitForFunction(() => window.lineSelectionFixture.base === "https://mirror-one.fixture.invalid" && window.lineSelectionSnapshot.ready);
+    await page.waitForFunction(() => window.lineSelectionFixture?.base === "https://mirror-one.fixture.invalid" && window.lineSelectionSnapshot?.ready);
     await page.evaluate(() => { window.lineSelectionFixture.autoMode = "all-down"; });
     const before = await page.evaluate(() => ({ base: window.lineSelectionFixture.base, changes: window.lineSelectionFixture.lineChanged, epoch: window.lineSelectionSnapshot.lineEpoch }));
     await page.evaluate(() => window.lineSelectionControls.pickLine("fixture-all-down", true));
@@ -221,11 +221,11 @@ try {
     const toggle = page.getByRole("switch", { name: "自动选择线路", exact: true });
     await page.evaluate(() => { window.lineSelectionFixture.holdAuto = true; });
     await toggle.click();
-    await page.waitForFunction(() => window.lineSelectionFixture.autoWaiters.length === 1);
+    await page.waitForFunction(() => window.lineSelectionFixture?.autoWaiters.length === 1);
     await toggle.click();
-    await page.waitForFunction(() => window.lineSelectionFixture.calls.some(call => call.command === "line_cancel"));
+    await page.waitForFunction(() => window.lineSelectionFixture?.calls.some(call => call.command === "line_cancel"));
     await page.evaluate(() => { window.lineSelectionFixture.autoWaiters.splice(0).forEach(resolve => resolve()); });
-    await page.waitForFunction(() => window.lineSelectionFixture.autoFinished === 1);
+    await page.waitForFunction(() => window.lineSelectionFixture?.autoFinished === 1);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     assert.equal(await page.evaluate(() => window.lineSelectionFixture.base), MAIN);
     assert.equal(await page.evaluate(() => window.lineSelectionFixture.autoCancelled), 1);
@@ -243,14 +243,14 @@ try {
     const toggle = page.getByRole("switch", { name: "自动选择线路", exact: true });
     await page.evaluate(() => { window.lineSelectionFixture.holdAuto = true; });
     await toggle.click();
-    await page.waitForFunction(() => window.lineSelectionFixture.autoWaiters.length === 1);
+    await page.waitForFunction(() => window.lineSelectionFixture?.autoWaiters.length === 1);
     await sourceButton(page).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByText("固定线路 2", { exact: true }).waitFor();
     await dialog.getByRole("button").filter({ hasText: "固定线路 2" }).click();
-    await page.waitForFunction(() => window.lineSelectionFixture.base === "https://secondary.fixture.invalid" && window.lineSelectionSnapshot.lineEpoch === 1);
+    await page.waitForFunction(() => window.lineSelectionFixture?.base === "https://secondary.fixture.invalid" && window.lineSelectionSnapshot?.lineEpoch === 1);
     await page.evaluate(() => { window.lineSelectionFixture.autoWaiters.splice(0).forEach(resolve => resolve()); });
-    await page.waitForFunction(() => window.lineSelectionFixture.autoFinished === 1);
+    await page.waitForFunction(() => window.lineSelectionFixture?.autoFinished === 1);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     assert.equal(await page.evaluate(() => window.lineSelectionFixture.base), "https://secondary.fixture.invalid");
     assert.equal(await page.evaluate(() => window.lineSelectionFixture.autoCancelled), 1);
@@ -284,7 +284,7 @@ try {
     });
     const beforeChurn = (await calls(page, "line_auto")).length;
     await page.evaluate(() => window.lineSelectionControls.pickLine("fixture-confirm-churn", true));
-    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeChurn + 1);
+    await page.waitForFunction(n => window.lineSelectionFixture?.calls.filter(c => c.command === "line_auto").length === n, beforeChurn + 1);
     /* 干扰窗约 12s：落在 pickLine 15s 非强制冷却内，check 的
      * main-return 不会真发 line_auto，计数只受确认轮影响。 */
     const churnStart = Date.now();
@@ -295,7 +295,7 @@ try {
       });
       await new Promise(r => setTimeout(r, 2_000));
     }
-    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeChurn + 2, { timeout: 25_000 });
+    await page.waitForFunction(n => window.lineSelectionFixture?.calls.filter(c => c.command === "line_auto").length === n, beforeChurn + 2, { timeout: 25_000 });
     const churnRound = await page.evaluate(async () => {
       const mod = await import("/src/shared/network/autoLine.ts");
       return { rounds: mod.recentPickRounds().length, reason: mod.lastPickRound()?.reason ?? null };
@@ -319,12 +319,12 @@ try {
     });
     const beforeConfirm = (await calls(page, "line_auto")).length;
     await page.evaluate(() => window.lineSelectionControls.pickLine("fixture-confirm", true));
-    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 1);
+    await page.waitForFunction(n => window.lineSelectionFixture?.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 1);
     /* 正向用例（整改 A1，Hark G2 P0-1）：confirm-pending 轮次落定后，
      * 确认计时器必须真的在延迟后发出第二轮 pickLine("confirm")——旧实现
      * 里确认计时器与健康调度共用注册表、被同轮 finally 的 schedule()
      * 清掉，此等待必然超时（恒红），修复后到点必达。 */
-    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 2, { timeout: 25_000 });
+    await page.waitForFunction(n => window.lineSelectionFixture?.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 2, { timeout: 25_000 });
     const confirmRound = await page.evaluate(async () => {
       const mod = await import("/src/shared/network/autoLine.ts");
       return { rounds: mod.recentPickRounds().length, reason: mod.lastPickRound()?.reason ?? null };
@@ -338,7 +338,7 @@ try {
       window.lineSelectionFixture.autoMode = "success";
       await window.lineSelectionControls.setAutoLine(true);
     });
-    await page.waitForFunction(n => window.lineSelectionFixture.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 3);
+    await page.waitForFunction(n => window.lineSelectionFixture?.calls.filter(c => c.command === "line_auto").length === n, beforeConfirm + 3);
     await new Promise(r => setTimeout(r, 17_000));
     assert.equal((await calls(page, "line_auto")).length, beforeConfirm + 3, "stale confirm timer must not fire an extra line_auto");
     assert.equal((await calls(page, "line_try_main")).length, 0, "line_try_main wrapper removed");

@@ -73,7 +73,7 @@ try {
       });
     }, { component, supported, src, hold, fail, autoPlay, ORIGIN });
     await page.goto(`${origin}tests/ios-native-media.html`);
-    await page.waitForFunction(() => window.nativeMediaFixture.ready);
+    await page.waitForFunction(() => window.nativeMediaFixture?.ready);
     return { context, page };
   }
   const snapshot = page => page.evaluate(() => {
@@ -134,16 +134,16 @@ try {
     }
     {
       const { context, page } = await open(component, { hold: true });
-      await page.waitForFunction(() => window.nativeMediaFixture.waiters.length === 1);
+      await page.waitForFunction(() => window.nativeMediaFixture?.waiters.length === 1);
       assert.equal((await snapshot(page)).src, null);
       const next = "https://media.fixture.invalid/next-extensionless";
       await render(page, { src: next });
-      await page.waitForFunction(() => window.nativeMediaFixture.waiters.length === 2);
+      await page.waitForFunction(() => window.nativeMediaFixture?.waiters.length === 2);
       await resolveOrigin(page, 1);
       await resolveOrigin(page, 0, "http://127.0.0.1:34789/stale-capability");
       assert.equal((await snapshot(page)).src, `${ORIGIN}/hls?u=${encodeURIComponent(next)}`, "old origin resolution cannot overwrite current source");
       await render(page, { src: "https://media.fixture.invalid/unmounted" });
-      await page.waitForFunction(() => window.nativeMediaFixture.waiters.length === 3);
+      await page.waitForFunction(() => window.nativeMediaFixture?.waiters.length === 3);
       await render(page, { mounted: false });
       const before = await snapshot(page);
       await resolveOrigin(page, 2);
@@ -154,7 +154,7 @@ try {
     }
     {
       const { context, page } = await open(component, { hold: true, autoPlay: false });
-      await page.waitForFunction(() => window.nativeMediaFixture.waiters.length === 1);
+      await page.waitForFunction(() => window.nativeMediaFixture?.waiters.length === 1);
       assert.deepEqual((await snapshot(page)).plays, [], "autoPlay=false waits for user intent");
       const play = component === "player"
         ? page.getByRole("group", { name: "播放控制", exact: true }).getByRole("button", { name: "播放", exact: true })
@@ -167,7 +167,7 @@ try {
     }
     {
       const { context, page } = await open(component, { hold: true });
-      await page.waitForFunction(() => window.nativeMediaFixture.waiters.length === 1);
+      await page.waitForFunction(() => window.nativeMediaFixture?.waiters.length === 1);
       await render(page, { active: false });
       await resolveOrigin(page, 0);
       assert.deepEqual((await snapshot(page)).plays, [], "origin resolution respects the latest page activity");
@@ -177,13 +177,13 @@ try {
     }
     {
       const { context, page } = await open(component, { fail: true });
-      if (component === "surface") await page.waitForFunction(() => window.nativeMediaFixture.errors.length === 1);
+      if (component === "surface") await page.waitForFunction(() => window.nativeMediaFixture?.errors.length === 1);
       else await page.getByText("本地媒体服务启动失败，请切换视频或重试", { exact: true }).waitFor();
       const failed = await snapshot(page);
       assert.equal(failed.src, null, "transport failure must never fall back to hg:// native playback");
       assert.equal(failed.assignments.length, 0);
       await page.evaluate(() => { window.nativeMediaFixture.fail = false; window.dispatchEvent(new Event("hg:proxy-changed")); });
-      await page.waitForFunction(() => window.nativeMediaFixture.origins === 2 && document.querySelector("video")?.getAttribute("src")?.startsWith("http://127.0.0.1:"));
+      await page.waitForFunction(() => window.nativeMediaFixture?.origins === 2 && document.querySelector("video")?.getAttribute("src")?.startsWith("http://127.0.0.1:"));
       assert.equal((await snapshot(page)).src, `${ORIGIN}/hls?u=${encodeURIComponent(UPSTREAM)}`, "proxy recovery retries failed transport initialization");
       await page.evaluate(() => { window.nativeMediaFixture.fail = true; });
       await render(page, { src: "https://media.fixture.invalid/failed-again" });

@@ -114,7 +114,7 @@ await openGroup("网络");
 assert.equal(await page.getByText("网络诊断", { exact: true}).count(), 0, "网络诊断行应已删除");
 assert.equal(await page.getByRole("button", { name: "播放诊断设置", exact: true}).count(), 0, "播放诊断分组应已删除");
 assert.equal(await page.getByText("复制播放诊断日志", { exact: true}).count(), 0, "复制日志行应已删除");
-await page.waitForFunction(() => window.diagnosticCopyFixture.logSetArgs.length === 1);
+await page.waitForFunction(() => window.diagnosticCopyFixture?.logSetArgs.length === 1);
 const setArgs = await page.evaluate(() => window.diagnosticCopyFixture.logSetArgs);
 assert.equal(setArgs[0].enabled, true, "状态为关时应自动开启记录");
 report.passed.push("Old diagnostic entries are gone (网络诊断 row, 播放诊断 group, log toggle/copy/path); playback log auto-enables on init");
@@ -134,7 +134,7 @@ assert(text.includes("resolve ✓ 0ms") && text.includes("manifest ✓ 210ms") &
 assert(text.includes("会话降级：未发生"), "降级行错误");
 await writeFile(join(output, "sample-report-healthy.txt"), text);
 await page.getByRole("button", { name: "复制报告", exact: true}).click();
-await page.waitForFunction(() => window.diagnosticCopyFixture.nativeCopies.length === 1);
+await page.waitForFunction(() => window.diagnosticCopyFixture?.nativeCopies.length === 1);
 const copied = await page.evaluate(() => window.diagnosticCopyFixture.nativeCopies[0]);
 assert.equal(copied, text, "复制内容应与预览全文一致");
 assert.equal(await page.evaluate(() => window.diagnosticCopyFixture.webCopies), 0);

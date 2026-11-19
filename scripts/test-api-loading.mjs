@@ -29,28 +29,28 @@ try {
   const visible = async locator => { await locator.waitFor({ state: "visible" }); };
 
   await page.goto(`${origin}tests/api-loading.html?page=home`);
-  await page.waitForFunction(() => window.apiLoadingFixture.history.length === 1);
+  await page.waitForFunction(() => window.apiLoadingFixture?.history.length === 1);
   await complete("api_feed", "", "404");
   await visible(page.getByText("首页加载失败", { exact: true }));
   await visible(page.getByText(/服务器请求失败（HTTP 404）/));
   assert.equal(await page.locator(".spinner").count(), 0, "Failed home must stop spinning");
   assert(!await page.locator("body").innerText().then(s => s.includes("<html>")), "Hide gateway HTML from UI");
   await page.getByRole("button", { name: "重试", exact: true }).click();
-  await page.waitForFunction(() => window.apiLoadingFixture.history.length === 2);
+  await page.waitForFunction(() => window.apiLoadingFixture?.history.length === 2);
   await complete("api_feed", "", "empty");
   await visible(page.getByText("暂无视频", { exact: true }));
   assert.equal(await page.locator(".spinner").count(), 0);
   report.passed.push("Home: 404 ends loading, readable error, explicit retry, empty result");
 
   await page.goto(`${origin}tests/api-loading.html`);
-  await page.waitForFunction(() => window.apiLoadingFixture.ready);
+  await page.waitForFunction(() => window.apiLoadingFixture?.ready);
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.equal((await calls()).length, 0, "Hidden categories must not prefetch");
   await page.evaluate(() => window.apiLoadingFixture.setActive(true));
   /* 短剧三类合一（根治包）后激活只拉 3 路：短剧（ai-duanju 为代表）/
    * 视频（cate=original，2026-11-19 最终版 D 线改名，原名原创）/
    * 吃瓜帖——旧夹具按合并前的双短剧频道期望 4 路，已适配。 */
-  await page.waitForFunction(() => window.apiLoadingFixture.history.length === 3);
+  await page.waitForFunction(() => window.apiLoadingFixture?.history.length === 3);
   await complete("api_category", "ai-duanju", "503");
   await visible(page.getByRole("button", { name: "重试短剧", exact: true }));
   await visible(page.getByRole("region", { name: "视频", exact: true }).getByText("加载中…", { exact: true }));
@@ -59,7 +59,7 @@ try {
   await complete("api_post_category", "", "item");
   await visible(page.getByText("已加载api_post_category", { exact: true }));
   await page.getByRole("button", { name: "重试短剧", exact: true }).click();
-  await page.waitForFunction(() => window.apiLoadingFixture.history.length === 4);
+  await page.waitForFunction(() => window.apiLoadingFixture?.history.length === 4);
   await complete("api_category", "ai-duanju", "item");
   await visible(page.getByText("已加载ai-duanju", { exact: true }));
   assert.equal((await calls()).filter(r => r.args.cate === "ai-duanju").length, 2, "Failed channel: initial load + exactly one retry");
