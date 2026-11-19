@@ -6,6 +6,7 @@
  * 列表可见、点开诚实提示，不删不假数据）。
  */
 import { Button } from "../../shared/ui/ios/controls";
+import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 import { sourcesForCategory } from "./registry.ts";
 import { getActiveRegistry } from "./manifest.ts";
 import type { SourceCategory, SourceMaturity } from "./types.ts";
@@ -29,10 +30,22 @@ export function SourceSwitcher({ options, value, onChange, ariaLabel }: {
   ariaLabel: string;
 }) {
   if (options.length <= 1) return null;
+  /* 源切换事件（Muse 2026-11-19 整改 D5，diag-audit #8）：只带稳定
+   * 编号（active 注册表顺序 source-001 式）与分类标识，不带业务名/域名
+   * （报告风控口径，AGENTS 不变量 10）。 */
+  const handleSelect = (id: string) => {
+    const list = getActiveRegistry().sources;
+    const idx = list.findIndex((s) => s.id === id);
+    tracePlayback("source.switch", {
+      source: `source-${String(idx + 1).padStart(3, "0")}`,
+      category: idx >= 0 ? list[idx].category : "unknown",
+    });
+    onChange(id);
+  };
   return (
     <div role="group" aria-label={ariaLabel} className="flex gap-2 overflow-x-auto pb-1">
       {options.map((o) => (
-        <Button key={o.id} aria-pressed={value === o.id} onClick={() => onChange(o.id)}
+        <Button key={o.id} aria-pressed={value === o.id} onClick={() => handleSelect(o.id)}
           className="ios-filter-pill shrink-0">
           <span>{o.label}</span>
           {o.badge && <span className="ml-1 text-[11px] text-mut">{o.badge}</span>}

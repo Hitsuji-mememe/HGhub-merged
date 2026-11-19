@@ -182,4 +182,16 @@ assert.ok(
   assert.ok(switcher.includes("实测记录：{note}"), "blocked 文案保留 note 原文呈现");
 }
 
+/* ── D5 源切换事件（Muse 2026-11-19 整改，diag-audit #8）：
+ * 选中回调发 tracePlayback("source.switch")，只带稳定编号
+ * （active 注册表顺序 source-001 式）与分类标识，不带业务名/域名。 ── */
+{
+  const switcher = readFileSync(new URL("./SourceSwitcher.tsx", import.meta.url), "utf8");
+  assert.ok(switcher.includes('tracePlayback("source.switch"'), "选中回调发 source.switch 事件");
+  assert.ok(switcher.includes("source-${String(idx + 1).padStart(3"), "事件只带 source-001 式稳定编号");
+  const callStart = switcher.indexOf('tracePlayback("source.switch"');
+  const callText = switcher.slice(callStart, switcher.indexOf(");", callStart));
+  assert.ok(!callText.includes("displayName") && !callText.includes("baseUrls") && !callText.includes("label"), "source.switch 不带业务名/域名");
+}
+
 console.log("registry.contract: all assertions passed");
