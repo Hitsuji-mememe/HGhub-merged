@@ -9,7 +9,6 @@ import { useStore } from "../../shared/model/store";
 import { Img, Sheet } from "../../shared/ui/ui";
 import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
 import { useSocialCounts } from "./ActionRail";
-import { LandHint } from "./LandHint";
 import { useProgressFlush } from "./useProgressFlush";
 import { setBackHandler } from "../../shared/lib/back";
 import { useDetailNext } from "./useDetailNext";
@@ -153,8 +152,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const prevPlayRef = useRef({ playKey: "", contentKey: "" });
   const historyWriter = useRef(addHistory);
   const lastSaveRef = useRef(0);
-  const theater = store.theater;
-  const setTheater = store.setTheater;
   const fs = store.fs;
   const clean = store.clean;
   const setClean = store.setClean;
@@ -263,15 +260,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      仍可手动裁）。自动旋转已彻底取消（2026-11-18 缺陷8 用户真机裁定）：
      滑到横屏源被自动转进横屏全屏是骚扰——进横屏只有一个入口，用户
      亲手点顶栏全屏钮。P3 的偏好记忆与按集自动进逻辑全删，旧键
-     hghub_land_pref 就此弃用（不再读写）。LandHint 只剩指路职责：
-     landHintSeen 记「已见过提示」，提示在首个横屏条目出现、切走/
-     关闭/用过全屏钮后永不再现（只出现一次）。 */
-  const [landHintSeen, setLandHintSeen] = useState(() => { try { return localStorage.getItem("hghub_land_hint_seen") === "1"; } catch { return false; } });
-  const landHintKeyRef = useRef("");
-  const markLandHintSeen = useCallback(() => {
-    setLandHintSeen(true);
-    try { localStorage.setItem("hghub_land_hint_seen", "1"); } catch { /* ignore */ }
-  }, []);
+     hghub_land_pref 就此弃用（不再读写）。横屏轻提示 LandHint 已于
+     3.2.2 砍单删除（一次性引导浮层），旧键 hghub_land_hint_seen
+     就此弃用（不再读写）。 */
   /* 单击/双击判定（上游 v2.2.0 lastTapRef 同位）：第一击的显隐快照 + 判定计时器；
      immersedKeyRef：开场默认沉浸（蓝图 P0）守卫——每集首次真正起播时收起控件
      一次（默认态只有视频），同一集内 seek/缓冲恢复不重复收起 */
@@ -718,7 +709,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         case "ArrowLeft": e.preventDefault(); seekRelative(-5); break;
         case "ArrowRight": e.preventDefault(); seekRelative(5); break;
         case "f": case "F": toggleFull(); break;
-        case "t": case "T": setTheater((v) => !v); break;
         case "m": case "M": setMuted((v) => !v); break;
         case "l": case "L": onLike(); break;
         case "s": case "S": onFav(); break;
@@ -1033,15 +1023,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
   }, [isDesktop, keepAlive, resolveSwipe, effectiveVideoIds.length, setClean, setFs, wake]);
 
-  /* LandHint「只出现一次」的记账：提示在某条目展示过、切到别的条目
-     即记已见；关闭提示或用过全屏钮同样记已见（见 markLandHintSeen
-     调用点）。自动进横屏逻辑已删（缺陷8），此处没有任何旋转动作。 */
-  useEffect(() => {
-    if (landHintSeen) return;
-    if (landHintKeyRef.current && landHintKeyRef.current !== playKey) { markLandHintSeen(); return; }
-    if (active && landscapeVideo && !fs) landHintKeyRef.current = playKey;
-  }, [playKey, active, landscapeVideo, fs, landHintSeen, markLandHintSeen]);
-
   const exitFs = useCallback(() => {
     /* 退全屏回普通态先全显控件（恢复入口优先，解耦版）；之后显隐由单击决定 */
     setClean(false);
@@ -1049,14 +1030,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   }, [setClean, setFs]);
 
   /* 顶栏全屏钮（缺陷7 + 缺陷8 收口，2026-11-18 用户再裁定）：横屏源在
-     控制层顶栏恒有明确入口，这是进横屏的唯一入口——点击进横屏全屏
-     （并记提示已见，不再指路）；全屏时同位变退出钮。竖屏源不渲染
-     （竖屏已满屏呈现，无此语义）。 */
+     控制层顶栏恒有明确入口，这是进横屏的唯一入口——点击进横屏全屏；
+     全屏时同位变退出钮。竖屏源不渲染（竖屏已满屏呈现，无此语义）。 */
   const toggleLandscapeFs = useCallback(() => {
     if (fs) { exitFs(); return; }
-    markLandHintSeen();
     enterFs(true);
-  }, [fs, exitFs, enterFs, markLandHintSeen]);
+  }, [fs, exitFs, enterFs]);
 
   useFsOrientation(fs, isDesktop, keepAlive);
 
@@ -1186,14 +1165,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
    * 本身，不许冒泡触发任何宿主 click 语义；无位移的抬手不吞。 */
   const onBarClick = (e: React.MouseEvent) => { if (barClickSwallow.current) { barClickSwallow.current = false; e.stopPropagation(); } };
 
-  const togglePip = async () => {
-    try {
-      const v = videoRef.current?.el();
-      if (document.pictureInPictureElement) await document.exitPictureInPicture();
-      else if (v && document.pictureInPictureEnabled) await v.requestPictureInPicture();
-      else toast("当前环境不支持画中画", "info");
-    } catch { toast("画中画开启失败", "info"); }
-  };
 
   const actionIsCurrent = () => mounted.current && actionContext.current.accountScope === accountScope && actionContext.current.lineEpoch === store.lineEpoch
     && actionContext.current.id === curId && actionContext.current.ep === curEp && actionContext.current.kind === kind;
@@ -1299,7 +1270,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   return (
     <div
-      className={`hg-player-ui ${rotated ? "fs-landscape" : (!isDesktop && fs ? "fs-immersive" : "absolute inset-0")} overflow-hidden bg-black player-root ${controlsLocked ? "is-locked" : ""} ${isDesktop ? "player-surface" : ""} ${theater ? "is-theater" : ""} ${isDesktop && idle ? "is-idle" : ""}`}
+      className={`hg-player-ui ${rotated ? "fs-landscape" : (!isDesktop && fs ? "fs-immersive" : "absolute inset-0")} overflow-hidden bg-black player-root ${controlsLocked ? "is-locked" : ""} ${isDesktop ? "player-surface" : ""} ${isDesktop && idle ? "is-idle" : ""}`}
       data-clean={clean}
       inert={!active || undefined}
       aria-hidden={!active || undefined}
@@ -1619,7 +1590,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         <PlayerControls
           paused={paused} duration={duration} rate={rate}
           clock={playbackClock}
-          muted={muted} volume={volume} theater={theater} fullscreen={fullscreen}
+          muted={muted} volume={volume} fullscreen={fullscreen}
           visible={active && !idle}
           seekEnabled={active && !controlsLocked}
           seekKey={playKey}
@@ -1632,8 +1603,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           onRate={(r) => { setRate(r); videoRef.current?.rate(r); }}
           onMute={() => setMuted((m) => !m)}
           onVolume={(v) => setVolume(v)}
-          onPip={togglePip}
-          onTheater={() => setTheater((v) => !v)}
           onFullscreen={toggleFull}
           onNext={() => {
             const nx = episodes.find((e) => e.ep_num === curEp + 1);
@@ -1759,12 +1728,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             )}
           </div>
         </div>
-      )}
-
-      {/* 横屏轻提示（缺陷8 收口）：只指路、永不代为旋转——横屏源、非全屏、
-          竖屏视口、未见过提示时出现，位置与操作行全屏钮同位（底栏上方右侧） */}
-      {!isDesktop && kind === "video" && landscapeVideo && !fs && !vpLandscape && active && !landHintSeen && (
-        <LandHint bottom="calc(var(--sab, 0px) + 132px)" onDismiss={markLandHintSeen} />
       )}
 
       {/* 选集 / 详情 / 评论三页签面板：桌面停靠在右侧（画面让位），移动端底部弹层。

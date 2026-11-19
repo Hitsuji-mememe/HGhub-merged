@@ -7,8 +7,6 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && tsc --project tsconfig.node.json && tsc --project tsconfig.tests.json && vite build",
-    "build:tv": "node scripts/build-android-tv.mjs",
-    "dev:tv": "node scripts/build-android-tv.mjs --dev",
     "preview": "vite preview",
     "test:playback": "node scripts/test-playback.mjs",
     "test:layout": "node scripts/test-layout.mjs",

@@ -1,13 +1,6 @@
-//! Update check and external link opening commands.
+//! External link opening command.
 
-use serde_json::Value;
 use tauri_plugin_opener::OpenerExt;
-
-/// 对比 GitHub Release 的 tag 与当前版本（未认证 60 次/小时/IP，够用）。
-#[tauri::command]
-pub async fn check_update() -> Result<Value, String> {
-    crate::updater::check().await
-}
 
 /// 用系统默认浏览器打开链接（只允许 http/https）。
 #[tauri::command]

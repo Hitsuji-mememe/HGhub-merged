@@ -218,25 +218,9 @@ export const api = {
   proxySet: (mode: ProxyMode, url: string) => call<ProxyState>("proxy_set", { mode, url }),
   proxyTest: (mode: ProxyMode, url: string) => call<ProxyProbe>("proxy_test", { mode, url }),
 
-  /* 更新检查：对比 GitHub Release 的 tag */
-  checkUpdate: () => call<UpdateInfo>("check_update"),
   openUrl: (url: string) => call<void>("open_url", { url }),
 };
 
-/* ── 更新检查 ───────────────────────────────────────────── */
-
-export type UpdateInfo = {
-  /** 当前平台对应的安装包；没有就是这次 release 没给本平台出包 */
-  asset?: { name: string; url: string } | null;
-  current: string;
-  latest: string;
-  tag?: string;
-  has_update: boolean;
-  url: string;
-  name?: string;
-  published_at?: string;
-  notes?: string;
-};
 
 /* ── 线路（数据源） ─────────────────────────────────────── */
 

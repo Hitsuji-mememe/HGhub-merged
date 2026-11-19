@@ -13,7 +13,6 @@ type Props = {
   rate: number;
   muted: boolean;
   volume: number;
-  theater?: boolean;
   fullscreen?: boolean;
   dockInset?: number;
   visible?: boolean;
@@ -27,9 +26,6 @@ type Props = {
   onRate: (r: number) => void;
   onMute: () => void;
   onVolume: (v: number) => void;
-  onPip: () => void;
-  onLock?: () => void;
-  onTheater?: () => void;
   onFullscreen: () => void;
   onNext?: () => void;
 };
@@ -37,8 +33,8 @@ type Props = {
 const formatClock = (s: number) => fmtTime(Math.max(0, s || 0)).padStart(5, "0");
 
 export default function PlayerControls({
-  paused, clock, duration, buffered = 0, rate, muted, volume, theater = false, fullscreen = false, dockInset = 0,
-  visible = true, seekEnabled = true, seekKey, nextDisabled = false, nextTitle = "下一个", onToggle, onSeek, onSeekInteraction, onRate, onMute, onVolume, onPip, onLock, onTheater, onFullscreen, onNext,
+  paused, clock, duration, buffered = 0, rate, muted, volume, fullscreen = false, dockInset = 0,
+  visible = true, seekEnabled = true, seekKey, nextDisabled = false, nextTitle = "下一个", onToggle, onSeek, onSeekInteraction, onRate, onMute, onVolume, onFullscreen, onNext,
 }: Props) {
   const [speedOpen, setSpeedOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -129,11 +125,8 @@ export default function PlayerControls({
               onChange={(e) => onVolume(Number(e.target.value))} />
           </div>
         </div>
-        <Button className="player-control" aria-label="画中画" data-tooltip="画中画" onClick={onPip}><IPip size={20} strokeWidth={1.6} /></Button>
-        {!fullscreen && onTheater && (
-          <Button className={`player-control ${theater ? "is-on" : ""}`} aria-label="影院模式" aria-pressed={theater}
-            data-tooltip="影院模式 T" onClick={onTheater}><ITheater size={20} strokeWidth={1.6} /></Button>
-        )}
+        
+        
         <Button className="player-control" aria-label={fullscreen ? "退出全屏" : "全屏"} data-tooltip={fullscreen ? "退出全屏 Esc" : "全屏 F"} onClick={onFullscreen}>
           {fullscreen ? <ICompress size={19} strokeWidth={1.6} /> : <IExpand size={19} strokeWidth={1.6} />}
         </Button>

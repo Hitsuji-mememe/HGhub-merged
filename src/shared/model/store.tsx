@@ -132,7 +132,7 @@ function loadPersist(): Persist {
     const p = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persist>) };
     // 只在启动时应用；本次使用中取消静音不会关闭此偏好。
     const muteOnStartup = p.muteOnStartup !== false;
-    const fsIdleSecs = [0, 3, 5, 10].includes(p.fsIdleSecs) ? p.fsIdleSecs : DEFAULTS.fsIdleSecs;
+    const fsIdleSecs = DEFAULTS.fsIdleSecs; // 3.2.2 砍单：全屏隐藏时长固定默认 3 秒（微设置打包删除）
     /* 超分档位归一化：LNPANDY 早期版本用过 fsr / anime 两个旧名，映射到现档位 */
     const rawSr = (p as { srMode?: string }).srMode;
     const srMode: SuperResMode =
@@ -152,14 +152,10 @@ function loadPersist(): Persist {
   }
 }
 
+/* 外观已于 3.2.2 砍单固定为默认档（跟随系统）：不再读存档偏好、
+ * 不再提供切换入口（微设置打包删除）。 */
 function readThemePreference(): ThemePreference {
-  try {
-    const saved = readStorage(STORAGE_KEYS.theme);
-    if (saved === "light" || saved === "dark" || saved === "system") return saved;
-    return "system";
-  } catch {
-    return "system";
-  }
+  return "system";
 }
 
 function resolveTheme(preference: ThemePreference): Theme {
@@ -190,7 +186,7 @@ function beginThemeTransition() {
 
 type Store = {
   platform: Platform;
-  theme: Theme; themePreference: ThemePreference; setTheme: (t: ThemePreference) => void;
+  theme: Theme; themePreference: ThemePreference;
   tab: Tab; setTab: (t: Tab) => void;
   stack: Page[]; push: (p: PageInput) => void; openRootPage: (p: PageInput) => void; pop: () => void;
   user: User | null; setUser: (u: User | null, origin?: string) => void;
@@ -210,17 +206,15 @@ type Store = {
   addHistory: (id: number, ep?: number, t?: number, dur?: number) => void;
   clearHistory: () => Promise<void>;
   toggleFollowLocal: (uid: number) => boolean;
-  theater: boolean; setTheater: (v: boolean | ((p: boolean) => boolean)) => void;
   fs: boolean; setFs: (v: boolean | ((p: boolean) => boolean)) => void;
   /** 移动端「净屏」：只留画面，UI 全隐 */
   clean: boolean; setClean: (v: boolean | ((p: boolean) => boolean)) => void;
   /** 锁屏状态：锁屏期间隐藏移动端底栏 */
-  locked: boolean; setLocked: (v: boolean) => void;
   muted: boolean; setMuted: (v: boolean | ((p: boolean) => boolean)) => void;
   muteOnStartup: boolean; setMuteOnStartup: (on: boolean) => void;
   swipeEp: boolean; setSwipeEp: (on: boolean) => void;
   preferHevc: boolean; setPreferHevc: (on: boolean) => void;
-  fsIdleSecs: number; setFsIdleSecs: (s: number) => void;
+  fsIdleSecs: number;
   srMode: SuperResMode; setSrMode: (m: SuperResMode) => void; cycleSrMode: () => void;
   srPref: SrPref; setSrPref: (p: SrPref) => void;
   volume: number; setVolume: (v: number) => void;
@@ -258,7 +252,7 @@ export const useToasts = () => useSyncExternalStore(subscribeToasts, getToasts);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [p, setP] = useState<Persist>(loadPersist);
-  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(readThemePreference);
+  const [themePreference] = useState<ThemePreference>(readThemePreference);
   const [theme, setThemeState] = useState<Theme>(() => resolveTheme(readThemePreference()));
   const themeRef = useRef(theme);
   const [tab, setTabRaw] = useState<Tab>("home");
@@ -274,10 +268,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const accountRef = useRef(account); accountRef.current = account;
   const [loginOpen, setLoginOpen] = useState(false);
   const [lineEpoch, setLineEpoch] = useState(0);
-  const [theater, setTheaterState] = useState(false);
   const [fs, setFsState] = useState(false);
   const [clean, setCleanState] = useState(false);
-  const [locked, setLockedState] = useState(false);
   const lastVolumeRef = useRef(p.volume > 0 ? p.volume : 0.7);
   const [strictSecurity, setStrictSecurityState] = useState<boolean>(isStrictSecurity);
   const [cliRelaxed, setCliRelaxed] = useState(false);
@@ -304,13 +296,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try { localStorage.setItem(STORAGE_KEYS.theme, themePreference); } catch { /* ignore */ }
   }, [theme, themePreference]);
 
-  const setTheme = useCallback((next: ThemePreference) => {
-    const resolved = resolveTheme(next);
-    if (resolved !== themeRef.current) beginThemeTransition();
-    themeRef.current = resolved;
-    setThemePreferenceState(next);
-    setThemeState(resolved);
-  }, []);
 
   useEffect(() => {
     try { localStorage.setItem(LS, JSON.stringify(p)); } catch { /* ignore */ }
@@ -413,8 +398,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     exitNativeFs();
     setFsState(false);
     setCleanState(false);
-    setLockedState(false);
-    if (t !== "home") setTheaterState(false);
     setTabRaw(t);
     setStack(s => s.length ? [] : s);
   }, [exitNativeFs]);
@@ -423,26 +406,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     exitNativeFs();
     setFsState(false);
     setCleanState(false);
-    setLockedState(false);
-    if (pg.kind !== "feed") setTheaterState(false);
     setStack((s) => [...s, { ...pg, key: `p${++seq}` } as Page]);
   }, [exitNativeFs]);
   const openRootPage = useCallback((pg: PageInput) => {
     exitNativeFs();
     setFsState(false);
     setCleanState(false);
-    setLockedState(false);
-    if (pg.kind !== "feed") setTheaterState(false);
     setStack([{ ...pg, key: `p${++seq}` } as Page]);
   }, [exitNativeFs]);
   const pop = useCallback(() => {
     exitNativeFs();
     setFsState(false);
     setCleanState(false);
-    setLockedState(false);
     setStack((s) => {
       const next = s.slice(0, -1);
-      if (!next.length && tabRef.current !== "home") setTheaterState(false);
       return next;
     });
   }, [exitNativeFs]);
@@ -459,9 +436,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast("已退出登录", "info");
   }, [toast]);
 
-  const setTheater = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
-    setTheaterState((prev) => (typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v));
-  }, []);
 
   const setFs = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setFsState((prev) => (typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v));
@@ -471,10 +445,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setClean = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setCleanState((prev) => (typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v));
-  }, []);
-
-  const setLocked = useCallback((v: boolean) => {
-    setLockedState(v);
   }, []);
 
   const setMuted = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
@@ -497,9 +467,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const setPreferHevc = useCallback((_on: boolean) => {
     setP((s) => ({ ...s, preferHevc: true }));
-  }, []);
-  const setFsIdleSecs = useCallback((secs: number) => {
-    setP((s) => ({ ...s, fsIdleSecs: [0, 3, 5, 10].includes(secs) ? secs : 3 }));
   }, []);
   const setSrMode = useCallback((srMode: SuperResMode) => {
     setP((s) => ({ ...s, srMode }));
@@ -525,7 +492,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<Store>(() => ({
     platform: envPlatform,
-    theme, themePreference, setTheme,
+    theme, themePreference,
     tab, setTab, stack, push, openRootPage, pop,
     user, setUser, loginOpen, setLoginOpen, logout,
     accountScope: account.accountScope, accountSync: account.accountSync, syncAccount: account.syncAccount,
@@ -534,20 +501,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCollected: account.setCollected, setLiked: account.setLiked, setFollowing: account.setFollowing, actionPending: account.actionPending,
     toggleLikeLocal: account.toggleLikeLocal, toggleFavLocal: account.toggleFavLocal, toggleFollowLocal: account.toggleFollowLocal,
     addHistory: account.addHistory, clearHistory: account.clearHistory,
-    muted: p.muted, setMuted, volume: p.volume, setVolume, rate: p.rate, setRate, theater, setTheater, fs, setFs, clean, setClean, locked, setLocked,
+    muted: p.muted, setMuted, volume: p.volume, setVolume, rate: p.rate, setRate, fs, setFs, clean, setClean,
     muteOnStartup: p.muteOnStartup, setMuteOnStartup,
     swipeEp: p.swipeEp, setSwipeEp,
     preferHevc: p.preferHevc, setPreferHevc,
-    fsIdleSecs: p.fsIdleSecs, setFsIdleSecs,
+    fsIdleSecs: p.fsIdleSecs,
     srMode: p.srMode, setSrMode, cycleSrMode,
     srPref: p.srPref, setSrPref,
     searchHist: p.searchHist, addSearch, clearSearchHist,
     strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     get toasts() { return toastList; }, toast, lineEpoch,
-  }), [theme, themePreference, setTheme, tab, setTab, stack, push, openRootPage, pop, user, loginOpen, logout,
+  }), [theme, themePreference, tab, setTab, stack, push, openRootPage, pop, user, loginOpen, logout,
     p, account,
-    setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setFsIdleSecs, setSrMode, cycleSrMode, setSrPref, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
-    toast, lineEpoch, theater, setTheater, fs, setFs, clean, setClean, locked, setLocked]);
+    setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setSrMode, cycleSrMode, setSrPref, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
+    toast, lineEpoch, fs, setFs, clean, setClean]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

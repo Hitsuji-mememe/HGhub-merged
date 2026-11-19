@@ -1,9 +1,8 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { legacyCss } from "./scripts/legacy-css";
 
 const host = process.env.TAURI_DEV_HOST;
@@ -28,23 +27,9 @@ function buildHash(): string {
 }
 const buildTime = new Date().toISOString();
 
-export default defineConfig(({ mode }) => {
-  // Android TV 构建期指定 VITE_APP_EDITION=tv（scripts/build-android-tv.mjs 注入）；
-  // 其余情况（含未设置）维持现有标准入口 src/main.tsx，构建行为不变。
-  const edition =
-    process.env.VITE_APP_EDITION ||
-    loadEnv(mode, process.cwd(), "VITE_").VITE_APP_EDITION;
+export default defineConfig(() => {
+  // TV 版已于 3.2.2 砍单删除：入口恒为标准版 src/main.tsx（index.html 直引）。
   return {
-    resolve: {
-      alias: {
-        "@edition-bootstrap": fileURLToPath(
-          new URL(
-            edition === "tv" ? "./src/tv/bootstrap.tsx" : "./src/main.tsx",
-            import.meta.url,
-          ),
-        ),
-      },
-    },
     // optimize:false 让 Tailwind 不做本地 lightningcss 优化，兼容性变换统一交给 legacyCss。
     plugins: [react(), tailwindcss({ optimize: false }), legacyCss()],
     clearScreen: false,

@@ -27,7 +27,6 @@ mod proxy;
 mod publish_parser;
 mod search_hot;
 mod session;
-mod updater;
 
 use api::Api;
 use tauri::Manager;
@@ -238,7 +237,6 @@ pub fn run() {
             api::lines::proxy_state,
             api::lines::proxy_set,
             api::lines::proxy_test,
-            api::update::check_update,
             api::update::open_url,
             api::platform::set_orientation,
             api::platform::set_text_interaction,
