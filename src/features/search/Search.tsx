@@ -28,6 +28,7 @@ import {
   loadWithFallback, needsCanonicalKindLookup, orderCopiesForDisplay, searchKindForHuangguoVideo, structuralCompletenessOf,
   type CopyAssessment, type CopyRef, type EpisodeStructureSignal, type FanoutHit, type GlobalSearchKind, type MergedHit,
 } from "./multiSourceSearch";
+import { copyCacheKey, loadSearchCopy } from "./copyLoader";
 
 /* 全局搜索（Muse 2026-11-19 最终版 D3 线，用户亲点＋定稿）：
  * 提交后三路并发——黄果视频（api.search kind=video，按 is_original
@@ -72,8 +73,6 @@ type ExtDetailState =
   | { phase: "loading"; merged: MergedHit }
   | { phase: "ready"; data: ExtReady }
   | { phase: "error"; merged: MergedHit; message: string };
-
-const copyCacheKey = (c: CopyRef) => `${c.sourceId}:${c.item.externalId}`;
 
 /** 扇出排除（3.2.1 F1）：已由原生通道完整覆盖、不进 fanoutSearch 的源。 */
 const FANOUT_EXCLUDE_NATIVE = new Set(["huangguo"]);
@@ -345,29 +344,16 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     push({ kind: "feed", videoIds: ids, index: Math.max(0, ids.indexOf(id)), title: `搜索 · ${submitted}` });
   };
 
-  const loadCopy = async (merged: MergedHit, copy: CopyRef): Promise<Omit<ExtReady, "merged" | "ordered" | "active">> => {
-    const def = getActiveRegistry().sources.find((s) => s.id === copy.sourceId);
-    if (!def) throw new Error("源不在注册表");
-    const adapter = createAdapter(def);
-    if (!adapter) throw new Error("该源未注册可用适配器");
-    if (merged.kind === "video" || merged.kind === "drama") {
-      const res = await adapter.resolve(copy.item.externalId);
-      const stream = res.streams[0];
-      if (!stream) throw new Error("该副本未解析到可播放地址");
-      return { streamUrl: stream.url, detail: detailCache.current.get(copyCacheKey(copy)) };
-    }
-    let detail = detailCache.current.get(copyCacheKey(copy));
-    if (!detail) {
-      detail = await adapter.detail(copy.item.externalId);
-      detailCache.current.set(copyCacheKey(copy), detail);
-    }
-    if (merged.kind === "image") {
-      const images = (detail.images?.length ? detail.images : [detail.cover]).filter(Boolean);
-      if (!images.length) throw new Error("该副本未解析到图片");
-      return { detail, images };
-    }
-    return { detail };
-  };
+  /* 副本加载核已抽至 ./copyLoader（fix330-riban-surfaces）：生产
+   * 路径可被契约直驱；video/drama 在彼处先走适配器 detail 段再
+   * resolve（此前直调 resolve、详情面拿不到 detail）。本处只组装
+   * 生产依赖（active 注册表＋工厂＋组件级 detail 缓存）。 */
+  const loadCopy = async (merged: MergedHit, copy: CopyRef): Promise<Omit<ExtReady, "merged" | "ordered" | "active">> =>
+    loadSearchCopy(merged.kind, copy, {
+      getDef: (id) => getActiveRegistry().sources.find((s) => s.id === id),
+      makeAdapter: (def) => createAdapter(def),
+      detailCache: detailCache.current,
+    });
 
   const traceCopyFail = (sourceId: string) => {
     const defs = getActiveRegistry().sources;
