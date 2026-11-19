@@ -856,6 +856,35 @@
         "src/features/search/Search.tsx"
       ],
       "min": 2
+    },
+    {
+      "id": "fix321-f4-shared-kind",
+      "item": "3.2.1修复F4线 黄果性质判定唯一出处 shared/lib/contentKind（定义＋搜索层 re-export 同源）",
+      "symbol": "kindForHuangguoVideo",
+      "files": [
+        "src/shared/lib/contentKind.ts",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f4-browse-partition",
+      "item": "3.2.1修复F4线 分类浏览面共用 partitionCardsByKind 按性质分组（定义＋Category 消费）",
+      "symbol": "partitionCardsByKind",
+      "files": [
+        "src/shared/lib/contentKind.ts",
+        "src/features/category/Category.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f4-channel-kind-filter",
+      "item": "3.2.1修复F4线 视频频道分页 incoming 按性质剔除剧集组再入列表",
+      "symbol": "partitionCardsByKind(rawItems).video",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "min": 1
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",

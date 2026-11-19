@@ -26,6 +26,9 @@
  *   单源失败静默隔离、副本失败留痕（回调接 tracePlayback）。
  */
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../sources/types.ts";
+/* 黄果条目性质判定唯一出处在 shared/lib/contentKind（浏览面共用，
+ * 3.2.1 修复 F4 线抽共用）；此处只 re-export 保持既有导入路径。 */
+export { kindForHuangguoVideo } from "../../shared/lib/contentKind.ts";
 
 export type GlobalSearchKind = "video" | "drama" | "post" | "image";
 
@@ -127,10 +130,8 @@ export function kindForSourceDef(def: SourceDef): GlobalSearchKind {
   if (DRAMA_SOURCE_IDS.has(def.id)) return "drama";
   return "video";
 }
-/** 黄果 VideoCard 归类：有分集结构（总集数/已出集数＞1）→ 短剧，其余单条 → 视频。 */
-export function kindForHuangguoVideo(card: { total_episodes?: number; episode_count?: number }): GlobalSearchKind {
-  return (card.total_episodes ?? 0) > 1 || (card.episode_count ?? 0) > 1 ? "drama" : "video";
-}
+/* 黄果 VideoCard 归类（有分集结构→短剧、其余→视频）实现见文件头
+ * re-export 的 shared/lib/contentKind.kindForHuangguoVideo（唯一出处）。 */
 
 /* ── 扇出（调度：单源超时＋每源上限＋渐进呈现） ── */
 export interface FanoutHit {
