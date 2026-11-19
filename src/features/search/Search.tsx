@@ -19,9 +19,9 @@ import type { SourceDetail } from "../sources/types";
 import { Player } from "../playback";
 import { fetchHealthSnapshot } from "../sources/adapters/fetchHealth.ts";
 import {
-  GLOBAL_SEARCH_TABS, aggregateHits, fanoutSearch, kindForHuangguoVideo,
-  loadWithFallback, orderCopiesForDisplay, structuralCompletenessOf,
-  type CopyAssessment, type CopyRef, type FanoutHit, type GlobalSearchKind, type MergedHit,
+  GLOBAL_SEARCH_TABS, aggregateHits, fanoutSearch, hasEpisodeStructureSignal,
+  loadWithFallback, orderCopiesForDisplay, searchKindForHuangguoVideo, structuralCompletenessOf,
+  type CopyAssessment, type CopyRef, type EpisodeStructureSignal, type FanoutHit, type GlobalSearchKind, type MergedHit,
 } from "./multiSourceSearch";
 
 /* 全局搜索（Muse 2026-11-19 最终版 D3 线，用户亲点＋定稿）：
@@ -46,7 +46,12 @@ import {
  * 完整覆盖，扇出侧排除黄果（FANOUT_EXCLUDE_NATIVE）——其 native
  * 适配器 search 只重复调 api.searchPosts，同一帖子会双路到达；
  * 聚合层同源去重（multiSourceSearch 同源同 ID/同题同封面合并）作
- * 第二道防线。 */
+ * 第二道防线。
+ * 3.2.1 F4b：通用搜索端点载荷缺剧集结构信号（见 shared/lib/
+ * contentKind 文件头根因），原生视频命中先按 searchKindForHuangguoVideo
+ * 归类：自带信号直接判、信号缺失以 api.video(id) 的 Detail 规范信号
+ * 补判（hgCanonicalSignals，并发 4、静默失败）；补不到 → unknown
+ * 暂扣、不进任何页签，绝不默认落视频、也不猜落短剧。 */
 
 type HgState<T> = { keyword: string; items: T[]; page: number; pages: number } | null;
 
@@ -76,6 +81,10 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   const [submitted, setSubmitted] = useState("");
   const [tab, setTab] = useState<GlobalSearchKind>("video");
   const [hgVideo, setHgVideo] = useState<HgState<VideoCard>>(null);
+  /* F4b 补判规范信号：key=`${accountScope}:${lineEpoch}:${id}`（作用域
+   * 与代次进口径同 useFeedDetails），值只存 Detail 的剧集结构信号。 */
+  const [hgCanonicalSignals, setHgCanonicalSignals] = useState<Record<string, EpisodeStructureSignal>>({});
+  const kindLookupRequested = useRef(new Set<string>());
   const [hgPost, setHgPost] = useState<HgState<Post>>(null);
   const [extHits, setExtHits] = useState<FanoutHit[]>([]);
   const [hgLoading, setHgLoading] = useState(false);
@@ -241,6 +250,38 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     ? Boolean(hgVideo && hgVideo.page < hgVideo.pages)
     : tab === "post" ? Boolean(hgPost && hgPost.page < hgPost.pages) : false;
 
+  /* ── F4b 补判：搜索载荷信号缺失的原生条目按 ID 查 Detail 规范信号 ──
+   * 只查信号缺失者（自带正计数者已可判定）；并发 4（同热搜标签补查
+   * 先例）；失败静默（不弹窗、不整页报错），条目保持 unknown 暂扣，
+   * 成功后经 hgCanonicalSignals 触发 groups 重归类到正确页签。
+   * 请求登记先行（成败都登记），同作用域内不重复查同一 ID。 */
+  useEffect(() => {
+    if (!active || !hgVideo?.items.length) return;
+    const queue = hgVideo.items.filter((v) => {
+      const key = `${envKey}:${v.id}`;
+      return !hasEpisodeStructureSignal(v) && !kindLookupRequested.current.has(key);
+    });
+    if (!queue.length) return;
+    queue.forEach((v) => kindLookupRequested.current.add(`${envKey}:${v.id}`));
+    let cancelled = false;
+    const loaded: Record<string, EpisodeStructureSignal> = {};
+    const worker = async () => {
+      while (!cancelled && queue.length > 0) {
+        const v = queue.shift()!;
+        try {
+          const d = await api.video(v.id);
+          if (d) loaded[`${envKey}:${v.id}`] = { total_episodes: d.total_episodes, episode_count: d.episode_count, episodes: d.episodes };
+        } catch { /* 静默：补不到保持 unknown 安全侧 */ }
+      }
+    };
+    void Promise.all(Array.from({ length: Math.min(4, queue.length) }, () => worker())).then(() => {
+      if (cancelled || !aliveRef.current || !Object.keys(loaded).length) return;
+      setHgCanonicalSignals((prev) => ({ ...prev, ...loaded }));
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, hgVideo, envKey]);
+
   /* ── 聚合：黄果与外部统一成 FanoutHit 后跨源合并＋混排 ── */
   const groups = useMemo(() => {
     const parseTs = (s?: string) => {
@@ -250,8 +291,12 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     const nativeHits: FanoutHit[] = [];
     let seq = 0;
     for (const v of hgVideo?.items ?? []) {
+      /* F4b：归类以条目数据为准——自带信号直接判、缺失信号用补判的
+       * 规范信号判；仍 unknown 的暂扣（不生成命中、不进任何页签）。 */
+      const resolvedKind = searchKindForHuangguoVideo(v, hgCanonicalSignals[`${envKey}:${v.id}`]);
+      if (resolvedKind === "unknown") continue;
       nativeHits.push({
-        sourceId: "huangguo", sourceName: "黄果", kind: kindForHuangguoVideo(v),
+        sourceId: "huangguo", sourceName: "黄果", kind: resolvedKind,
         item: { sourceId: "huangguo", externalId: String(v.id), title: v.title, cover: v.cover, href: "", tags: v.tags ?? [], hot: v.hot },
         weight: 100, hot: v.hot ?? 0, seq: seq++, publishedAt: parseTs(v.created_at),
       });
@@ -265,7 +310,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     }
     const ext = extHits.map((h) => ({ ...h, seq: 100_000 + h.seq }));
     return aggregateHits([...nativeHits, ...ext]);
-  }, [hgVideo, hgPost, extHits]);
+  }, [hgVideo, hgPost, extHits, hgCanonicalSignals, envKey]);
 
   const openNativeCopy = (merged: MergedHit, copy: CopyRef) => {
     if (merged.kind === "post") {

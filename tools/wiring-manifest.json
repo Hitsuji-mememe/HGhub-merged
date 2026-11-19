@@ -915,6 +915,34 @@
       ],
       "symbol": "列表确为空",
       "each": true
+    },
+    {
+      "id": "fix321-f4b-search-kind-resolver",
+      "item": "3.2.1修复F4b线 搜索专用归类 searchKindForHuangguoVideo（shared 唯一出处定义＋Search 生产消费）",
+      "files": [
+        "src/shared/lib/contentKind.ts",
+        "src/features/search/Search.tsx"
+      ],
+      "symbol": "searchKindForHuangguoVideo",
+      "min": 2
+    },
+    {
+      "id": "fix321-f4b-canonical-lookup",
+      "item": "3.2.1修复F4b线 信号缺失条目以 Detail 规范信号补判 hgCanonicalSignals（Search 补判 effect 写入＋groups 消费）",
+      "files": [
+        "src/features/search/Search.tsx"
+      ],
+      "symbol": "hgCanonicalSignals",
+      "min": 2
+    },
+    {
+      "id": "fix321-f4b-unknown-holdout",
+      "item": "3.2.1修复F4b线 安全侧暂扣：resolvedKind 为 unknown 的条目不生成页签命中（Search groups）",
+      "files": [
+        "src/features/search/Search.tsx"
+      ],
+      "symbol": "resolvedKind === \"unknown\"",
+      "min": 1
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",
