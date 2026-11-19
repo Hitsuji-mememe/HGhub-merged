@@ -48,7 +48,14 @@ fn scrub_debug(message: &str) -> String {
         let word = token
             .trim_matches(|c: char| !c.is_ascii_alphanumeric())
             .to_ascii_lowercase();
-        if word == "bearer" {
+        // 掩码续接：Bearer 的值、JSON 敏感键在冒号收尾时其值（值与
+        // 键被空白切开的场合）都在下一个 token。
+        let lower_token = token.to_ascii_lowercase();
+        let json_key_open = token.ends_with(':')
+            && ["\"token\"", "\"password\"", "\"cookie\"", "\"authorization\"", "\"access_token\""]
+                .iter()
+                .any(|k| lower_token.contains(k));
+        if word == "bearer" || json_key_open {
             mask_next = true;
         }
         out.push_str(sep);
@@ -58,12 +65,17 @@ fn scrub_debug(message: &str) -> String {
 
 fn scrub_token(token: &str) -> String {
     let lower = token.to_ascii_lowercase();
-    // JSON 键值："token": "xxx" / "authorization":"xxx"——冒号后整段掩码。
+    // JSON 键值："token": "xxx" / "authorization":"xxx"——值在同一
+    // token 内（冒号后还有内容）时整段掩码；冒号后为空（值被空白
+    // 切到下一个 token）时不在此处动，由 scrub_debug 的 mask_next
+    // 掩下一个 token。
     for key in ["\"token\"", "\"password\"", "\"cookie\"", "\"authorization\"", "\"access_token\""] {
         if let Some(at) = lower.find(key) {
             let after = at + key.len();
             if let Some(colon) = token[after..].find(':') {
-                return format!("{}: \"[redacted]\"", &token[..after + colon]);
+                if !token[after + colon + 1..].is_empty() {
+                    return format!("{}: \"[redacted]\"", &token[..after + colon]);
+                }
             }
         }
     }
