@@ -12,7 +12,11 @@
  * invoke("source_fetch", { url }) 注入本函数，全源生效。契约测试同样
  * 经 setFetchPage 注入夹具，不碰真实网络。
  */
-export type FetchPage = (url: string) => Promise<string>;
+/* 契约对齐（Muse 2026-11-19 整改 D6.3，G5 P2-4）：与 Rust 命令
+ * source_fetch(url, headers?) 签名一致——headers 可选第二参，适配器
+ * 需要 Referer/User-Agent 等头时传入；不传即无头，现有调用不受影响。
+ * Rust 侧只放行 Referer/User-Agent/Accept/Accept-Language，其余头丢弃。 */
+export type FetchPage = (url: string, headers?: Record<string, string>) => Promise<string>;
 
 export class SourceFetchChannelUnavailableError extends Error {
   constructor(url: string) {
@@ -33,6 +37,6 @@ export function setFetchPage(fn: FetchPage): void {
   impl = fn;
 }
 
-export function fetchPage(url: string): Promise<string> {
-  return impl(url);
+export function fetchPage(url: string, headers?: Record<string, string>): Promise<string> {
+  return impl(url, headers);
 }

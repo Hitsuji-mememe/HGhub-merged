@@ -14,7 +14,7 @@ import { registerSrProbeV2 } from "./features/playback/srProbe";
 import { hasAcceptedAgreement } from "./shared/storage/usageAgreement";
 import { setFetchPage } from "./features/sources/adapters/fetchPage";
 import { recordFetchResult } from "./features/sources/adapters/fetchHealth";
-import { FALLBACK_APP_VERSION, getRegistryInfo, resolveRegistry } from "./features/sources/manifest";
+import { FALLBACK_APP_VERSION, getActiveRegistry, getRegistryInfo, resolveRegistry } from "./features/sources/manifest";
 import { getVersion } from "@tauri-apps/api/app";
 import { sourceHealthLines } from "./features/sources/registryDiag";
 import { registerSourceRegistryProvider, registerSourceHealthProvider } from "./shared/diagnostics/sourceRegistry";
@@ -30,10 +30,12 @@ installPlaybackPageEvents();
  * 飞行记录仪收口（同日）：包装层逐次埋点取页健康（成败/错误类别/耗时入
  * fetchHealth＋统一时间线 source.fetch），源在用户网络下的健康状态从
  * 诊断导出直接可见；埋点失败不影响取页（recordFetchResult 内部吞异常）。 */
-setFetchPage(async (url) => {
+setFetchPage(async (url, headers) => {
   const t0 = performance.now();
   try {
-    const html = await invoke<string>("source_fetch", { url });
+    /* 契约对齐（整改 D6.3）：headers 透传 Rust source_fetch（可选参，
+     * 不传时不带该字段，Rust 侧 Option 缺省无头）。 */
+    const html = await invoke<string>("source_fetch", headers ? { url, headers } : { url });
     recordFetchResult(url, true, Math.round(performance.now() - t0));
     return html;
   } catch (e) {
@@ -53,6 +55,22 @@ async function bootstrapRegistry(): Promise<void> {
   try { await resolveRegistry({ appVersion }); } catch { /* resolveRegistry 内部已三段回退 */ }
   window.dispatchEvent(new Event("hg:registry-changed"));
 }
+
+/* source_fetch origin 白名单推送（Muse 2026-11-19 整改 D6.2）：注册表
+ * 落定（hg:registry-changed）时把 active 表全部 baseUrls 的 origin
+ * （URL.origin 规范化 scheme://host:port、默认端口省略）推给 Rust 命令
+ * source_allowlist_set；Rust 侧名单未设置时 source_fetch 一律拒绝，
+ * 名单内才放行。推送失败不阻塞启动（取页会明确报错、可再触发）。 */
+function pushSourceAllowlist(): void {
+  const origins = [...new Set(
+    getActiveRegistry().sources
+      .flatMap((s) => s.baseUrls)
+      .map((u) => { try { return new URL(u).origin; } catch { return ""; } })
+      .filter((o) => o !== "" && o !== "null"),
+  )];
+  invoke("source_allowlist_set", { origins }).catch(() => { /* 名单推送失败：source_fetch 将明确拒绝，不静默放行 */ });
+}
+window.addEventListener("hg:registry-changed", pushSourceAllowlist);
 void bootstrapRegistry();
 
 /* 源注册表诊断接线（Muse 2026-11-19 根治包·飞行记录仪收口）：注册表
