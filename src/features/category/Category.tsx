@@ -10,6 +10,7 @@ import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { CollectionLink, CollectionLinks } from "../../shared/ui/CollectionLink";
 import { InplaceSearch } from "../search/InplaceSearch";
 import { withRequestTimeout } from "../../shared/lib/withTimeout";
+import { dedupedIncoming } from "../../shared/lib/dedup";
 import { traceFeed } from "../../shared/lib/feedTrace";
 import { Empty } from "../../shared/ui/ui";
 import { IAward, IBack, IChevR, IFilm, IFlame, ILayers, ISearch, ISpark, ITag, ITrophy } from "../../shared/ui/icons";
@@ -246,8 +247,9 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
       if (seq !== requestSeq.current) return;
       setPageItems((prev) => {
         const base = reset ? [] : prev;
-        const seen = new Set(base.flat().map((x) => x.id));
-        return [...base, (res?.items || []).filter((x) => !seen.has(x.id))];
+        /* pageItems 是分页数组：新页 = 相对全部已加载页去重后的 incoming
+         * （dedupedIncoming 与 appendDeduped 同一实现，页内重复同步入 seen） */
+        return [...base, dedupedIncoming(base.flat(), res?.items || [], (x) => x.id)];
       });
       setDisplayedFilter(filterKey(sortOverride, originalCateOverride));
       setPage(next);

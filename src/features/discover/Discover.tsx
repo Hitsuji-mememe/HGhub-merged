@@ -9,6 +9,7 @@ import { Masonry, MediaCard } from "../../shared/ui/cards";
 import { FilteredContent } from "../../shared/ui/FilteredContent";
 import { InplaceSearch } from "../search/InplaceSearch";
 import { withRequestTimeout } from "../../shared/lib/withTimeout";
+import { appendDeduped } from "../../shared/lib/dedup";
 import { traceFeed } from "../../shared/lib/feedTrace";
 import { Empty, Img } from "../../shared/ui/ui";
 import { IBack, IFireF, ILayers, IRefresh, ISearch, ITag } from "../../shared/ui/icons";
@@ -155,8 +156,7 @@ export function TopicPage({ slug, name, onBack, wide }: { slug: string; name: st
       const incoming = data?.videos?.items ?? [];
       traceFeed("page.success", { list: `topic:${slug}`, page, received: incoming.length, pages: data?.videos?.pagination?.pages ?? null, ms: Date.now() - startedAt });
       setState(previous => {
-        const seen = new Set(reset ? [] : previous.videos.map(video => video.id));
-        const videos = [...(reset ? [] : previous.videos), ...incoming.filter(video => !seen.has(video.id))];
+        const videos = appendDeduped(reset ? [] : previous.videos, incoming, video => video.id);
         return {
           topic: data?.topic ?? previous.topic,
           related: data?.related ?? previous.related,
@@ -389,11 +389,7 @@ export function TagPage({ tag, name, onBack, wide }: { tag: string; name: string
         const result = await withRequestTimeout(api.tagVideos(tag, next, 20));
         if (sequence.current.video !== token) return;
         traceFeed("page.success", { list: "tag:video", page: next, received: result?.items?.length ?? 0, pages: result?.pagination?.pages ?? null, ms: Date.now() - startedAt });
-        setVideos(previous => {
-          const base = reset ? [] : previous;
-          const seen = new Set(base.map(item => item.id));
-          return [...base, ...(result?.items ?? []).filter(item => !seen.has(item.id))];
-        });
+        setVideos(previous => appendDeduped(reset ? [] : previous, result?.items ?? [], item => item.id));
         setLoadedVideoTag(tag); setVideoPage(next);
         setVideoPages(result?.pagination?.pages ?? ((result?.items?.length ?? 0) > 0 ? next + 1 : next));
         setVideoTotal(result?.pagination?.total || 0);
@@ -401,11 +397,7 @@ export function TagPage({ tag, name, onBack, wide }: { tag: string; name: string
         const result = await withRequestTimeout(api.postTag(name, next, 20));
         if (sequence.current.post !== token) return;
         traceFeed("page.success", { list: "tag:post", page: next, received: result?.items?.length ?? 0, pages: result?.pagination?.pages ?? null, ms: Date.now() - startedAt });
-        setPosts(previous => {
-          const base = reset ? [] : previous;
-          const seen = new Set(base.map(item => item.id));
-          return [...base, ...(result?.items ?? []).filter(item => !seen.has(item.id))];
-        });
+        setPosts(previous => appendDeduped(reset ? [] : previous, result?.items ?? [], item => item.id));
         setLoadedPostTag(tag); setPostPage(next);
         setPostPages(result?.pagination?.pages ?? ((result?.items?.length ?? 0) > 0 ? next + 1 : next));
         setPostTotal(result?.pagination?.total || 0);
