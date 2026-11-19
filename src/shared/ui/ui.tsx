@@ -134,7 +134,14 @@ export function Img({ src, alt = "", className = "", eager = false, raw = false,
  * 黑占位，无从判读是没拉到、超时还是解码失败）。现行：每 attempt
  * 带 20s 超时（超时记 timeout 并走既有重试），onLoad 记 decoded、
  * 下一帧记 displayed；终局失败按原因计入 feedTrace 聚合，诊断
- * 报告可读。视觉与重试策略不变：同地址重试两次再落占位。 */
+ * 报告可读。视觉与重试策略不变：同地址重试两次再落占位。
+ * 超时起算点（fix2.1 整改，GPT 四审 #1）：自「实际加载开始」计——
+ * img 是 loading="lazy"，视口外封面浏览器根本不发请求，旧实现自
+ * 挂载起算 20s，离屏 60s 即烧光 3 次 attempt、settledRef 锁死，
+ * 之后滚到图也永不显示。故 attempt 计时只在封面进入视口预热区
+ * （IntersectionObserver，rootMargin 600px ≈ 浏览器开始 lazy 加载
+ * 的距离）后启动；eager 图挂载即起算。一旦起算不再随滚动撤销
+ * （请求已在路上，滚出视口不等于没在加载）。 */
 type ImgState = "loading" | "decoded" | "displayed" | "failed";
 const IMG_ATTEMPT_TIMEOUT_MS = 20_000;
 function ImageLoad({ url, alt, className, eager, raw, loadingIndicator }: {
@@ -142,6 +149,9 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator }: {
 }) {
   const [state, setState] = useState<ImgState>("loading");
   const [attempt, setAttempt] = useState(0);
+  /* 加载起算门：false 时 attempt 计时不启动（见上方注释）。 */
+  const [armed, setArmed] = useState(eager);
+  const frameRef = useRef<HTMLDivElement>(null);
   const settledRef = useRef(false);
   const ok = state === "decoded" || state === "displayed";
   const err = state === "failed";
@@ -149,7 +159,18 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator }: {
      代理入口只读 `u`，多余查询参数会被忽略，用它做重试的缓存戳。 */
   const retryUrl = !url || raw || attempt === 0 ? url : `${url}${url.includes("?") ? "&" : "?"}r=${attempt}`;
   useEffect(() => {
-    if (!url) return;
+    if (armed) return;
+    const el = frameRef.current;
+    if (!el || typeof IntersectionObserver !== "function") { setArmed(true); return; }
+    const io = new IntersectionObserver(
+      (entries) => { if (entries.some((e) => e.isIntersecting)) setArmed(true); },
+      { rootMargin: "600px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [armed]);
+  useEffect(() => {
+    if (!url || !armed) return;
     settledRef.current = false;
     imageStarted();
     const fp = urlFingerprint(url);
@@ -175,9 +196,9 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator }: {
     };
     // failOrRetry 捕获当前 attempt 的闭包即可（attempt 变更即新 effect）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, attempt, raw]);
+  }, [url, attempt, raw, armed]);
   return (
-    <div className={`ios-image absolute inset-0 overflow-hidden ${className}`} data-ui="image-frame">
+    <div ref={frameRef} className={`ios-image absolute inset-0 overflow-hidden ${className}`} data-ui="image-frame">
       {!ok && !err && <div className="absolute inset-0 shimmer" />}
       {loadingIndicator && !ok && <div className="absolute inset-0 grid place-items-center"><Loader label="封面加载中" /></div>}
       {err && !loadingIndicator && <div className="ios-image-error" role="img" aria-label={alt || "封面暂不可用"}>HG</div>}
