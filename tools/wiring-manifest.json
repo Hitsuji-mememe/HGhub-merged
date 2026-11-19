@@ -1640,6 +1640,26 @@
         "src/features/category/Category.tsx"
       ],
       "min": 3
+    },
+    {
+      "id": "fix330-reader-article-blocks",
+      "item": "fix330/reader 吃瓜正文提取—重构 extractArticleBlocks（定义＋SourcePosts 消费）",
+      "symbol": "extractArticleBlocks",
+      "files": [
+        "src/features/sources/articleBlocks.ts",
+        "src/features/sources/SourcePosts.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix330-reader-article-image-src",
+      "item": "fix330/reader 正文单图地址解析 articleImageSrc 单一出处（html.ts 定义＋proxyImages 与提取层共用）",
+      "symbol": "articleImageSrc",
+      "files": [
+        "src/shared/lib/html.ts",
+        "src/features/sources/articleBlocks.ts"
+      ],
+      "min": 2
     }
   ]
 }

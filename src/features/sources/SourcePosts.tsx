@@ -12,12 +12,18 @@
  *
  * 详情形态与原生 PostDetail 同口径（最终版 D2）：先文后视频——
  * 标题/正文在前，播放器区在正文之后；仍是点了才播（resolve 只备
- * 流地址，海报点击才挂 Player）。正文 HTML 经 sanitizeHtml 后以
- * article-body 呈现；无流条目只显封面、不假装可播。
+ * 流地址，海报点击才挂 Player）。无流条目只显封面、不假装可播。
+ *
+ * 正文呈现（fix330/reader，用户 23:59 裁定）：不再整页清洗渲染，
+ * 经 articleBlocks 提取—重构为内容块（文本段落／图片）原生渲染，
+ * 广告/假按钮/导航/推荐/分享件不入块、段级只杀高置信垃圾。降级
+ * 链：提取到块→块渲染；定位到内容但全被过滤（正文全是垃圾段）
+ * →显简介；提取不到内容（结构未知）→维持 sanitizeHtml 旧渲染，
+ * 如实降级不假空。
  */
 import { Button } from "../../shared/ui/ios/controls";
 import { Loader } from "../../shared/ui/ios/effects";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, cover } from "../../shared/api/api";
 import { copyText } from "../../shared/lib/clipboard";
 import { handleArticleClick, sanitizeHtml } from "../../shared/lib/html";
@@ -26,6 +32,7 @@ import { Empty, Img } from "../../shared/ui/ui";
 import { IBack, IFireF, IPlayF } from "../../shared/ui/icons";
 import { useStore } from "../../shared/model/store";
 import { Player } from "../playback";
+import { extractArticleBlocks } from "./articleBlocks.ts";
 import { createAdapter } from "./adapters/index.ts";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
@@ -128,6 +135,20 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
     }
   }, [def]);
 
+  /* 正文提取—重构（fix330/reader）：ready 详情的 contentHtml 按文档
+   * 顺序拆成内容块；标题取 detail 数据（与正文首行重复时去重），
+   * 不从正文块里猜。提取结果随详情对象 memo，切换条目自动失效。 */
+  const readyDetail = detail?.phase === "ready" ? detail : null;
+  const extraction = useMemo(
+    () => (readyDetail?.detail.contentHtml
+      ? extractArticleBlocks(readyDetail.detail.contentHtml, {
+          base: readyDetail.detail.href,
+          title: readyDetail.detail.title || readyDetail.item.title,
+        })
+      : null),
+    [readyDetail],
+  );
+
   const openSafeLink = (url: string) => {
     api.openUrl(url).catch(() => {
       copyText(url).then(() => toast("链接已复制", "ok")).catch(() => toast("复制失败", "info"));
@@ -151,7 +172,24 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
           <div className="pb-6">
             <div className="px-4 mx-auto max-w-[800px] select-text">
               <h1 className="text-[17px] font-bold text-on leading-snug">{detail.detail.title || detail.item.title}</h1>
-              {detail.detail.contentHtml ? (
+              {extraction && extraction.blocks.length ? (
+                /* 提取—重构渲染：内容块以 article-body 既有段落/图片
+                 * 样式原生排版；正文内链接不渲染为锚点，回源走页脚。 */
+                <div className="article-body mt-3.5">
+                  {extraction.blocks.map((b, i) => (b.type === "image" ? (
+                    <img key={i} src={b.src} alt={b.alt} loading="lazy" />
+                  ) : b.heading ? (
+                    <h3 key={i}>{b.text}</h3>
+                  ) : (
+                    <p key={i}>{b.text}</p>
+                  )))}
+                </div>
+              ) : extraction?.located && detail.detail.description ? (
+                /* 定位到内容但段级过滤全杀（正文全是垃圾段）：显简介，
+                 * 不回旧渲染把垃圾端上来。 */
+                <p className="mt-3.5 text-[14px] leading-relaxed text-on/80 whitespace-pre-wrap">{detail.detail.description}</p>
+              ) : detail.detail.contentHtml ? (
+                /* 提取不到内容（结构未知）：维持旧清洗渲染，如实降级。 */
                 <div className="article-body mt-3.5" onClick={(e) => handleArticleClick(e, openSafeLink, detail.detail.href)}
                   dangerouslySetInnerHTML={{ __html: sanitizeHtml(detail.detail.contentHtml, detail.detail.href) }} />
               ) : detail.detail.description ? (
@@ -180,7 +218,12 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
                 <div className="absolute inset-0"><Img src={detail.detail.cover || detail.item.cover} eager /></div>
               )}
             </div>
-            <p className="mt-3 px-4 text-[12px] text-mut">数据源：{def.displayName}（经适配器实时取数，非黄果数据）</p>
+            {/* 回源入口（fix330/reader）：正文已重构为内容块、原文
+                链接不在正文内呈现，回源统一走此处打开详情页原文。 */}
+            <button type="button" onClick={() => detail.detail.href && openSafeLink(detail.detail.href)}
+              className="mt-3 px-4 text-left text-[12px] text-mut">
+              数据源：{def.displayName}（经适配器实时取数，非黄果数据）{detail.detail.href ? " · 查看原文" : ""}
+            </button>
           </div>
         )}
       </div>
