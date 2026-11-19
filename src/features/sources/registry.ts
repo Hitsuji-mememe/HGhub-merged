@@ -67,7 +67,7 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
     baseUrls: ["https://swag.live"],
     enabled: true, order: 25, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：首页与 /video 页 SSR 均无条目锚点（Nuxt 客户端渲染、无 m3u8）、api.swag.live 需登录态；无免登录列表/流证据 → probe",
   },
   {
     id: "fyptt", displayName: "Fyptt", kind: "video", category: "video",
