@@ -398,4 +398,105 @@ mod tests {
         assert!(!pool.iter().any(|(_, u, _)| u == "ghost"));
     }
 
+    /* ── 防自我强化＋固定种子模拟（fix2.1 追加，GPT 四审裁定项）──
+     * D 的反馈环风险：历史 EWMA 影响排名→胜者被选中→只有胜者拿到
+     * 真实播放样本→EWMA 进一步强化→赢者通吃，哪怕别的线已经变快。
+     * 两道防线在本组钉死：①分带用「生效吞吐」（本轮实测优先于历史），
+     * 挑战者实测跃升后老胜者被带外淘汰，历史再厚也锁不死；
+     * ②EWMA 只由胜者样本更新时自身有界（不发散），且 select_pool 的
+     * 轮换位保证池外候选持续获得被探测机会（防饿死）。
+     * 确定性：xorshift64* 固定种子，无系统随机/时间/网络输入。 */
+    struct SimRng(u64);
+    impl SimRng {
+        fn next_u64(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            self.0 = x;
+            x.wrapping_mul(0x2545F4914F6CDD1D)
+        }
+        /* 0.92..1.08 的 ±8% 测量噪声（与真机探测日常波动同量级） */
+        fn noise(&mut self) -> f64 {
+            0.92 + 0.16 * ((self.next_u64() >> 11) as f64 / (1u64 << 53) as f64)
+        }
+    }
+
+    #[test]
+    fn sim_1000_rounds_no_lockin_after_conditions_change() {
+        let mut rng = SimRng(0x9E37_79B9_7F4A_7C15);
+        /* 真值（bps）：A 起始最快、B 次之、C 慢但延迟最低（延迟陷阱） */
+        let mut true_bps = [10_000_000.0f64, 8_500_000.0, 5_000_000.0];
+        let ms = [50u64, 60, 40];
+        /* 历史只有 A 有（此前一直在用 A）——最容易锁死的初始条件 */
+        let mut hist: [Option<f64>; 3] = [Some(9_800_000.0), None, None];
+        let urls = ["a", "b", "c"];
+        let mut first_b_win: Option<usize> = None;
+        let mut late_b_wins = 0usize;
+        for round in 0..1000usize {
+            if round == 500 {
+                true_bps[1] = 14_000_000.0; /* B 路况跃升为全场最快 */
+            }
+            let measured: Vec<u64> =
+                true_bps.iter().map(|t| (t * rng.noise()) as u64).collect();
+            let measures: Vec<LineMeasure> = (0..3)
+                .map(|i| LineMeasure {
+                    url: urls[i].into(),
+                    tier: "mirror".into(),
+                    ms: ms[i],
+                    bps: Some(measured[i]),
+                    hist_bps: hist[i],
+                })
+                .collect();
+            let winner = rank_lines(&measures).expect("候选非空必有胜者");
+            let wi = urls.iter().position(|u| *u == winner.url).unwrap();
+            if round < 500 {
+                assert_eq!(winner.url, "a", "第 {round} 轮：路况未变时最快且有历史的 A 必须胜出");
+            } else {
+                if winner.url == "b" && first_b_win.is_none() {
+                    first_b_win = Some(round);
+                }
+                if round >= 900 && winner.url == "b" {
+                    late_b_wins += 1;
+                }
+            }
+            /* 只有被选中（真实播放）的线拿到新样本更新 EWMA——反馈环
+             * 的输入端。断言 EWMA 恒被样本包络界住、不发散。 */
+            let sample = measured[wi] as f64;
+            hist[wi] = Some(match hist[wi] {
+                None => sample,
+                Some(h) => h * 0.7 + sample * 0.3,
+            });
+            if let Some(h) = hist[wi] {
+                assert!(h > 1_000_000.0 && h < 20_000_000.0, "第 {round} 轮 EWMA 发散: {h}");
+            }
+        }
+        let fb = first_b_win.expect("B 跃升后 500 轮内必须至少胜出一次（历史不得锁死排名）");
+        assert!(fb < 530, "B 跃升后应在 30 轮内被实测带门放行，实际第 {fb} 轮");
+        assert!(late_b_wins >= 95, "末 100 轮 B 应近乎全胜，实际 {late_b_wins}");
+    }
+
+    #[test]
+    fn sim_1000_rounds_pool_rotation_never_starves_outsiders() {
+        let mut rng = SimRng(0xD1B5_4A32_D192_ED03);
+        let ordered: Vec<(String, String, u64)> = (0..6)
+            .map(|i| ("mirror".to_string(), format!("l{i}"), 10 + i as u64 * 10))
+            .collect();
+        let mut entries = [0usize; 6];
+        let mut rotate = 0usize;
+        for _ in 0..1000 {
+            /* current 随机漂移，模拟用户当前线路在候选间变化 */
+            let cur_idx = (rng.next_u64() % 6) as usize;
+            let (pool, rotated) = select_pool(&ordered, Some(&ordered[cur_idx].1), rotate);
+            if rotated {
+                rotate += 1;
+            }
+            for (_, url, _) in &pool {
+                entries[url[1..].parse::<usize>().unwrap()] += 1;
+            }
+        }
+        for (i, n) in entries.iter().enumerate() {
+            assert!(*n >= 100, "候选 l{i} 在 1000 轮里只进池 {n} 次（探索饿死）");
+        }
+    }
 }
