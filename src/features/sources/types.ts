@@ -7,8 +7,8 @@
 import type { Paged, Post, VideoCard } from "../../shared/api/types";
 
 export type SourceKind = "video" | "post" | "image" | "mixed";
-/** stable=已实测可用；probe=已注册未实测/探测未过；preview=仅预览专区 */
-export type SourceMaturity = "stable" | "probe" | "preview";
+/** stable=真站实测三段全通；probe=已注册、部分未证；blocked=站点不可达/被墙（证据入注册表 note、enabled=false）；preview=仅预览专区 */
+export type SourceMaturity = "stable" | "probe" | "blocked" | "preview";
 /** App 内的分区：posts=吃瓜帖、video=视频、image=图集、preview=预览专区 */
 export type SourceCategory = "posts" | "video" | "image" | "preview";
 

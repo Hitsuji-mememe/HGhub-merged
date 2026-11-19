@@ -130,9 +130,9 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     id: "danbooru", displayName: "Danbooru", kind: "image", category: "image",
     adapter: { template: "danbooru-api", params: { listPath: "/posts.json" } },
     baseUrls: ["https://danbooru.donmai.us"],
-    enabled: true, order: 43, maturity: "probe",
+    enabled: false, order: 43, maturity: "blocked",
     capabilities: { search: true, episodes: false, hevc: false, comments: false },
-    network: PROBE_NET, note: "公开 API 实例化；未真站实测",
+    network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：/posts.json 以 iOS 与桌面两种 UA 均返回 403 Cloudflare「Just a moment」challenge 页（本机出口 IP 被拦）；danbooru-api 适配器已就绪、换出口复测通过即可升 stable",
   },
   /* ── 探路 5：2026-11-19 探测全降级，enabled=false、不写适配器 ── */
   {
