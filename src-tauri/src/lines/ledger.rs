@@ -18,10 +18,14 @@
 //! 触发自愈选线），fallback/recovery 取自动切换真正落盘的那一刻。
 //!
 //! 熔断：只拦自动切换（line_auto 落盘前），手动命令完全不经此路。
-//! 恢复全自动——窗口计数与单线退避都按时间惰性过期，下一次
+//! 恢复全自动——窗口计数、总上限与单线退避都按时间惰性过期，下一次
 //! auto_pick/line_auto 调用时自动重新允许尝试，不存在等用户手动
-//! 切线或手动复位的恢复路径；进程期总上限随进程重启归零。被熔断
-//! 拦下时调用方保持当前线路继续播放，不报错、不停播。
+//! 切线或手动复位的恢复路径。总上限改为时间衰减（24 小时内最多
+//! 12 次，超窗记录过期即恢复额度；旧制进程期只增不减，长驻进程
+//! 达上限后永不恢复，Hark G2 P1-1）。urgent 路径（当前线已确认
+//! 故障）豁免窗口计数与总上限、只保留单线退避——当前线已挂时还拦
+//! 故障切换等于守着死线。被熔断拦下时调用方保持当前线路继续
+//! 播放，不报错、不停播。
 
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, VecDeque};
@@ -223,12 +227,9 @@ pub struct BreakerStatus {
 pub fn breaker_status() -> Option<BreakerStatus> {
     let mut state = BREAKER.lock().ok()?;
     let now = Instant::now();
-    while matches!(state.window.front(), Some(at) if now.duration_since(*at) >= AUTO_SWITCH_WINDOW) {
-        state.window.pop_front();
-    }
-    state.backoff_until.retain(|_, until| *until > now);
+    prune_breaker(&mut state, now);
     Some(BreakerStatus {
-        total: state.total,
+        total: state.switch_times.len() as u32,
         session_max: AUTO_SWITCH_SESSION_MAX,
         window_count: state.window.len(),
         window_max: AUTO_SWITCH_WINDOW_MAX,
@@ -287,55 +288,73 @@ pub fn tiebreak_bps(origin: &str) -> Option<f64> {
     tb.play.or(tb.probe)
 }
 
-/* ── 自动切换熔断（保守阈值，Muse 2026-11-18）──────────────────
- * 进程期自动切换总上限 12 次：超过说明线路环境或探测判据在抖动，
- * 继续自动切只会反复打断播放；进程重启归零（新会话重新评估）。
- * 10 分钟窗口内最多 4 次：短时连切是抖动信号，窗口按时间滑动，
- * 到期自动恢复额度。单线退避 120 秒：刚被切走的线路短时内不许
- * 作为自动切换目标切回，防 A→B→A 乒乓；到期自动解除。 */
+/* ── 自动切换熔断（保守阈值，Muse 2026-11-18；整改 A2 修订，
+ * Muse 2026-11-19，Hark G2 P1-1）────────────────────────────
+ * 自动切换总上限 12 次、改为 24 小时时间衰减：24 小时内累计切满
+ * 12 次说明线路环境或探测判据在抖动，继续自动切只会反复打断
+ * 播放；但记录超 24 小时即过期、额度自动恢复（旧制只增不减，
+ * iOS 长驻进程达上限后只能重启 App 才恢复）。10 分钟窗口内最多
+ * 4 次：短时连切是抖动信号，窗口按时间滑动，到期自动恢复额度。
+ * 单线退避 120 秒：刚被切走的线路短时内不许作为自动切换目标切
+ * 回，防 A→B→A 乒乓；到期自动解除。
+ * urgent 豁免（当前线已确认故障的自愈路径）：跳过窗口计数与总
+ * 上限两道，只保留单线退避——死线面前「防抖动」让位于「先活过来」，
+ * 退避仍拦是防刚切走的线立刻被切回造成乒乓。 */
 const AUTO_SWITCH_SESSION_MAX: u32 = 12;
+const AUTO_SWITCH_TOTAL_WINDOW: Duration = Duration::from_secs(24 * 3600);
 const AUTO_SWITCH_WINDOW_MAX: usize = 4;
 const AUTO_SWITCH_WINDOW: Duration = Duration::from_secs(600);
 const LINE_BACKOFF: Duration = Duration::from_secs(120);
 
 #[derive(Default)]
 struct Breaker {
-    total: u32,
+    /// 每次自动切换的时刻（总上限衰减窗内计数，惰性过期）。
+    switch_times: VecDeque<Instant>,
     window: VecDeque<Instant>,
     backoff_until: HashMap<String, Instant>,
 }
 
 static BREAKER: Lazy<Mutex<Breaker>> = Lazy::new(|| Mutex::new(Breaker::default()));
 
-fn breaker_allows(state: &mut Breaker, target: &str, now: Instant) -> bool {
-    // 惰性过期 = 自动恢复：每次询问先清掉已过窗口的计数与已到期
-    // 的退避，不需要任何外部复位动作。
+/// 惰性过期 = 自动恢复：每次询问/记账前先清掉已过各自时间窗的
+/// 记录与已到期的退避，不需要任何外部复位动作。
+fn prune_breaker(state: &mut Breaker, now: Instant) {
     while matches!(state.window.front(), Some(at) if now.duration_since(*at) >= AUTO_SWITCH_WINDOW) {
         state.window.pop_front();
     }
-    state.backoff_until.retain(|_, until| *until > now);
-    if state.total >= AUTO_SWITCH_SESSION_MAX {
-        return false;
+    while matches!(state.switch_times.front(), Some(at) if now.duration_since(*at) >= AUTO_SWITCH_TOTAL_WINDOW) {
+        state.switch_times.pop_front();
     }
-    if state.window.len() >= AUTO_SWITCH_WINDOW_MAX {
-        return false;
+    state.backoff_until.retain(|_, until| *until > now);
+}
+
+fn breaker_allows(state: &mut Breaker, target: &str, now: Instant, urgent: bool) -> bool {
+    prune_breaker(state, now);
+    if !urgent {
+        if state.switch_times.len() >= AUTO_SWITCH_SESSION_MAX as usize {
+            return false;
+        }
+        if state.window.len() >= AUTO_SWITCH_WINDOW_MAX {
+            return false;
+        }
     }
     !state.backoff_until.contains_key(target)
 }
 
 fn breaker_note(state: &mut Breaker, from: &str, now: Instant) {
-    state.total = state.total.saturating_add(1);
+    state.switch_times.push_back(now);
     state.window.push_back(now);
     state
         .backoff_until
         .insert(from.to_string(), now + LINE_BACKOFF);
 }
 
-/// 自动切换落盘前询问熔断。锁失败按放行处理：熔断是保护不是门禁，
-/// 绝不能因自身故障把自动路径锁死到无路可走。
-pub fn auto_switch_allowed(target: &str) -> bool {
+/// 自动切换落盘前询问熔断。urgent=true 为当前线确认故障的自愈
+/// 路径，豁免窗口与总上限（见上方常量注释）。锁失败按放行处理：
+/// 熔断是保护不是门禁，绝不能因自身故障把自动路径锁死到无路可走。
+pub fn auto_switch_allowed(target: &str, urgent: bool) -> bool {
     match BREAKER.lock() {
-        Ok(mut state) => breaker_allows(&mut state, target, Instant::now()),
+        Ok(mut state) => breaker_allows(&mut state, target, Instant::now(), urgent),
         Err(_) => true,
     }
 }
@@ -516,28 +535,64 @@ mod tests {
         assert_eq!(after.window_max, AUTO_SWITCH_WINDOW_MAX);
     }
 
+    /* ── 整改 A2（Hark G2 P1-1）：urgent 豁免窗口/总上限（只保留单线
+     * 退避）＋总上限 24h 时间衰减。旧签名/旧语义下本组用例先红。 ── */
+    #[test]
+    fn breaker_urgent_bypasses_window_and_total_but_not_backoff() {
+        let now = Instant::now();
+        // 窗口记满（10 分钟内 4 次）：非 urgent 拦、urgent 放行
+        let mut s = Breaker::default();
+        for i in 0..AUTO_SWITCH_WINDOW_MAX {
+            breaker_note(&mut s, &format!("https://uw{i}.example"), now);
+        }
+        assert!(!breaker_allows(&mut s, "https://next.example", now, false), "窗口满非 urgent 应拦");
+        assert!(breaker_allows(&mut s, "https://next.example", now, true), "窗口满 urgent（当前线已挂）必须放行");
+        // 总上限记满（12 次）：非 urgent 拦、urgent 放行
+        let mut s2 = Breaker::default();
+        for i in 0..AUTO_SWITCH_SESSION_MAX {
+            breaker_note(&mut s2, &format!("https://ut{i}.example"), now);
+        }
+        assert!(!breaker_allows(&mut s2, "https://next2.example", now, false), "总上限满非 urgent 应拦");
+        assert!(breaker_allows(&mut s2, "https://next2.example", now, true), "总上限满 urgent 必须放行");
+        // urgent 不豁免单线退避：刚被切走的线路 120s 内不许切回
+        assert!(!breaker_allows(&mut s2, "https://ut0.example", now, true), "urgent 仍受单线退避约束");
+    }
+
+    #[test]
+    fn breaker_total_decays_with_time() {
+        let now = Instant::now();
+        let mut s = Breaker::default();
+        for i in 0..AUTO_SWITCH_SESSION_MAX {
+            breaker_note(&mut s, &format!("https://d{i}.example"), now);
+        }
+        assert!(!breaker_allows(&mut s, "https://z.example", now, false), "总上限满应拦");
+        let later = now + AUTO_SWITCH_TOTAL_WINDOW + Duration::from_secs(1);
+        assert!(breaker_allows(&mut s, "https://z.example", later, false), "总上限记录超衰减窗过期后非 urgent 应恢复");
+    }
+
     #[test]
     fn breaker_window_total_and_backoff() {
         let mut state = Breaker::default();
         let now = Instant::now();
-        assert!(breaker_allows(&mut state, "https://a.example", now));
+        assert!(breaker_allows(&mut state, "https://a.example", now, false));
         breaker_note(&mut state, "https://a.example", now);
         // 被切走的线路 120s 内不许切回
-        assert!(!breaker_allows(&mut state, "https://a.example", now));
-        assert!(breaker_allows(&mut state, "https://b.example", now));
+        assert!(!breaker_allows(&mut state, "https://a.example", now, false));
+        assert!(breaker_allows(&mut state, "https://b.example", now, false));
         // 窗口上限：10 分钟内记满 4 次后第 5 次不许
         for i in 0..3 {
             breaker_note(&mut state, &format!("https://w{i}.example"), now);
         }
-        assert!(!breaker_allows(&mut state, "https://c.example", now), "窗口满应拦");
+        assert!(!breaker_allows(&mut state, "https://c.example", now, false), "窗口满应拦");
         // 窗口过期后自动恢复（退避也一并到期）
         let later = now + AUTO_SWITCH_WINDOW + Duration::from_secs(121);
-        assert!(breaker_allows(&mut state, "https://a.example", later), "过期应自动恢复");
-        // 进程期总量上限独立于窗口
+        assert!(breaker_allows(&mut state, "https://a.example", later, false), "过期应自动恢复");
+        // 总量上限独立于窗口（12 笔记录间隔 10 分钟记账、均在 24h
+        // 衰减窗内，查询时刻亦在窗内 → 总量满应拦）
         let mut s2 = Breaker::default();
         for i in 0..AUTO_SWITCH_SESSION_MAX {
             breaker_note(&mut s2, &format!("https://t{i}.example"), now + AUTO_SWITCH_WINDOW * (i + 1));
         }
-        assert!(!breaker_allows(&mut s2, "https://z.example", now + AUTO_SWITCH_WINDOW * 99), "总量满应拦");
+        assert!(!breaker_allows(&mut s2, "https://z.example", now + AUTO_SWITCH_WINDOW * 99, false), "总量满应拦");
     }
 }

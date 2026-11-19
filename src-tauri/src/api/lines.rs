@@ -152,8 +152,10 @@ pub async fn line_auto(state: State<'_, Api>, urgent: Option<bool>) -> Result<Va
         && !chosen.is_empty() && chosen != previous {
         // 会话熔断（U2 一期）：只拦自动切换，手动命令不经此路。拦下
         // 时保持当前线路正常返回、不报错——当前线还能播就继续播，
-        // 熔断的窗口/退避到期后下一次自动选线自动恢复尝试。
-        if crate::lines::ledger::auto_switch_allowed(&chosen) {
+        // 熔断的窗口/退避到期后下一次自动选线自动恢复尝试。urgent
+        // （当前线确认故障）豁免窗口/总上限、只保留单线退避（整改
+        // A2，Hark G2 P1-1）：死线面前先恢复可用，再谈防抖动。
+        if crate::lines::ledger::auto_switch_allowed(&chosen, urgent) {
             let next = crate::net::set_base(&chosen)?;
             crate::net::refresh_client();
             switched = next != previous;
