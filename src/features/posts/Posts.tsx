@@ -109,7 +109,7 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
           <FilteredContent items={items} scopeKey="posts">{visible => (
           <div className={`ios-media-grid ${wide ? "is-wide" : ""}`}>
             {visible.map((p) => (
-              <MediaCard key={p.id} title={p.title} cover={p.cover} subtitle={`${fmt(p.hot)} 次浏览`} onOpen={() => push({ kind: "post", id: p.id })} />
+              <MediaCard key={p.id} title={p.title} cover={p.cover} surface="posts-native" subtitle={`${fmt(p.hot)} 次浏览`} onOpen={() => push({ kind: "post", id: p.id })} />
             ))}
           </div>
           )}</FilteredContent>

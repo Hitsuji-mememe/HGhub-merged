@@ -240,7 +240,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
       {items.length ? (
         <div className="ios-media-grid" data-ui="media-grid">
           {items.map((item) => (
-            <MediaCard key={item.externalId} title={item.title} cover={item.cover}
+            <MediaCard key={item.externalId} title={item.title} cover={item.cover} surface="source-posts"
               subtitle={item.tags?.slice(0, 2).join(" · ") || def.displayName}
               onOpen={() => void openItem(item)} />
           ))}

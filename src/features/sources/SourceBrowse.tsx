@@ -32,13 +32,24 @@ type DetailState =
   | { phase: "ready"; item: SourceItem; streamUrl: string }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourceBrowse({ def }: { def: SourceDef }) {
+export default function SourceBrowse({ def, onDetailOpenChange }: {
+  def: SourceDef;
+  /** 详情开合回报（Muse 2026-11-20 fix331/covers-header，3.3.1 真机
+   * 首验问题②）：本组件挂在 ChannelPage 内，详情自带一层页头（返回
+   * 列表＋标题）；详情打开时宿主必须让位自己的页头，否则双层标题
+   * 栏＋两枚返回键同屏（真机图 1 实锤）。宿主据此隐藏外层页头，
+   * 详情关闭自动恢复。 */
+  onDetailOpenChange?: (open: boolean) => void;
+}) {
   const [items, setItems] = useState<SourceItem[]>([]);
   const [page, setPage] = useState(0);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailState | null>(null);
+  useEffect(() => {
+    onDetailOpenChange?.(detail !== null);
+  }, [detail, onDetailOpenChange]);
   const busy = useRef(false);
   const seq = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -142,7 +153,7 @@ export default function SourceBrowse({ def }: { def: SourceDef }) {
       {items.length ? (
         <div className="ios-media-grid" data-ui="media-grid">
           {items.map((item) => (
-            <MediaCard key={item.externalId} title={item.title} cover={item.cover}
+            <MediaCard key={item.externalId} title={item.title} cover={item.cover} surface="source-browse"
               subtitle={item.tags?.slice(0, 2).join(" · ") || def.displayName}
               onOpen={() => void openItem(item)} />
           ))}

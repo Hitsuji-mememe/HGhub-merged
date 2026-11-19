@@ -58,7 +58,13 @@ function parseAnchorList(html: string, base: string, sourceId: string, itemLinkP
     seen.add(href);
     const title = a.titleAttr || headingText(a.inner) || imgAlt(a.inner) || stripTags(a.inner) || titleFromHref(href);
     if (!title) continue;
-    items.push({ sourceId, externalId: href, title, cover: absUrl(base, firstCoverSrc(a.inner)), href, tags: [] });
+    /* 封面空串守卫（Muse 2026-11-20 fix331/covers-header）：无封面
+     * 载体时 firstCoverSrc 返回 ""，旧写法 absUrl(base, "") 把它补成
+     * 站点根 URL——非空合法地址冒充封面，Img 遂把站点首页 HTML 当
+     * 图片拉取、解码必失败整屏落 HG（3.3.1 真机 source-005 实锤）。
+     * 与详情路径同口径：空则保持空串，界面走诚实无封面态。 */
+    const coverSrc = firstCoverSrc(a.inner);
+    items.push({ sourceId, externalId: href, title, cover: coverSrc ? absUrl(base, coverSrc) : "", href, tags: [] });
   }
   return items;
 }

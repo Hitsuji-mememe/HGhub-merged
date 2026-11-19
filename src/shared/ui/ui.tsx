@@ -120,15 +120,19 @@ export function ToastHost() {
 }
 
 /* ——— 图片（骨架 + 渐显，自动走本地解密协议） ——— */
-export function Img({ src, alt = "", className = "", eager = false, raw = false, loadingIndicator = false, fit = "cover" }: {
+export function Img({ src, alt = "", className = "", eager = false, raw = false, loadingIndicator = false, fit = "cover", surface }: {
   src: string; alt?: string; className?: string; eager?: boolean; raw?: boolean; loadingIndicator?: boolean;
   /* fit（Muse 2026-11-19 3.2.1修复F6线）：默认 cover 与既有封面口径
    * 不变；全屏图集查看器传 contain——照片完整贴边、不裁切。 */
   fit?: "cover" | "contain";
+  /* 段位（Muse 2026-11-20 fix331/covers-header）：图片失败留痕的归属
+   * 面（如 source-posts/source-browse/posts-native），进 feedTrace
+   * 聚合分桶与逐图失败事件；不传归「未标注」。见 feedTrace 段位注。 */
+  surface?: string;
 }) {
   const url = raw ? src : cover(src);
   // 每个地址独立持有状态，避免换图后的 effect 把缓存命中的 onLoad 重置掉。
-  return <ImageLoad key={url} url={url} alt={alt} className={className} eager={eager} raw={raw} loadingIndicator={loadingIndicator} fit={fit} />;
+  return <ImageLoad key={url} url={url} alt={alt} className={className} eager={eager} raw={raw} loadingIndicator={loadingIndicator} fit={fit} surface={surface} origin={urlFingerprint(src)} />;
 }
 
 /* 封面加载状态机（Muse 2026-11-19 fix2 A3）：loading→decoded→
@@ -147,8 +151,12 @@ export function Img({ src, alt = "", className = "", eager = false, raw = false,
  * （请求已在路上，滚出视口不等于没在加载）。 */
 type ImgState = "loading" | "decoded" | "displayed" | "failed";
 const IMG_ATTEMPT_TIMEOUT_MS = 20_000;
-function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "cover" }: {
+function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "cover", surface, origin }: {
   url: string; alt: string; className: string; eager: boolean; raw: boolean; loadingIndicator: boolean; fit?: "cover" | "contain";
+  /* 段位与源地址指纹（fix331/covers-header）：url 是本地路由包装后的
+   * 地址（host 恒为本地），归属上游只看 origin（包装前 src 的
+   * host#长度指纹，不记全文，守日志不变量）。 */
+  surface?: string; origin?: string;
 }) {
   const [state, setState] = useState<ImgState>("loading");
   const [attempt, setAttempt] = useState(0);
@@ -156,6 +164,9 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
   const [armed, setArmed] = useState(eager);
   const frameRef = useRef<HTMLDivElement>(null);
   const settledRef = useRef(false);
+  /* 当前 attempt 起算时刻（fix331/covers-header）：onError 在 JSX
+   * 处理器里、拿不到 effect 内的 startedAt，逐图留痕的耗时靠它。 */
+  const attemptStartedRef = useRef(0);
   const ok = state === "decoded" || state === "displayed";
   const err = state === "failed";
   /* 封面走本地解密代理，网络抖动会偶发失败：同地址重试两次再落到占位。
@@ -175,8 +186,8 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
     if (!imgEl || !imgEl.complete || imgEl.naturalWidth <= 0) return false;
     if (!settledRef.current) {
       settledRef.current = true;
-      traceFeed("image", { ev: "decoded", attempt, url: urlFingerprint(url) });
-      imageDisplayed();
+      traceFeed("image", { ev: "decoded", attempt, url: urlFingerprint(url), surface, origin });
+      imageDisplayed(surface);
     }
     setState((s) => (s === "displayed" ? s : "decoded"));
     requestAnimationFrame(() => setState((s) => (s === "decoded" ? "displayed" : s)));
@@ -202,20 +213,23 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
     imageStarted();
     const fp = urlFingerprint(url);
     const startedAt = Date.now();
-    traceFeed("image", { ev: "loading", attempt, url: fp });
+    attemptStartedRef.current = startedAt;
+    traceFeed("image", { ev: "loading", attempt, url: fp, surface, origin });
     const failOrRetry = (reason: "timeout" | "network" | "decode") => {
       if (settledRef.current) return;
       /* timeout 裁决前再对账：计时期间图可能已经真实到达（事件被
        * 吞），DOM 已 complete 时按已加载落座，不误烧 attempt。 */
       if (reason === "timeout" && settleOkFromDom()) return;
       settledRef.current = true;
-      traceFeed("image", { ev: "failed", attempt, url: fp, reason, ms: Date.now() - startedAt });
+      /* final（fix331/covers-header）：本次失败是否终局（不再重试）——
+       * 诊断导出逐图留痕只取终局行，attempt 级失败靠聚合计数看。 */
+      traceFeed("image", { ev: "failed", attempt, url: fp, reason, ms: Date.now() - startedAt, surface, origin, final: raw || attempt >= 2 });
       if (!raw && attempt < 2) {
         imageRetry();
         setState("loading");
         setAttempt(attempt + 1);
       } else {
-        imageFailed(reason);
+        imageFailed(reason, surface);
         setState("failed");
       }
     };
@@ -236,8 +250,8 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
         onLoad={() => {
           if (settledRef.current) return;
           settledRef.current = true;
-          traceFeed("image", { ev: "decoded", attempt, url: urlFingerprint(url) });
-          imageDisplayed();
+          traceFeed("image", { ev: "decoded", attempt, url: urlFingerprint(url), surface, origin });
+          imageDisplayed(surface);
           setState("decoded");
           requestAnimationFrame(() => setState((s) => (s === "decoded" ? "displayed" : s)));
         }}
@@ -248,13 +262,13 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
           const el = e.currentTarget as HTMLImageElement;
           const reason = el.naturalWidth === 0 ? "network" : "decode";
           settledRef.current = true;
-          traceFeed("image", { ev: "error", attempt, url: urlFingerprint(url), reason });
+          traceFeed("image", { ev: "error", attempt, url: urlFingerprint(url), reason, surface, origin, ms: attemptStartedRef.current ? Date.now() - attemptStartedRef.current : undefined, final: raw || attempt >= 2 });
           if (!raw && attempt < 2) {
             imageRetry();
             setState("loading");
             setAttempt(attempt + 1);
           } else {
-            imageFailed(reason);
+            imageFailed(reason, surface);
             setState("failed");
           }
         }}

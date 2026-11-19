@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<!-- 构造夹具（Muse 2026-11-20 fix331/covers-header）：按 source-005
+     真站列表页实测结构构造（2026-11-20 本机抓取对账）：post-card 的
+     封面不在任何 img/loader 属性上，只以内联脚本调用
+     loadBannerDirect('<封面直址>', '', document.querySelector(
+     '#post-card-<id>'), ...) 的第一字符串参数承载；卡内另有
+     blog-background 空 div 与 post-card-mask 结构。标题/域名全合成。 -->
+<html><head><title>列表夹具·脚本承载封面</title></head><body>
+<div class="list">
+  <a href="/archives/202559/">
+    <div class="post-card" id="post-card-202559">
+      <div class="blog-background"></div>
+      <script type="text/javascript">
+        loadBannerDirect('https://pic.fixture.invalid/upload_01/x/20260101/cover-a.jpg',
+            '',
+            document.querySelector('#post-card-202559'),
+            '-1',
+            document.querySelector('#post-card-202559').offsetWidth);
+      </script>
+      <div class="post-card-mask  ">
+        <div class="post-card-container">
+          <h2 class="post-card-title" itemprop="headline">合成帖甲</h2>
+        </div>
+      </div>
+    </div>
+  </a>
+  <a href="/archives/202560/">
+    <div class="post-card" id="post-card-202560">
+      <div class="blog-background"></div>
+      <script type="text/javascript">
+        loadBannerDirect("https://pic.fixture.invalid/upload_01/x/20260101/cover-b.jpg", '', document.querySelector('#post-card-202560'), '-1', 300);
+      </script>
+      <div class="post-card-mask  ">
+        <div class="post-card-container">
+          <h2 class="post-card-title" itemprop="headline">合成帖乙</h2>
+        </div>
+      </div>
+    </div>
+  </a>
+  <!-- 无任何封面载体的卡片：cover 必须为空串，不许被补成站点根地址 -->
+  <a href="/archives/202561/">
+    <div class="post-card" id="post-card-202561">
+      <div class="blog-background"></div>
+      <div class="post-card-mask  ">
+        <div class="post-card-container">
+          <h2 class="post-card-title" itemprop="headline">合成帖丙·无封面</h2>
+        </div>
+      </div>
+    </div>
+  </a>
+</div>
+</body></html>
