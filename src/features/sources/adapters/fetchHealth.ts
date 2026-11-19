@@ -8,8 +8,12 @@
  * 纯旁路，记录失败不影响取页本身。 */
 
 import { tracePlayback } from "../../../shared/diagnostics/playbackDiagnostics";
+import { classifyFetchError, type FetchErrorCategory } from "./fetchErrorClassify.ts";
 
-export type FetchErrorCategory = "校验拒绝" | "网络不可达" | "HTTP 状态" | "超时" | "响应过大" | "其他";
+/* 分类口径唯一出处在 fetchErrorClassify.ts（F7 抽出），此处再导出
+ * 保持既有导入面不变。 */
+export { classifyFetchError };
+export type { FetchErrorCategory };
 
 export type FetchHealthRecord = {
   host: string;
@@ -22,19 +26,6 @@ export type FetchHealthRecord = {
 };
 
 const byHost = new Map<string, FetchHealthRecord>();
-
-/** Rust 侧错误串 → 粗粒度类别（关键词匹配，宁粗勿假）：错误串来自
- * 生产网络栈（目标校验/DNS/重定向复检/流式上限），类别只用于报告
- * 判读方向，不参与任何控制流。 */
-export function classifyFetchError(raw: string): FetchErrorCategory {
-  const s = raw.toLowerCase();
-  if (/过大|超过|上限|too large|exceed/.test(s)) return "响应过大";
-  if (/超时|timeout|timed out|deadline/.test(s)) return "超时";
-  if (/校验|不允许|非法|禁止|内网|回环|scheme|invalid target|forbidden/.test(s)) return "校验拒绝";
-  if (/\b(401|403|404|429|5\d\d)\b|http 状态|status/.test(s)) return "HTTP 状态";
-  if (/dns|解析|connect|连接|网络|不可达|unreachable|reset|eof|tls|证书/.test(s)) return "网络不可达";
-  return "其他";
-}
 
 export function recordFetchResult(url: string, ok: boolean, ms: number, errorRaw?: string): void {
   try {

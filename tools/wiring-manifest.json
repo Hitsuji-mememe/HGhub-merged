@@ -915,6 +915,53 @@
       ],
       "symbol": "列表确为空",
       "each": true
+    },
+    {
+      "id": "fix321-f7-scheduler-registered",
+      "item": "F7 源健康自检调度在启动装配注册（healthCheck 定义＋main.tsx 注册点）",
+      "files": [
+        "src/features/sources/healthCheck.ts",
+        "src/main.tsx"
+      ],
+      "symbol": "startSourceSelfCheckScheduler",
+      "min": 2
+    },
+    {
+      "id": "fix321-f7-adapter-seam",
+      "item": "F7 自检引擎经 createAdapterFor 注入接缝走生产适配器（引擎消费＋main.tsx 注入 createAdapter）",
+      "files": [
+        "src/features/sources/healthCheck.ts",
+        "src/main.tsx"
+      ],
+      "symbol": "createAdapterFor",
+      "min": 3
+    },
+    {
+      "id": "fix321-f7-diag-export",
+      "item": "F7 自检结果进诊断导出路径（registryDiag 消费 selfCheckDiagLines 构建自检行组）",
+      "files": [
+        "src/features/sources/registryDiag.ts"
+      ],
+      "symbol": "selfCheckDiagLines(",
+      "min": 1
+    },
+    {
+      "id": "fix321-f7-diag-detail",
+      "item": "F7 自检结果进 App 内源明细（registryDiag 明细行消费 selfCheckSegmentText）",
+      "files": [
+        "src/features/sources/registryDiag.ts"
+      ],
+      "symbol": "selfCheckSegmentText(",
+      "min": 1
+    },
+    {
+      "id": "fix321-f7-storage-key",
+      "item": "F7 自检结果落盘键 hghubx_*（不变量 7）",
+      "files": [
+        "src/features/sources/healthCheck.ts"
+      ],
+      "symbol": "hghubx_source_selfcheck_v1",
+      "min": 1
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",
