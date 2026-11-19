@@ -28,25 +28,48 @@ pub(crate) fn utc_timestamp() -> Result<String, String> {
 /// 交 redact_error_proxy_auth；URL 查询参数整体剥除；token 状键值
 /// （key=value / JSON "key": value / Bearer xxx）掩码。调用方从此
 /// 不再各自负责脱敏。
+/// 冒号式敏感键（整改 C6）：`token: xxx` / `Authorization: Basic xxx`
+/// 这类无引号、无等号的写法也要掩码其值。
+const COLON_SENSITIVE_KEYS: [&str; 9] = [
+    "token", "access_token", "password", "passwd", "auth_key", "sign", "signature", "secret", "authorization",
+];
+
 fn scrub_debug(message: &str) -> String {
     let no_proxy_auth = crate::net::redact_error_proxy_auth(message);
     let mut out = String::with_capacity(no_proxy_auth.len());
     // "Bearer xxx" 的值是独立 token：记住上一个 token 是 Bearer 时
     // 把当前 token 整体掩码。
     let mut mask_next = false;
+    // Authorization 头：值可能是「方案词 + 凭据」两 token（Basic xxx），
+    // 见方案词（纯字母）时再续掩一个 token。
+    let mut auth_scheme_check = false;
+    // Cookie/Set-Cookie 头：值（k=v; k=v…）一直延续到行尾，整段掩码。
+    let mut mask_rest_of_line = false;
     for piece in no_proxy_auth.split_inclusive(|c: char| c.is_whitespace()) {
         let (token, sep) = match piece.find(|c: char| c.is_whitespace()) {
             Some(idx) => piece.split_at(idx),
             None => (piece, ""),
         };
-        if mask_next && !token.is_empty() {
+        if mask_rest_of_line && !token.is_empty() {
+            out.push_str("[redacted]");
+        } else if mask_next && !token.is_empty() {
             out.push_str("[redacted]");
             mask_next = false;
+            if auth_scheme_check {
+                if token.chars().all(|c| c.is_ascii_alphabetic()) {
+                    // 方案词（Bearer/Basic/Digest…）本身也掩，并续掩凭据。
+                    mask_next = true;
+                }
+                auth_scheme_check = false;
+            }
         } else {
             out.push_str(&scrub_token(token));
         }
+        if sep.contains('\n') {
+            mask_rest_of_line = false;
+        }
         let word = token
-            .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
             .to_ascii_lowercase();
         // 掩码续接：Bearer 的值、JSON 敏感键在冒号收尾时其值（值与
         // 键被空白切开的场合）都在下一个 token。
@@ -56,6 +79,16 @@ fn scrub_debug(message: &str) -> String {
                 .iter()
                 .any(|k| lower_token.contains(k));
         if word == "bearer" || json_key_open {
+            mask_next = true;
+        }
+        // 头名整值掩码（整改 C6）：按头名判定，不看方案词——Cookie
+        // 掩到行尾；Authorization 掩值（方案词+凭据两 token）。
+        if token.ends_with(':') && (word == "cookie" || word == "set-cookie") {
+            mask_rest_of_line = true;
+        } else if token.ends_with(':') && word == "authorization" {
+            mask_next = true;
+            auth_scheme_check = true;
+        } else if token.ends_with(':') && COLON_SENSITIVE_KEYS.contains(&word.as_str()) {
             mask_next = true;
         }
         out.push_str(sep);
@@ -79,11 +112,49 @@ fn scrub_token(token: &str) -> String {
             }
         }
     }
+    // 无引号冒号式键值（整改 C6）：token:xxx（值与键同 token）时掩码
+    // 冒号后部分。键不在敏感名单（如 https:、时间 12:30）不动。
+    if let Some(colon) = token.find(':') {
+        let key = token[..colon]
+            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .to_ascii_lowercase();
+        if COLON_SENSITIVE_KEYS.contains(&key.as_str()) && !token[colon + 1..].is_empty() {
+            return format!("{}:[redacted]", &token[..colon]);
+        }
+    }
     // URL：剥查询参数（直链签名/token 多在 query 里）。
     let mut out = token.to_string();
     if out.contains("://") {
         if let Some(q) = out.find('?') {
             out.truncate(q);
+        }
+        if let Some(hash) = out.find('#') {
+            out.truncate(hash);
+        }
+        // 路径签名段（整改 C6）：/hls/<sig>/index.m3u8 这类长 token 形
+        // 路径段（≥24 字符的 [A-Za-z0-9_-]）掩码；host 段含 '.' 不在
+        // 字符集内、普通短路径段不受影响。
+        if let Some(scheme_end) = out.find("://") {
+            let after = scheme_end + 3;
+            if let Some(path_start) = out[after..].find('/') {
+                let head = out[..after + path_start].to_string();
+                let path = out[after + path_start..]
+                    .split('/')
+                    .map(|seg| {
+                        let core_len = seg
+                            .chars()
+                            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+                            .count();
+                        if core_len >= 24 && seg[core_len..].chars().all(|c| !c.is_ascii_alphanumeric()) {
+                            format!("[redacted]{}", &seg[core_len..])
+                        } else {
+                            seg.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("/");
+                out = format!("{head}{path}");
+            }
         }
     }
     // key=value 键值：敏感键掩码值。
@@ -212,6 +283,38 @@ mod tests {
         }
         assert!(text.contains("https://cdn.example/seg.ts"));
         assert!(text.contains("end"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn debug_log_scrubs_cookie_basic_auth_colon_tokens_and_signed_paths() {
+        // 整改 C6（G4 P1-5）：Cookie/Set-Cookie 头值、非 Bearer 的
+        // Authorization、无引号冒号式 token、URL 路径签名段都要掩码。
+        let dir = test_dir();
+        append_debug(
+            &dir,
+            "Cookie: sid=abc123xyz; uid=42\nAuthorization: Basic dXNlcjpwYXNz\ntoken: plainsecret1 GET https://cdn.example/hls/AbC123dEf456GhI789JkL012Mn/index.m3u8 failed",
+        )
+        .unwrap();
+        let text = fs::read_to_string(dir.join("debug.log")).unwrap();
+        for secret in ["abc123xyz", "uid=42", "dXNlcjpwYXNz", "plainsecret1", "AbC123dEf456GhI789JkL012Mn"] {
+            assert!(!text.contains(secret), "秘密 {secret} 不许出现在 debug.log");
+        }
+        assert!(text.contains("index.m3u8"), "普通路径段不应被误伤");
+        assert!(text.contains("failed"), "普通文本不应被误伤");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn debug_log_does_not_over_redact_ordinary_text() {
+        // 整改 C6 反向断言：普通日志（数字、短路径段、一般键值）不许
+        // 被过度脱敏成不可读。
+        let dir = test_dir();
+        append_debug(&dir, "player ready in 1234 ms for https://cdn.example/seg.ts segment 7 ok").unwrap();
+        let text = fs::read_to_string(dir.join("debug.log")).unwrap();
+        assert!(text.contains("1234"));
+        assert!(text.contains("https://cdn.example/seg.ts"));
+        assert!(text.contains("segment 7 ok"));
         fs::remove_dir_all(dir).unwrap();
     }
 

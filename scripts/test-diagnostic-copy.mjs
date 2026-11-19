@@ -17,23 +17,29 @@ const output = join(root, "test-results", "diagnostic-copy", new Date().toISOStr
 await mkdir(output, { recursive: true});
 const report = { environment: "Real Settings and merged diagnostic report; mocked Tauri IPC; not native iOS verification", passed: [], external: []};
 
+/* 生产形态夹具（Muse 2026-11-19 整改 C3/C4/C5）：①play.resolve 在
+ * source.load 之前发出且不带 player（Feed.tsx 口径），load 起的事件
+ * 带 player（snapshot 注入）；②ts 为 Rust 写盘时刻、被前端 250ms
+ * 批量 flush 量化成两批相同值，真实阶段间隔只在 data.mono_ms 里；
+ * ③降级事件用落盘形态单前缀 web.playback.fallback 且不带 player。 */
 const HEALTHY_LOG = [
-{ event: "web.source.load", ts: "2026-11-18T05:00:00.000Z", pid: 4242, data: { engine: "hls.js"}},
-{ event: "web.play.resolve", ts: "2026-11-18T05:00:00.120Z", pid: 4242, data: {}},
-{ event: "web.hls.manifest", ts: "2026-11-18T05:00:00.340Z", pid: 4242, data: {}},
-{ event: "web.hlsFragLoaded", ts: "2026-11-18T05:00:00.510Z", pid: 4242, data: {}},
-{ event: "web.hls.buffer_appended", ts: "2026-11-18T05:00:00.690Z", pid: 4242, data: {}},
-{ event: "web.hlsFragBuffered", ts: "2026-11-18T05:00:00.700Z", pid: 4242, data: {}},
-{ event: "web.media.playing", ts: "2026-11-18T05:00:00.880Z", pid: 4242, data: {}},
+{ event: "web.play.resolve", ts: "2026-11-18T05:00:00.250Z", pid: 4242, data: { mono_ms: 900}},
+{ event: "web.source.load", ts: "2026-11-18T05:00:00.250Z", pid: 4242, data: { engine: "hls.js", player: "player-1", mono_ms: 1010}},
+{ event: "web.hls.manifest", ts: "2026-11-18T05:00:00.250Z", pid: 4242, data: { player: "player-1", mono_ms: 1220}},
+{ event: "web.hlsFragLoaded", ts: "2026-11-18T05:00:00.250Z", pid: 4242, data: { player: "player-1", mono_ms: 1500}},
+{ event: "web.hls.buffer_appended", ts: "2026-11-18T05:00:02.500Z", pid: 4242, data: { player: "player-1", mono_ms: 1700}},
+{ event: "web.hlsFragBuffered", ts: "2026-11-18T05:00:02.500Z", pid: 4242, data: { player: "player-1", mono_ms: 1710}},
+{ event: "web.media.playing", ts: "2026-11-18T05:00:02.500Z", pid: 4242, data: { player: "player-1", mono_ms: 1900}},
+{ event: "web.media.first_frame", ts: "2026-11-18T05:00:02.500Z", pid: 4242, data: { player: "player-1", mono_ms: 1950}},
 ].map(e => JSON.stringify(e)).join("\n") + "\n";
 
 const STALL_LOG = [
-{ event: "web.source.load", ts: "2026-11-18T05:10:00.000Z", pid: 4242, data: { engine: "hls.js"}},
-{ event: "web.play.resolve", ts: "2026-11-18T05:10:00.090Z", pid: 4242, data: {}},
-{ event: "web.hls.manifest", ts: "2026-11-18T05:10:00.300Z", pid: 4242, data: {}},
-{ event: "web.hlsFragLoaded", ts: "2026-11-18T05:10:00.520Z", pid: 4242, data: {}},
-{ event: "web.hls.append_stall", ts: "2026-11-18T05:10:04.530Z", pid: 4242, data: { attempt: 0}},
-{ event: "web.playback.fallback", ts: "2026-11-18T05:10:09.010Z", pid: 4242, data: { reason: "append_stall"}},
+{ event: "web.play.resolve", ts: "2026-11-18T05:10:00.250Z", pid: 4242, data: { mono_ms: 0}},
+{ event: "web.source.load", ts: "2026-11-18T05:10:00.250Z", pid: 4242, data: { engine: "hls.js", player: "player-1", mono_ms: 100}},
+{ event: "web.hls.manifest", ts: "2026-11-18T05:10:00.250Z", pid: 4242, data: { player: "player-1", mono_ms: 400}},
+{ event: "web.hlsFragLoaded", ts: "2026-11-18T05:10:00.250Z", pid: 4242, data: { player: "player-1", mono_ms: 600}},
+{ event: "web.hls.append_stall", ts: "2026-11-18T05:10:09.500Z", pid: 4242, data: { attempt: 0, player: "player-1", mono_ms: 4600}},
+{ event: "web.playback.fallback", ts: "2026-11-18T05:10:09.500Z", pid: 4242, data: { reason: "append_stall", mono_ms: 9100}},
 ].map(e => JSON.stringify(e)).join("\n") + "\n";
 
 let vite, browser, page;
@@ -118,11 +124,13 @@ const box = await generate();
 const text = await box.inputValue();
 assert(text.startsWith(""), "标题缺失");
 assert(text.includes("── 结论") && text.includes("── 硬数据") && text.includes("── 最近一次播放流水"), "三段结构缺失");
-assert(text.includes("当前线路：fixture.invalid"), "当前线路缺失");
-assert(text.includes("fixture.invalid(当前) 42ms") && text.includes("mirror.fixture.invalid 不可达"), "各线延迟缺失");
+assert(text.includes("当前线路：line-01"), "当前线路必须稳定编号 ID 化（C8）");
+assert(text.includes("line-01(当前) 42ms") && text.includes("line-02 不可达"), "各线延迟必须 ID 化（C8）");
+assert(!text.includes("fixture.invalid"), "导出全文不许出现域名/host（C8 零业务词/零域名）");
+assert(text.includes("账本事件"), "导出尾必须含 eventLedger 事件尾段（C8/#3）");
 assert(text.includes("App 通道 2.2 MB/s"), "分片吞吐缺失");
 assert(text.includes("最近播放已正常出画（playing）"), "健康卡点结论错误");
-assert(text.includes("resolve ✓ 120ms") && text.includes("playing ✓ 880ms"), "流水耗时错误");
+assert(text.includes("resolve ✓ 0ms") && text.includes("manifest ✓ 210ms") && text.includes("playing ✓ 890ms"), "流水耗时错误（阶段增量必须按 mono_ms 计算，resolve 必须归入本次起播）");
 assert(text.includes("会话降级：未发生"), "降级行错误");
 await writeFile(join(output, "sample-report-healthy.txt"), text);
 await page.getByRole("button", { name: "复制报告", exact: true}).click();
@@ -141,6 +149,7 @@ const stallText = await stallBox.inputValue();
 assert(stallText.includes("最近播放卡在 append（分片已下载、未入缓冲——append 停滞签名）"), "卡死签名未识别");
 assert(stallText.includes("append ✗ 未达") && stallText.includes("playing ✗ 未达"), "流水未达标记缺失");
 assert(stallText.includes("会话降级：本会话已降级原生播放（append 停滞）"), "降级结论缺失");
+assert(stallText.includes("降级 1 次"), "降级计数必须按落盘单前缀 web.playback.fallback 数出（C5）");
 await writeFile(join(output, "sample-report-stall.txt"), stallText);
 report.passed.push("Stall flow: append-stall signature and session fallback land in the conclusion line");
 
