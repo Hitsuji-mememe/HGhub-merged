@@ -12,14 +12,23 @@
  * 本模块只出纯配置与接线 helper，单测以假 hls/假轮次断言。 */
 import type Hls from "hls.js";
 import { lastPickRound } from "../../shared/network/autoLine";
+import { hostOf } from "../../shared/api/api";
 
 /** hls.js 的 ABR 冷启默认值（bps）：无线路账本可用时回退到它。 */
 export const ABR_DEFAULT_ESTIMATE_BPS = 500_000;
 
-/** 从最近一轮选线结果取播种吞吐：候选实测 kbps 的最大值（kbps→bps）。
- * 无轮次/无实测值返回 null（调用方回退默认）。 */
-export function resolveAbrSeedBps(round: { measured: { kbps: number | null }[] } | null): number | null {
+/** 从最近一轮选线结果取播种吞吐：当前线路（round.base）对应候选的
+ * 实测 kbps（kbps→bps）——旧实现对全部候选取 max，注释自称「当前
+ * 线路」却系统性偏高（整改 B11，Hark G1 P2-2/G3 P2-8）。base 对应
+ * 候选无实测值返回 null（调用方回退默认）；轮次不带 base/host 的旧
+ * 夹具形状才回退全候选 max（兼容既有契约）。 */
+export function resolveAbrSeedBps(round: { base?: string; measured: { host?: string; kbps: number | null }[] } | null): number | null {
   if (!round) return null;
+  const baseHost = round.base ? hostOf(round.base) : "";
+  if (baseHost) {
+    const hit = round.measured.find(m => m.host === baseHost && m.kbps != null && m.kbps > 0);
+    return hit?.kbps != null ? hit.kbps * 1000 : null;
+  }
   let best: number | null = null;
   for (const m of round.measured) {
     if (m.kbps != null && m.kbps > 0) best = best == null ? m.kbps * 1000 : Math.max(best, m.kbps * 1000);

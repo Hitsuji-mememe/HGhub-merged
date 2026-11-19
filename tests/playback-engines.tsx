@@ -362,6 +362,20 @@ function run() {
     results.h_lock_highest = [locked, (fake as { startLevel: number }).startLevel];
   }
   results.h_first_rendition = formatFirstRendition({ index: 4, total: 4, width: 1920, height: 1080, bitrate: 8_000_000 });
+  /* ── B11 ABR 播种取当前线路（整改 B11）：最快候选不是当前线路时，
+   * 播种值必须 = round.base 对应候选的 kbps，而非全候选 max。 ── */
+  results.b11_seed_current_line = resolveAbrSeedBps({
+    base: "https://line-b.example",
+    measured: [
+      { host: "line-a.example", kbps: 9000 },
+      { host: "line-b.example", kbps: 1500 },
+      { host: "line-c.example", kbps: null },
+    ],
+  });
+  results.b11_seed_current_line_missing = resolveAbrSeedBps({
+    base: "https://line-z.example",
+    measured: [{ host: "line-a.example", kbps: 9000 }],
+  });
 
   /* ── G 门禁 v2（audit6 P0-A 第 3 层）：逐项否决——任一门不过全不过 ── */
   {
