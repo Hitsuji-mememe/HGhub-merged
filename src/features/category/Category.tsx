@@ -252,8 +252,11 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
       setDisplayedFilter(filterKey(sortOverride, originalCateOverride));
       setPage(next);
       /* 终止只认接口 pages；缺失时仅空页才推断到尾（旧 `|| next`
-       * 在接口偶发缺 pages 时把总页数钉死在当前页、提前终止）。 */
-      setPages(res?.pagination?.pages ?? ((res?.items?.length ?? 0) > 0 ? Math.max(pages, next) : next));
+       * 在接口偶发缺 pages 时把总页数钉死在当前页、提前终止）。
+       * reset（换筛选/重拉）时页数基线归 1（fix2.1 整改，GPT 四审
+       * #10）：旧写法拿旧筛选的 pages 与 next 取 max，响应缺 pages
+       * 时新筛选继承旧总页数、状态行页数与可翻页判断双双失真。 */
+      setPages(res?.pagination?.pages ?? ((res?.items?.length ?? 0) > 0 ? Math.max(reset ? 1 : pages, next) : next));
       setErr(null);
       traceFeed("page.success", { list: `channel:${cate}`, page: next, received: res?.items?.length ?? 0, pages: res?.pagination?.pages ?? null, ms: Date.now() - startedAt });
     } catch (e) {
