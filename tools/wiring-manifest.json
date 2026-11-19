@@ -802,6 +802,33 @@
         "src/shared/diagnostics/diagnosticReport.ts"
       ],
       "min": 1
+    },
+    {
+      "id": "fix321-f1-same-source-merge",
+      "item": "3.2.1 F1 同源重复判据（同 ID/同题同封面）在 mergeHits 生产合并路径被调用",
+      "symbol": "sameSourceDuplicateKind",
+      "files": [
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f1-copies-dedup",
+      "item": "3.2.1 F1 copies 按 (sourceId, externalId) 去重键在 mergeHits 被使用",
+      "symbol": "copyDedupKey",
+      "files": [
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f1-fanout-exclude-native",
+      "item": "3.2.1 F1 Search 扇出排除原生已覆盖的黄果（FANOUT_EXCLUDE_NATIVE 定义＋过滤调用）",
+      "symbol": "FANOUT_EXCLUDE_NATIVE",
+      "files": [
+        "src/features/search/Search.tsx"
+      ],
+      "min": 2
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",
