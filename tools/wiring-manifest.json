@@ -735,6 +735,55 @@
       ],
       "symbol": "presentedFrames",
       "min": 2
+    },
+    {
+      "id": "fin-d3-fanout-search",
+      "item": "最终版D3线 全局搜索多源扇出（Search 生产调用＋纯逻辑定义）",
+      "symbol": "fanoutSearch",
+      "files": [
+        "src/features/search/Search.tsx",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-d3-create-adapter-search",
+      "item": "最终版D3线 Search 经 createAdapter 调外部源 search/detail/resolve",
+      "symbol": "createAdapter",
+      "files": [
+        "src/features/search/Search.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-d3-four-tabs",
+      "item": "最终版D3线 搜索页签四类封顶常量（定义＋消费）",
+      "symbol": "GLOBAL_SEARCH_TABS",
+      "files": [
+        "src/features/search/Search.tsx",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-d3-aggregate",
+      "item": "最终版D3线 Search 经 aggregateHits 跨源合并混排",
+      "symbol": "aggregateHits",
+      "files": [
+        "src/features/search/Search.tsx",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fin-d3-copy-fallback",
+      "item": "最终版D3线 副本失败静默顺延（Search 详情调用＋纯逻辑定义）",
+      "symbol": "loadWithFallback",
+      "files": [
+        "src/features/search/Search.tsx",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",
