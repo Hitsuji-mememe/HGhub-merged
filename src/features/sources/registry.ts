@@ -87,8 +87,8 @@ export const BUILTIN_SOURCES: SourceDef[] = [
     id: "rule34video", displayName: "Rule34Video", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/latest-updates/{page}/", itemLinkPattern: "/video/", detailPath: "/video/{id}/" } },
     baseUrls: ["https://rule34video.com"],
-    enabled: true, order: 28, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+    enabled: true, order: 28, maturity: "stable",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：/latest-updates/1/ 解析 23 条、详情 KVS 播放器配置含 360–1080p 多档 mp4 直链（get_file、带 acctoken）、解析层取最高档离线复验通过",
   },
   {
     id: "51chigua", displayName: "51吃瓜网", kind: "post", category: "posts",
