@@ -16,9 +16,9 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import type { SuperResMode } from "../../shared/model/store";
-import { getSrProbeResult } from "../../shared/diagnostics/gpuProbe";
+import { createSrProductionPublisher, getSrProbeResult } from "../../shared/diagnostics/gpuProbe";
 import { srContentRect, srDemote } from "./SuperResCanvas";
-import { WebGpuSrEngine } from "./webgpuSr";
+import { WebGpuSrEngine, srFrameBudgetMs, srPresentModeFor } from "./webgpuSr";
 
 /** 呈现档回报口径（整改 B17-2）：引擎降级级经 srDemote 映射回模式
  * 阶梯——degrade 0 = 原档、1 = 降一档（2 = 引擎已死、组件随即卸载）。 */
@@ -105,6 +105,15 @@ export default function WebGpuSrCanvas({
     let cancelled = false;
     let rafId = 0;
     let vfcId = 0;
+    /* 暂停空转小修（fin-e2 条目 4）：暂停时帧循环改走低频 idle 定时器
+     * （见 start 内调度），play 事件即时唤醒。 */
+    let idleTimer = 0;
+    let wakeOnPlay: (() => void) | null = null;
+    /* 生产统计发布（fin-e2 条目 1）：start 内建发布器后挂到此引用，
+     * cleanup 收尾强制发布一次；发布逻辑全部在 gpuProbe 发布器内，
+     * 本组件只提供引擎 stats。 */
+    let publishStatsFn: ((force?: boolean) => void) | null = null;
+    let statsTimer = 0;
     setPresented(false);
     presentedRef.current = false;
     setDegrade(0);
@@ -118,7 +127,7 @@ export default function WebGpuSrCanvas({
     const start = async () => {
       const probe = getSrProbeResult();
       const path = probe?.recommendedPath ?? "copy";
-      const engine = await WebGpuSrEngine.create(canvas, { path, onLost: die, onDegrade: (d) => { if (!cancelled) setDegrade(d); } });
+      const engine = await WebGpuSrEngine.create(canvas, { path, onLost: die, onDegrade: (d) => { if (!cancelled) setDegrade(d); publishStatsFn?.(); } });
       if (cancelled) {
         engine?.destroy();
         return;
@@ -129,6 +138,24 @@ export default function WebGpuSrCanvas({
       }
       engineRef.current = engine;
       onTrace?.("sr.webgpu_start", { path });
+
+      /* 生产统计周期发布（fin-e2 条目 1，来源②）：此前 getStats()
+       * 只有探针在调，生产丢帧/P90 无证据。现每 30s 发布一次生产
+       * 快照（降级变化由发布器内部立即发布——onDegrade 触发时顺带
+       * 调一次 publishStatsFn），进诊断报告 SR 段并与探针数字分开
+       * 标注。发布器只汇总引擎既有 stats，不逐帧写账本。 */
+      const statsPublisher = createSrProductionPublisher();
+      publishStatsFn = (force = false) => {
+        const eng = engineRef.current;
+        if (!eng) return;
+        const st = eng.getStats();
+        statsPublisher.consider(
+          { frames: st.frames, droppedStale: st.droppedStale, costAvgMs: st.costAvgMs, costP90Ms: st.costP90Ms, degrade: st.degrade, path: st.path, mode: modeRef.current },
+          performance.now(),
+          force,
+        );
+      };
+      statsTimer = window.setInterval(() => publishStatsFn?.(), 30_000);
 
       /* 暂停停处理（fix2.1 批二#5）：暂停时视频帧不再变化，旧实现仍以
        * rAF 约 60fps 对同一静止帧反复跑全链 CNN，纯烧电发热。现行：
@@ -164,8 +191,11 @@ export default function WebGpuSrCanvas({
             const rect = srContentRect(cw, ch, video.videoWidth, video.videoHeight, "contain");
             dst = [rect.x / cw, rect.y / ch, rect.w / cw, rect.h / ch];
           }
-          const intervalMs = fps && fps > 0 ? 1000 / fps : 33.3;
-          const did = eng.processFrame(video, intervalMs, { dst, src });
+          /* 帧预算按倍速核销（fin-e2 条目 2）：srFrameBudgetMs 把
+           * playbackRate 纳入预算，1.25x/1.5x 不再被旧 1000/fps 误判
+           * 超标；呈现档 mode 同步入引擎（fin-e2 条目 3 两档差异）。 */
+          const intervalMs = srFrameBudgetMs(fps, video.playbackRate);
+          const did = eng.processFrame(video, intervalMs, { dst, src, mode: srPresentModeFor(modeRef.current) });
           if (did) lastMediaTime = video.currentTime;
           if (did && !presentedRef.current) {
             /* 首帧呈现：只置 presented＋记 trace；呈现档回报收敛到
@@ -178,10 +208,24 @@ export default function WebGpuSrCanvas({
         }
         if (typeof video.requestVideoFrameCallback === "function" && !video.paused) {
           vfcId = video.requestVideoFrameCallback(frame);
+        } else if (video.paused) {
+          /* 暂停空转小修（fin-e2 条目 4，顺手核查属实）：旧实现暂停时
+           * 仍以 rAF ~60fps 空转 tick（每 tick 只查 pausedStill 即返），
+           * 整场暂停都在烧无谓唤醒。改 250ms 低频轮询保住「暂停中
+           * seek 补一帧」（pausedStill 判定不变），play 事件经
+           * wakeOnPlay 即时唤醒切回 rVFC/rAF，恢复无延迟。 */
+          idleTimer = window.setTimeout(frame, 250);
         } else {
           rafId = window.requestAnimationFrame(frame);
         }
       };
+      wakeOnPlay = () => {
+        if (!idleTimer) return;
+        window.clearTimeout(idleTimer);
+        idleTimer = 0;
+        frame();
+      };
+      video.addEventListener("play", wakeOnPlay);
       frame();
     };
     void start();
@@ -189,6 +233,12 @@ export default function WebGpuSrCanvas({
     return () => {
       cancelled = true;
       if (rafId) cancelAnimationFrame(rafId);
+      if (idleTimer) window.clearTimeout(idleTimer);
+      if (wakeOnPlay) video.removeEventListener("play", wakeOnPlay);
+      if (statsTimer) window.clearInterval(statsTimer);
+      /* 收尾发布（fin-e2 条目 1）：卸载前把最后一段生产统计发出，
+       * 否则短会话（<30s）的生产数字永远缺席报告。 */
+      publishStatsFn?.(true);
       if (vfcId && typeof video.cancelVideoFrameCallback === "function") {
         try { video.cancelVideoFrameCallback(vfcId); } catch { /* 忽略 */ }
       }

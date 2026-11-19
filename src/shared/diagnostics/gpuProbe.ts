@@ -205,6 +205,115 @@ export function runSrProbe(): Promise<SrProbeResult | null> {
   return srProbeInflight;
 }
 
+/* ── 生产期统计（Muse 2026-11-19 最终版 E2 线，来源②：GPT 后续复审
+ * 条目 1，主代理亲核属实）──────────────────────────────────────────
+ * 此前引擎 getStats() 全仓只有探针（srProbe benchPath）在调，生产循环
+ * WebGpuSrCanvas 从不发布——报告里的丢帧率/P90 只有探针数字，生产期
+ * 无独立证据。现生产侧经 createSrProductionPublisher 周期发布：默认
+ * 30s 一次、降级级变化立即发布（轨迹留痕），快照带 phase:"production"，
+ * 与探针结果在报告中分节呈现、不混算。发布器只做节流＋汇总，调用方
+ * 逐帧 tick 也不会逐帧写任何账本/存储。 */
+export type SrProductionStats = {
+  phase: "production";
+  /** 发布时刻（ISO）。 */
+  at: string;
+  frames: number;
+  droppedStale: number;
+  /** droppedStale / (frames + droppedStale)，无帧时 0。 */
+  droppedRate: number;
+  costAvgMs: number;
+  costP90Ms: number;
+  path: string | null;
+  degrade: 0 | 1 | 2;
+  /** 本会话内降级级变化轨迹（含起始级，去重连续重复，上限 16）。 */
+  degradeTrail: (0 | 1 | 2)[];
+  mode: string | null;
+};
+
+export function srDroppedRate(frames: number, dropped: number): number {
+  const denom = frames + dropped;
+  return denom > 0 ? dropped / denom : 0;
+}
+
+/** P90 口径与引擎 getStats 一致：升序后取 floor(n×0.9) 位（封顶末位）。 */
+export function srCostP90(costs: number[]): number {
+  if (!costs.length) return 0;
+  const sorted = [...costs].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))];
+}
+
+export function srCostAvg(costs: number[]): number {
+  if (!costs.length) return 0;
+  return costs.reduce((a, b) => a + b, 0) / costs.length;
+}
+
+export type SrProductionInput = {
+  frames: number;
+  droppedStale: number;
+  /** 原始成本窗（夹具/测试用）；与 costAvgMs/costP90Ms 二选一，优先 costs。 */
+  costs?: number[];
+  costAvgMs?: number;
+  costP90Ms?: number;
+  degrade: 0 | 1 | 2;
+  path: string | null;
+  mode: string | null;
+};
+
+let srProductionLatest: SrProductionStats | null = null;
+
+export function getSrProductionStats(): SrProductionStats | null {
+  return srProductionLatest;
+}
+
+/** 生产统计发布器（每 WebGpuSrCanvas 挂载一个实例）：consider() 每次
+ * 调用只做廉价节流判定——首次必发、距上次发布 ≥intervalMs 才发、
+ * degrade 变化立即发（force 可强制，如卸载收尾）。发布即写入模块级
+ * 最新快照供诊断报告读取。nowMs 由调用方注入（performance.now 口径），
+ * 夹具以假时钟驱动。 */
+export function createSrProductionPublisher(opts?: { intervalMs?: number }): {
+  consider: (input: SrProductionInput, nowMs: number, force?: boolean) => SrProductionStats | null;
+} {
+  const intervalMs = opts?.intervalMs ?? 30_000;
+  let lastPublishedAt: number | null = null;
+  let lastDegrade: 0 | 1 | 2 | null = null;
+  const trail: (0 | 1 | 2)[] = [];
+  return {
+    consider(input, nowMs, force = false) {
+      if (trail[trail.length - 1] !== input.degrade) trail.push(input.degrade);
+      const degradeChanged = lastDegrade !== null && input.degrade !== lastDegrade;
+      lastDegrade = input.degrade;
+      const due = force || lastPublishedAt === null || degradeChanged || nowMs - lastPublishedAt >= intervalMs;
+      if (!due) return null;
+      lastPublishedAt = nowMs;
+      const round2 = (v: number) => Math.round(v * 100) / 100;
+      const snap: SrProductionStats = {
+        phase: "production",
+        at: new Date(nowMs).toISOString(),
+        frames: input.frames,
+        droppedStale: input.droppedStale,
+        droppedRate: srDroppedRate(input.frames, input.droppedStale),
+        costAvgMs: round2(input.costs?.length ? srCostAvg(input.costs) : input.costAvgMs ?? 0),
+        costP90Ms: round2(input.costs?.length ? srCostP90(input.costs) : input.costP90Ms ?? 0),
+        path: input.path,
+        degrade: input.degrade,
+        degradeTrail: trail.slice(-16),
+        mode: input.mode,
+      };
+      srProductionLatest = snap;
+      return snap;
+    },
+  };
+}
+
+export function formatSrProductionLines(s: SrProductionStats | null): string[] {
+  if (!s) return ["生产期：暂无（WebGPU 生产管线本会话未运行，或尚未到首个发布周期）"];
+  return [
+    `生产期（与探针期分开统计）：处理 ${s.frames} 帧 · 过期丢弃 ${s.droppedStale} 帧（丢弃率 ${(s.droppedRate * 100).toFixed(1)}%）`,
+    `生产期帧成本：平均 ${s.costAvgMs}ms / P90 ${s.costP90Ms}ms · 摄入路径 ${s.path ?? "未知"} · 呈现档 ${s.mode ?? "未知"}`,
+    `生产期降级轨迹：${s.degradeTrail.join(" → ")}（0=全链 2x、1=仅 Restore 1x、2=已停）· 最近发布 ${s.at}`,
+  ];
+}
+
 export function formatSrProbeLines(result: SrProbeResult | null): string[] {
   if (!srProbeRunner && !result) return ["探针 v2 未注册（本构建无超分检证实现）"];
   if (!result) return ["探针 v2 尚未完成（启动后后台执行）"];

@@ -585,6 +585,77 @@ function run() {
     try { localStorage.removeItem(key); } catch { /* 清理夹具写入 */ }
   }
 
+  /* ── E2 最终版 E2 线（Muse 2026-11-19 fin-e2，来源②GPT 后续复审
+   * 主代理亲核条目 1/2/3）：①SR 生产统计周期发布（与探针分开）
+   * ②帧预算纳入倍速核销 ③natural/crisp WebGPU 路径真实差异。
+   * 新导出经命名空间取用：基线无此导出时记 "missing" → 本组红。 */
+  {
+    const gp = gpuProbeModule as unknown as {
+      createSrProductionPublisher?: (opts?: { intervalMs?: number }) => {
+        consider: (input: { frames: number; droppedStale: number; costs: number[]; degrade: 0 | 1 | 2; path: string; mode: string }, nowMs: number) => { frames: number; droppedRate: number; costAvgMs: number; costP90Ms: number; phase: string; degradeTrail: number[] } | null;
+      };
+      getSrProductionStats?: () => { frames: number } | null;
+      formatSrProductionLines?: (s: unknown) => string[];
+      srDroppedRate?: (frames: number, dropped: number) => number;
+      srCostP90?: (costs: number[]) => number;
+    };
+    const round4 = (v: number) => Math.round(v * 10000) / 10000;
+    const costs = Array.from({ length: 100 }, (_, i) => i + 1); // 1..100ms
+    results.e2_dropped_rate_fn = gp.srDroppedRate ? round4(gp.srDroppedRate(100, 3)) : "missing";
+    results.e2_p90_fn = gp.srCostP90 ? gp.srCostP90(costs) : "missing";
+    const pub = gp.createSrProductionPublisher ? gp.createSrProductionPublisher({ intervalMs: 30_000 }) : null;
+    const in1 = { frames: 100, droppedStale: 3, costs, degrade: 0 as const, path: "copy", mode: "natural" };
+    const p1 = pub ? pub.consider(in1, 0) : "missing";
+    results.e2_prod_first_publish = p1 === "missing" ? "missing" : p1 != null;
+    results.e2_prod_first_phase = p1 === "missing" || p1 == null ? "missing" : p1.phase;
+    results.e2_prod_first_frames = p1 === "missing" || p1 == null ? "missing" : p1.frames;
+    results.e2_prod_first_dropped_rate = p1 === "missing" || p1 == null ? "missing" : round4(p1.droppedRate);
+    results.e2_prod_first_avg = p1 === "missing" || p1 == null ? "missing" : p1.costAvgMs;
+    results.e2_prod_first_p90 = p1 === "missing" || p1 == null ? "missing" : p1.costP90Ms;
+    const p2 = pub ? pub.consider({ ...in1, frames: 150, droppedStale: 4 }, 10_000) : "missing";
+    results.e2_prod_throttled = p2 === "missing" ? "missing" : p2 === null;
+    const p3 = pub ? pub.consider({ ...in1, frames: 200, droppedStale: 5 }, 30_000) : "missing";
+    results.e2_prod_interval_frames = p3 === "missing" || p3 == null ? "missing" : p3.frames;
+    results.e2_prod_interval_dropped_rate = p3 === "missing" || p3 == null ? "missing" : round4(p3.droppedRate);
+    const p4 = pub ? pub.consider({ ...in1, frames: 210, droppedStale: 5, degrade: 1 as const }, 31_000) : "missing";
+    results.e2_prod_degrade_forced = p4 === "missing" ? "missing" : p4 != null;
+    results.e2_prod_degrade_trail = p4 === "missing" || p4 == null ? "missing" : p4.degradeTrail;
+    results.e2_prod_registry_frames = gp.getSrProductionStats ? (gp.getSrProductionStats()?.frames ?? null) : "missing";
+    results.e2_prod_lines_label = gp.formatSrProductionLines && gp.getSrProductionStats
+      ? gp.formatSrProductionLines(gp.getSrProductionStats()).join("\n").includes("生产期") : "missing";
+  }
+  {
+    const budget = (webgpuSrModule as unknown as { srFrameBudgetMs?: (fps: number | undefined, playbackRate: number) => number }).srFrameBudgetMs;
+    results.e2_budget_30fps_1x = budget ? budget(30, 1) : "missing";
+    results.e2_budget_30fps_125x = budget ? budget(30, 1.25) : "missing";
+    results.e2_budget_30fps_15x = budget ? budget(30, 1.5) : "missing";
+    results.e2_budget_unknown_fps_1x = budget ? budget(undefined, 1) : "missing";
+    results.e2_budget_unknown_fps_2x = budget ? budget(undefined, 2) : "missing";
+    results.e2_budget_rate_zero = budget ? budget(30, 0) : "missing";
+  }
+  {
+    const wg = webgpuSrModule as unknown as {
+      SR_PRESENT_SHARPEN?: Record<string, { coeff: number; detail: number }>;
+      srPresentSharpenPixel?: (c: number[], n: number[], s: number[], w: number[], e: number[], mode: "natural" | "crisp") => number[];
+    };
+    results.e2_sharp_coeff_natural = wg.SR_PRESENT_SHARPEN?.natural.coeff ?? "missing";
+    results.e2_sharp_coeff_crisp = wg.SR_PRESENT_SHARPEN?.crisp.coeff ?? "missing";
+    const px = wg.srPresentSharpenPixel;
+    const gray = (v: number) => [v, v, v];
+    const flat = px ? px(gray(0.5), gray(0.5), gray(0.5), gray(0.5), gray(0.5), "crisp") : null;
+    results.e2_sharp_flat_unchanged = flat ? Math.abs(flat[0] - 0.5) : "missing";
+    /* 边缘例：中心 0.6、四邻 0.9/0.9/0.9/0.5（crossAvg 0.8，中心被
+     * 亮邻居包围）——锐化应把中心推离局部均值（向下），crisp 推得更远。 */
+    const nat = px ? px(gray(0.6), gray(0.9), gray(0.9), gray(0.9), gray(0.5), "natural") : null;
+    const cri = px ? px(gray(0.6), gray(0.9), gray(0.9), gray(0.9), gray(0.5), "crisp") : null;
+    const round3 = (v: number) => Math.round(v * 1000) / 1000;
+    results.e2_sharp_edge_natural = nat ? round3(nat[0]) : "missing";
+    results.e2_sharp_edge_crisp = cri ? round3(cri[0]) : "missing";
+    results.e2_sharp_edge_separation = nat && cri ? round3(Math.abs(nat[0] - cri[0])) : "missing";
+    results.e2_sharp_direction = nat && cri ? (cri[0] < nat[0] && nat[0] < 0.6) : "missing";
+    results.e2_sharp_shader_wired = webgpuSrModule.__test.PRESENT_SHADER.includes("rects[2]");
+  }
+
   /* ── H HLS 工厂（audit6 P0-A 第 1 层）：播种值、回退默认、锁最高档、
    * 首分片档位格式 ── */
   results.h_seed_from_round = resolveAbrSeedBps({ measured: [{ kbps: 1200 }, { kbps: 4500 }, { kbps: null }] });

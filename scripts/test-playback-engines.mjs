@@ -156,6 +156,37 @@ try {
   check("E ttl success aged 29d gates re-evaluated pass", r.e_ttl_success_29d_gates, true);
   check("E ttl success aged 31d expired", r.e_ttl_success_31d, "ignored");
 
+  // E2 — fin-e2: SR production stats publishing / rate-scaled frame budget / real natural-vs-crisp split
+  check("E2 dropped rate fn", r.e2_dropped_rate_fn, 0.0291);
+  check("E2 cost P90 fn", r.e2_p90_fn, 91);
+  check("E2 prod first publish", r.e2_prod_first_publish, true);
+  check("E2 prod first phase labelled production", r.e2_prod_first_phase, "production");
+  check("E2 prod first frames", r.e2_prod_first_frames, 100);
+  check("E2 prod first dropped rate", r.e2_prod_first_dropped_rate, 0.0291);
+  check("E2 prod first cost avg", r.e2_prod_first_avg, 50.5);
+  check("E2 prod first cost P90", r.e2_prod_first_p90, 91);
+  check("E2 prod throttled inside interval", r.e2_prod_throttled, true);
+  check("E2 prod interval publish frames", r.e2_prod_interval_frames, 200);
+  check("E2 prod interval dropped rate", r.e2_prod_interval_dropped_rate, 0.0244);
+  check("E2 prod degrade change forces publish", r.e2_prod_degrade_forced, true);
+  check("E2 prod degrade trail", r.e2_prod_degrade_trail, [0, 1]);
+  check("E2 prod registry holds latest", r.e2_prod_registry_frames, 210);
+  check("E2 prod report lines labelled production phase", r.e2_prod_lines_label, true);
+  check("E2 budget 30fps 1x", r.e2_budget_30fps_1x, 33.33);
+  check("E2 budget 30fps 1.25x scaled", r.e2_budget_30fps_125x, 26.67);
+  check("E2 budget 30fps 1.5x scaled", r.e2_budget_30fps_15x, 22.22);
+  check("E2 budget unknown fps 1x", r.e2_budget_unknown_fps_1x, 33.3);
+  check("E2 budget unknown fps 2x scaled", r.e2_budget_unknown_fps_2x, 16.65);
+  check("E2 budget zero rate falls back to 1x", r.e2_budget_rate_zero, 33.33);
+  check("E2 sharpen coeff natural (mirrors WebGL RCAS)", r.e2_sharp_coeff_natural, 0.14);
+  check("E2 sharpen coeff crisp stronger", r.e2_sharp_coeff_crisp, 0.24);
+  check("E2 sharpen flat field unchanged", r.e2_sharp_flat_unchanged, 0);
+  check("E2 sharpen edge natural output", r.e2_sharp_edge_natural, 0.536);
+  check("E2 sharpen edge crisp output", r.e2_sharp_edge_crisp, 0.49);
+  check("E2 sharpen edge separation > 0.02", typeof r.e2_sharp_edge_separation === "number" ? r.e2_sharp_edge_separation > 0.02 : "missing", true);
+  check("E2 sharpen direction away from local average, crisp further", r.e2_sharp_direction, true);
+  check("E2 sharpen wired into present shader", r.e2_sharp_shader_wired, true);
+
   check("G gates v2 all pass", r.g_all_pass, true);
   check("G gates v2 720p P90 blocks", r.g_p90_720_blocks, false);
   check("G gates v2 1080p avg blocks", r.g_1080_avg_blocks, false);

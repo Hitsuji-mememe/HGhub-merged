@@ -24,7 +24,7 @@ import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot, validateLedgerIntegrity} from "./eventLedger";
 import { sourceRegistryVersion, sourceHealthLines } from "./sourceRegistry";
 import { cacheCountersSnapshot } from "../../features/feed/cacheMap";
-import { formatSrProbeLines, getSrProbeResult } from "./gpuProbe";
+import { formatSrProductionLines, formatSrProbeLines, getSrProductionStats, getSrProbeResult } from "./gpuProbe";
 import { feedTraceSnapshot, feedTraceSummary} from "../lib/feedTrace";
 
 type Json = Record<string, unknown>;
@@ -684,6 +684,15 @@ lines.push("");
 lines.push("── WebGPU 探针 v2（超分检证）───────");
 try {
 for (const l of formatSrProbeLines(getSrProbeResult())) lines.push(l);
+} catch {
+lines.push("读取失败（纯旁路，不影响本报告其余内容）");
+}
+/* 生产期统计（Muse 2026-11-19 最终版 E2 线）：与探针期分开成节——
+ * 探针数字是离线 bench、生产数字是真实播放循环的周期发布，两组数
+ * 不许混读（GPT 后续复审条目 1 的缺口即在于此前只有探针数字）。 */
+lines.push("── WebGPU 生产期统计（真实播放）─────");
+try {
+for (const l of formatSrProductionLines(getSrProductionStats())) lines.push(l);
 } catch {
 lines.push("读取失败（纯旁路，不影响本报告其余内容）");
 }
