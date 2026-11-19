@@ -12,7 +12,7 @@ import { useSocialCounts } from "./ActionRail";
 import { LandHint } from "./LandHint";
 import { useProgressFlush } from "./useProgressFlush";
 import { setBackHandler } from "../../shared/lib/back";
-import { setDetailNextHandler } from "../../shared/lib/detailNext";
+import { useDetailNext } from "./useDetailNext";
 import { copyText } from "../../shared/lib/clipboard";
 import {
   PlaybackProgress, PlaybackTime, PlayerControls, VideoSurface,
@@ -1172,22 +1172,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const epIdx = episodes.findIndex((e) => e.ep_num === curEp);
   const stepEp = (d: 1 | -1) => { const t = episodes[epIdx + d]; if (t) pickEp(t.ep_num); };
 
-  /* 详情页左划下一条（fix2.1 批四#12）：向 App 链式手势注册本页的
-   * 「下一个」——语义与桌面控制层 onNext 完全一致（有下一集先切集、
-   * 否则切下一条作品），来源列表上下文即本组件自持的
-   * effectiveVideoIds/index，无需外部传参。仅 context 模式且 active
-   * （栈顶可见）时持有注册，卸载/失活即注销；已在最后一集且无下一条
-   * 时返回未消费，左划无动作。 */
-  useEffect(() => {
-    if (!active || mode !== "context") return;
-    setDetailNextHandler(() => {
-      const nx = episodes.find((e) => e.ep_num === curEp + 1);
-      if (nx) { pickEp(nx.ep_num); return true; }
-      if (index < effectiveVideoIds.length - 1) { go(1); return true; }
-      return false;
-    });
-    return () => setDetailNextHandler(null);
-  }, [active, mode, episodes, curEp, index, effectiveVideoIds.length, go]);
+  /* 详情页左划下一条（fix2.1 批四#12）：来源列表上下文即本组件自持
+   * 的 effectiveVideoIds/index，无需外部传参；注册逻辑见 useDetailNext。 */
+  useDetailNext({ enabled: active && mode === "context", episodes, curEp, index, count: effectiveVideoIds.length, pickEp, go });
 
   /* 点赞/收藏计数随右栏恢复（上游原算法在 ActionRail.useSocialCounts） */
   const { likeCount, collectCount } = useSocialCounts(meta, detail, kind, curEp, liked, collected);
