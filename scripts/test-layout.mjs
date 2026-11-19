@@ -687,6 +687,80 @@ try {
       });
       assert(follow.inside, `${name}: current thumbnail must stay visible in strip after page turn`);
       assert.equal(follow.pressed, "true", `${name}: current thumbnail must be highlighted after page turn`);
+      // ⑤ 条上持续活动须推迟 chrome 淡出（fix330/ui-fixes）：在条上
+      //    反复派发 touchmove/scroll 跨越原 3s 闲置窗，chrome 仍须
+      //    可见；停手后恢复淡出。旧码淡出计时只挂呼出/切张——条上
+      //    划找图满 3s 整层在指下淡出，本段在此红。
+      await ensureChrome();
+      const pokeUntil = Date.now() + 3600;
+      while (Date.now() < pokeUntil) {
+        await page.evaluate(() => {
+          const el = document.querySelector('[data-album-chrome="bottom"] .scroll-x');
+          const r = el.getBoundingClientRect();
+          const t = new Touch({ identifier: 9, target: el, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
+          el.dispatchEvent(new TouchEvent("touchmove", { touches: [t], changedTouches: [t], bubbles: true, cancelable: true }));
+          el.dispatchEvent(new Event("scroll", { bubbles: true }));
+        });
+        await page.waitForTimeout(800);
+      }
+      assert(await chromeOpacity() > 0.5, `${name}: strip activity must keep chrome visible past the idle window`);
+      await page.waitForTimeout(3600);
+      assert(await chromeOpacity() < 0.5, `${name}: chrome must fade again after activity stops`);
+      result.status = "passed";
+      console.log(`PASS ${name}`);
+    } catch (error) {
+      result.status = "failed"; result.error = error.message;
+      console.error(`FAIL ${name}: ${error.message}`);
+      await page.screenshot({ path: join(output, `${name.replace(/[^\w-]+/g, "_")}.png`) }).catch(() => {});
+    } finally {
+      await context.close();
+      await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+    }
+  }
+
+  /* ── 图集快速滑动不消失（Muse 2026-11-19 fix330/ui-fixes）──
+   * 真机实报「图片预览滑的快了会直接消失隐藏」的主图一半：慢图
+   * 源（请求 900ms 才返回）下快速连翻，窗口化舞台须保证当前帧
+   * 与两侧邻帧始终已挂载、邻图在被翻到前已发出请求预取。旧单
+   * Img 逐张重挂没有任何帧元素、首断言即红。 */
+  async function runGalleryFastSwipeCase() {
+    const name = "gallery-fast-swipe";
+    const result = { name, viewport: [393, 852], status: "running" };
+    report.cases.push(result);
+    const context = await browser.newContext({ userAgent: IPHONE_UA, hasTouch: true, viewport: { width: 393, height: 852 } });
+    const page = await context.newPage();
+    page.setDefaultTimeout(15000);
+    const PNG1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    const requested = [];
+    page.on("request", (req) => { try { requested.push(decodeURIComponent(req.url())); } catch { requested.push(req.url()); } });
+    await context.route("**/*", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.origin === ui) return route.continue();
+      await new Promise((r) => setTimeout(r, 900));
+      return route.fulfill({ status: 200, contentType: "image/png", body: PNG1 });
+    });
+    try {
+      await page.goto(`${ui}/tests/gallery-viewer.html?n=146`);
+      const stage = page.locator('[data-ui="album-viewer-stage"]');
+      await stage.waitFor({ state: "visible" });
+      const frames = async () => page.evaluate(() => [...document.querySelectorAll("[data-album-frame]")].map((el) => Number(el.getAttribute("data-album-frame"))).sort((a, b) => a - b));
+      await page.waitForTimeout(300);
+      assert.deepEqual(await frames(), [0, 1], `${name}: initial window must mount current+next frame`);
+      assert(requested.some((u) => u.includes("album/2.jpg")), `${name}: next image must be requested (prefetch) before it is shown`);
+      const swipe = async () => page.evaluate(() => {
+        const el = document.querySelector('[data-ui="album-viewer-stage"]');
+        const r = el.getBoundingClientRect();
+        const mk = (type, x) => {
+          const t = new Touch({ identifier: 5, target: el, clientX: x, clientY: r.top + r.height / 2 });
+          el.dispatchEvent(new TouchEvent(type, { touches: type === "touchend" ? [] : [t], changedTouches: [t], bubbles: true, cancelable: true }));
+        };
+        mk("touchstart", r.left + r.width * 0.7);
+        mk("touchend", r.left + r.width * 0.7 - 80);
+      });
+      for (let i = 0; i < 6; i++) { await swipe(); await page.waitForTimeout(60); }
+      const countText = await page.evaluate(() => document.querySelector('[data-ui="album-viewer-count"]')?.textContent?.trim() || "");
+      assert.equal(countText, "7 / 146", `${name}: fast swipes must land on 7 / 146, got ${countText}`);
+      assert.deepEqual(await frames(), [5, 6, 7], `${name}: window at landing index must mount prev+current+next frames`);
       result.status = "passed";
       console.log(`PASS ${name}`);
     } catch (error) {
@@ -702,6 +776,7 @@ try {
   await runGalleryCase([393, 852]);
   await runGalleryCase([360, 780]);
   await runGalleryStripCase();
+  await runGalleryFastSwipeCase();
   if (process.env.LAYOUT_ONLY === "gallery") {
     console.log("LAYOUT_ONLY=gallery: player cases skipped");
   } else {

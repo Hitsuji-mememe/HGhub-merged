@@ -121,14 +121,19 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
  * 接线搜索段进扇出、feedheiliao 实证无 GET 搜索段维持出局；图片线
  * pixibb/nudecosplay 启用进扇出、pornpics 搜索属实 false 出局；
  * 新适配器线 hanime1/iwara/hentaihaven 三源已写带 search 的专用适配器
- * 并启用进扇出。名单 7→13 源，判定口径（结构门）不变。 */
+ * 并启用进扇出。名单 7→13 源，判定口径（结构门）不变。
+ * 契约适配（fix330/ui-fixes，2026-11-19）：用户 21:51 裁定 Rule34Video
+ * 摘除注册表，名单 13→12 源；本断言即「扇出名单由规则派生」的全量
+ * 遍历证据——名单不写死在搜索层，对注册表逐源跑 searchPolicyFor
+ * 的结果恰等于规则预期（enabled∧模板有 search∧caps.search）。 */
 {
   const included = getBuiltinRegistry().filter((d) => searchPolicyFor(d).include).map((d) => d.id);
   assert.deepEqual(
     included,
-    ["huangguo", "hanime-tv", "rule34video", "51chigua", "meiridasai", "xiuren", "cosplaytele", "danbooru", "hanime1", "iwara", "hentaihaven", "pixibb", "nudecosplay"],
-    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，3.3.0 集成）",
+    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "danbooru", "hanime1", "iwara", "hentaihaven", "pixibb", "nudecosplay"],
+    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix330/ui-fixes 摘 rule34video 后）",
   );
+  assert.ok(!getBuiltinRegistry().some((d) => d.id === "rule34video"), "rule34video 已摘除注册表（用户裁定），不进扇出也不在册");
 
   /* 出局的保留源逐源断言：无搜索段（caps 未声明/属实 false）或未启用 */
   const excludedSearch: Record<string, SearchSegment[]> = {

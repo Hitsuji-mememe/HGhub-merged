@@ -181,6 +181,17 @@ try {
     await page.close();
   }
 
+  /* —— 视频频道空转证伪（fix330/ui-fixes）：整页无标记＋补判挂死 —— */
+  {
+    const page = await newPage();
+    await gotoScene(page, "channel-spin");
+    await page.waitForFunction(() => document.body.innerText.includes("暂无已确认条目"), null, { timeout: 20000 });
+    const body = await page.evaluate(() => document.body.innerText);
+    check("channel-spin: 整页无标记＋补判挂死时翻完服务端页落诚实终态（不空转）",
+      body.includes("3/3 页") && body.includes("暂无已确认条目"), body.slice(0, 200));
+    await page.close();
+  }
+
   /* —— 频道页换筛选页数基线 —— */
   {
     const page = await newPage();

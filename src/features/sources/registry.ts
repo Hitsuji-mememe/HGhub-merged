@@ -10,7 +10,11 @@
  * 适配器源码留仓不删，远程清单 v3 同步只含保留源）。保留集：黄果、
  * 51吃瓜网、黑料网、每日大赛、秀人网、CosplayTele、Danbooru、
  * PornPics、目录图片类（PixiBB/NudeCosplay/yande.re/Gelbooru/Pixiv）、
- * Hanime.tv、Hanime1、Iwara、Rule34Video、HentaiHaven。
+ * Hanime.tv、Hanime1、Iwara、HentaiHaven。
+ * 2026-11-19 21:51 用户裁定追加摘除：Rule34Video 自注册表删除
+ * （fix330/ui-fixes 线执行；清单 v3 同步已摘、applyManifest 只覆盖
+ * 内置条目不新增，远程清单残留同 id 条目不会把已删源加回来；
+ * hls-site 适配器模板留仓不删，与既有瘦身口径一致）。
  *
  * 成熟度口径（诚实标注，2026-11-19 真站实测后更新）：
  * - 黄果 stable：仓内既有 native 通道、现行生产源；
@@ -50,13 +54,6 @@ export const NAMED_SOURCES: SourceDef[] = [
     baseUrls: ["https://hanime.tv"],
     enabled: true, order: 24, maturity: "probe",
     capabilities: HLS_CAPS, network: PROBE_NET, note: "3.3.0 接通批（fix330-hanime-api）：换 hanime-api 模板走站点官方 API v11（协议据 Hentai-Park 公开插件原文＋本机实测对账）。列表/搜索/详情＝guest API 全量目录 GET guest.freeanimehentai.net/api/v11/search_hvs（无签名、无服务端分页、客户端排序/过滤/切片；实测 HTTP 200、3474 条、4.5MB——Rust 取页对该 (origin,path) 定向放宽上限至 12MB、全局 4MB 不变）；详情目录未收录时回落详情页 og 元信息。播放＝握手链：ct.hanime.tv 取 CSRF → AES-256-GCM 信封（密钥/签名为公开协议常数）POST auth.hanime.tv/api/v11/handshake（x-signature web2 签名头）→ x-token 响应头回信封解密得 /hls/<画质>/ 流表。通道定性（复核旧 F2b 结论属实）：原 GET-only 取页三处不通（POST 方法无入口/签名头被 filter_source_headers 丢弃/响应头不可见）→ 本批以 Rust source_post 定向扩展打通（仅 auth.hanime.tv origin＋固定头名单＋仅回 x-token 一个响应头，GET 契约与全局白名单不变）。协议级实证（2026-11-19 本机机房出口）：目录/CSRF/握手三端点均 200、流表 3 档、HLS 清单 200 且 #EXTM3U 形态合法；App 侧未真机验 → 代码就绪未验证、维持 probe",
-  },
-  {
-    id: "rule34video", displayName: "Rule34Video", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/latest-updates/{page}/", itemLinkPattern: "/video/", detailPath: "/video/{id}/" } },
-    baseUrls: ["https://rule34video.com"],
-    enabled: true, order: 28, maturity: "stable",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：/latest-updates/1/ 解析 23 条、详情 KVS 播放器配置含 360–1080p 多档 mp4 直链（get_file、带 acctoken）、解析层取最高档离线复验通过",
   },
   {
     id: "51chigua", displayName: "51吃瓜网", kind: "post", category: "posts",

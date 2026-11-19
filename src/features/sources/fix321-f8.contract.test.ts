@@ -232,13 +232,17 @@ function checkResult(sourceId: string, over: Partial<SourceSelfCheckResult> = {}
   // 契约适配（3.3.0 集成，2026-11-19）：原断言「两位数」基于瘦身前 52 源注册表；
   // 3.2.2 瘦身后保留集 hls-site 源为个位数。保护的行为是「机制覆盖名单＝注册表
   // hls-site 全集、枚举非空且含保留里番/图片源」，改按保留集实名断言，不削弱覆盖。
-  assert.ok(covered.length >= 2, `hls-site 覆盖源应为保留集全集，实际 ${covered.length}`);
+  /* 断言适配（fix330/ui-fixes，2026-11-19）：rule34video 按用户裁定
+   * 摘除注册表后，保留集 hls-site 全集只剩 pornpics 一源——下限改
+   * 非空（>=1）、实名断言收口到 pornpics；保护行为（覆盖名单＝注册
+   * 表 hls-site 全集、由上方 filter 枚举本身保证）不变。 */
+  assert.ok(covered.length >= 1, `hls-site 覆盖源应为保留集全集（非空），实际 ${covered.length}`);
   /* 断言适配（3.3.0 接通批集成，2026-11-19）：hanime-tv 已换 hanime-api
    * 模板、hentaihaven 已毕业 hentaihaven-api 专用模板——两者均不再属
    * hls-site 参数下发覆盖面（F8 口径本就只覆盖 hls-site）；保留集
-   * hls-site 全集现为 rule34video＋pornpics 两源，实名断言随之收口，
-   * 保护行为（覆盖名单＝注册表 hls-site 全集）不变。 */
-  for (const id of ["rule34video", "pornpics"]) {    assert.ok(covered.some((s) => s.id === id), `hls-site 覆盖名单应含 ${id}`);
+   * hls-site 全集现为 pornpics 一源（rule34video 已摘除），实名断言
+   * 随之收口，保护行为不变。 */
+  for (const id of ["pornpics"]) {    assert.ok(covered.some((s) => s.id === id), `hls-site 覆盖名单应含 ${id}`);
   }
 }
 
