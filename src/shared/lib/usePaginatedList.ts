@@ -141,8 +141,12 @@ export function usePaginatedList<T>({
       setStatus(more ? "idle" : "exhausted");
       /* 预取调度：哨兵仍在预取区且未到尾，续拉下一页（有上限防
        * 整页被过滤/内容过矮时的无限连拉）。哨兵边沿通知不再是
-       * 唯一驱动（旧失效模式：追加内容后哨兵不重触发即停摆）。 */
-      if (more && source !== "reset" && sentinelVisible.current && !filteringRef.current
+       * 唯一驱动（旧失效模式：追加内容后哨兵不重触发即停摆）。
+       * reset 成功同样走调度（fix2.1 整改，GPT 四审 #2）：首屏内容
+       * 过矮时哨兵在 reset 完成前就已可见、边沿早被消费，旧条件
+       * 排除 reset 会让短列表永远停在第一页——MAX_AUTO_PREFETCH
+       * 注释本就是为「内容过矮」设的，reset 路径不该被排除在外。 */
+      if (more && sentinelVisible.current && !filteringRef.current
         && m.autoPrefetch < MAX_AUTO_PREFETCH) {
         m.autoPrefetch++;
         void runRequest(false, "prefetch");
