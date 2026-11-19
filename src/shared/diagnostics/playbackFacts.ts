@@ -24,7 +24,19 @@ export type PlaybackFacts = {
   h: number;
   /** 前 3 个完整分片实际码率的中位数（bps），原生引擎或未取到时缺失。 */
   bitrateBps?: number;
+  /** 声明帧率（主列表 FRAME-RATE）；实测回填值不写此字段——报告
+   * 的 bpp 复算与帧率行据此区分声明/实测（回填线护栏：fps 字段恒
+   * 只承载声明值，回填走 measuredFps）。 */
   fps?: number;
+  /** 判档帧率来源（3.3.0批 SR 帧率回填线）：declared＝fps 为声明
+   * 值；measured＝声明缺失、判档 crisp 门由 measuredFps 回填支撑。
+   * 与 levelFacts 同口径：来源随事实一并发布，供报告判读。 */
+  fpsSource?: "declared" | "measured";
+  /** rVFC 实测回填帧率（已吸附）：仅 fpsSource==="measured" 时有，
+   * 只支撑判档 crisp 门，不参与 bpp 复算/帧预算。 */
+  measuredFps?: number;
+  /** 实测中值（未吸附），供判读估计偏差；同 measuredFps 生命周期。 */
+  measuredRawFps?: number;
   /** 视频编码（manifest level 的 videoCodec，如 avc1…/hvc1…），未知时缺失。 */
   codec?: string;
   /** 当前生效超分档位（effectiveSrMode 结果）。 */

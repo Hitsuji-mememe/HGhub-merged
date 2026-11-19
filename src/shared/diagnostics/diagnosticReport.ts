@@ -613,8 +613,12 @@ const bpp = facts.bitrateBps && facts.w > 0 && facts.h > 0
    同理入报告：超分阈值按编码族缩放（整改 4），无编码无从复核判档。 */
 const codecText = facts.codec? ` · 编码 ${facts.codec.split(".")[0]}`: " · 编码 未知";
 /* 帧率单列（复审批 §5.4）：编码已知/fps 未知/两者皆未知是三种状态，
- * 帧成本预算与封顶判档都挂在 fps 上，不能塌缩进「编码未知」一格。 */
-const fpsText = facts.fps? ` · 帧率 ${facts.fps}fps`: " · 帧率 未知";
+ * 帧成本预算与封顶判档都挂在 fps 上，不能塌缩进「编码未知」一格。
+ * 来源分开标（3.3.0批 SR 帧率回填线）：facts.fps 恒为声明值；声明
+ * 缺失时判档 crisp 门可能由实测回填（measuredFps）支撑，行内明示
+ * 「实测回填」与未吸附中值，bpp 复算仍按声明口径（未知按 30），
+ * 不拿回填值冒充声明值复算。 */
+const fpsText = facts.fps? ` · 帧率 ${facts.fps}fps（声明）`: facts.measuredFps? ` · 帧率 ${facts.measuredFps}fps（实测回填${facts.measuredRawFps? `，中值 ${facts.measuredRawFps}`: ""}，仅判 crisp 门）`: " · 帧率 未知";
 lines.push(`当前集源：${facts.w}x${facts.h}${codecText}${fpsText}${kbps? ` · 码率 ${kbps} kbps`: " · 码率 未知"}${bpp? ` · 密度 bpp ${bpp}`: ""}${facts.engine? ` · 引擎 ${facts.engine}`: ""}`);
 /* 超分双行口径（audit6 P0-A 第 2 层）：判档是意图、实际管线是实况、
  * 降档次数是稳定性——分开报，禁止用单个「超分档位」冒充实况。 */

@@ -120,7 +120,7 @@ export function srCodecScale(codec?: string): number {
  * 整改 4（同日晚）：阈值先按编码族缩放（srCodecScale）；fps 未知时
  * bpp 按 30 估会系统性偏高（60fps 源真值只有一半），密度路径走保守
  * 档——不给 crisp、也不关档（off 同样需要 fps 背书），一律 natural。 */
-export function effectiveSrMode(pref: SrPref, w: number, h: number, density?: { bitrateBps?: number; fps?: number; codec?: string; provisional?: boolean }): SuperResMode {
+export function effectiveSrMode(pref: SrPref, w: number, h: number, density?: { bitrateBps?: number; fps?: number; measuredFps?: number; codec?: string; provisional?: boolean }): SuperResMode {
   if (pref === "off") return "off";
   const short = Math.min(w || 0, h || 0);
   if (short <= 0) return "natural";
@@ -131,16 +131,37 @@ export function effectiveSrMode(pref: SrPref, w: number, h: number, density?: { 
    * （useSrDensity.srDensityForTiering），此处是共享判档函数的兜底，
    * 任何直接传 provisional 对象的调用方都被同一口径拦住。 */
   const d = density?.provisional ? undefined : density;
+  /* fps 双口径分离（Muse 2026-11-19 3.3.0批 SR 帧率回填线，护栏 1）：
+   * density.fps 是声明帧率（主列表 FRAME-RATE），density.measuredFps
+   * 是 rVFC 实测回填（srFpsEstimate，声明缺失时才有）。三处消费严格
+   * 分开，不许一个字段混喂：
+   * - bpp 分子口径只认声明 fps（未知按 30 估，与既有口径一致）——
+   *   回填值若进 bpp 会连带改动中/高密度带的阈值穿越，越出授权面；
+   * - 低密度 crisp 门认「声明或实测」任一已知（fpsKnownForCrisp）：
+   *   这是回填的唯一判档消费点；
+   * - 高密度关超分门（off）只认声明 fps（fpsKnownDeclared）：实测
+   *   估计带单向误差，不许据此关掉超分。
+   * 帧成本预算同理只认声明 fps，见 srCostBudgetMs 与组件 fps prop。 */
   const bpp = srBpp(w, h, d?.bitrateBps, d?.fps);
   if (bpp == null) return short <= 720 ? "natural" : "off";
   const scale = srCodecScale(d?.codec);
   const low = SR_BPP_LOW * scale;
   const high = SR_BPP_HIGH * scale;
-  const fpsKnown = !!d?.fps && d.fps > 0;
-  if (bpp < low) return fpsKnown ? "crisp" : "natural";
+  const fpsKnownDeclared = !!d?.fps && d.fps > 0;
+  const fpsKnownForCrisp = fpsKnownDeclared || (!!d?.measuredFps && d.measuredFps > 0);
+  if (bpp < low) return fpsKnownForCrisp ? "crisp" : "natural";
   if (bpp < high) return "natural";
-  if (short > 720) return fpsKnown ? "off" : "natural";
+  if (short > 720) return fpsKnownDeclared ? "off" : "natural";
   return "natural";
+}
+
+/** SR 帧成本预算（ms）：min(16ms, 55% 帧间隔)。入参只许声明 fps
+ * （SuperResCanvas 的 fps prop，来自 density.fps）——实测回填值
+ * （measuredFps）永不进预算：估计偏高会把预算压窄、引发无谓的性能
+ * 降档（调查问题 C 的连带风险），偏低又会放宽预算。fps 未知用
+ * 16ms 上限（无帧间隔约束）。 */
+export function srCostBudgetMs(declaredFps?: number): number {
+  return declaredFps && declaredFps > 0 ? Math.min(16, (0.55 * 1000) / declaredFps) : 16;
 }
 
 /** 性能降档阶梯（会话内）：crisp → natural → off。自动档只产这三档；
@@ -955,7 +976,9 @@ type Props = {
   ready?: boolean;
   fit?: "contain" | "cover";
   srcKey?: string;
-  /** 源帧率（未知时缺失）：帧成本降档预算按帧间隔缩放（整改 4）。 */
+  /** 源声明帧率（未知时缺失）：帧成本降档预算按帧间隔缩放（整改 4）。
+   * 只许传声明值（density.fps）；实测回填值（measuredFps）不许走此
+   * 通道（3.3.0批 SR 帧率回填线护栏 1，见 srCostBudgetMs）。 */
   fps?: number;
   onFallbackChange?: (useSvgFallback: boolean) => void;
   /** U1：把（降档后的）实际呈现档位报给 VideoSurface 决定合成层保底
@@ -1294,8 +1317,9 @@ export default function SuperResCanvas({
          * 实现一致——探针窗只应用升档（降档在地板天然无动作，旧实现
          * 同样不应用探针降档），正常窗升降都应用并落 trace。 */
         if (costStart && fallbackRef.current.kind === "none") {
-          const srcFps = fpsRef.current;
-          const budget = srcFps && srcFps > 0 ? Math.min(16, (0.55 * 1000) / srcFps) : 16;
+          /* 预算只认声明 fps（fps prop ← density.fps）：fpsRef 存的
+           * 就是该 prop，实测回填值从不写入此通道（护栏 1）。 */
+          const budget = srCostBudgetMs(fpsRef.current);
           const verdict = perfRef.current?.sample(performance.now() - costStart, {
             fastRate, probing, budgetMs: budget, demote, maxDemote: srMaxDemoteSteps(mode),
           }) ?? null;

@@ -18,6 +18,7 @@ import { createFragThroughputReporter, currentLineOrigin } from "./playbackThrou
 import { createStallWatchdog, wireStallWatchdogSignals, type StallGate, type StallRetryReason } from "./stallWatchdogWiring";
 import type { AppendStallWatchdog, AppendStallState } from "./appendStallWatchdog";
 import { useSrDensity, type SrDensity, type SrFragSample, type SrLevelInfo } from "./useSrDensity";
+import { createSrFpsEstimator } from "./srFpsEstimate";
 import { formatFirstRendition, observeFirstRendition } from "./hlsConfig";
 import { presentationPipeline, srVideoFilterMode } from "./SuperResCanvas";
 import type { SrPref, SuperResMode } from "../../shared/model/store";
@@ -102,7 +103,11 @@ export function buildPlaybackFacts(input: {
     w: input.w,
     h: input.h,
     ...(d?.bitrateBps !== undefined ? { bitrateBps: d.bitrateBps } : {}),
-    ...(d?.fps !== undefined ? { fps: d.fps } : {}),
+    /* fps 恒只承载声明值（回填线护栏）：实测回填走 measuredFps＋
+     * fpsSource 分开记，报告 bpp 复算仍按声明口径（未知按 30）。 */
+    ...(d?.fps !== undefined ? { fps: d.fps, fpsSource: "declared" as const } : {}),
+    ...(d?.fps === undefined && d?.measuredFps !== undefined ? { measuredFps: d.measuredFps, fpsSource: "measured" as const } : {}),
+    ...(d?.fps === undefined && d?.measuredFps !== undefined && d?.measuredRawFps !== undefined ? { measuredRawFps: Math.round(d.measuredRawFps * 10) / 10 } : {}),
     ...(d?.codec !== undefined ? { codec: d.codec } : {}),
     srMode: input.srMode,
     ...(input.firstRendition !== undefined ? { firstRendition: input.firstRendition } : {}),
@@ -135,11 +140,59 @@ export function usePlaybackKernel(opts: {
    * 定稿，provisional 不驱动判档；＋frameRate＋videoCodec，换源/
    * 换线重置——口径以 useSrDensity.ts 文件头为准，E 线定版），
    * 两面同口径。density 的 provisional 字段按可选消费。 */
-  const { density, ingest } = useSrDensity(src, opts.lineEpoch);
+  const { density, ingest, noteMeasuredFps } = useSrDensity(src, opts.lineEpoch);
   const ingestRef = useRef(ingest);
   ingestRef.current = ingest;
+  const noteMeasuredFpsRef = useRef(noteMeasuredFps);
+  noteMeasuredFpsRef.current = noteMeasuredFps;
   const densityRef = useRef(density);
   densityRef.current = density;
+
+  /* ── SR 帧率实测回填（2026-11-19 3.3.0批 SR 帧率回填线）──
+   * 内核层是唯一同时持有 video 元素与 density 状态的位置：声明
+   * fps 缺失时以 rVFC 逐帧喂估计器（srFpsEstimate：ΔpresentedFrames
+   * /ΔmediaTime、中值滤波、≥60 已呈现帧定版锁定、保守吸附），定版
+   * 后经密度采样器的 noteMeasuredFps 一次性回填——判档在渲染期按
+   * 新 density 重算（srMode 纯函数＋画布 modeRef 逐帧读），引擎/
+   * 画布/管线零重建（护栏 3）。声明 fps 一出现即停测（声明优先）；
+   * rVFC 不可用时不回填、不回落其他口径。换源（src 变）复位重测。
+   * 不动采样器与松手剖面：本链只借 rVFC 通道读 metadata，不写
+   * holdJank 任何状态。 */
+  const traceRef = useRef(diag.trace);
+  traceRef.current = diag.trace;
+  useEffect(() => {
+    const video = videoRef.current as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: (now: number, metadata: { mediaTime: number; presentedFrames: number }) => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    }) | null;
+    if (!video || typeof video.requestVideoFrameCallback !== "function") return;
+    if (densityRef.current?.fps !== undefined) return;
+    const estimator = createSrFpsEstimator();
+    let cancelled = false;
+    let handle = 0;
+    const tick = (_now: number, metadata: { mediaTime: number; presentedFrames: number }) => {
+      if (cancelled) return;
+      if (densityRef.current?.fps !== undefined) return;
+      const est = estimator.feed(metadata.presentedFrames, metadata.mediaTime);
+      if (est.settled) {
+        noteMeasuredFpsRef.current(est.fps, est.rawMedian);
+        traceRef.current("sr.fps_measured", {
+          fps: est.fps ?? 0,
+          raw: est.rawMedian !== undefined ? Math.round(est.rawMedian * 10) / 10 : 0,
+        });
+        return;
+      }
+      handle = video.requestVideoFrameCallback!(tick);
+    };
+    handle = video.requestVideoFrameCallback(tick);
+    return () => {
+      cancelled = true;
+      if (handle && typeof video.cancelVideoFrameCallback === "function") {
+        try { video.cancelVideoFrameCallback(handle); } catch { /* 忽略 */ }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src, opts.lineEpoch]);
 
   const coreRef = useRef<PlaybackKernelCore | null>(null);
   if (!coreRef.current) {

@@ -1406,6 +1406,46 @@
       ],
       "symbol": "mediaLifecycleTraceData",
       "min": 2
+    },
+    {
+      "id": "fix330-sr-fps-estimator",
+      "item": "3.3.0批SR帧率回填线 rVFC 实测估计器 createSrFpsEstimator（纯估计器定义＋播放内核测量链消费）：ΔpresentedFrames/ΔmediaTime、中值滤波、≥60 已呈现帧定版锁定",
+      "files": [
+        "src/features/playback/srFpsEstimate.ts",
+        "src/features/playback/usePlaybackKernel.ts"
+      ],
+      "symbol": "createSrFpsEstimator",
+      "min": 2
+    },
+    {
+      "id": "fix330-sr-fps-measured-channel",
+      "item": "3.3.0批SR帧率回填线 实测回填通道 noteMeasuredFps（密度采样器定义＋hook 发布＋内核定版注入）：回填只进 measuredFps、声明 fps 不被覆盖",
+      "files": [
+        "src/features/playback/useSrDensity.ts",
+        "src/features/playback/usePlaybackKernel.ts"
+      ],
+      "symbol": "noteMeasuredFps",
+      "min": 3
+    },
+    {
+      "id": "fix330-sr-fps-tiering-split",
+      "item": "3.3.0批SR帧率回填线 判档双口径分离 fpsKnownForCrisp（crisp 门认声明或实测、off 门只认 fpsKnownDeclared、bpp 只认声明 fps）：回填不许混喂关超分门与帧预算",
+      "files": [
+        "src/features/playback/SuperResCanvas.tsx"
+      ],
+      "symbol": "fpsKnownForCrisp",
+      "min": 2
+    },
+    {
+      "id": "fix330-sr-fps-facts-source",
+      "item": "3.3.0批SR帧率回填线 fps 来源入 facts fpsSource（类型定义＋内核组装 declared/measured＋诊断报告帧率行消费）：声明/实测分开判读",
+      "files": [
+        "src/shared/diagnostics/playbackFacts.ts",
+        "src/features/playback/usePlaybackKernel.ts",
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "symbol": "fpsSource",
+      "min": 3
     }
   ]
 }
