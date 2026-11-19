@@ -17,8 +17,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { SuperResMode } from "../../shared/model/store";
 import { getSrProbeResult } from "../../shared/diagnostics/gpuProbe";
-import { srContentRect } from "./SuperResCanvas";
+import { srContentRect, srDemote } from "./SuperResCanvas";
 import { WebGpuSrEngine } from "./webgpuSr";
+
+/** 呈现档回报口径（整改 B17-2）：引擎降级级经 srDemote 映射回模式
+ * 阶梯——degrade 0 = 原档、1 = 降一档（2 = 引擎已死、组件随即卸载）。 */
+export function webgpuReportedMode(mode: SuperResMode, degrade: 0 | 1 | 2): SuperResMode {
+  return srDemote(mode, degrade);
+}
 
 type Props = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -54,6 +60,11 @@ export default function WebGpuSrCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<WebGpuSrEngine | null>(null);
   const [presented, setPresented] = useState(false);
+  /* 引擎降级级（整改 B17-2）：引擎每次变更经 onDegrade 回报至此，
+   * 与 presented/mode 一起驱动呈现档回报 effect。 */
+  const [degrade, setDegrade] = useState<0 | 1 | 2>(0);
+  const activeModeCbRef = useRef(onActiveModeChange);
+  activeModeCbRef.current = onActiveModeChange;
   const activeRef = useRef(active);
   activeRef.current = active;
   const readyRef = useRef(ready);
@@ -63,6 +74,7 @@ export default function WebGpuSrCanvas({
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const deadRef = useRef(false);
+  const presentedRef = useRef(false);
 
   /* 画布尺寸同步（与 SuperResCanvas.syncSize 同口径）。 */
   useEffect(() => {
@@ -93,8 +105,9 @@ export default function WebGpuSrCanvas({
     let cancelled = false;
     let rafId = 0;
     let vfcId = 0;
-    let reportedMode = false;
     setPresented(false);
+    presentedRef.current = false;
+    setDegrade(0);
 
     const die = () => {
       if (deadRef.current) return;
@@ -105,7 +118,7 @@ export default function WebGpuSrCanvas({
     const start = async () => {
       const probe = getSrProbeResult();
       const path = probe?.recommendedPath ?? "copy";
-      const engine = await WebGpuSrEngine.create(canvas, { path, onLost: die });
+      const engine = await WebGpuSrEngine.create(canvas, { path, onLost: die, onDegrade: (d) => { if (!cancelled) setDegrade(d); } });
       if (cancelled) {
         engine?.destroy();
         return;
@@ -154,10 +167,12 @@ export default function WebGpuSrCanvas({
           const intervalMs = fps && fps > 0 ? 1000 / fps : 33.3;
           const did = eng.processFrame(video, intervalMs, { dst, src });
           if (did) lastMediaTime = video.currentTime;
-          if (did && !reportedMode) {
-            reportedMode = true;
+          if (did && !presentedRef.current) {
+            /* 首帧呈现：只置 presented＋记 trace；呈现档回报收敛到
+             * 下方 effect（整改 B17-2）——旧实现在此一次性报原 mode，
+             * 引擎后续 degrade 后 facts 永远停在原档。 */
+            presentedRef.current = true;
             setPresented(true);
-            onActiveModeChange?.(modeRef.current);
             onTrace?.("sr.webgpu_present", { path });
           }
         }
@@ -183,6 +198,13 @@ export default function WebGpuSrCanvas({
     // srcKey 变化 = 换源：引擎与纹理按新源重建（与 SuperResCanvas 同纪律）。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [srcKey]);
+
+  /* 呈现档回报（整改 B17-2）：首帧呈现后开始报，mode 或引擎 degrade
+   * 每次变化都重报 srDemote(mode, degrade)，facts 呈现档与真实管线
+   * 一致（旧实现只在首帧报一次原 mode，降级后永不更新）。 */
+  useEffect(() => {
+    if (presented) activeModeCbRef.current?.(webgpuReportedMode(mode, degrade));
+  }, [presented, mode, degrade]);
 
   return (
     <canvas
