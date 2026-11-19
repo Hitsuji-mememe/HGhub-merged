@@ -13,11 +13,16 @@ import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import { dedupedIncoming } from "../../shared/lib/dedup";
 import { traceFeed } from "../../shared/lib/feedTrace";
 import { Empty } from "../../shared/ui/ui";
-import { IAward, IBack, IChevR, IFilm, IFlame, ILayers, ISearch, ISpark, ITag, ITrophy } from "../../shared/ui/icons";
+import { IAward, IBack, IChevR, IFilm, IFlame, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
+import { firstEnabledSource, sourcesForCategory } from "../sources/registry";
+import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from "../sources/SourceSwitcher";
 
+/* 短剧三类合一（根治包多源线条目5）：原 AI成人短剧 / AI成人漫剧
+ * （及原创内的短剧/漫剧子筛）合并为一个「短剧」入口，cate 取
+ * ai-duanju 为代表走既有 category 接口；原创保留为独立频道，
+ * 其内部子筛（ORIGINAL_CATES）是频道内筛选、不再算独立分类。 */
 export const CHANNELS = [
-  { cate: "ai-duanju", name: "AI成人短剧", Icon: IFilm },
-  { cate: "ai-manju", name: "AI成人漫剧", Icon: ISpark },
+  { cate: "ai-duanju", name: "短剧", Icon: IFilm },
   { cate: "original", name: "原创", Icon: IAward },
 ] as const;
 
@@ -28,6 +33,10 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  /* 吃瓜数据源（条目5）：默认第一顺位 enabled 源，切换整段换源不混排 */
+  const postSourceOptions = sourceOptionsForCategory("posts");
+  const [postsSourceId, setPostsSourceId] = useState(() => firstEnabledSource("posts")?.id ?? "huangguo");
+  const postsSource = sourcesForCategory("posts").find((s) => s.id === postsSourceId);
   const mounted = useRef(false);
   const started = useRef(false);
   const pending = useRef(new Set<string>());
@@ -166,6 +175,8 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
               <span>全部</span><IChevR size={14} />
             </span>
           </Button>
+          <div className="mb-3"><SourceSwitcher options={postSourceOptions} value={postsSourceId} onChange={setPostsSourceId} ariaLabel="吃瓜数据源切换" /></div>
+          {postsSourceId === "huangguo" ? (
           <FilteredContent items={posts} scopeKey="posts">{visible => <div className="scroll-x flex gap-3 snap-x" role="group" aria-label="吃瓜内容预览">
             {visible.map((post) => (
               <div key={post.id} className="ios-row-card"><MediaCard title={post.title} cover={post.cover}
@@ -173,6 +184,25 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             ))}
             {!posts.length && <PreviewStatus name="吃瓜" loading={loading.posts !== false} error={errors.posts} onRetry={() => void loadPreview("posts")} />}
           </div>}</FilteredContent>
+          ) : (
+            <SourcePendingNotice displayName={postsSource?.displayName ?? postsSourceId} />
+          )}
+        </section>
+
+        {/* 预览专区（条目5）：myfans 单列分组，条目一律标注「仅预览」，不入正式源 */}
+        <section aria-label="预览专区" className="mb-5 a-rise">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IFlame size={18} strokeWidth={1.9} /></span>
+            <span role="heading" aria-level={2} className="block text-[16px] font-bold text-on leading-tight">预览专区</span>
+          </div>
+          {sourcesForCategory("preview").map((s) => (
+            <Button key={s.id} onClick={() => { void api.openUrl(s.baseUrls[0]).catch(() => {}); }}
+              className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 text-left pressable">
+              <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
+              <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">仅预览</span>
+            </Button>
+          ))}
+          <p className="mt-2 text-[12px] text-mut">仅公开预览，完整内容回原站付费查看。</p>
         </section>
 
         <div className="text-center text-[12px] text-dim pt-1">— 已展示全部频道 —</div>
@@ -210,6 +240,10 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
   const { preferences } = useContentPreferences();
   const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
   const [searching, setSearching] = useState(false);
+  /* 视频数据源（条目5）：黄果为本频道原生源；切其他源整页换源不混排 */
+  const [channelSourceId, setChannelSourceId] = useState("huangguo");
+  const videoSourceOptions = [{ id: "huangguo", label: "黄果" }, ...sourceOptionsForCategory("video")];
+  const channelSource = sourcesForCategory("video").find((s) => s.id === channelSourceId);
   const [serverSort, setServerSort] = useState<(typeof CHANNEL_SORTS)[number]["value"]>("latest");
   const [originalCate, setOriginalCate] = useState<(typeof ORIGINAL_CATES)[number]["value"]>("all");
   const [pageItems, setPageItems] = useState<VideoCard[][]>([]);
@@ -315,6 +349,23 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
   }, [page, pages, loading, err, replacing, filtering]);
 
   const ChannelGlyph = CHANNELS.find(c => c.cate === cate)?.Icon ?? IFilm;
+  if (channelSourceId !== "huangguo") {
+    return (
+      <div className="ios-page absolute inset-0 bg-bg flex flex-col">
+        <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
+          <div className="ios-subpage-bar">
+            <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
+              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">数据源：{channelSource?.displayName ?? channelSourceId}</div>
+            </div>
+          </div>
+          <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={channelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
+        </div>
+        <div className="flex-1 scroll-y pb-8"><SourcePendingNotice displayName={channelSource?.displayName ?? channelSourceId} /></div>
+      </div>
+    );
+  }
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
       <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
@@ -343,6 +394,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
             ))}
           </div>
         )}
+        <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={channelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
       </div>
       <div ref={scrollContainer} className="flex-1 scroll-y pt-3.5 pb-8" aria-busy={loading}>
         {items.length > 0 && replacing && <p role="status" className="mb-3 text-[12px] text-mut">{loading ? "正在更新，暂时保留上次结果…" : "当前显示上次结果，请重试以更新筛选。"}</p>}

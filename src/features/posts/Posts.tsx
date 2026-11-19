@@ -15,6 +15,8 @@ import { FilteredContent } from "../../shared/ui/FilteredContent";
 import { TagBlockMenu } from "../../shared/ui/TagBlockMenu";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { usePaginatedList } from "../../shared/lib/usePaginatedList";
+import { firstEnabledSource, sourcesForCategory } from "../sources/registry";
+import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from "../sources/SourceSwitcher";
 import { CommentsPanel } from "../feed/Panels";
 import { postHot } from "./postData";
 
@@ -24,14 +26,41 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
   const { preferences } = useContentPreferences();
   const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
   const [searching, setSearching] = useState(false);
+  /* 源切换（根治包多源线条目5）：默认吃瓜分类第一顺位 enabled 源；
+   * 切换即整页换源、源间不混排。非黄果源取页通道未接入时只出
+   * 诚实占位（SourcePendingNotice），不混入黄果数据。 */
+  const postSourceOptions = sourceOptionsForCategory("posts");
+  const [sourceId, setSourceId] = useState(() => firstEnabledSource("posts")?.id ?? "huangguo");
+  const isNativeSource = sourceId === "huangguo";
+  const activeSource = sourcesForCategory("posts").find((s) => s.id === sourceId);
   const { items, page, pages, loading, err, loadMore, scroller: scrollRef, sentinel } = usePaginatedList<Post>({
     filtering,
-    resetKey: lineEpoch,
+    enabled: isNativeSource,
+    resetKey: `${lineEpoch}:${sourceId}`,
     listId: "posts:remen-chigua",
     rootMargin: "240px",
     getId: (item) => item.id,
     request: (next) => api.postCategory("remen-chigua", next, 20, "latest"),
   });
+
+  if (!isNativeSource) {
+    return (
+      <div className="ios-page absolute inset-0 bg-bg flex flex-col">
+        <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
+          <div className="ios-subpage-bar">
+            <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
+            <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IFlame size={18} strokeWidth={1.9} /></span>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-[17px] font-bold text-on leading-tight">吃瓜</h1>
+              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">数据源：{activeSource?.displayName ?? sourceId}</div>
+            </div>
+          </div>
+          <div className="px-4 pb-2"><SourceSwitcher options={postSourceOptions} value={sourceId} onChange={setSourceId} ariaLabel="吃瓜数据源切换" /></div>
+        </div>
+        <div className="flex-1 scroll-y pb-8"><SourcePendingNotice displayName={activeSource?.displayName ?? sourceId} /></div>
+      </div>
+    );
+  }
 
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
@@ -45,6 +74,7 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
           </div>
           <Button onClick={() => setSearching(true)} aria-label="搜索吃瓜" className="ios-nav-btn"><ISearch size={18} /></Button>
         </div>
+        <div className="px-4 pb-2"><SourceSwitcher options={postSourceOptions} value={sourceId} onChange={setSourceId} ariaLabel="吃瓜数据源切换" /></div>
       </div>
       <div ref={scrollRef} aria-busy={loading} className="flex-1 scroll-y pt-3.5 pb-8">
         {items.length ? (
@@ -147,8 +177,10 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
         if (!alive) return;
         setPost(p);
         setLoadedId(id);
-        /* 旧接口返回直链时提供回退，不覆盖已经解析出的分段。 */
-        if (p.video_url) { setSegs(previous => previous.length ? previous : [p.video_url!]); setPlay(true); }
+        /* 旧接口返回直链时提供回退，不覆盖已经解析出的分段。
+         * 帖内视频不默认播放（根治包多源线条目5）：只备好分段，
+         * 展示封面/海报，用户点了才播——此处不 setPlay(true)。 */
+        if (p.video_url) { setSegs(previous => previous.length ? previous : [p.video_url!]); }
       })
       .catch((e) => { if (alive) setErr((e as Error).message || "加载失败"); });
     return () => { alive = false; };
@@ -162,7 +194,8 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
       .then((r) => {
         if (!alive) return;
         const list = (r?.videos || []).map((v) => v?.url || "").filter(Boolean);
-        if (list.length) { setSegs(list); setPlay(true); }
+        /* 同上：解析完成只备分段、不自动开播（条目5），海报点击才 setPlay。 */
+        if (list.length) { setSegs(list); }
       })
       .catch(e => { if (alive) setMediaError(e instanceof Error ? e.message : "视频解析失败"); })
       .finally(() => { if (alive) setResolving(false); });
