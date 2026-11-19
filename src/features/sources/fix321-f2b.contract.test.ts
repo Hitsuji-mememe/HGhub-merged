@@ -180,14 +180,18 @@ const def = (id: string) => {
   assert.ok(r.streams[0]?.url.includes(".m3u8"), "黑料网详情可取 HLS 流");
 }
 
-/* ── Hanime.tv：取流链结构已定位（guest API＋AES-GCM handshake
- * POST＋签名头，插件证据）但超 GET-only 取页契约 → 维持 probe、
- * note 写明卡点与住宅验收「第 4 级未确认」。 ── */
+/* ── Hanime.tv：断言适配（3.3.0 fix330-hanime-api 接通批）——
+ * F2b 期结论「结构已明、通道不通」经本批复核属实后已被定向扩展
+ * 打通（Rust source_post 仅 auth origin＋固定头名单＋仅回 x-token；
+ * 协议级实证四级形态合法），原「维持 probe＋note 写卡点」断言由
+ * fix330-hanime-api 契约接棒；此处只守注册表侧不变量：模板已换
+ * hanime-api、App 侧未真机验仍 probe、note 为纯技术记录。 ── */
 {
   const d = def("hanime-tv");
-  assert.equal(d.maturity, "probe", "Hanime 维持 probe");
-  assert.ok(d.note?.includes("handshake"), "Hanime note 写明取流卡点（handshake POST＋加密信封）");
-  assert.ok(d.note?.includes("未确认"), "Hanime note 标注住宅验收第 4 级未确认");
+  assert.equal(d.adapter.template, "hanime-api", "Hanime 已换 hanime-api 模板（官方 API v11）");
+  assert.equal(d.maturity, "probe", "Hanime 维持 probe（代码就绪未验证）");
+  assert.ok(d.note?.includes("handshake"), "Hanime note 写明握手协议段");
+  assert.ok(d.note?.includes("代码就绪未验证"), "Hanime note 标注 App 侧未真机验");
 }
 
 /* ── Iwara：本批撤下施工——站点住宅四级全通、缺适配器待立项，

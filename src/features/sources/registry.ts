@@ -44,10 +44,10 @@ export const NAMED_SOURCES: SourceDef[] = [
   },
   {
     id: "hanime-tv", displayName: "Hanime.tv", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/", itemLinkPattern: "/videos/hentai/", detailPath: "/videos/hentai/{id}" } },
+    adapter: { template: "hanime-api", params: {} },
     baseUrls: ["https://hanime.tv"],
     enabled: true, order: 24, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：首页 SSR 解析 68 条（/browse 是品牌/标签索引页、已改走首页）；详情页 SSR 无 m3u8/mp4、流走站内 api/v11 内部接口（页面见 search_hvs/api_base_url 痕迹）未验证 → probe；残留：分页路径与取流接口。fix321-F2 本机复核（本机出口参考）：首页锚点 /videos/hentai/<slug> 与现模板一致、真站结构夹具解析出条目，列表结构无问题；真机取页失败在本机出口未复现（本机 200），属出口/取页层差异、非解析问题。fix321-F2b 取流深查：取流链结构已定位（Hentai-Park hanime 插件证据）——guest API（guest.freeanimehentai.net/api/v11）＋播放器 handshake：先取 ct.hanime.tv CSRF 令牌，再以 AES-256-GCM 加密信封 POST auth.hanime.tv/api/v11/handshake（x-signature 签名头），响应经 x-token 头回加密信封解密得 /hls/<画质>/ 流表；本仓取页契约仅 GET 且 Origin/签名头不在放行列 → 结构已明、通道不通，本批不接；住宅出口验收首页/列表通、第 4 级未确认到播放源（未确认，不排除验收手段局限）→ 维持 probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "3.3.0 接通批（fix330-hanime-api）：换 hanime-api 模板走站点官方 API v11（协议据 Hentai-Park 公开插件原文＋本机实测对账）。列表/搜索/详情＝guest API 全量目录 GET guest.freeanimehentai.net/api/v11/search_hvs（无签名、无服务端分页、客户端排序/过滤/切片；实测 HTTP 200、3474 条、4.5MB——Rust 取页对该 (origin,path) 定向放宽上限至 12MB、全局 4MB 不变）；详情目录未收录时回落详情页 og 元信息。播放＝握手链：ct.hanime.tv 取 CSRF → AES-256-GCM 信封（密钥/签名为公开协议常数）POST auth.hanime.tv/api/v11/handshake（x-signature web2 签名头）→ x-token 响应头回信封解密得 /hls/<画质>/ 流表。通道定性（复核旧 F2b 结论属实）：原 GET-only 取页三处不通（POST 方法无入口/签名头被 filter_source_headers 丢弃/响应头不可见）→ 本批以 Rust source_post 定向扩展打通（仅 auth.hanime.tv origin＋固定头名单＋仅回 x-token 一个响应头，GET 契约与全局白名单不变）。协议级实证（2026-11-19 本机机房出口）：目录/CSRF/握手三端点均 200、流表 3 档、HLS 清单 200 且 #EXTM3U 形态合法；App 侧未真机验 → 代码就绪未验证、维持 probe",
   },
   {
     id: "rule34video", displayName: "Rule34Video", kind: "video", category: "video",

@@ -233,7 +233,12 @@ function checkResult(sourceId: string, over: Partial<SourceSelfCheckResult> = {}
   // 3.2.2 瘦身后保留集 hls-site 源为个位数。保护的行为是「机制覆盖名单＝注册表
   // hls-site 全集、枚举非空且含保留里番/图片源」，改按保留集实名断言，不削弱覆盖。
   assert.ok(covered.length >= 3, `hls-site 覆盖源应为保留集全集，实际 ${covered.length}`);
-  for (const id of ["hanime-tv", "pornpics", "hentaihaven"]) {
+  /* 断言适配（3.3.0 fix330-hanime-api）：hanime-tv 已换 hanime-api
+   * 模板、不再属 hls-site 参数下发覆盖面（F8 口径本就只覆盖
+   * hls-site），名单实名改以仍为 hls-site 的保留里番源
+   * rule34video 接棒，保护行为（覆盖名单＝注册表 hls-site 全集、
+   * 含保留里番/图片源）不变。 */
+  for (const id of ["rule34video", "pornpics", "hentaihaven"]) {
     assert.ok(covered.some((s) => s.id === id), `hls-site 覆盖名单应含 ${id}`);
   }
 }

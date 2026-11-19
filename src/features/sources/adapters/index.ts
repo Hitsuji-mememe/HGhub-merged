@@ -5,6 +5,7 @@
  */
 import type { SourceAdapter, SourceDef } from "../types";
 import { createNativeHuangguoAdapter } from "./nativeHuangguo";
+import { createHanimeApiAdapter } from "./hanimeApi";
 import { createChiguaAdapter, createDanbooruAdapter, createHlsSiteAdapter, createPreviewOnlyAdapter, createRedgifsAdapter, createSwagAdapter, createWpRestAdapter } from "./templates";
 
 export function createAdapter(def: SourceDef): SourceAdapter | null {
@@ -16,6 +17,7 @@ export function createAdapter(def: SourceDef): SourceAdapter | null {
     case "danbooru-api": return createDanbooruAdapter(def);
     case "swag-api": return createSwagAdapter(def);
     case "redgifs-api": return createRedgifsAdapter(def);
+    case "hanime-api": return createHanimeApiAdapter(def);
     case "preview-only": return createPreviewOnlyAdapter(def);
     default: return null;
   }

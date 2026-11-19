@@ -78,10 +78,18 @@ const def = (id: string) => {
   assert.ok(list.items[0].cover.startsWith("http"), "肉视频条目封面为绝对地址");
 }
 
-/* ── (c) Hanime.tv：真站首页锚点 /videos/hentai/<slug> 带 title ── */
+/* ── (c) Hanime.tv：真站首页锚点 /videos/hentai/<slug> 带 title ──
+ * 断言适配（3.3.0 fix330-hanime-api）：hanime-tv 注册表已换
+ * hanime-api 模板（走官方 API），本例保护的行为是「hls-site 模板
+ * 对 Hanime 首页真站结构的解析能力」（详情回落与他源仍用此骨架），
+ * 改用与换模板前注册表逐字一致的历史参数 def 构造，断言不变。 */
 {
   setFetchPage(async () => fx("real-hanime-home.html"));
-  const a = createHlsSiteAdapter(def("hanime-tv"));
+  const historicalDef = {
+    ...def("hanime-tv"),
+    adapter: { template: "hls-site", params: { listPath: "/", itemLinkPattern: "/videos/hentai/", detailPath: "/videos/hentai/{id}" } },
+  } as ReturnType<typeof def>;
+  const a = createHlsSiteAdapter(historicalDef);
   const list = await a.list(1, 20);
   assert.ok(list.items.length >= 2, `Hanime 真站结构解析出条目（实得 ${list.items.length}）`);
   assert.ok(list.items[0].href.includes("/videos/hentai/"), "Hanime 条目 href 形态正确");
