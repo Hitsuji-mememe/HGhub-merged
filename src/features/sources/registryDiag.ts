@@ -7,11 +7,14 @@
  *    务名、零域名/host。
  * ② sourceHealthDetailLinesInApp()＝App 内明细专用：含业务名与生效
  *    origin，供 App 内排障界面用；禁止进导出路径（任何导出/复制/
- *    分享文本都不许调用它拼段）。 */
+ *    分享文本都不许调用它拼段）。
+ * 两条路径都并入源健康自检结果（fix321-F7，healthCheck.ts 落盘）：
+ * 「最近自检」口径与「本会话取页」口径同行并存、标注分清、不互盖。 */
 
 import { getRegistryInfo } from "./manifest.ts";
 import { fetchHealthSnapshot } from "./adapters/fetchHealth.ts";
 import { readPlaybackFacts } from "../../shared/diagnostics/playbackFacts.ts";
+import { getSelfCheckResults, selfCheckDiagLines, selfCheckSegmentText } from "./healthCheck.ts";
 
 function hostOf(url: string): string {
   try { return new URL(url).host || "?"; } catch { return "?"; }
@@ -101,6 +104,13 @@ export function sourceHealthLines(): string[] {
   lines.push(`异常源（取页失败/blocked）：${anomalies.length ? anomalies.join("、") : "无"}`);
   const unclaimed = health.filter(h => !claimed.has(h.host)).length;
   if (unclaimed > 0) lines.push(`未归属注册表源的取页记录：${unclaimed} 个（仅计数，host 不入导出）`);
+  /* 源健康自检（fix321-F7）：「最近自检」口径与上面「本会话取页」
+   * 三态并存不互盖——自检是 App 主动探测的落盘结果（跨会话），
+   * 取页是本会话用户实际触发的观测，两者解决的问题不同。 */
+  lines.push(...selfCheckDiagLines(
+    sources.map((s, i) => ({ id: s.id, stableId: sourceStableId(i) })),
+    getSelfCheckResults(),
+  ));
   return lines;
 }
 
@@ -109,6 +119,7 @@ export function sourceHealthLines(): string[] {
 export function sourceHealthDetailLinesInApp(): string[] {
   const info = getRegistryInfo();
   const health = fetchHealthSnapshot();
+  const selfCheck = getSelfCheckResults();
   const byHost = new Map(health.map(h => [h.host, h]));
   const claimed = new Set<string>();
   const lines: string[] = [];
@@ -119,7 +130,11 @@ export function sourceHealthDetailLinesInApp(): string[] {
     const fetchText = h
       ? `最近取页 ${h.ok ? `成功 ${h.ms}ms` : `失败·${h.category ?? "其他"} ${h.ms}ms`}（${timeText(h.at)}） · 本会话 成 ${h.okCount}/败 ${h.failCount}`
       : "本会话未取页";
-    lines.push(`源 ${s.displayName}（${s.id}）：${s.enabled ? "启用" : "停用"} · 成熟度 ${s.maturity} · 生效 ${s.origin} · ${fetchText}`);
+    /* 自检段（fix321-F7）：「最近自检」与「本会话取页」同行并存、
+     * 口径标注分清；无结果写「未自检」，不冒充未发生。 */
+    const check = selfCheck[s.id];
+    const checkText = check ? selfCheckSegmentText(check) : "未自检";
+    lines.push(`源 ${s.displayName}（${s.id}）：${s.enabled ? "启用" : "停用"} · 成熟度 ${s.maturity} · 生效 ${s.origin} · ${fetchText} · ${checkText}`);
   }
   for (const h of health) {
     if (claimed.has(h.host)) continue;
