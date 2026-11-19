@@ -7,7 +7,7 @@
 import { AppendStallWatchdog, type StallClock } from "../src/features/playback/appendStallWatchdog";
 import { nativeFallbackState, noteNativeFallback, playbackSource, resetNativeFallbackForTests } from "../src/features/playback/mediaTransport";
 import { createStallWatchdog } from "../src/features/playback/stallWatchdogWiring";
-import { effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
+import { createSrPerfTracker, effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
 import { createSrDensitySampler } from "../src/features/playback/useSrDensity";
 import { evaluateSrGatesV2 } from "../src/shared/diagnostics/gpuProbe";
 import { capRecordByFifo, scopedPlayKey, setCapped } from "../src/features/feed/cacheMap";
@@ -289,6 +289,32 @@ function run() {
     feed(4);
     results.u_promote_after_3_good = feed(4);
     results.u_demote_at_floor = (() => { let d = 2, g = 0; const r = srPerfStep(99, 16, d, 2, g); return [r.demote, r.action]; })();
+  }
+  /* ── U3 长按松手管线阶跃（根治包）：帧成本记账器的速率域口径 ──
+   * 场景：1x 先攒 59 帧好样本 → 长按进 ≥2x 域（隔帧交替）→ 域内塞
+   * 60 帧爆贵样本（旧实现会混窗降档、阶跃恰可落在松手帧）→ 松手
+   * 退出（清窗）→ 59 帧仍未满窗 → 第 60 帧好窗不动档；对照组：
+   * 正常域爆贵窗仍单窗即降（阶梯保护不被去抖削弱）。 */
+  {
+    const t = createSrPerfTracker();
+    const base = { budgetMs: 16, demote: 0, maxDemote: 2 };
+    let v: unknown = null;
+    for (let i = 0; i < 59; i++) v = t.sample(4, { ...base, fastRate: false, probing: false });
+    results.u3_window_not_full = v;
+    results.u3_gate_fast_seq = [t.gate(true), t.gate(true), t.gate(true), t.gate(true)];
+    let fastVerdict: unknown = null;
+    for (let i = 0; i < 60; i++) { const r = t.sample(99, { ...base, fastRate: true, probing: false }); if (r) fastVerdict = r; }
+    results.u3_fast_samples_dropped = fastVerdict;
+    results.u3_gate_release = t.gate(false);
+    v = null;
+    for (let i = 0; i < 59; i++) v = t.sample(4, { ...base, fastRate: false, probing: false });
+    results.u3_window_restarted = v;
+    const good = t.sample(4, { ...base, fastRate: false, probing: false });
+    results.u3_good_window = good && [good.action, good.demote];
+    const t2 = createSrPerfTracker();
+    let bad: ReturnType<typeof t2.sample> = null;
+    for (let i = 0; i < 60; i++) bad = t2.sample(99, { ...base, fastRate: false, probing: false });
+    results.u3_bad_window_demotes = bad && [bad.action, bad.demote];
   }
   // 合成层保底矩阵：[自动判档 off→natural 保底 / 显式关→无 / WebGL 呈现中→无（防双重）/
   // 性能降到 off→natural 保底 / svgFallback→本档位滤镜]

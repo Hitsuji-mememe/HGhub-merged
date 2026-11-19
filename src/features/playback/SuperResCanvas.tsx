@@ -265,6 +265,81 @@ export function srPerfStep(
   return { demote, goodStreak: 0, action: "none" };
 }
 
+/** 帧成本窗口长度（正常速率域，沿用既有统计量级）：60 帧/窗。 */
+export const SR_PERF_WINDOW_FRAMES = 60;
+
+export type SrPerfVerdict = {
+  action: "demote" | "promote" | "none";
+  demote: number;
+  avgMs: number;
+  probing: boolean;
+};
+
+/* ── 帧成本记账器（Muse 2026-11-19 根治包·长按松手卡顿根治）──
+ * 把主循环的三摊记账（≥2x 隔帧计数、正常窗、探针窗、升档达标连击）
+ * 收敛成一个纯状态机：组件只负责绘制与应用裁决，记账口径可单测。
+ * 存在的理由是松手瞬间的管线阶跃：≥2x 域（长按 hold 或用户定档 ≥2x）
+ * 里解码/合成负载翻倍，texImage2D 的提交成本是在该域内测得的；旧实现
+ * 把处理到的那一半帧样本混进同一个 60 帧窗，均值一旦越预算就在窗口
+ * 完成帧降档——降档会重跑主循环 effect 并换呈现层（画布档位/SVG
+ * 保底），若恰落在松手前后，用户感知就是「松手瞬间卡一下、画质掉
+ * 一档、之后约三窗（≈180 帧）才升回来」。记账口径：
+ * - 快速域内照常隔帧绘制（fix2 A5 的成本减半不变），但成本样本一律
+ *   不入账：性能阶梯只对正常速率域的实测负责；
+ * - 退出快速域的那一帧清掉未满窗口与达标连击（判档重评去抖）：
+ *   恢复 1x 后最早也要攒满一整窗才可能动档，松手帧前后绝不阶跃；
+ * - 窗口因此永不跨速率域混合采样。 */
+export function createSrPerfTracker() {
+  let skip = 0;
+  let cost = { sum: 0, n: 0 };
+  let probeCost = { sum: 0, n: 0 };
+  let goodStreak = 0;
+  let wasFastRate = false;
+  return {
+    /** 主循环每帧过门（在 cadence 跳帧判定之后、实际绘制之前调用）：
+     * 观测速率域进出——退出快速域即清窗口与连击；快速域内做隔帧
+     * 判定，返回 true 表示本帧跳过全部 GL 工作（画布保留上一帧）。 */
+    gate(fastRate: boolean): boolean {
+      if (wasFastRate && !fastRate) {
+        cost = { sum: 0, n: 0 };
+        probeCost = { sum: 0, n: 0 };
+        goodStreak = 0;
+      }
+      wasFastRate = fastRate;
+      if (!fastRate) return false;
+      skip += 1;
+      return skip % 2 === 1;
+    },
+    /** 一帧实测成本入账（组件实际绘制后调用）。快速域样本直接丢弃；
+     * 窗口未满返回 null；满窗返回裁决（demote 为裁决后的绝对值）。 */
+    sample(
+      costMs: number,
+      opts: { fastRate: boolean; probing: boolean; budgetMs: number; demote: number; maxDemote: number },
+    ): SrPerfVerdict | null {
+      if (opts.fastRate) return null;
+      const win = opts.probing ? probeCost : cost;
+      win.sum += costMs;
+      win.n += 1;
+      const need = opts.probing ? SR_PROBE_WINDOW_FRAMES : SR_PERF_WINDOW_FRAMES;
+      if (win.n < need) return null;
+      const avg = win.sum / win.n;
+      if (opts.probing) probeCost = { sum: 0, n: 0 };
+      else cost = { sum: 0, n: 0 };
+      const step = srPerfStep(avg, opts.budgetMs, opts.demote, opts.maxDemote, goodStreak);
+      goodStreak = step.goodStreak;
+      return { action: step.action, demote: step.demote, avgMs: avg, probing: opts.probing };
+    },
+    /** 换源复位：与组件 srcKey effect 的既有清零面一致。 */
+    reset(): void {
+      skip = 0;
+      cost = { sum: 0, n: 0 };
+      probeCost = { sum: 0, n: 0 };
+      goodStreak = 0;
+      wasFastRate = false;
+    },
+  };
+}
+
 /** <video> 合成层滤镜选档（VideoSurface 用，纯函数）：
  * - svgFallback 中（WebGL 锁定/暂定降级）→ 本档位自己的 SVG 滤镜（既有
  *   路径；getSvgFilterUrl 会把 off 映射为无滤镜）；
@@ -912,13 +987,14 @@ export default function SuperResCanvas({
   /* 性能兜底（2026-11-18 收官批）：SR 单帧成本持续超标自动降一档（会话内，
    * 换源复位）。只统计播放中的帧；静态重绘不计。 */
   const [demote, setDemote] = useState(0);
-  const frameCostRef = useRef({ sum: 0, n: 0 });
   const activeMode = srDemote(mode, demote);
-  /* U1 双向调节状态：连续达标窗计数（升档迟滞）与降到 off 后的探针
-   * 帧计数/成本窗。换源一并清零（见 srcKey effect）。 */
-  const goodStreakRef = useRef(0);
+  /* U1 双向调节记账（隔帧/成本窗/达标连击）收敛在纯记账器（见
+   * createSrPerfTracker）：≥2x 域样本不入账、退出清窗，根治长按
+   * 松手前后的管线阶跃。换源经 reset() 一并清零（见 srcKey effect）。
+   * probeFrameRef 是探针 cadence 计数（呈现层节流），与记账窗分开。 */
+  const perfRef = useRef<ReturnType<typeof createSrPerfTracker> | null>(null);
+  if (!perfRef.current) perfRef.current = createSrPerfTracker();
   const probeFrameRef = useRef(0);
-  const probeCostRef = useRef({ sum: 0, n: 0 });
   const activeModeCbRef = useRef(onActiveModeChange);
   activeModeCbRef.current = onActiveModeChange;
   useEffect(() => {
@@ -938,8 +1014,6 @@ export default function SuperResCanvas({
   const validFrameSeenRef = useRef(false);
   /* 暂定降级期间的复查帧计数（每 SR_PROVISIONAL_RECHECK_EVERY 帧采样一次）。 */
   const provisionalFrameRef = useRef(0);
-  /* 倍速 ≥2x 时 SR 隔帧处理计数（fix2 A5），见 drawFrame 内说明 */
-  const holdSkipRef = useRef(0);
   const probeBufRef = useRef(new Uint8Array(4));
   const drawFrameRef = useRef<(() => void) | null>(null);
   const syncSizeRef = useRef<(() => void) | null>(null);
@@ -1009,10 +1083,8 @@ export default function SuperResCanvas({
     validFrameSeenRef.current = false;
     provisionalFrameRef.current = 0;
     setFallbackKind("none");
-    frameCostRef.current = { sum: 0, n: 0 };
-    goodStreakRef.current = 0;
+    perfRef.current?.reset();
     probeFrameRef.current = 0;
-    probeCostRef.current = { sum: 0, n: 0 };
     setDemote(0);
     setSvgFallback(false);
     setCanvasReady(false);
@@ -1112,16 +1184,15 @@ export default function SuperResCanvas({
         probeFrameRef.current += 1;
         if (probeFrameRef.current % SR_PROBE_EVERY !== 0) return;
       }
-      /* 倍速 ≥2x（长按 hold 或用户定档）时隔帧处理（Muse 2026-11-19
-       * fix2 A5）：呈现帧率随倍速翻倍，全量处理等于把 texImage2D＋
-       * 着色器的每秒成本按墙钟翻倍，是长按残余顿感的代码级主因
-       * （hold 状态本身已在 fix1 移出 Feed 渲染）。隔帧后 SR 更新率
-       * 回到 1x 水平；跳过的帧画布保留上一帧处理结果、不闪；跳帧
-       * 不计入下方帧成本统计，避免假低成本触发升档振荡。 */
-      if (!video.paused && video.playbackRate >= 2) {
-        holdSkipRef.current += 1;
-        if (holdSkipRef.current % 2 === 1) return;
-      }
+      /* 倍速 ≥2x（长按 hold 或用户定档）域由记账器 gate 统一过门
+       * （Muse 2026-11-19 根治包，记账口径见 createSrPerfTracker）：
+       * 隔帧处理沿用 fix2 A5——呈现帧率随倍速翻倍，全量处理等于把
+       * texImage2D＋着色器的每秒成本按墙钟翻倍；隔帧后 SR 更新率
+       * 回到 1x 水平，跳过的帧画布保留上一帧处理结果、不闪。本帧
+       * 的 fastRate 同时供下方成本入账判定：该域样本不入账、退出
+       * 该域清窗，松手帧前后不发生管线阶跃。 */
+      const fastRate = !video.paused && video.playbackRate >= 2;
+      if (perfRef.current?.gate(fastRate)) return;
       const vw = video.videoWidth || 0;
       const vh = video.videoHeight || 0;
       if (vw <= 0 || vh <= 0 || video.readyState < 2) return;
@@ -1211,41 +1282,26 @@ export default function SuperResCanvas({
          * 探针态（已降到 off）改用探针窗：每 SR_PROBE_EVERY 帧实测一帧、
          * SR_PROBE_WINDOW_FRAMES 帧一窗；uMode=0 在 shader 里走
          * runNatural 分支，测的就是 natural 档单帧成本；探针只升不降
-         * （已在地板，srPerfStep 的降档在 demote=max 时天然无动作）。 */
+         * （已在地板，srPerfStep 的降档在 demote=max 时天然无动作）。
+         * 入账与裁决应用收敛在记账器（createSrPerfTracker）：≥2x 域
+         * 样本不入账（fastRate），窗口永不跨速率域；裁决应用口径与旧
+         * 实现一致——探针窗只应用升档（降档在地板天然无动作，旧实现
+         * 同样不应用探针降档），正常窗升降都应用并落 trace。 */
         if (costStart && fallbackRef.current.kind === "none") {
           const srcFps = fpsRef.current;
           const budget = srcFps && srcFps > 0 ? Math.min(16, (0.55 * 1000) / srcFps) : 16;
-          if (probing) {
-            const pc = probeCostRef.current;
-            pc.sum += performance.now() - costStart;
-            pc.n += 1;
-            if (pc.n >= SR_PROBE_WINDOW_FRAMES) {
-              const avg = pc.sum / pc.n;
-              probeCostRef.current = { sum: 0, n: 0 };
-              const step = srPerfStep(avg, budget, demote, srMaxDemoteSteps(mode), goodStreakRef.current);
-              goodStreakRef.current = step.goodStreak;
-              if (step.action === "promote") {
-                onTrace?.("sr.perf_promote", { from: activeMode, to: srDemote(mode, step.demote), avg_ms: Math.round(avg * 10) / 10, budget_ms: Math.round(budget * 10) / 10, probe: true });
-                setDemote(step.demote);
-              }
-            }
-          } else {
-            const cost = frameCostRef.current;
-            cost.sum += performance.now() - costStart;
-            cost.n += 1;
-            if (cost.n >= 60) {
-              const avg = cost.sum / cost.n;
-              frameCostRef.current = { sum: 0, n: 0 };
-              const step = srPerfStep(avg, budget, demote, srMaxDemoteSteps(mode), goodStreakRef.current);
-              goodStreakRef.current = step.goodStreak;
-              if (step.action === "demote") {
-                onTrace?.("sr.perf_demote", { from: activeMode, to: srDemote(mode, step.demote), avg_ms: Math.round(avg * 10) / 10, budget_ms: Math.round(budget * 10) / 10 });
-                setDemote(step.demote);
-              } else if (step.action === "promote") {
-                onTrace?.("sr.perf_promote", { from: activeMode, to: srDemote(mode, step.demote), avg_ms: Math.round(avg * 10) / 10, budget_ms: Math.round(budget * 10) / 10 });
-                setDemote(step.demote);
-              }
-            }
+          const verdict = perfRef.current?.sample(performance.now() - costStart, {
+            fastRate, probing, budgetMs: budget, demote, maxDemote: srMaxDemoteSteps(mode),
+          }) ?? null;
+          if (verdict && verdict.action !== "none" && (!verdict.probing || verdict.action === "promote")) {
+            onTrace?.(verdict.action === "demote" ? "sr.perf_demote" : "sr.perf_promote", {
+              from: activeMode,
+              to: srDemote(mode, verdict.demote),
+              avg_ms: Math.round(verdict.avgMs * 10) / 10,
+              budget_ms: Math.round(budget * 10) / 10,
+              ...(verdict.probing ? { probe: true } : {}),
+            });
+            setDemote(verdict.demote);
           }
         }
       } catch (err) {

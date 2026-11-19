@@ -105,6 +105,14 @@ try {
   check("U1 streak restarts after neutral", r.u_promote_streak_restarts, "none");
   check("U1 three consecutive good windows promote", r.u_promote_after_3_good, "promote");
   check("U1 demote capped at floor", r.u_demote_at_floor, [2, "none"]);
+  // U3 — hold-release pipeline step: fast-rate samples never booked, exit clears window
+  check("U3 window not full at 59 normal samples", r.u3_window_not_full, null);
+  check("U3 fast-rate gate alternates skip", r.u3_gate_fast_seq, [true, false, true, false]);
+  check("U3 fast-rate samples never booked", r.u3_fast_samples_dropped, null);
+  check("U3 release gate processes frame", r.u3_gate_release, false);
+  check("U3 window restarted after release", r.u3_window_restarted, null);
+  check("U3 first full good window after release keeps tier", r.u3_good_window, ["none", 0]);
+  check("U3 bad window at normal rate still demotes", r.u3_bad_window_demotes, ["demote", 1]);
   check("U1 auto-off without reason defaults to judged (true off)", r.u_filter_auto_off, null);
   check("U1 no floor when user explicitly off", r.u_filter_pref_off, null);
   check("U1 no filter while WebGL presenting", r.u_filter_webgl_presenting, null);
