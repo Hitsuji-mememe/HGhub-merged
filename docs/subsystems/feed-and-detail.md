@@ -178,6 +178,22 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   Player 面无横拖手势（seek 是 range 输入框、归输入豁免）不设
   标记。契约（gestureChain.contract.test.ts）按面覆盖误触组/
   失效组/正例组，基线证伪探针逐条旧红新绿见线报告。
+  fix331/gesture-precedence（3.3.1 真机首验）：内嵌详情面（吃瓜
+  帖子正文/外部视频详情/图集相册/搜索结果详情，组件局部状态原
+  地渲染、不推 App 栈）对只读 topKind 的分类器不可见，曾被当
+  页签根——左划落前进链、右划 back 在 glue 落穿到「回上一页
+  签」，用户实报想退回列表却切去搜索页签。定版：①资格一处——
+  back.ts 新增消费集合探针 `backConsumerActive()`（弹层登记∨
+  页 handler 在册，与 runBack 同源），glue 起手采样为
+  `nestedBack`，在 decideChainSwipe 与 topKind 同权进栈页分
+  支：嵌套面双缘返回、前进链与回上一页签只在页签根（栈空∧无
+  嵌套层）成立，detailNext 仍只认栈顶 feed；②落点同源——四个
+  嵌套面（SourcePosts/SourceBrowse/SourceGallery/Search 的
+  extDetail）在层打开期间以 registerOverlayBack 登记「关本
+  层」消费方（与弹层同一机制），硬件返回/Escape 同步受益；
+  ③glue 落穿护栏——起手有嵌套资格而落点 runBack 未消费（竞
+  态）时本次滑动作废，不落穿退宿主页/切页签。契约新增嵌套组
+  6 例（旧码左划给 {tab} 证伪、根面正例逐字不变防误伤）。
 - 右侧动作栏（2026-11-18 用户再裁定，恢复同日撤下的版本）：喜欢/收藏/
   评论三钮 + 计数沿上游原样回到移动端与桌面右侧栏——此前判「游客用不上」
   是错的，用户明确用得上。但不做常驻覆层：整栏跟随控制层显隐（移动端

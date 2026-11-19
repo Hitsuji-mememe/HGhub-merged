@@ -24,6 +24,7 @@ import { MediaCard } from "../../shared/ui/cards";
 import { Empty } from "../../shared/ui/ui";
 import { IBack, IFilm } from "../../shared/ui/icons";
 import { Player } from "../playback";
+import { registerOverlayBack } from "../../shared/lib/back";
 import { createAdapter } from "./adapters/index.ts";
 import type { SourceDef, SourceItem } from "./types.ts";
 
@@ -91,6 +92,16 @@ export default function SourceBrowse({ def }: { def: SourceDef }) {
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def.id]);
+
+  /* 嵌套返回语义（fix331/gesture-precedence）：详情在本页内状态
+   * 呈现、不推栈（文件头既有口径）——打开期间向统一返回序登记
+   * 本层消费方，back 先关详情回列表，不再落穿成退整个频道页；
+   * 登记同时是手势链嵌套资格的事实源（backConsumerActive）。 */
+  const detailOpen = detail !== null;
+  useEffect(() => {
+    if (!detailOpen) return undefined;
+    return registerOverlayBack(() => { setDetail(null); return true; });
+  }, [detailOpen]);
 
   const openItem = useCallback(async (item: SourceItem) => {
     const adapter = createAdapter(def);

@@ -31,6 +31,7 @@ import { MediaCard } from "../../shared/ui/cards";
 import { Empty, Img } from "../../shared/ui/ui";
 import { IBack, IFireF, IPlayF } from "../../shared/ui/icons";
 import { useStore } from "../../shared/model/store";
+import { registerOverlayBack } from "../../shared/lib/back";
 import { Player } from "../playback";
 import { extractArticleBlocks } from "./articleBlocks.ts";
 import { createAdapter } from "./adapters/index.ts";
@@ -119,6 +120,18 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   useEffect(() => {
     onSettledEmpty?.(settledEmpty);
   }, [settledEmpty, onSettledEmpty]);
+
+  /* 嵌套返回语义（fix331/gesture-precedence）：详情活在本组件局
+   * 部状态里、不推 App 栈——打开期间向统一返回序登记本层消费
+   * 方（与弹层同一机制），硬件返回/Escape/边缘手势的 back 先关
+   * 详情回列表，不再落穿成退宿主页或切页签（3.3.1 真机主诉）。
+   * 登记在册同时是手势链的嵌套资格事实源（backConsumerActive
+   * 探针），判定与落点同源、不另报状态。 */
+  const detailOpen = detail !== null;
+  useEffect(() => {
+    if (!detailOpen) return undefined;
+    return registerOverlayBack(() => { setDetail(null); return true; });
+  }, [detailOpen]);
 
   const openItem = useCallback(async (item: SourceItem) => {
     const adapter = createAdapter(def);
