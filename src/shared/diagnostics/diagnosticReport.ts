@@ -32,7 +32,11 @@ const obj = (v: unknown): Json => (v && typeof v === "object" &&!Array.isArray(v
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v)? v: null);
 const str = (v: unknown): string => (typeof v === "string"? v: "");
 
-type LogEntry = { event: string; ts: number; pid: number | null; data: Json};
+type LogEntry = { event: string; ts: number; pid: number | null; data: Json;
+/** 事件自带单调钟（data.mono_ms，前端 performance.now）：阶段计时
+ * 优先用它（Muse 2026-11-19 整改 C3）——raw.ts 是 Rust 写盘时刻，
+ * 前端 250ms 批量 flush 会把同批阶段压成 ≈0、耗时记到下一批。 */
+mono: number | null};
 
 function parseLog(text: string): LogEntry[] {
 const out: LogEntry[] = [];
@@ -42,11 +46,13 @@ if (!trimmed.startsWith("{")) continue;
 try {
 const raw = JSON.parse(trimmed) as Json;
 const ts = Date.parse(str(raw.ts));
+const data = obj(raw.data);
 out.push({
 event: str(raw.event),
 ts: Number.isFinite(ts)? ts: 0,
 pid: num(raw.pid),
-data: obj(raw.data),
+data,
+mono: num(data.mono_ms)?? num(raw.mono_ms),
 });
 } catch { /* 半行/损坏行跳过 */}
 }
@@ -141,10 +147,26 @@ const sessionEntries = lastPid == null? entries: entries.filter(e => e.pid === l
 const loadIdxsAll: number[] = [];
 sessionEntries.forEach((e, i) => { if (e.event === "web.source.load") loadIdxsAll.push(i); });
 if (!loadIdxsAll.length) return null;
-const tailAll = sessionEntries.slice(loadIdxsAll[loadIdxsAll.length - 1]);
-const tailPlayer = str(tailAll[0].data.player);
-const tail = tailPlayer? tailAll.filter(e => { const pl = str(e.data.player); return pl == null || pl === tailPlayer; }): tailAll;
-const t0 = tail[0].ts;
+/* 阶段偏移（整改 C3）：同实例内 mono_ms 存在时用单调钟差，缺失回落
+ * 写盘 ts 差——两种钟不混算（mono 是 performance.now、ts 是墙钟）。 */
+const offOf = (e: LogEntry, base: LogEntry): number =>
+e.mono!= null && base.mono!= null? e.mono - base.mono: e.ts - base.ts;
+/* resolve 归段（整改 C4）：play.resolve 在 source.load 之前发出且不带
+ * player（Feed 口径），分段组装时把同条目紧邻在前的 resolve（上一段
+ * load 之后、本段 load 之前）归入本次起播，否则 resolve 阶段恒缺。 */
+const preResolveOf = (loadIdx: number): LogEntry[] => {
+const prev = loadIdxsAll.filter(i => i < loadIdx).pop();
+const gap = sessionEntries.slice(prev == null? 0: prev + 1, loadIdx);
+const resolves = gap.filter(e => e.event === "web.play.resolve");
+return resolves.length? [resolves[resolves.length - 1]]: [];
+};
+const lastLoadIdx = loadIdxsAll[loadIdxsAll.length - 1];
+const tailAll = [...preResolveOf(lastLoadIdx), ...sessionEntries.slice(lastLoadIdx)];
+const tailPlayer = str(sessionEntries[lastLoadIdx].data.player);
+/* player 过滤（整改 C4）：str() 对缺失字段返回 ""，旧判 pl == null
+ * 永不成立、无 player 的系统事件被误删——"" 归一为无 player 保留。 */
+const tail = tailPlayer? tailAll.filter(e => { const pl = str(e.data.player); return pl === "" || pl === tailPlayer; }): tailAll;
+const tailBase = sessionEntries[lastLoadIdx];
 const stallEvents = sessionEntries.filter(e => e.event === "web.hls.append_stall");
 const stalledThisSession = stallEvents.length > 0;
 const fallbackThisSession = sessionEntries.some(e => e.event === "web.playback.fallback");
@@ -168,9 +190,10 @@ loadIdxs.forEach((li, k) => {
 /* (playerInstanceId) 隔离（Muse 2026-11-19 根治包，audit6 诊断节）：
  * pid 隔离之外再按日志 data.player 过滤本段——双播放器并发时另一
  * 实例的事件不混入本段结局判定；无 player 的系统事件保留。 */
-const segAll = sessionEntries.slice(li, k + 1 < loadIdxs.length? loadIdxs[k + 1]: undefined);
-const segPlayer = str(segAll[0].data.player);
-const seg = segPlayer? segAll.filter(e => { const pl = str(e.data.player); return pl == null || pl === segPlayer; }): segAll;
+const segLoad = sessionEntries[li];
+const segAll = [...preResolveOf(li), ...sessionEntries.slice(li, k + 1 < loadIdxs.length? loadIdxs[k + 1]: undefined)];
+const segPlayer = str(segLoad.data.player);
+const seg = segPlayer? segAll.filter(e => { const pl = str(e.data.player); return pl === "" || pl === segPlayer; }): segAll;
 const playingEv = seg.find(e => e.event === "web.media.playing");
 const frameEv = seg.find(e => e.event === "web.media.first_frame");
 const stalls = seg.filter(e => e.event === "web.hls.append_stall").length;
@@ -186,7 +209,7 @@ else if (stalls > 0 || fellBack || hasError) outcome = "failed";
 else if (isLast) outcome = "current";
 else outcome = "unknown";
 const startEv = frameEv?? playingEv;
-plays.push({ index: k + 1, outcome, startupMs: startEv? Math.max(0, startEv.ts - seg[0].ts): null, stalls, fellBack });
+plays.push({ index: k + 1, outcome, startupMs: startEv? Math.max(0, offOf(startEv, segLoad)): null, stalls, fellBack });
 });
 }
 const cleanPlays = plays.filter(p => p.outcome === "success" && p.startupMs!= null);
@@ -197,9 +220,9 @@ const slowest = slowestPlay? { index: slowestPlay.index, startupMs: slowestPlay.
 
 const reached = STAGES.map(stage => {
 const hit = tail.find(e => stage.events.includes(e.event));
-return {...stage, at: hit? hit.ts: null};
+return {...stage, off: hit? Math.max(0, offOf(hit, tailBase)): null};
 });
-const furthestIdx = reached.reduce((acc, s, i) => (s.at!= null? i: acc), -1);
+const furthestIdx = reached.reduce((acc, s, i) => (s.off!= null? i: acc), -1);
 /* 阶段标记口径（2026-11-18 晚真机报告审计修正）：缺失阶段分两种——
    已越过它（更晚阶段已达）说明只是没记到该事件，标「— 未记录」，
    不打 ✗ 假警报（实测：出画成功仍报 resolve ✗）；真正卡点之后
@@ -207,22 +230,22 @@ const furthestIdx = reached.reduce((acc, s, i) => (s.at!= null? i: acc), -1);
    加载后隔很久才起播/续播），只记成败不记 ms，避免 218081ms 这类
    数字被误读成起播耗时。起播耗时口径见下方 startupMs（fix2 A4）。 */
 const parts = reached.map((s, i) => {
-if (s.at == null) return `${s.label} ${i <= furthestIdx? "— 未记录": "✗ 未达"}`;
-const off = Math.max(0, s.at - t0);
+if (s.off == null) return `${s.label} ${i <= furthestIdx? "— 未记录": "✗ 未达"}`;
+const off = s.off;
 if (s.key === "playing" && off > 30000) return `${s.label} ✓`;
 return `${s.label} ✓ ${off}ms`;
 });
-const furthest = [...reached].reverse().find(s => s.at!= null);
+const furthest = [...reached].reverse().find(s => s.off!= null);
 /* 起播耗时（fix2 A4 统一口径）：T0（本段 source.load）→T7（首帧
  * 呈现 first_frame），无首帧信号回落 playing 并标 basis；与逐次
  * 播放的 startupMs 同一定义。旧版结论行用 t0→buffered：buffered
  * 达标可远晚于首帧（如慢线下边播边缓冲），把 90s 级数字冒充起播
  * 与逐次的 11.7s 同报告打架，即此故。 */
-const frameAt = reached.find(s => s.key === "first_frame")?.at?? null;
-const playingAt = reached.find(s => s.key === "playing")?.at?? null;
+const frameAt = reached.find(s => s.key === "first_frame")?.off?? null;
+const playingAt = reached.find(s => s.key === "playing")?.off?? null;
 const startupBasis: FlowResult["startupBasis"] = frameAt!= null? "first_frame": playingAt!= null? "playing": null;
-const startupMs = startupBasis === "first_frame"? Math.max(0, (frameAt as number) - t0)
-: startupBasis === "playing"? Math.max(0, (playingAt as number) - t0): null;
+const startupMs = startupBasis === "first_frame"? frameAt
+: startupBasis === "playing"? playingAt: null;
 let verdict: string;
 if (playingAt!= null || frameAt!= null) {
 verdict = "最近播放已正常出画（playing）";
@@ -235,7 +258,7 @@ verdict = `最近播放卡在 ${furthest.label} 阶段`;
 }
 const allStarts = plays.map(p => p.startupMs).filter((v): v is number => v!= null).sort((a, b) => a - b);
 const pctile = (q: number) => allStarts.length? allStarts[Math.min(allStarts.length - 1, Math.floor(q * allStarts.length))]: null;
-const reachedOffs = reached.filter(r => r.at!= null).map(r => ({ label: r.label, off: Math.max(0, (r.at as number) - t0) }));
+const reachedOffs = reached.filter(r => r.off!= null).map(r => ({ label: r.label, off: r.off as number }));
 const stageIncrements = reachedOffs.map((r, i) => i === 0? `${r.label} +${r.off}ms`: `${r.label} +${r.off - reachedOffs[i - 1].off}ms`).join(" · ");
 return { table: parts.join(" · "), verdict, startupMs, startupBasis, stalledThisSession, fallbackThisSession, stallCount, rebuildCount, fallbackCount, lastStallState, demoteCount, lineSwitchCount, confirmPendingCount, plays, medianStartupMs, slowest, startupP50: pctile(0.5), startupP90: pctile(0.9), stageOffsets: reachedOffs.map(r => r.off), stageIncrements };
 }
