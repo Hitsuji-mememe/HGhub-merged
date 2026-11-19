@@ -1,15 +1,19 @@
 /**
- * 注册表 + 远程清单契约测试（Muse 2026-11-19 根治包·多源线 条目2/3）：
+ * 注册表 + 远程清单契约测试（Muse 2026-11-19 根治包·多源线 条目2/3；
+ * 2026-11-19 用户新口径适配：名单由冻结改为「命名源核心 + FC2 +
+ * 目录导入」，blocked 改列表保留可见，断言强度不降）：
  * 运行：node src/features/sources/registry.contract.test.ts
- * 覆盖：冻结名单完整性、enabled 源适配器可解析、三段回退
- * （坏清单→last-good、再坏→内置）、minAppVersion 门、远程熔断。
+ * 覆盖：命名源完整性、目录导入口径、blocked 保留口径、enabled 源
+ * 适配器可解析、三段回退（坏清单→last-good、再坏→内置）、
+ * minAppVersion 门、远程熔断。
  */
 import assert from "node:assert/strict";
-import { BUILTIN_SOURCES, getBuiltinRegistry } from "./registry.ts";
+import { BUILTIN_SOURCES, NAMED_SOURCES, getBuiltinRegistry } from "./registry.ts";
+import { CATALOG_SOURCES } from "./catalog.ts";
 import { MANIFEST_CACHE_KEY, applyManifest, getRegistryInfo, resolveRegistry, validateManifest } from "./manifest.ts";
 import { TEMPLATE_IDS } from "./adapters/templates.ts";
 
-const FROZEN_IDS = [
+const CORE_IDS = [
   "huangguo", "rouvideo", "91video", "pornhub", "xvideos", "hanime-tv", "swag", "fyptt",
   "redgifs", "rule34video", "51chigua", "meiridasai", "xiuren", "pornpics", "cosplaytele",
   "danbooru", "jabletv", "missav", "tikporn", "hanime1", "iwara", "myfans",
@@ -17,9 +21,22 @@ const FROZEN_IDS = [
 
 /* ── 注册表完整性 ── */
 {
-  assert.deepEqual([...BUILTIN_SOURCES.map((s) => s.id)].sort(), [...FROZEN_IDS].sort(), "冻结名单 22 源不多不少");
   const ids = new Set(BUILTIN_SOURCES.map((s) => s.id));
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
+  for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
+  assert.ok(ids.has("fc2"), "FC2（用户点名）在册");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length + 1, "命名源 = 核心 22 + FC2");
+  assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
+  for (const s of CATALOG_SOURCES) {
+    assert.equal(s.enabled, false, `目录源 ${s.id} 默认未启用（远程清单可按 id 启用）`);
+    assert.equal(s.maturity, "probe", `目录源 ${s.id} 一律 probe`);
+    assert.ok(s.note?.includes("目录导入·未实测"), `目录源 ${s.id} 注记诚实标注未实测`);
+  }
+  for (const blockedId of ["51chigua", "meiridasai", "xiuren", "danbooru"]) {
+    const s = BUILTIN_SOURCES.find((x) => x.id === blockedId)!;
+    assert.equal(s.maturity, "blocked");
+    assert.equal(s.enabled, true, `${blockedId} blocked 保留口径：列表可见、点开诚实提示`);
+  }
   for (const s of BUILTIN_SOURCES) {
     assert.ok(s.displayName && s.baseUrls.length && /^https?:\/\//.test(s.baseUrls[0]), `${s.id} 基址齐全`);
     assert.ok((TEMPLATE_IDS as readonly string[]).includes(s.adapter.template), `${s.id} 模板 id 已知`);
@@ -75,7 +92,7 @@ const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ i
 { // 远程抛错 + 无缓存 → 内置
   const r = await resolveRegistry({ fetcher: async () => { throw new Error("net down"); }, storage: memStorage(), appVersion: "2.2.0" });
   assert.equal(r.source, "builtin");
-  assert.equal(r.sources.length, 22);
+  assert.equal(r.sources.length, BUILTIN_SOURCES.length);
   assert.equal(r.sources.find((s) => s.id === "swag")!.enabled, true, "内置口径 swag enabled");
 }
 { // minAppVersion 高于当前 → 不生效 → 内置
@@ -88,7 +105,7 @@ const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ i
 }
 { // applyManifest 不增删源
   const merged = applyManifest(getBuiltinRegistry(), validateManifest(goodManifest)!);
-  assert.equal(merged.length, 22);
+  assert.equal(merged.length, getBuiltinRegistry().length);
 }
 
 console.log("registry.contract: all assertions passed");

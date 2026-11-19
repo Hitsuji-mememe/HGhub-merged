@@ -57,7 +57,7 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
           </div>
           <div className="px-4 pb-2"><SourceSwitcher options={postSourceOptions} value={sourceId} onChange={setSourceId} ariaLabel="吃瓜数据源切换" /></div>
         </div>
-        <div className="flex-1 scroll-y pb-8"><SourcePendingNotice displayName={activeSource?.displayName ?? sourceId} /></div>
+        <div className="flex-1 scroll-y pb-8"><SourcePendingNotice displayName={activeSource?.displayName ?? sourceId} maturity={activeSource?.maturity} note={activeSource?.note} /></div>
       </div>
     );
   }

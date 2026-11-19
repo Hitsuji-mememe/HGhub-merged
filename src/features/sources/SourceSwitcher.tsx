@@ -2,11 +2,12 @@
  * 源切换器（Muse 2026-11-19 根治包·多源线 条目5）：
  * 同一分类内切换数据源，切换即整页换源重拉、源间不混排。
  * badge 口径：preview→「仅预览」；probe→「未实测」（适配器已注册、
- * 运行时取页通道未接入，不假装可用）。
+ * 未完整验通，不假装可用）；blocked→「暂不可用」（用户保留口径：
+ * 列表可见、点开诚实提示，不删不假数据）。
  */
 import { Button } from "../../shared/ui/ios/controls";
 import { sourcesForCategory } from "./registry.ts";
-import type { SourceCategory } from "./types.ts";
+import type { SourceCategory, SourceMaturity } from "./types.ts";
 
 export interface SourceOption { id: string; label: string; badge?: string }
 
@@ -14,7 +15,7 @@ export function sourceOptionsForCategory(category: SourceCategory): SourceOption
   return sourcesForCategory(category).map((s) => ({
     id: s.id,
     label: s.displayName,
-    badge: s.maturity === "preview" ? "仅预览" : s.maturity === "probe" ? "未实测" : undefined,
+    badge: s.maturity === "preview" ? "仅预览" : s.maturity === "blocked" ? "暂不可用" : s.maturity === "probe" ? "未实测" : undefined,
   }));
 }
 
@@ -38,13 +39,28 @@ export function SourceSwitcher({ options, value, onChange, ariaLabel }: {
   );
 }
 
-/** 非黄果源的诚实占位：已注册但取页通道未接入，不展示假数据。 */
-export function SourcePendingNotice({ displayName }: { displayName: string }) {
+/** 非黄果源的诚实提示（按成熟度分化，用户保留口径）：
+ * blocked＝站点实测不可达——保留在列表、点开只给证据与状态，不拉
+ * 数据、不拿别源内容冒充；其余（probe/stable）＝适配器与受控取页
+ * 通道已就绪，但外部源内容浏览页尚未接通，暂不展示内容。 */
+export function SourcePendingNotice({ displayName, maturity, note }: { displayName: string; maturity?: SourceMaturity; note?: string }) {
+  if (maturity === "blocked") {
+    return (
+      <div role="status" className="mx-4 mt-6 rounded-[18px] bg-s2 px-4 py-5 text-center">
+        <div className="text-[14px] font-semibold text-on">{displayName}（暂不可用）</div>
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-mut">
+          真站实测显示该站点当前不可达，暂不展示内容，也不会拿其他源的数据冒充。源保留在列表中：站点恢复、或远程清单推送新域名后即可用。
+        </p>
+        {note && <p className="mt-1.5 text-[12px] leading-relaxed text-mut">实测记录：{note}</p>}
+      </div>
+    );
+  }
   return (
     <div role="status" className="mx-4 mt-6 rounded-[18px] bg-s2 px-4 py-5 text-center">
       <div className="text-[14px] font-semibold text-on">{displayName}</div>
       <p className="mt-1.5 text-[12.5px] leading-relaxed text-mut">
-        该源已注册、适配器已就绪，但运行时取页通道（Rust 受控取页命令）尚未接入，暂不展示内容，以免混入其他源数据。
+        该源已注册、适配器与受控取页通道已就绪，但外部源的内容浏览页尚未接通，暂不展示内容，以免混入其他源数据。
+        {maturity === "probe" ? "该源尚未完成真站验通，实际可用性以实测为准。" : ""}
       </p>
     </div>
   );

@@ -185,7 +185,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             {!posts.length && <PreviewStatus name="吃瓜" loading={loading.posts !== false} error={errors.posts} onRetry={() => void loadPreview("posts")} />}
           </div>}</FilteredContent>
           ) : (
-            <SourcePendingNotice displayName={postsSource?.displayName ?? postsSourceId} />
+            <SourcePendingNotice displayName={postsSource?.displayName ?? postsSourceId} maturity={postsSource?.maturity} note={postsSource?.note} />
           )}
         </section>
 
@@ -362,7 +362,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
           </div>
           <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={channelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
         </div>
-        <div className="flex-1 scroll-y pb-8"><SourcePendingNotice displayName={channelSource?.displayName ?? channelSourceId} /></div>
+        <div className="flex-1 scroll-y pb-8"><SourcePendingNotice displayName={channelSource?.displayName ?? channelSourceId} maturity={channelSource?.maturity} note={channelSource?.note} /></div>
       </div>
     );
   }
