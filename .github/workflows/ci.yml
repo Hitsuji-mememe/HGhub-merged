@@ -77,6 +77,8 @@ jobs:
           pnpm build
       - name: Size budgets
         run: node scripts/check-size-budgets.mjs
+      - name: Wiring check
+        run: node scripts/check-wiring.mjs
 
   rust:
     name: Rust check and test

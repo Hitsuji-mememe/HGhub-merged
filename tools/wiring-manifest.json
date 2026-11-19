@@ -1,0 +1,343 @@
+{
+  "entries": [
+    {
+      "files": [
+        "src/main.tsx"
+      ],
+      "id": "p0-3-resolve-registry",
+      "item": "P0-3 远程清单启动调用",
+      "min": 1,
+      "symbol": "resolveRegistry"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/sources/SourceSwitcher.tsx",
+        "src/features/category/Category.tsx",
+        "src/features/posts/Posts.tsx"
+      ],
+      "id": "p0-3-active-registry-ui",
+      "item": "P0-3 UI 改读 active 注册表",
+      "symbol": "getActiveRegistry"
+    },
+    {
+      "files": [
+        "src/features/sources/manifest.ts"
+      ],
+      "id": "p0-3-registry-applied",
+      "item": "P0-3 清单落定埋点 registry.applied",
+      "min": 2,
+      "symbol": "traceRegistryApplied"
+    },
+    {
+      "files": [
+        "src/main.tsx"
+      ],
+      "id": "p0-3-allowlist-push",
+      "item": "P0-3/P1 注册表 origins 推送 Rust 白名单",
+      "min": 2,
+      "symbol": "pushSourceAllowlist"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/main.tsx",
+        "src-tauri/src/lib.rs"
+      ],
+      "id": "p1-source-allowlist-cmd",
+      "item": "P1 source_fetch origin 白名单命令（前端调用＋Rust 注册）",
+      "symbol": "source_allowlist_set"
+    },
+    {
+      "files": [
+        "src-tauri/src/api/source.rs"
+      ],
+      "id": "p1-source-header-filter",
+      "item": "P1 source_fetch 请求头白名单",
+      "min": 2,
+      "symbol": "filter_source_headers"
+    },
+    {
+      "files": [
+        "src/shared/network/autoLine.ts"
+      ],
+      "id": "p0-2-confirm-timer",
+      "item": "P0-2 两轮确认计时器独立句柄",
+      "min": 2,
+      "symbol": "laterConfirm"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/feed/stallHeal.ts",
+        "src/features/feed/Feed.tsx"
+      ],
+      "id": "p0-1-heal-key-record",
+      "item": "P0-1 stallHeal 接回登记改 id:ep 内容键",
+      "symbol": "recordHealResume"
+    },
+    {
+      "files": [
+        "src/features/feed/Feed.tsx"
+      ],
+      "id": "p0-1-heal-consume",
+      "item": "P0-1 stallHeal 接回消费端（Feed）",
+      "min": 1,
+      "symbol": "consumeHealResume"
+    },
+    {
+      "files": [
+        "src/features/feed/Feed.tsx"
+      ],
+      "id": "p0-1-scope-only-guard",
+      "item": "P0-1 playKey 仅作用域变化时保位保暂停",
+      "min": 2,
+      "symbol": "isScopeOnlyChange"
+    },
+    {
+      "files": [
+        "src/features/feed/usePlayUrlCache.ts"
+      ],
+      "id": "p0-1-cache-migration",
+      "item": "P0-1 当前条目跨作用域键迁移",
+      "min": 2,
+      "symbol": "snapshotEntry"
+    },
+    {
+      "files": [
+        "src-tauri/src/api/lines.rs"
+      ],
+      "id": "p1-breaker-urgent",
+      "item": "P1 熔断 urgent 豁免（选线调用点传 urgent）",
+      "min": 1,
+      "symbol": "auto_switch_allowed",
+      "note": "符号基线已存在，本条守调用点不被删；urgent 豁免语义由 A2 Rust 单测保证。"
+    },
+    {
+      "files": [
+        "src-tauri/src/api/lines.rs"
+      ],
+      "id": "p1-throughput-origin-check",
+      "item": "P1 吞吐回写命令侧 origin 校验",
+      "min": 2,
+      "symbol": "known_playback_origin"
+    },
+    {
+      "files": [
+        "src-tauri/src/lines/probe.rs"
+      ],
+      "id": "p1-probe-mode-capture",
+      "item": "P1/G2P2-1 账本按测量时 proxyMode 记账",
+      "min": 1,
+      "symbol": "record_throughput_with_mode"
+    },
+    {
+      "files": [
+        "src-tauri/src/line_rank.rs"
+      ],
+      "id": "p1-timeout-cap",
+      "item": "P1/G2P1-3 测速超时候选生效吞吐封顶",
+      "min": 2,
+      "symbol": "cap_timed_out_measure"
+    },
+    {
+      "files": [
+        "src-tauri/src/api/lines.rs"
+      ],
+      "id": "p1-try-main-readonly",
+      "item": "P2/G2P2-4 line_try_main 只读不递增代次",
+      "min": 2,
+      "symbol": "current_line_selection"
+    },
+    {
+      "files": [
+        "src/features/playback/VideoSurface.tsx"
+      ],
+      "id": "p1-throughput-line-key",
+      "item": "P1 吞吐回写按当前线路 base 记账（前端）",
+      "min": 1,
+      "symbol": "currentLineOrigin"
+    },
+    {
+      "files": [
+        "src/features/feed/useFsKeepAlive.ts"
+      ],
+      "id": "p1-keepalive-tristate",
+      "item": "P1 keepAlive 改用 pauseState 三态信号",
+      "min": 1,
+      "symbol": "pauseState"
+    },
+    {
+      "files": [
+        "src/features/playback/appendStallWatchdog.ts",
+        "src/features/playback/stallWatchdogWiring.ts"
+      ],
+      "id": "p1-append-watchdog-gate",
+      "item": "P1 append 看门狗意愿门（判死前先过 shouldEscalate）",
+      "symbol": "shouldEscalate",
+      "min": 9,
+      "note": "基线 7 处（仅出画臂），整改后 9 处（append 臂补齐）；总数门槛即判别点。"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/VideoSurface.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "id": "p1-player-playing-facts",
+      "item": "P1 全局播放状态双播放面接入（VideoSurface＋Player）",
+      "symbol": "notePlaybackPlaying"
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/playbackDiagnostics.ts"
+      ],
+      "id": "p1-ledger-binding",
+      "item": "P1 账本迟到语义（绑定三态被播放诊断消费）",
+      "min": 1,
+      "symbol": "createLedgerBinding"
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/eventLedger.ts"
+      ],
+      "id": "p1-ledger-late-count",
+      "item": "P1 droppedLate 真实计数入口被绑定调用",
+      "min": 2,
+      "symbol": "noteDroppedLate"
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "id": "p1-stage-mono",
+      "item": "P1 起播阶段计时改用事件 mono_ms",
+      "min": 2,
+      "symbol": "offOf"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/VideoSurface.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "id": "p1-bpp-same-rendition",
+      "item": "P1 判档 bpp 分子分母同 rendition（双播放面）",
+      "symbol": "playingLevelRef"
+    },
+    {
+      "files": [
+        "src/features/playback/useProxyPlaybackRecovery.ts"
+      ],
+      "id": "p1-retry-derive",
+      "item": "P1/Gemini retry() 意愿推导收紧",
+      "min": 2,
+      "symbol": "derivePlaying"
+    },
+    {
+      "files": [
+        "src/features/playback/SrCanvas.tsx"
+      ],
+      "id": "sr-default-on",
+      "item": "SR 模型超分默认开（开关定义＋消费）",
+      "min": 2,
+      "symbol": "SR_MODEL_DEFAULT_ENABLED",
+      "note": "本条守定义＋消费存在；取值 true 由 B17-5 commit 与集成复核 grep 保证（SR_MODEL_DEFAULT_ENABLED = true）。"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/SrCanvas.tsx",
+        "src/shared/diagnostics/gpuProbe.ts"
+      ],
+      "id": "sr-takeover",
+      "item": "SR 探针完成后已挂载面补接管（SrCanvas 自调＋调度器）",
+      "symbol": "runSrProbe"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/webgpuSr.ts",
+        "src/features/playback/WebGpuSrCanvas.tsx"
+      ],
+      "id": "sr-degrade-report",
+      "item": "SR WebGPU 降级档位回报（引擎回调＋组件消费）",
+      "symbol": "onDegrade"
+    },
+    {
+      "files": [
+        "src/features/playback/SrCanvas.tsx"
+      ],
+      "id": "sr-death-latch",
+      "item": "SR WebGPU 死亡闩锁全局通知",
+      "min": 2,
+      "symbol": "noteWebgpuSessionDeath"
+    },
+    {
+      "files": [
+        "src/features/playback/webgpuSr.ts"
+      ],
+      "id": "sr-fast-domain-gate",
+      "item": "SR WebGPU 降级判定排除 ≥2x 快速域",
+      "min": 2,
+      "symbol": "createSrDegradeGate"
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "id": "report-id-scrub",
+      "item": "报告导出 host→稳定编号替换",
+      "min": 2,
+      "symbol": "redactExportText"
+    },
+    {
+      "files": [
+        "src/features/sources/registryDiag.ts"
+      ],
+      "id": "report-source-layers",
+      "item": "报告源健康分层（导出专用）",
+      "min": 2,
+      "symbol": "sourceHealthLines"
+    },
+    {
+      "files": [
+        "src-tauri/src/speed_probe.rs"
+      ],
+      "id": "diag-b-route-dns",
+      "item": "诊断 B 路 DNS 固定（解析后 IP 校验）",
+      "min": 2,
+      "symbol": "ensure_addresses_public"
+    },
+    {
+      "files": [
+        "src-tauri/src/session.rs"
+      ],
+      "id": "diag-session-restore",
+      "item": "session 启动恢复状态补记",
+      "min": 1,
+      "symbol": "restore-ok"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/playback/mediaTransport.ts",
+        "src/features/playback/useProxyPlaybackRecovery.ts"
+      ],
+      "id": "diag-recovery-outcome",
+      "item": "恢复结果事件 recovery.outcome（降级＋代理恢复两落点）",
+      "symbol": "recovery.outcome"
+    },
+    {
+      "id": "p1-breaker-decay",
+      "item": "P1 熔断总上限时间衰减常数",
+      "symbol": "AUTO_SWITCH_TOTAL_WINDOW",
+      "files": [
+        "src-tauri/src/lines/ledger.rs"
+      ],
+      "min": 2
+    }
+  ],
+  "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",
+  "version": 1
+}
