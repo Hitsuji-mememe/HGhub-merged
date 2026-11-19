@@ -16,6 +16,9 @@ import { createFragThroughputReporter, originOf } from "../src/features/playback
 import { recordIfCurrent, registerPlayerInstance, snapshot as ledgerSnapshot, unregisterPlayerInstance, validateLedgerIntegrity } from "../src/shared/diagnostics/eventLedger";
 import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, lockHighestStartLevel, resolveAbrSeedBps } from "../src/features/playback/hlsConfig";
 import { isPlaybackPlaying, notePlaybackPlaying } from "../src/shared/diagnostics/playbackFacts";
+import Hls from "hls.js";
+import { wireStallWatchdogSignals } from "../src/features/playback/stallWatchdogWiring";
+import { observeFirstRendition } from "../src/features/playback/hlsConfig";
 
 class FakeClock implements StallClock {
   now = 0;
@@ -280,6 +283,42 @@ function run() {
   results.b18_fact_playing_true = isPlaybackPlaying();
   notePlaybackPlaying(false);
   results.b18_fact_playing_false = isPlaybackPlaying();
+
+  /* ── B13 FRAG_LOADED 按类型过滤（整改 B13，先核实）：独立音频轨的
+   * 音频分片（frag.type="audio"）不得进看门狗记账/首档记录/密度入口；
+   * 只过滤 part/sn 的旧实现会让音频 level 与视频 level 交替出现。 ── */
+  {
+    const handlers = new Map<string, (e: unknown, data: unknown) => void>();
+    const fakeHls = { on: (ev: string, cb: (e: unknown, data: unknown) => void) => handlers.set(ev, cb) };
+    const fakeVideo = { addEventListener: () => {}, removeEventListener: () => {} };
+    let wdFragLoaded = 0;
+    let cbFragLoaded = 0;
+    const fakeWatchdog = { fragLoaded: () => { wdFragLoaded += 1; }, buffered: () => {}, playing: () => {}, appendStarted: () => {}, appendEnded: () => {}, resume: () => {} };
+    wireStallWatchdogSignals({
+      hls: fakeHls as unknown as Hls, video: fakeVideo as unknown as HTMLVideoElement,
+      watchdog: fakeWatchdog as unknown as AppendStallWatchdog,
+      onFragLoaded: () => { cbFragLoaded += 1; },
+    });
+    const onFrag = handlers.get(Hls.Events.FRAG_LOADED)!;
+    onFrag(null, { part: undefined, frag: { sn: 3, type: "audio", level: 0 } });
+    results.b13_watchdog_audio_frag_blocked = [wdFragLoaded, cbFragLoaded];
+    onFrag(null, { part: undefined, frag: { sn: 4, type: "main", level: 0 } });
+    results.b13_watchdog_main_frag_passes = [wdFragLoaded, cbFragLoaded];
+  }
+  {
+    const handlers = new Map<string, (e: unknown, data: unknown) => void>();
+    const fakeHls = {
+      levels: [{ width: 640, height: 360, bitrate: 800_000 }, { width: 1920, height: 1080, bitrate: 8_000_000 }],
+      on: (ev: string, cb: (e: unknown, data: unknown) => void) => handlers.set(ev, cb),
+    };
+    const seen: number[] = [];
+    observeFirstRendition(fakeHls as unknown as Hls, Hls.Events, r => seen.push(r.index));
+    const onFrag = handlers.get(Hls.Events.FRAG_LOADED)!;
+    onFrag(null, { frag: { level: 0, type: "audio" } });
+    results.b13_first_rendition_audio_blocked = [...seen];
+    onFrag(null, { frag: { level: 1, type: "main" } });
+    results.b13_first_rendition_main_recorded = [...seen];
+  }
 
   /* ── C 超分判档（模拟源参数 + 真实采样锚点） ── */
   results.c_1080p_high_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 12_000_000, fps: 30 });

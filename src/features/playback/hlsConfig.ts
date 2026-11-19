@@ -111,9 +111,11 @@ export function observeFirstRendition(
   onFirst: (r: FirstRendition) => void,
 ): void {
   let done = false;
-  const on = hls.on.bind(hls) as (event: string, cb: (e: unknown, data: { frag: { level: number } }) => void) => void;
+  const on = hls.on.bind(hls) as (event: string, cb: (e: unknown, data: { frag: { level: number; type?: string } }) => void) => void;
   on(events.FRAG_LOADED, (_e, data) => {
     if (done) return;
+    /* 类型过滤（整改 B13）：音频分片不算首档 rendition。 */
+    if (data.frag.type && data.frag.type !== "main") return;
     const levels = hls.levels;
     if (!levels || levels.length === 0) return;
     const level = levels[data.frag.level];

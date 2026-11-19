@@ -70,7 +70,7 @@ export function createStallWatchdog(opts: {
 /** 把 hls 与 video 的信号喂给看门狗；返回解绑函数（只解 video 的
  * playing/play 监听——hls 监听随 hls.destroy() 一并销毁，无悬空监听）。
  * 信号次序与收敛前两处原文一致：FRAG_LOADED 先过两处共用的
- * part/sn 守卫、喂看门狗，再走调用方逻辑；FRAG_BUFFERED 先走调用方
+ * part/sn/type=main 守卫、喂看门狗，再走调用方逻辑；FRAG_BUFFERED 先走调用方
  * 逻辑（recovery.buffered 等）再喂看门狗。调用方的 onFragLoaded 只放
  * 与看门狗无关的自有逻辑（守卫已由本函数统一施加）。 */
 export function wireStallWatchdogSignals(opts: {
@@ -86,7 +86,9 @@ export function wireStallWatchdogSignals(opts: {
   hls.on(Hls.Events.BUFFER_APPENDING, () => watchdog.appendStarted());
   hls.on(Hls.Events.BUFFER_APPENDED, () => watchdog.appendEnded());
   hls.on(Hls.Events.FRAG_LOADED, (_e, data) => {
-    if (data.part || typeof data.frag.sn !== "number") return;
+    /* 类型过滤（整改 B13）：只要主轨分片——独立音频轨的 frag.level 是
+     * 音轨索引，混进看门狗/密度/吞吐记账会与视频 level 交替打架。 */
+    if (data.part || typeof data.frag.sn !== "number" || data.frag.type !== "main") return;
     watchdog.fragLoaded();
     opts.onFragLoaded?.(data);
   });
