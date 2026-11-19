@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cover, platform } from "../api/api";
 import { getFullscreenElement, onFullscreenChange } from "../lib/fullscreen";
-import { imageDisplayed, imageFailed, imageRetry, imageStarted, traceFeed, urlFingerprint } from "../lib/feedTrace";
+import { imageDisplayed, imageFailed, imageRetry, imageStarted, recordImageFailure, traceFeed, urlFingerprint } from "../lib/feedTrace";
 export { Sheet, Modal } from "./ios/overlays";
 import { useToasts } from "../model/store";
 import { Loader } from "./ios/effects";
@@ -156,6 +156,10 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
   const [armed, setArmed] = useState(eager);
   const frameRef = useRef<HTMLDivElement>(null);
   const settledRef = useRef(false);
+  /* 逐图失败明细的耗时锚点（fix331/gallery-device）：首 attempt 起算
+   * 与当前 attempt 起算，供终局记录算总耗时档/末次耗时档。 */
+  const firstStartRef = useRef(0);
+  const attemptStartRef = useRef(0);
   const ok = state === "decoded" || state === "displayed";
   const err = state === "failed";
   /* 封面走本地解密代理，网络抖动会偶发失败：同地址重试两次再落到占位。
@@ -202,6 +206,8 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
     imageStarted();
     const fp = urlFingerprint(url);
     const startedAt = Date.now();
+    attemptStartRef.current = startedAt;
+    if (!firstStartRef.current) firstStartRef.current = startedAt;
     traceFeed("image", { ev: "loading", attempt, url: fp });
     const failOrRetry = (reason: "timeout" | "network" | "decode") => {
       if (settledRef.current) return;
@@ -216,6 +222,12 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
         setAttempt(attempt + 1);
       } else {
         imageFailed(reason);
+        recordImageFailure({
+          fp, stage: reason === "timeout" ? "attempt-timeout" : "error-event", reason,
+          attempts: attempt + 1,
+          totalMs: Date.now() - (firstStartRef.current || startedAt),
+          lastMs: Date.now() - startedAt,
+        });
         setState("failed");
       }
     };
@@ -255,6 +267,12 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
             setAttempt(attempt + 1);
           } else {
             imageFailed(reason);
+            recordImageFailure({
+              fp: urlFingerprint(url), stage: reason === "decode" ? "decode" : "error-event", reason,
+              attempts: attempt + 1,
+              totalMs: Date.now() - (firstStartRef.current || attemptStartRef.current || Date.now()),
+              lastMs: Date.now() - (attemptStartRef.current || Date.now()),
+            });
             setState("failed");
           }
         }}

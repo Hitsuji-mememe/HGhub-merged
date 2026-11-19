@@ -14,6 +14,7 @@ import { MediaCard } from "../../shared/ui/cards";
 import { Empty } from "../../shared/ui/ui";
 import { IBack, IGrid } from "../../shared/ui/icons";
 import { AlbumViewer } from "./AlbumViewer.tsx";
+import { setImageTraceSurface } from "../../shared/lib/feedTrace";
 import { createAdapter } from "./adapters/index.ts";
 import type { SourceDef, SourceItem } from "./types.ts";
 
@@ -77,6 +78,14 @@ export default function SourceGallery({ def }: { def: SourceDef }) {
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def.id]);
+
+  /* 逐图失败明细的面标注（fix331/gallery-device）：图集查看态记
+   * gallery、相册网格记 source-list，诊断导出据此分面定位；卸载还原
+   * 缺省 app。3.3.1 诊断里图集会话零明细，此标注补上这个面。 */
+  useEffect(() => {
+    setImageTraceSurface(album?.phase === "ready" ? "gallery" : "source-list");
+  }, [album?.phase]);
+  useEffect(() => () => setImageTraceSurface("app"), []);
 
   const openAlbum = useCallback(async (item: SourceItem) => {
     const adapter = createAdapter(def);

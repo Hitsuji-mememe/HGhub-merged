@@ -510,7 +510,7 @@ lines.push(`构建：${BUILD_STAMP}`);
  * 报告头，让读者按此口径判读覆盖面与缺口。 */
 /* 报告头口径（整改 C8，G4 P2-5）：不把目标写成现状——已接入与未
  * 接入如实分列（据 diag-audit-20261119 接入矩阵）。 */
-lines.push("诊断原则：全量飞行记录仪（目标）——本报告无单一统一时间线存储，系多存储拼装（播放日志文件／事件账本／Feed 追踪／选线近轮／Rust 即时探测／取页健康／播放事实快照），跨存储靠时间戳对齐；已接入：播放/选线/超分/Feed 分页与封面/缓存计数/网络（生成时现跑探测）/错误；未接入：源取页观测链（无触发者，见源总览三态）、账号会话生命周期事件、注册表变更事件。覆盖面按此判读，不把目标当现状。");
+lines.push("诊断原则：全量飞行记录仪（目标）——本报告无单一统一时间线存储，系多存储拼装（播放日志文件／事件账本／Feed 追踪／选线近轮／Rust 即时探测／取页健康／播放事实快照），跨存储靠时间戳对齐；已接入：播放/选线/超分/Feed 分页与封面/图片逐图失败明细（按面标注，含图集与源列表面）/缓存计数/网络（生成时现跑探测）/错误；未接入：源取页观测链（无触发者，见源总览三态）、账号会话生命周期事件、注册表变更事件。覆盖面按此判读，不把目标当现状。");
 try {
 const snap = ledgerSnapshot();
 const integrity = validateLedgerIntegrity(snap);
@@ -725,6 +725,17 @@ lines.push(`分页[${channelLabel(l.list)}]：已加载至第 ${l.loadedPages} �
 }
 const reasons = Object.entries(snap.image.byReason).map(([k, v]) => `${k} ${v}`).join(" · ");
 lines.push(`封面：已显示 ${snap.image.displayed} · 终局失败 ${snap.image.failed}${reasons? `（${reasons}）`: ""} · 在途峰值 ${snap.image.inFlightPeak}`);
+/* 逐图终局失败明细（fix331/gallery-device）：聚合行定位不了单图，
+ * 这里逐条给最近 12 条——指纹（host#长度）/面/段位/attempt/耗时档。
+ * 判读键：error-event 且耗时小＝上游快速拒绝（防盗链类）；耗时大＝
+ * 上游重试耗尽或传输抖动；attempt-timeout＝Img 20s 时钟先到。 */
+const failures = snap.imageFailures.slice(-12);
+if (failures.length) {
+lines.push(`图片失败明细（最近 ${failures.length} 条终局失败）：`);
+for (const f of failures) {
+lines.push(`· ${f.fp} · 面 ${f.surface} · ${f.stage}/${f.reason} · attempt ${f.attempts} · 总 ${f.totalBucket} · 末次 ${f.lastBucket}`);
+}
+}
 const recent = snap.events.filter(e => e.kind.startsWith("page.")).slice(-4);
 for (const e of recent) lines.push(`· ${e.kind} ${redactExportText(JSON.stringify(e.data), lineIdByHost)}`);
 }

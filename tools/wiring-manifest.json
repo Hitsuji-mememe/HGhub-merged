@@ -1716,6 +1716,44 @@
         "src/shared/ui/ui.tsx"
       ],
       "min": 3
+    },
+    {
+      "files": [
+        "src-tauri/src/net/edge.rs"
+      ],
+      "id": "fix331-media-referer-candidates",
+      "item": "媒体 Referer 候选链（防盗链 403 回退）",
+      "min": 2,
+      "symbol": "media_referer_candidates"
+    },
+    {
+      "files": [
+        "src/shared/lib/feedTrace.ts",
+        "src/shared/ui/ui.tsx"
+      ],
+      "id": "fix331-image-failure-ledger",
+      "item": "逐图失败留痕环（诊断导出）",
+      "min": 2,
+      "symbol": "recordImageFailure"
+    },
+    {
+      "files": [
+        "src/features/sources/SourceGallery.tsx"
+      ],
+      "id": "fix331-image-trace-surface",
+      "item": "图片留痕面标注（图集/源列表）",
+      "min": 1,
+      "symbol": "setImageTraceSurface"
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/diagnosticReport.ts",
+        "src/shared/lib/feedTrace.ts"
+      ],
+      "id": "fix331-diag-image-failures",
+      "item": "诊断报告图片失败明细节",
+      "min": 2,
+      "symbol": "imageFailures"
     }
   ]
 }

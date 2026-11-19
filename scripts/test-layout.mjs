@@ -916,12 +916,95 @@ try {
     }
   }
 
+  /* ── 图集设备链（Muse 2026-11-20 fix331/gallery-device，用户 01:06
+   * 门槛：修复证据必须走完整设备链）── 与上面所有 gallery 场景的本
+   * 质区别：图片是源图床真实地址（编排脚本实时取，见
+   * scripts/device-chain/run-device-chain.sh），Img 经 cover() 指向
+   * 本机真实媒体服务 127.0.0.1:17650（生产 linux_http＋media::handle
+   * ＋生产抓取栈），上游条件由节流代理注入延迟/限速；本场景**不拦
+   * 截媒体请求、不 fulfill 假图**。断言按真机动作：①舞台首图真实
+   * 出图且舞台帧零失败占位；②已挂载缩略图全部出图、零失败占位；
+   * ③点选第 3 张（jpg——3.3.1 真机恰死在此张）后舞台出图。
+   * 旧抓取栈（无条件线路 base Referer）下 jpg 被图床防盗链 403、
+   * /img 回 502：断言①③必红。仅 DEVICE_CHAIN=1 时运行。 */
+  async function runGalleryDeviceChainCase() {
+    const name = "gallery-device-chain";
+    const result = { name, viewport: [393, 852], status: "running" };
+    report.cases.push(result);
+    let urls = [];
+    try { urls = JSON.parse(await readFile(process.env.DEVICE_CHAIN_URLS || "", "utf8")); } catch { /* 断言处统一判红 */ }
+    // UA 必须用 Linux 桌面：api.ts 的 LOCAL 按 UA 平台判定，iPhone UA
+    // 会让 cover() 指向 hg://localhost（iOS scheme，本机无此传输层），
+    // Linux UA 才落到本机真实服务 127.0.0.1:17650。iOS scheme 传输
+    // 本身是报告里声明的残余差异，不在本场景的被测范围内。
+    const LINUX_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+    const context = await browser.newContext({ userAgent: LINUX_UA, hasTouch: true, viewport: { width: 393, height: 852 } });
+    const page = await context.newPage();
+    page.setDefaultTimeout(15000);
+    await context.route("**/*", route => {
+      const url = new URL(route.request().url());
+      if (url.origin === ui || url.origin === "http://127.0.0.1:17650") return route.continue();
+      return route.abort("blockedbyclient");
+    });
+    const stageLoaded = (frameIdx) => page.evaluate((fi) => {
+      const frame = document.querySelector(`[data-album-frame="${fi}"]`);
+      const img = frame?.querySelector("img");
+      return { has: !!img, loaded: !!img && img.complete && img.naturalWidth > 0, err: !!frame?.querySelector(".ios-image-error") };
+    }, frameIdx);
+    try {
+      assert(Array.isArray(urls) && urls.length >= 20,
+        `${name}: DEVICE_CHAIN_URLS 必须给出 ≥20 张真实图集地址（编排脚本未就绪）`);
+      await page.addInitScript((injected) => { window.__DEVICE_CHAIN_URLS__ = injected; }, urls);
+      await page.goto(`${ui}/tests/gallery-viewer.html?real=1&immersive=1&n=${Math.min(urls.length, 126)}`);
+      await page.locator('[data-ui="album-viewer-stage"]').waitFor({ state: "visible" });
+      // ① 舞台首图真实出图（节流条件下放宽到 60s 轮询）
+      await page.waitForFunction(() => {
+        const frame = document.querySelector('[data-album-frame="0"]');
+        const img = frame?.querySelector("img");
+        return !!img && img.complete && img.naturalWidth > 0;
+      }, null, { timeout: 60000 });
+      const s0 = await stageLoaded(0);
+      assert(!s0.err, `${name}: stage frame 0 must not be a failure placeholder`);
+      // ② 已挂载缩略图全部出图、零失败占位
+      await page.waitForFunction(() => {
+        const thumbs = [...document.querySelectorAll("[data-thumb-index]")];
+        const mounted = thumbs.filter((el) => el.querySelector("img"));
+        return mounted.length >= 5 && mounted.every((el) => {
+          const img = el.querySelector("img");
+          return img.complete && img.naturalWidth > 0 && !el.querySelector(".ios-image-error");
+        });
+      }, null, { timeout: 60000 });
+      // ③ 点选第 3 张（jpg）：舞台切到 frame 2 并真实出图
+      await page.evaluate(() => {
+        document.querySelector('[data-thumb-index="2"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      await page.waitForFunction(() => {
+        const frame = document.querySelector('[data-album-frame="2"]');
+        const img = frame?.querySelector("img");
+        return !!img && img.complete && img.naturalWidth > 0 && !frame.querySelector(".ios-image-error");
+      }, null, { timeout: 60000 });
+      const errCount = await page.evaluate(() => document.querySelectorAll(".ios-image-error").length);
+      result.stage0 = s0; result.errorPlaceholders = errCount;
+      assert(errCount === 0, `${name}: failure placeholders on stage/strip must be 0, got ${errCount}`);
+      result.status = "passed";
+      console.log(`PASS ${name}`);
+    } catch (error) {
+      result.status = "failed"; result.error = error.message;
+      console.error(`FAIL ${name}: ${error.message}`);
+      await page.screenshot({ path: join(output, `${name.replace(/[^\w-]+/g, "_")}.png`) }).catch(() => {});
+    } finally {
+      await context.close();
+      await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+    }
+  }
+
   await runGalleryCase([393, 852]);
   await runGalleryCase([360, 780]);
   await runGalleryStripCase();
   await runGalleryFastSwipeCase();
   await runGallerySafeAreaCase();
   await runGalleryStripLoadCase();
+  if (process.env.DEVICE_CHAIN === "1") await runGalleryDeviceChainCase();
   if (process.env.LAYOUT_ONLY === "gallery") {
     console.log("LAYOUT_ONLY=gallery: player cases skipped");
   } else {
