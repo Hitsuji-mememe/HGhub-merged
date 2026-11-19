@@ -27,6 +27,12 @@ pub(crate) fn healthy_video_data(data: &Value) -> bool {
     {
         return false;
     }
+    // 空目录判不健康（audit6 §二条 6 / §五 P0-B.5）：items 为空数组时
+    // 下方 iter().all() 恒真、total 只验存在不验 >0，空壳镜像能混进
+    // 候选池。硬要求：至少一条内容且 total ≥ 1。
+    if items.is_empty() || integer("total").is_none_or(|n| n == 0) {
+        return false;
+    }
     // These two fields are stable feed identity, unlike optional cover/score.
     items.iter().all(|item| {
         item.get("id")
