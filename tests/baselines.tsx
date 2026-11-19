@@ -42,8 +42,6 @@ Object.assign(window, {
           return Promise.resolve({ ...post(Number(args.id) || 100), content: "<p>基线正文段落。</p>", video_url: "" });
         case "api_post_playback":
           return Promise.reject("视频不存在或不可播放");
-        case "api_post_comments":
-          return Promise.resolve({ items: [], pagination: { page: 1, pages: 1, size: 20, total: 0 } });
         case "api_category":
           return Promise.resolve(paged(Array.from({ length: 20 }, (_, i) => card(200 + i)), 1676));
         case "api_original_videos":

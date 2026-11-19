@@ -33,8 +33,6 @@ Object.assign(window, {
           });
         case "api_post_playback":
           return Promise.resolve({ videos: [{ url: "https://fixture.invalid/movie.mp4" }] });
-        case "api_post_comments":
-          return Promise.resolve({ items: [], pagination: { page: 1, pages: 1, size: 20, total: 0 } });
         default:
           return Promise.resolve({});
       }

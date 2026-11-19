@@ -41,8 +41,6 @@ Object.assign(window, {
           });
         case "api_post_playback":
           return Promise.resolve(kind === "image" ? { videos: [] } : { videos: [{ url: "https://fixture.invalid/movie.m3u8" }] });
-        case "api_post_comments":
-          return Promise.resolve({ items: [], pagination: { page: 1, pages: 1, size: 20, total: 0 } });
         default:
           return Promise.resolve({});
       }
