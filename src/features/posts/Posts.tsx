@@ -17,6 +17,8 @@ import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { usePaginatedList } from "../../shared/lib/usePaginatedList";
 import { firstEnabledSource, sourcesForCategory } from "../sources/registry";
 import { getActiveRegistry } from "../sources/manifest";
+import { resolvePostsBrowse } from "../sources/postsRoute";
+import SourcePosts from "../sources/SourcePosts";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from "../sources/SourceSwitcher";
 import { postHot } from "./postData";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
@@ -32,8 +34,11 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
   const { push, lineEpoch } = useStore();
   const [searching, setSearching] = useState(false);
   /* 源切换（根治包多源线条目5）：默认吃瓜分类第一顺位 enabled 源；
-   * 切换即整页换源、源间不混排。非黄果源取页通道未接入时只出
-   * 诚实占位（SourcePendingNotice），不混入黄果数据。 */
+   * 切换即整页换源、源间不混排。非黄果源按 resolvePostsBrowse
+   * 分流（3.3.0 接通批）：blocked 出诚实提示（SourcePendingNotice、
+   * 不拉数据），其余经 SourcePosts 走适配器真实渲染，不混入黄果
+   * 数据。此前本页对一切非黄果源无条件提示、适配器从未被调用，
+   * 是黑料网等已启用源点开仍是提示页的根因（见 postsRoute.ts）。 */
   /* 注册表口径（Muse 2026-11-19 整改 D2）：读 active 表（远程清单
    * 覆盖生效），hg:registry-changed 后刷新；不再读内置表。 */
   const [, setRegistryTick] = useState(0);
@@ -56,6 +61,7 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
   });
 
   if (!isNativeSource) {
+    const postsRoute = resolvePostsBrowse(activeSource);
     return (
       <div className="ios-page absolute inset-0 bg-bg flex flex-col">
         <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
@@ -69,7 +75,13 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
           </div>
           <div className="px-4 pb-2"><SourceSwitcher options={postSourceOptions} value={sourceId} onChange={setSourceId} ariaLabel="吃瓜数据源切换" /></div>
         </div>
-        <div className="flex-1 scroll-y pb-8"><SourcePendingNotice displayName={activeSource?.displayName ?? sourceId} maturity={activeSource?.maturity} note={activeSource?.note} /></div>
+        <div className="flex-1 scroll-y pb-8">
+          {postsRoute === "browse" && activeSource ? (
+            <SourcePosts def={activeSource} />
+          ) : (
+            <SourcePendingNotice displayName={activeSource?.displayName ?? sourceId} maturity={activeSource?.maturity} note={activeSource?.note} />
+          )}
+        </div>
       </div>
     );
   }

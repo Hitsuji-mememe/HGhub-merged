@@ -143,20 +143,26 @@ const def = (id: string) => {
 /* ── (E) 扇出交叉（裁定变更适配，用户 2026-11-19 20:48）：扇出门
  * 已由 F5 三段齐全门放宽为搜索段结构门——保留源具备搜索段一律进
  * 扇出（probe/blocked 成熟度不再在搜索入口扣留，可播性后移详情/
- * 起播解析）；无搜索段的源（吃瓜模板/无适配器）仍出局。纳入集恰
- * 为保留集内 enabled∧有搜索段的 7 源。 ── */
+ * 起播解析）；无搜索段的源仍出局。
+ * 3.3.0 接通批续适配（2026-11-19）：51chigua/meiridasai 已按真站
+ * 搜索形态接线搜索段（caps.search=true），纳入集 7→9 源；
+ * feedheiliao 经实证无 GET 搜索段（关键词不变页），维持出局。 ── */
 {
-  for (const id of ["51chigua", "feedheiliao", "meiridasai"]) {
+  {
+    const p = searchPolicyFor(def("feedheiliao"));
+    assert.equal(p.include, false, "吃瓜源 feedheiliao 无搜索段、不进扇出（结构门）");
+  }
+  for (const id of ["51chigua", "meiridasai"]) {
     const p = searchPolicyFor(def(id));
-    assert.equal(p.include, false, `吃瓜源 ${id} 无搜索段、不进扇出（结构门）`);
+    assert.equal(p.include, true, `吃瓜源 ${id} 搜索段已接线（3.3.0）、进扇出`);
   }
   for (const id of ["hanime-tv", "pornpics", "xiuren", "danbooru"]) {
     const p = searchPolicyFor(def(id));
     assert.equal(p.include, true, `保留源 ${id} 具备搜索段即进扇出（成熟度 ${def(id).maturity} 不再预扣）`);
   }
   const included = reg.filter((s) => searchPolicyFor(s).include).map((s) => s.id).sort();
-  assert.deepEqual(included, ["cosplaytele", "danbooru", "hanime-tv", "huangguo", "pornpics", "rule34video", "xiuren"],
-    "扇出纳入集＝保留集内具备搜索段的 7 源（20:48 裁定口径）");
+  assert.deepEqual(included, ["51chigua", "cosplaytele", "danbooru", "hanime-tv", "huangguo", "meiridasai", "pornpics", "rule34video", "xiuren"],
+    "扇出纳入集＝保留集内具备搜索段的 9 源（20:48 裁定口径＋3.3.0 吃瓜两源接线）");
 }
 
 /* ── (F) 51吃瓜解 blocked＋黑料网毕业：内置面三面一致 ── */

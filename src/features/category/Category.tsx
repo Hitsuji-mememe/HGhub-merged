@@ -25,6 +25,8 @@ import { getActiveRegistry } from "../sources/manifest";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory, sourceOptionsForChannel } from "../sources/SourceSwitcher";
 import SourceBrowse from "../sources/SourceBrowse";
 import SourceGallery from "../sources/SourceGallery";
+import SourcePosts from "../sources/SourcePosts";
+import { resolvePostsBrowse } from "../sources/postsRoute";
 
 /* 短剧三类合一（根治包多源线条目5）：原 AI成人短剧 / AI成人漫剧
  * （及原创内的短剧/漫剧子筛）合并为一个「短剧」入口，cate 取
@@ -267,6 +269,11 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             ))}
             {!posts.length && <PreviewStatus name="吃瓜" loading={loading.posts !== false} error={errors.posts} onRetry={() => void loadPreview("posts")} />}
           </div>}</FilteredContent>
+          ) : resolvePostsBrowse(postsSource) === "browse" && postsSource ? (
+            /* 吃瓜预览接线（3.3.0 接通批，与 Posts 页同判定）：非黄果
+             * 非 blocked 源经 SourcePosts compact 真取数；blocked 仍
+             * 走诚实提示。此前本预览对一切非黄果源无条件提示。 */
+            <SourcePosts def={postsSource} compact onShowAll={() => push({ kind: "posts" })} />
           ) : (
             <SourcePendingNotice displayName={postsSource?.displayName ?? postsSourceId} maturity={postsSource?.maturity} note={postsSource?.note} />
           )}

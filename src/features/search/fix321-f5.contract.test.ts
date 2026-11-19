@@ -116,20 +116,23 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
   assert.equal(searchPolicyFor(formerOffNowIn).include, true, "旧 OFF 成员（秀人）具备搜索段：按通则进扇出、无名单特判");
 }
 
-/* ── 注册表全量遍历：扇出名单恰为保留集内具备搜索段的 7 源 ── */
+/* ── 注册表全量遍历：扇出名单恰为保留集内具备搜索段的源 ──
+ * 契约适配（3.3.0 接通批·吃瓜线，2026-11-19）：51chigua/meiridasai
+ * 已按真站搜索形态接线搜索段（caps.search=true、searchPath 校准），
+ * 名单 7→9 源；feedheiliao 经实证无 GET 搜索段（关键词不变页）、
+ * caps 未声明，维持出局（旧注释「chigua 模板无 search 方法」本就不
+ * 确：模板有 search 实现，出局从来只因 caps 未声明）。 */
 {
   const included = getBuiltinRegistry().filter((d) => searchPolicyFor(d).include).map((d) => d.id);
   assert.deepEqual(
     included,
-    ["huangguo", "hanime-tv", "rule34video", "xiuren", "pornpics", "cosplaytele", "danbooru"],
+    ["huangguo", "hanime-tv", "rule34video", "51chigua", "meiridasai", "xiuren", "pornpics", "cosplaytele", "danbooru"],
     "扇出名单=保留集内 enabled∧具备搜索段（注册表序）",
   );
 
-  /* 出局的保留源逐源断言：无搜索段（吃瓜模板/无适配器）或未启用 */
+  /* 出局的保留源逐源断言：无搜索段（caps 未声明/无适配器）或未启用 */
   const excludedSearch: Record<string, SearchSegment[]> = {
-    "51chigua": ["search"],       // chigua 模板无 search 方法
-    feedheiliao: ["search"],      // 同上
-    meiridasai: ["search"],       // 同上＋未声明
+    feedheiliao: ["search"],      // caps.search 未声明（无 GET 搜索段，3.3.0 实证）
     hanime1: ["search", "detail", "play"], // template=none 无适配器
     iwara: ["search", "detail", "play"],   // 同上
   };
@@ -163,10 +166,12 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
     },
   });
   const failures: string[] = [];
-  await fanoutSearch("静默", [def("51chigua"), def("huangguo")], (d) => stub(d.id), {
+  /* 契约适配（3.3.0 接通批）：静默出局的接棒源改 feedheiliao
+   * （51chigua 已接线搜索段、不再出局）；断言语义不变。 */
+  await fanoutSearch("静默", [def("feedheiliao"), def("huangguo")], (d) => stub(d.id), {
     onFailure: (sid) => { failures.push(sid); },
   });
-  assert.deepEqual(searchedByAdapter, ["huangguo"], "扇出只真搜具备搜索段的源（51吃瓜无搜索段未被调用）");
+  assert.deepEqual(searchedByAdapter, ["huangguo"], "扇出只真搜具备搜索段的源（黑料网无搜索段未被调用）");
   assert.deepEqual(failures, [], "缺段源是资格出局、不是失败：不留失败痕（静默性）");
 }
 

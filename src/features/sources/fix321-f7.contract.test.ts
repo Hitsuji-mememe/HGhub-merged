@@ -96,13 +96,15 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   for (const id of ["hanime1", "iwara"]) {
     assert.ok(!ids.includes(id), `未启用源 ${id} 不进自检名单`);
   }
-  for (const id of ["meiridasai", "xiuren", "danbooru"]) {
+  for (const id of ["xiuren", "danbooru"]) {
     assert.ok(!ids.includes(id), `blocked 源 ${id} 不进自检名单（blocked 本就不拉数据）`);
   }
   // 契约适配（基础设施批集成，2026-11-19）：51chigua 已被 fix321-F2b 解 blocked
   // （换现行域名 51cg1.com、maturity=probe、enabled=true），不再属 blocked 名单；
-  // 原断言保护的「blocked 不探测」由上面三源接棒，本行改验解封后的新事实。
+  // 原断言保护的「blocked 不探测」由上面两源接棒，本行改验解封后的新事实。
+  // 3.3.0 接通批续适配：meiridasai 同理（换 mrds66、probe、enabled）进自检名单。
   assert.ok(ids.includes("51chigua"), "51chigua 已解 blocked（F2b），进自检名单");
+  assert.ok(ids.includes("meiridasai"), "meiridasai 已解 blocked（3.3.0 接通批），进自检名单");
   /* myfans 已于 3.2.2 瘦身摘除：注册表内已无 preview 源，preview
    * 排除口径由下方合成 def 断言接棒（覆盖不降）。 */
   assert.equal(selfCheckEligible(fakeDef("x", { maturity: "preview" })), false, "preview 成熟度不合格");

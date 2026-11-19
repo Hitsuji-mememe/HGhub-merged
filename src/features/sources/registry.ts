@@ -28,6 +28,8 @@ import { CATALOG_SOURCES } from "./catalog.ts";
 
 const NO_CAPS = { search: false, episodes: false, hevc: false, comments: false };
 const HLS_CAPS = { search: true, episodes: false, hevc: false, comments: false };
+/** 吃瓜帖源已接搜索段时的 caps（3.3.0 接通批：逐源按真站搜索形态实证后声明） */
+const POST_SEARCH_CAPS = { search: true, episodes: false, hevc: false, comments: false };
 const PROBE_NET = { mode: "probe-required" } as const;
 
 export const NAMED_SOURCES: SourceDef[] = [
@@ -56,24 +58,24 @@ export const NAMED_SOURCES: SourceDef[] = [
   },
   {
     id: "51chigua", displayName: "51吃瓜网", kind: "post", category: "posts",
-    adapter: { template: "chigua", params: { listPath: "/page/{page}/", itemLinkPattern: "/archives/", detailPath: "/archives/{id}" } },
+    adapter: { template: "chigua", params: { listPath: "/page/{page}/", itemLinkPattern: "/archives/", detailPath: "/archives/{id}", searchPath: "/search/{q}/{page}/" } },
     baseUrls: ["https://51cg1.com"],
     enabled: true, order: 30, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "fix321-F2b 校准解 blocked：旧域名 51chigua.com 已停放（原 blocked 证据仍成立于旧域名）；现行域名 51cg1.com（与远程清单 v2 同口径）住宅出口四级验收全通（source-verify-20261119）＋本机出口三段实测——首页 post-card 列表（/archives/<id>/、h2 标题、x-bg-loader-url 封面）解析出条目、详情 DPlayer data-config 内嵌 m3u8 可取流（结构据 Hentai-Park feed51cg 插件、本机抓取互证）；分页按真站 /page/<n>/ 校准（旧 /?page= 未按真站核）；App 侧未真机验 → 代码就绪未验证、probe（非 blocked 呈现）",
+    capabilities: POST_SEARCH_CAPS, network: PROBE_NET, note: "fix321-F2b 校准解 blocked：旧域名 51chigua.com 已停放（原 blocked 证据仍成立于旧域名）；现行域名 51cg1.com（与远程清单 v2 同口径）住宅出口四级验收全通（source-verify-20261119）＋本机出口三段实测——首页 post-card 列表（/archives/<id>/、h2 标题、x-bg-loader-url 封面）解析出条目、详情 DPlayer data-config 内嵌 m3u8 可取流（结构据 Hentai-Park feed51cg 插件、本机抓取互证）；分页按真站 /page/<n>/ 校准（旧 /?page= 未按真站核）；App 侧未真机验 → 代码就绪未验证、probe（非 blocked 呈现）。3.3.0 接通批（2026-11-19）：浏览面经 SourcePosts 接线；搜索段接线——真站搜索形态 /search/{q}/{page}/（站内 search.js buildSearchUrl 与 /?s= 重写互证、paged 参数被重写吞掉故不走模板默认形），本机出口实证搜索真出条目且第 2 页条目集与第 1 页不同、列表/详情/取流经生产适配器对实抓页解析通过（四级齐）；caps.search 据实改 true",
   },
   {
     id: "feedheiliao", displayName: "黑料网", kind: "post", category: "posts",
     adapter: { template: "chigua", params: { listPath: "/page/{page}/", itemLinkPattern: "/archives/", detailPath: "/archives/{id}" } },
     baseUrls: ["https://heiliao.com", "https://www.heiliao88.com"],
     enabled: true, order: 32, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "fix321-F2b 自目录导入毕业为命名源并启用（与远程清单 v2 同口径：heiliao.com＋镜像 heiliao88.com、enabled=true）：启用依据三段齐——列表 video-item 卡片（/archives/<id>/、h3 标题、z-image-loader-url 封面）本机实测解析出条目、详情 h1.detail-title＋DPlayer 内嵌 m3u8 本机实测可取流（结构据 Hentai-Park feedheiliao 插件、本机抓取互证）、住宅出口四级验收全通（source-verify-20261119）；App 侧未真机验 → 代码就绪未验证、probe",
+    capabilities: NO_CAPS, network: PROBE_NET, note: "fix321-F2b 自目录导入毕业为命名源并启用（与远程清单 v2 同口径：heiliao.com＋镜像 heiliao88.com、enabled=true）：启用依据三段齐——列表 video-item 卡片（/archives/<id>/、h3 标题、z-image-loader-url 封面）本机实测解析出条目、详情 h1.detail-title＋DPlayer 内嵌 m3u8 本机实测可取流（结构据 Hentai-Park feedheiliao 插件、本机抓取互证）、住宅出口四级验收全通（source-verify-20261119）；App 侧未真机验 → 代码就绪未验证、probe。3.3.0 接通批（2026-11-19）：真机点开仍是提示页的根因＝posts 分类从未接浏览组件（Posts/分类总览对非黄果源无条件提示、与 maturity 无关），已接 SourcePosts 浏览面（postsRoute browse）；详情正文容器 editormd-preview 已入 chigua 模板捕获（旧两式恒空）；搜索无段属实——本机出口实证 /search/<词>/、/?s=、/index/search 三种 GET 形态均返回关键词不变页（无意义词与常用词响应同量级、条目集恒定），站点搜索为前端驱动、无 GET 搜索段可接，caps.search 维持 false、不进扇出",
   },
   {
     id: "meiridasai", displayName: "每日大赛", kind: "post", category: "posts",
-    adapter: { template: "chigua", params: { listPath: "/?page={page}", itemLinkPattern: "/archives/", detailPath: "/archives/{id}" } },
-    baseUrls: ["https://meiridasai.com"],
-    enabled: true, order: 31, maturity: "blocked",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "真站实测 blocked（2026-11-19）：apex 与 www 均返回 Cloudflare 525（源站 SSL 握手失败、16 字节错误体）；吃瓜模板保留、源站恢复后改判",
+    adapter: { template: "chigua", params: { listPath: "/page/{page}/", itemLinkPattern: "/archives/", detailPath: "/archives/{id}", searchPath: "/search/{q}/{page}/" } },
+    baseUrls: ["https://www.mrds66.com", "https://meiridasai.com"],
+    enabled: true, order: 31, maturity: "probe",
+    capabilities: POST_SEARCH_CAPS, network: PROBE_NET, note: "3.3.0 接通批（2026-11-19）解 blocked：旧主域 meiridasai.com 本机出口复测仍 Cloudflare 525（原 blocked 证据于旧域仍成立、留作次选）；备用镜像 www.mrds66.com（与远程清单 v3 同口径、在前）住宅出口四级验收全通（source-verify-20261119）＋本机出口四级实证——首页 200、列表 post-card（/archives/<id>/）按 /page/{page}/ 校准（旧 /?page= 作废）经生产适配器解析出条目、详情正文＋m3u8 取流解析通过、搜索 /search/{q}/{page}/ 真出条目且分页有效（无意义词落 /search-empty/ 真空页）；浏览面经 SourcePosts 接线；App 侧未真机验 → probe",
   },
   {
     id: "xiuren", displayName: "秀人网", kind: "image", category: "image",

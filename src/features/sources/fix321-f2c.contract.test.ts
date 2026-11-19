@@ -162,7 +162,11 @@ assert.deepEqual(templateFetchOrigins("none"), [], "none 模板无取页 origin"
   const allow = new Set(sourceFetchAllowlistOrigins(builtin));
   assert.ok(!allow.has("https://sexy.pixibb.com"), "未启用目录源（pixibb）origin 不在白名单内");
   assert.ok(!allow.has("https://hanime1.me"), "未启用探路源（hanime1）origin 不在白名单内");
-  assert.ok(!allow.has("https://meiridasai.com"), "blocked 源（meiridasai）origin 不在白名单内");
+  /* 契约适配（3.3.0 接通批，2026-11-19）：meiridasai 已解 blocked
+   * （换 mrds66 主域、probe、enabled），其 origin 按派生口径入名单
+   * ——改验新事实；「blocked 不放行」由下方 xiuren/danbooru 与合成
+   * blocked def 断言接棒，覆盖不降。 */
+  assert.ok(allow.has("https://www.mrds66.com"), "meiridasai 已解 blocked：mrds66 origin 入白名单");
   assert.ok(!allow.has("https://xiuren.com"), "blocked 源（xiuren）origin 不在白名单内");
   assert.ok(!allow.has("https://danbooru.donmai.us"), "blocked 源（danbooru）origin 不在白名单内");
   /* 清单远程下线 swag（enabled=false）→ 其根域与 API origin 一并退出白名单 */
