@@ -117,6 +117,12 @@ export default function WebGpuSrCanvas({
       engineRef.current = engine;
       onTrace?.("sr.webgpu_start", { path });
 
+      /* 暂停停处理（fix2.1 批二#5）：暂停时视频帧不再变化，旧实现仍以
+       * rAF 约 60fps 对同一静止帧反复跑全链 CNN，纯烧电发热。现行：
+       * paused 时只在 currentTime 跳变（暂停中 seek）时补处理一帧，
+       * 其余 tick 直接跳过——画布保留最后一帧呈现、不清屏；播放恢复
+       * 后 rVFC/rAF 循环本就一直在转，自动恢复逐帧处理。 */
+      let lastMediaTime = -1;
       const frame = () => {
         if (cancelled || deadRef.current) return;
         const eng = engineRef.current;
@@ -125,7 +131,8 @@ export default function WebGpuSrCanvas({
           die();
           return;
         }
-        if (activeRef.current && readyRef.current && video.videoWidth > 0) {
+        const pausedStill = video.paused && Math.abs(video.currentTime - lastMediaTime) < 0.001;
+        if (activeRef.current && readyRef.current && video.videoWidth > 0 && !pausedStill) {
           const cw = canvas.width;
           const ch = canvas.height;
           let dst: [number, number, number, number] = [0, 0, 1, 1];
@@ -146,6 +153,7 @@ export default function WebGpuSrCanvas({
           }
           const intervalMs = fps && fps > 0 ? 1000 / fps : 33.3;
           const did = eng.processFrame(video, intervalMs, { dst, src });
+          if (did) lastMediaTime = video.currentTime;
           if (did && !reportedMode) {
             reportedMode = true;
             setPresented(true);
