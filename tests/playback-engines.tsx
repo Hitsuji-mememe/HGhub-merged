@@ -249,6 +249,28 @@ function run() {
     wd.dispose();
   }
 
+  /* ── B10 append 臂意愿门（整改 B10，先核实后修）：append 窗内意愿
+   * 不在（shouldEscalate=false）→ append 臂必须与出画臂同态挂起、
+   * 不 retire；意愿恢复 resume() 后再卡死仍须判死。旧实现 append
+   * 臂先 retire 再调 onStall（接线层吞掉即永久退役），本例必红。 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    let wanted = false;
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => false, isPlaying: () => false, shouldEscalate: () => wanted, onStall: () => stalls++ });
+    wd.fragLoaded();
+    clock.advance(4000); // append 窗到期：意愿不在 → 挂起，不判死不退役
+    results.b10_append_gate_no_stall = stalls;
+    results.b10_append_gate_suspended = wd.isSuspended;
+    wanted = true;
+    wd.resume(); // 意愿恢复：append 臂重新起窗
+    clock.advance(3999);
+    results.b10_append_resumed_before_deadline = stalls;
+    clock.advance(1);
+    results.b10_append_resumed_stall_fires = stalls;
+    wd.dispose();
+  }
+
   /* ── C 超分判档（模拟源参数 + 真实采样锚点） ── */
   results.c_1080p_high_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 12_000_000, fps: 30 });
   results.c_1080p_low_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 2_500_000, fps: 30 });
