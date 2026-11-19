@@ -16,13 +16,14 @@
 */
 
 import { api, APP_VERSION, BUILD_STAMP, hostOf, platform} from "../api/api";
-import { autoLineEnabled, lastPickRound} from "../network/autoLine";
+import { autoLineEnabled, lastPickRound, recentPickRounds} from "../network/autoLine";
 import { nativeFallbackState} from "../../features/playback/mediaTransport";
 import { playbackLogApi} from "./playbackDiagnostics";
 import { readPlaybackFacts, type PlaybackFacts } from "./playbackFacts";
 import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot, validateLedgerIntegrity} from "./eventLedger";
-import { sourceRegistryVersion } from "./sourceRegistry";
+import { sourceRegistryVersion, sourceHealthLines } from "./sourceRegistry";
+import { cacheCountersSnapshot } from "../../features/feed/cacheMap";
 import { formatGpuProbeLines, formatSrProbeLines, getCachedGpuProbe, getSrProbeResult } from "./gpuProbe";
 import { feedTraceSnapshot, feedTraceSummary} from "../lib/feedTrace";
 
@@ -284,8 +285,6 @@ export async function buildFullDiagnosticExport(): Promise<string> {
   const parts = [
     report,
     "",
-    `源注册表版本：${sourceRegistryVersion()}`,
-    "",
     "══ 探针结果（JSON） ══",
     probe ? JSON.stringify(probe, null, 2) : "（无探针结果）",
     "",
@@ -296,10 +295,11 @@ export async function buildFullDiagnosticExport(): Promise<string> {
 }
 
 export async function buildDiagnosticReport(): Promise<string> {
-const [diagR, lineStateR, logR] = await Promise.allSettled([
+const [diagR, lineStateR, logR, proxyStateR] = await Promise.allSettled([
 api.netDiag(),
 api.lineState(),
 (async () => playbackLogApi.read())(),
+api.proxyState(),
 ]);
 
 const diag = diagR.status === "fulfilled"? obj(diagR.value): {};
@@ -348,6 +348,7 @@ speedText = `App 通道 ${mbps(bytes, num(sab.a_ms))} · 直连 ${mbps(num(sab.b
 }
 
 const entries = logR.status === "fulfilled"? parseLog(String(logR.value?? "")): [];
+const pidSegmentCount = new Set(entries.map(e => e.pid).filter(p => p != null)).size;
 const flow = entries.length? analyzeFlow(entries): null;
 /* 日志状态明示（2026-11-18 终版加固）：读取失败/日志为空与「没播过」
  * 是三回事——旧实现一律显示「无最近播放记录」，真机出现过在播却零
@@ -363,13 +364,20 @@ lines.push(`${new Date().toLocaleString("zh-CN", { hour12: false})}`);
  * 会话。账本是纯旁路——读取失败只降级这一行为「未知」，不拖垮报告
  * 其余内容（下方 try/catch 即回退路径）。 */
 lines.push(`构建：${BUILD_STAMP}`);
+/* 诊断原则（Muse 2026-11-19 根治包·飞行记录仪收口，用户定版）：
+ * 本报告为未知问题回溯而建——统一时间线覆盖播放/选线/超分/源/
+ * 缓存/账号会话/导航/网络/错误，不是已知问题清单；新增子系统
+ * 接入统一时间线才算完成（模块化验收项）。原则入报告头，让读者
+ * 按此口径判读覆盖面与缺口。 */
+lines.push("诊断原则：全量飞行记录仪——统一时间线覆盖播放/选线/超分/源/缓存/账号会话/导航/网络/错误，为未知问题回溯而建；新增子系统接入统一时间线才算完成。");
 try {
 const snap = ledgerSnapshot();
 const integrity = validateLedgerIntegrity(snap);
-/* 完整性四数入报告（fix2 B2）：序号缺口/重复应为 0；截断数是保留
- * 窗口之外的历史（设计内有界）；未终态以逐次播放的 current 计数
- * 为准（见下方「本会话播放」行），账本层无独立生命周期。 */
 lines.push(`会话：${snap.sessionId} · 账本 已记 ${snap.recorded} · 迟到丢弃 ${snap.droppedLate} · 完整性 缺口 ${integrity.seqGaps} / 重复 ${integrity.seqDuplicates} / 窗口外截断 ${integrity.truncated}`);
+/* 留存范围明示（飞行记录仪收口）：读者须知道这份导出覆盖到哪、
+ * 窗口之外还有什么——账本本会话 512 条滚动、播放日志 2MB 轮转
+ * （含上一进程段尾段）、内存计数类进程重启清零。 */
+lines.push(`留存范围：播放日志共 ${entries.length} 条 · ${pidSegmentCount} 个进程段（流水/逐次只分析最近一段，上一会话尾段在日志文件内）；事件账本保留本会话最近 512 条（窗口外截断 ${integrity.truncated} 条）；取页健康/缓存计数/选线近轮为本会话内存记录，进程重启清零`);
 } catch {
 lines.push("会话：未知（事件账本不可用）");
 }
@@ -421,6 +429,17 @@ const measuredText = round.measured.length
 lines.push(`镜像覆盖（${Math.max(0, Math.round((Date.now() - round.at) / 1000))} 秒前选线轮次）：发布 ${round.published?? "?"} 条 · 探测 ${round.probed?? "?"} 条（可达 ${round.okCount?? "?"}） · 吞吐实测 ${round.measured.length} 条：${measuredText}`);
 }
 if (round?.breakerBlocked) lines.push("最近选线轮次：本轮被熔断拦截——自动选线保持当前线路，未执行切换（熔断冷却中）");
+/* 选线近轮（飞行记录仪收口）：单轮快照看不出抖动/乒乓/待确认拉锯，
+ * 近 5 轮连读（落定线路＋Rust 决胜原因＋候选/可达＋熔断标记）。 */
+{
+const rounds = recentPickRounds();
+if (rounds.length > 1) {
+lines.push(`选线近轮（最近 ${rounds.length} 轮，旧→新）：`);
+for (const r of rounds) {
+lines.push(`· ${new Date(r.at).toLocaleTimeString("zh-CN", { hour12: false })} 落定 ${hostOf(r.base)} · 决胜 ${r.reason} · 候选 ${r.probed?? "?"} 条 · 可达 ${r.okCount?? "?"}${r.breakerBlocked? " · 本轮熔断拦截": ""}`);
+}
+}
+}
 lines.push("");
 lines.push("── 硬数据 ────────────────────────");
 const rt = obj(diag.runtime);
@@ -454,6 +473,39 @@ lines.push("当前集源：无（尚未播放）");
 }
 if (flow && flow.demoteCount > 0) lines.push(`超分降档：本会话 ${flow.demoteCount} 次（帧成本超标自动降档——发热/功耗问题先看这个数）`);
 lines.push(`选线现状：当前 ${currentHost}${round && Date.now() - round.at < 10 * 60_000? `；最近轮次探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}${flow? `；本会话切线 ${flow.lineSwitchCount} 次${flow.confirmPendingCount > 0? ` · 两轮确认待确认 ${flow.confirmPendingCount} 次`: ""}`: ""}`);
+lines.push("");
+lines.push("── 状态快照 ──────────────────────");
+/* 状态快照（飞行记录仪收口）：各子系统当前状态汇总，与时间线流水
+ * 互补——流水答「发生过什么」，快照答「现在是什么状态」。任一面
+ * 读取失败只降级对应行。 */
+{
+const ps = proxyStateR.status === "fulfilled"? obj(proxyStateR.value): {};
+const env = obj(diag.env);
+const sp = obj(env.session_persist);
+const persistText = Object.keys(sp).length === 0? "未记录": sp.ok === true? `成功${str(sp.at)? `（${str(sp.at)}）`: ""}`: `失败（阶段 ${str(sp.stage) || "未知"}）`;
+lines.push(`环境：代理模式 ${str(ps.mode) || "未知"}${str(ps.effective)? ` · 生效 ${str(ps.effective)}`: ""} · session 落盘 ${persistText}`);
+const brk = obj(lineState.breaker);
+if (Object.keys(brk).length) lines.push(`熔断：进程期自动切换 ${num(brk.total)?? "?"} / ${num(brk.sessionMax)?? "?"} · 10 分钟窗口 ${num(brk.windowCount)?? "?"} / ${num(brk.windowMax)?? "?"} · 退避中 ${num(brk.backoffLines)?? "?"} 条`);
+const ledgerEntries = Array.isArray(lineState.ledger)? lineState.ledger.map(obj): [];
+if (ledgerEntries.length) {
+const fmtBps = (v: unknown) => { const n = num(v); return n == null? "—": `${(n / 8_000_000).toFixed(1)} MB/s`; };
+for (const e of ledgerEntries) {
+lines.push(`账本[${hostOf(str(e.origin))} · ${str(e.mode) || "?"}]：play ${fmtBps(e.playBps)}（${num(e.playSamples)?? 0} 样本） · probe ${fmtBps(e.probeBps)}（${num(e.probeSamples)?? 0} 样本） · 卡顿 ${num(e.stall)?? 0} · 恢复 ${num(e.recovery)?? 0} · 降级 ${num(e.fallback)?? 0}`);
+}
+} else {
+lines.push("账本：无条目（本会话尚无线路吞吐/事件记录）");
+}
+try {
+const cc = cacheCountersSnapshot();
+lines.push(`缓存：播放 URL 查找 命中 ${cc.hits} · 未命中 ${cc.misses} · 写入 ${cc.sets} · 淘汰 ${cc.evictions} · 作用域失效 ${cc.scopeClears} 次（作用域清空入流水 cache.scope_clear，逐次淘汰只计数）`);
+} catch {
+lines.push("缓存：计数读取失败");
+}
+lines.push(`源注册表：${sourceRegistryVersion()}`);
+const healthLines = sourceHealthLines();
+if (healthLines.length) for (const l of healthLines) lines.push(l);
+else lines.push("源健康：未接（注册表健康 provider 未注册）");
+}
 lines.push("");
 lines.push("── 最近一次播放流水 ──────────────");
 lines.push(flow? flow.table: logReadFailed? "（诊断日志读取失败——本次无法提供播放流水）": logEmpty? "（诊断日志为空——记录可能未成功开启）": "（无记录）");

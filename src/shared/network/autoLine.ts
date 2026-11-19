@@ -95,6 +95,10 @@ export type PickRound = {
 };
 let lastRound: PickRound | null = null;
 export const lastPickRound = (): PickRound | null => lastRound;
+/* 近轮环（Muse 2026-11-19 根治包·飞行记录仪收口）：单轮快照看不出
+ * 选线抖动/乒乓，报告需要连续决策面——保留最近 5 轮（旧→新）。 */
+const recentRounds: PickRound[] = [];
+export const recentPickRounds = (): PickRound[] => recentRounds.slice();
 
 /* 线路热身（Muse 2026-11-19 根治包，audit6 P0-B 起播⑥）：仓内此前无
  * warmup 机制。线路确定（每轮选线落定且 base 变化）后，用生产客户端
@@ -148,6 +152,8 @@ export async function pickLine(reason: string, force = false, urgent = false): P
         host: hostOf(c.url), tier: c.tier, ms: c.ms, kbps: c.kbps ?? null,
       })),
     };
+    recentRounds.push(lastRound);
+    if (recentRounds.length > 5) recentRounds.splice(0, recentRounds.length - 5);
     if (result.breakerBlocked) {
       logLine(`[line] auto(${reason}) breaker-blocked keep ${hostOf(result.base)}`);
       tracePlayback("line.breakerBlocked", { reason, line: hostOf(result.base) });
