@@ -23,7 +23,7 @@
  */
 import type { SourceAdapter, SourceDef, SourceItem, SourceStream } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
-import { fetchPost } from "./fetchPost.ts";
+import { fetchPost, type FetchPostResult } from "./fetchPost.ts";
 import { HANIME_AUTH_ORIGIN, HANIME_CT_ORIGIN, HANIME_GUEST_ORIGIN } from "./fetchOrigins.ts";
 import { metaContent, pageOf, stripTags } from "./parse.ts";
 import { SourceParseEmptyError } from "./templates.ts";
@@ -184,6 +184,67 @@ export async function openHandshakeResponse(xToken: string, base: string): Promi
   return streams;
 }
 
+/* ── 取流分段留痕（Muse 2026-11-20 fix331-hanime-403）──
+ * 立项依据（设备级实证）：3.3.1 真机 00:56 握手 403 发生在诊断会话
+ * 内，整份导出却零记录——POST 接缝无取页埋点、GET 侧记录按
+ * baseUrls host 归属错位到不了本源、自检结果是旧账。取流段失败
+ * 此前在诊断中不可见，本节堵此洞：resolve 三段（csrf / handshake /
+ * decode）任一失败落一条 tracePlayback("source.resolve_fail")，
+ * 只带稳定编号（active 注册表顺序 source-NNN）、段名、固定错误码、
+ * HTTP 状态（有才带）与尝试序——结构上没有能放令牌/签名/正文的
+ * 位置（不变量 10）。动态 import 与 manifest.ts 的解析埋点同模式
+ * （避免 adapters → diagnostics/manifest 的静态环）；纯旁路，
+ * 埋点失败不影响取流本身。 */
+
+export type ResolveSegment = "csrf" | "handshake" | "decode";
+
+/** 留痕数据组装（纯函数，契约可定值断言）：键集合固定为
+ * source/segment/code[/status]/attempt，值只来自入参的固定码、
+ * 状态与序号。 */
+export function resolveFailureEventData(
+  source: string,
+  segment: ResolveSegment,
+  code: string,
+  status: number | undefined,
+  attempt: number,
+): Record<string, unknown> {
+  return {
+    source,
+    segment,
+    code,
+    ...(status !== undefined ? { status } : {}),
+    attempt,
+  };
+}
+
+function traceResolveFailure(
+  defId: string,
+  segment: ResolveSegment,
+  code: string,
+  status: number | undefined,
+  attempt: number,
+): void {
+  void (async () => {
+    const [diag, manifest, registryDiag] = await Promise.all([
+      import("../../../shared/diagnostics/playbackDiagnostics"),
+      import("../manifest.ts"),
+      import("../registryDiag.ts"),
+    ]);
+    const idx = manifest.getActiveRegistry().sources.findIndex((s) => s.id === defId);
+    diag.tracePlayback(
+      "source.resolve_fail",
+      resolveFailureEventData(registryDiag.sourceStableId(idx >= 0 ? idx : 0), segment, code, status, attempt),
+    );
+  })().catch(() => { /* 诊断不可用时静默 */ });
+}
+
+/** 生产取页栈折叠错误文本里的 HTTP 状态（fetchPage 失败形态
+ * 恒为 "HTTP <n>"，见 net/edge）；提取不到回 undefined，不猜。 */
+function httpStatusOf(error: unknown): number | undefined {
+  const m = /^HTTP (\d{3})$/.exec(error instanceof Error ? error.message : String(error));
+  return m ? Number(m[1]) : undefined;
+}
+
 /* ── 适配器 ── */
 
 export function createHanimeApiAdapter(def: SourceDef): SourceAdapter {
@@ -282,19 +343,60 @@ export function createHanimeApiAdapter(def: SourceDef): SourceAdapter {
     async resolve(id) {
       const slug = assertSlug(id);
       for (let attempt = 0; attempt < 2; attempt++) {
-        const csrfRaw = await fetchPage(CSRF_URL);
-        const csrf = (JSON.parse(csrfRaw) as { csrf_token?: unknown }).csrf_token;
-        if (typeof csrf !== "string" || !csrf) throw new Error("Hanime 握手失败：CSRF 令牌不可用");
+        /* csrf 段：取令牌（通道失败与令牌不可用分开记码） */
+        let csrfRaw: string;
+        try {
+          csrfRaw = await fetchPage(CSRF_URL);
+        } catch (e) {
+          traceResolveFailure(def.id, "csrf", "csrf_fetch_failed", httpStatusOf(e), attempt);
+          throw e;
+        }
+        let csrf: unknown;
+        try { csrf = (JSON.parse(csrfRaw) as { csrf_token?: unknown }).csrf_token; } catch { csrf = undefined; }
+        if (typeof csrf !== "string" || !csrf) {
+          traceResolveFailure(def.id, "csrf", "csrf_token_unavailable", undefined, attempt);
+          throw new Error("Hanime 握手失败：CSRF 令牌不可用");
+        }
         const iv = crypto.getRandomValues(new Uint8Array(12));
         const req = await buildHandshakeRequest(slug, csrf, base, Date.now(), iv);
-        const res = await fetchPost(HANDSHAKE_URL, req.body, req.headers);
+        /* handshake 段：定向 POST（通道失败/HTTP 拒绝/回令牌缺失分开记码；
+         * CSRF 失效重试也留痕——重试成功时它是唯一的失败证据） */
+        let res: FetchPostResult;
+        try {
+          res = await fetchPost(HANDSHAKE_URL, req.body, req.headers);
+        } catch (e) {
+          traceResolveFailure(def.id, "handshake", "handshake_channel_failed", undefined, attempt);
+          throw e;
+        }
         if (res.status >= 200 && res.status < 300 && res.xToken) {
-          return { streams: await openHandshakeResponse(res.xToken, base) };
+          /* decode 段：回信封解密与流表判读 */
+          try {
+            return { streams: await openHandshakeResponse(res.xToken, base) };
+          } catch (e) {
+            traceResolveFailure(def.id, "decode", "decode_failed", undefined, attempt);
+            throw e;
+          }
         }
         let errorId = "";
         try { errorId = String((JSON.parse(res.body) as { error_id?: unknown }).error_id ?? ""); } catch { /* 正文非 JSON：按状态判读 */ }
-        if (attempt === 0 && /^CSRF_ERROR_[1-4]$/.test(errorId)) continue;
-        throw new Error(`Hanime 握手失败：HTTP ${res.status}`);
+        if (attempt === 0 && /^CSRF_ERROR_[1-4]$/.test(errorId)) {
+          traceResolveFailure(def.id, "handshake", "handshake_csrf_rejected", res.status, attempt);
+          continue;
+        }
+        traceResolveFailure(
+          def.id,
+          "handshake",
+          res.status >= 200 && res.status < 300 ? "handshake_token_missing" : "handshake_http_error",
+          res.status,
+          attempt,
+        );
+        /* 403 单独带出口提示（fix331-hanime-403 定性：生产请求形态
+         * ——HTTP 头层变异矩阵＋同版本 reqwest/rustls 实发——在本机
+         * 出口全通，真机失败落在出口侧；裸状态对用户没有处置信息，
+         * 如实告知站点拒绝了当前出口并给可执行的下一步）。 */
+        throw new Error(res.status === 403
+          ? "Hanime 握手失败：HTTP 403（站点拒绝了当前网络出口，切换线路或节点后重试）"
+          : `Hanime 握手失败：HTTP ${res.status}`);
       }
       throw new Error("Hanime 握手失败：CSRF 重试后仍未成功");
     },
