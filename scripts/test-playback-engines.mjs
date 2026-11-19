@@ -310,7 +310,8 @@ try {
   check("A kernel notePlaying blocked while inactive", fa.playing_when_inactive, false);
   check("A kernel notePlaying sets while active", fa.playing_when_active, true);
   check("A kernel notePlaying clears on pause", fa.playing_after_pause, false);
-  check("A kernel facts assembly matches publish contract", fa.facts, { w: 1280, h: 720, bitrateBps: 2500000, fps: 30, codec: "avc1.high", srMode: "crisp", engine: "hls.js", firstRendition: "第 2/2 档", pipeline: "webgpu", srDemoteCount: 1, at: 123 });
+  /* 期望含 provisional:false——E 线 P2-04 后采样器密度恒带该标记、内核按设计透传（协调合并对齐，非生产改动）。 */
+  check("A kernel facts assembly matches publish contract", fa.facts, { w: 1280, h: 720, bitrateBps: 2500000, fps: 30, codec: "avc1.high", srMode: "crisp", engine: "hls.js", firstRendition: "第 2/2 档", pipeline: "webgpu", srDemoteCount: 1, provisional: false, at: 123 });
 
   await writeFile(join(output, "report.json"), JSON.stringify({ report, results: r }, null, 2));
   if (report.failed.length) {
