@@ -9,15 +9,19 @@
  * 相关量，旧线密度不许判新线。 */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type SrDensity = { bitrateBps: number; fps?: number; codec?: string };
+export type SrDensity = { bitrateBps: number; fps?: number; codec?: string; width?: number; height?: number };
 
 export type SrFragSample = {
   loaded: number;
   duration: number;
+  /** 采样身份 = 正在播放的 level（整改 B4：调用方传 playing level，
+   * 不是分片自己的下载 level）。 */
   level: number;
 };
 
-export type SrLevelInfo = { frameRate?: number; videoCodec?: string } | undefined;
+/** 正在播放 level 的 rendition 信息（整改 B4）：码率/fps/codec/宽/高
+ * 全部取同一 rendition，判档 bpp 的分子分母不再跨档拼凑。 */
+export type SrLevelInfo = { frameRate?: number; videoCodec?: string; width?: number; height?: number; bitrate?: number } | undefined;
 
 export function createSrDensitySampler() {
   let samples: number[] = [];
@@ -36,9 +40,13 @@ export function createSrDensitySampler() {
         const median = sorted[Math.floor(sorted.length / 2)];
         const fps = level?.frameRate;
         density = {
-          bitrateBps: median,
+          /* 码率以 playing rendition 的标称码率为准（同 rendition 口径）；
+           * level 未给码率时回退分片实测中位数（旧夹具口径）。 */
+          bitrateBps: level?.bitrate && level.bitrate > 0 ? level.bitrate : median,
           fps: fps && fps >= 10 && fps <= 120 ? fps : undefined,
           codec: level?.videoCodec || undefined,
+          width: level?.width && level.width > 0 ? level.width : undefined,
+          height: level?.height && level.height > 0 ? level.height : undefined,
         };
       }
       return density;
@@ -66,7 +74,7 @@ export function useSrDensity(srcKey: string, lineEpoch: number) {
 
   const ingest = useCallback((frag: SrFragSample, level: SrLevelInfo) => {
     const next = samplerRef.current?.ingest(frag, level) ?? null;
-    setDensity(prev => (prev?.bitrateBps === next?.bitrateBps && prev?.fps === next?.fps && prev?.codec === next?.codec ? prev : next));
+    setDensity(prev => (prev?.bitrateBps === next?.bitrateBps && prev?.fps === next?.fps && prev?.codec === next?.codec && prev?.width === next?.width && prev?.height === next?.height ? prev : next));
   }, []);
 
   const reset = useCallback(() => {

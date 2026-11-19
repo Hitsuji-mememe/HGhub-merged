@@ -349,6 +349,20 @@ function run() {
     results.s_reset_clears = sampler.current();
   }
 
+  /* ── B4 判档同 rendition（整改 B4）：下载分片属低档（frag 字节只够
+   * 400kbps）但正在播放的 level 是 1080p 档时，判档入参必须全部取
+   * playing level 同一 rendition：码率=该档标称码率、fps/codec/宽/高
+   * 同档，不许拿下载档字节或显示帧尺寸拼 bpp。 ── */
+  {
+    const sampler = createSrDensitySampler();
+    const playing = { frameRate: 30, videoCodec: "avc1.640028", width: 1920, height: 1080, bitrate: 8_000_000 };
+    let d: ReturnType<typeof sampler.ingest> = null;
+    for (let i = 0; i < 3; i++) d = sampler.ingest({ loaded: 100_000, duration: 2, level: 2 }, playing);
+    results.b4_density_bitrate_from_playing_level = d?.bitrateBps ?? null;
+    results.b4_density_size_from_playing_level = [d?.width ?? null, d?.height ?? null];
+    results.b4_density_fps_codec_from_playing_level = [d?.fps ?? null, d?.codec ?? null];
+  }
+
   /* ── H HLS 工厂（audit6 P0-A 第 1 层）：播种值、回退默认、锁最高档、
    * 首分片档位格式 ── */
   results.h_seed_from_round = resolveAbrSeedBps({ measured: [{ kbps: 1200 }, { kbps: 4500 }, { kbps: null }] });

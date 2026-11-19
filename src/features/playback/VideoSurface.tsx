@@ -97,6 +97,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const stallSrcRef = useRef(src);
   if (stallSrcRef.current !== src) { stallSrcRef.current = src; stallAttemptRef.current = 0; }
   const nearEndFiredRef = useRef(false);
+  /* 正在播放的 level（整改 B4）：LEVEL_SWITCHED 维护、无事件时以
+   * hls.currentLevel 兜底；判档采样只认这一档的 rendition。 */
+  const playingLevelRef = useRef(-1);
   const reportedSizeRef = useRef({ key: "", w: 0, h: 0 });
   const measurementRef = useRef({ key: measurementKey, onSize });
   measurementRef.current = { key: measurementKey, onSize };
@@ -114,7 +117,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const [firstRendition, setFirstRendition] = useState<string | undefined>(undefined);
   const [webgpuEngaged, setWebgpuEngaged] = useState(false);
   const [srDemoteCount, setSrDemoteCount] = useState(0);
-  const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h, srDensity ?? undefined);
+  /* 判档尺寸以密度携带的 playing rendition 宽高为准（整改 B4），未取
+   * 到密度时才回落显示帧尺寸。 */
+  const srMode = effectiveSrMode(store?.srPref ?? "auto", srDensity?.width || srSize.w, srDensity?.height || srSize.h, srDensity ?? undefined);
   /* U1：SuperResCanvas 回报的实际呈现档位（含性能降档结果）。合成层
    * 保底是否挂载按它判（见下方 videoFilter），不按判档 srMode 猜——
    * 判档是 crisp 但已被降到 off 时，保底同样要顶上。 */
@@ -214,6 +219,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
 
     const source = playbackSource(src, Hls.isSupported());
     engineRef.current = source.engine;
+    playingLevelRef.current = -1;
     throughputRef.current?.setOrigin(originOf(src));
     let disconnectNative: (() => void) | undefined;
     let stallWatchdog: AppendStallWatchdog | undefined;
@@ -288,8 +294,15 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         /* 分片吞吐上报（2.0.5 卡顿自愈，Muse 2026-11-18 移植）：只报整片，耗时取 stats.loading 起止差 */
         onFragLoaded: (data) => {
         const st = data.frag.stats;
-        /* 超分密度：共享采样器（前 3 片中位数＋fps/codec，换 level 重采） */
-        ingestSrFrag({ loaded: st.loaded, duration: data.frag.duration, level: data.frag.level }, hls.levels[data.frag.level]);
+        /* 超分密度（整改 B4）：采样身份与 rendition 信息全部取正在播放
+         * 的 level（LEVEL_SWITCHED 维护、currentLevel 兜底），不取分片
+         * 的下载 level——ABR 换档后下载档与显示档可错开约 2 分钟。 */
+        const pl = playingLevelRef.current >= 0 ? playingLevelRef.current : hls.currentLevel;
+        const pLevel = pl >= 0 ? hls.levels[pl] : undefined;
+        ingestSrFrag(
+          { loaded: st.loaded, duration: data.frag.duration, level: pl >= 0 ? pl : data.frag.level },
+          pLevel ? { frameRate: pLevel.frameRate, videoCodec: pLevel.videoCodec, width: pLevel.width, height: pLevel.height, bitrate: pLevel.bitrate } : undefined,
+        );
         /* 真实播放吞吐入账（P0-B ⑤）：与下方消费者上报共用同一 loadMs 口径 */
         {
           const loadMs = st.loading.end > 0 && st.loading.end >= st.loading.start ? st.loading.end - st.loading.start : 0;
@@ -303,6 +316,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         },
         onFragBuffered: () => recovery.buffered(),
       });
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => { playingLevelRef.current = data.level; });
       observeFirstRendition(hls, Hls.Events, r => setFirstRendition(formatFirstRendition(r)));
       hls.loadSource(source.url);
       hls.attachMedia(video);
