@@ -86,31 +86,7 @@ export type RankItem = {
   metrics: { collect: number; comment: number; like: number; play: number };
 };
 
-export type Comment = {
-  id: number;
-  user_id: number;
-  nickname: string;
-  avatar: string;
-  avatar_color: string;
-  text: string;
-  time: string;
-  created_at?: string;
-  like_count: number;
-  liked: boolean;
-  reply_count: number;
-  reply_id: number;
-  reply_list?: Comment[];
-  is_pinned?: boolean;
-  ip_region?: string;
-};
 
-export type CommentPage = {
-  ep: number;
-  revision?: string;
-  reset?: boolean;
-  items: Comment[];
-  pagination: Pagination;
-};
 
 export type Post = {
   id: number;

@@ -34,7 +34,7 @@ export default function VideoDetailsPanel({ meta, videoId, episodeCount, related
             {!!meta.score && <span className="text-amber font-bold">{meta.score.toFixed(1)} 分</span>}
             {episodeCount > 0 && <span>共 {episodeCount} 集</span>}
           </div>
-          <div className="video-details-stats"><span>点赞 {fmt(meta.like)}</span><span>收藏 {fmt(meta.collect)}</span><span>评论 {fmt(meta.comment)}</span></div>
+          <div className="video-details-stats"><span>点赞 {fmt(meta.like)}</span><span>收藏 {fmt(meta.collect)}</span></div>
         </div>
       </div>
 

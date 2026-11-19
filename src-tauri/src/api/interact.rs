@@ -46,9 +46,6 @@ pub async fn api_post_collect(state: State<'_, Api>, id: i64, on: bool, expected
         .await
 }
 
-#[tauri::command]
-pub async fn api_post_comments(
-    state: State<'_, Api>,
     id: i64,
     page: u32,
     size: u32,

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { tracePlayback } from "../diagnostics/playbackDiagnostics";
 import type {
-  AccountHistoryPage, AccountIdentity, AccountSnapshot, CommentPage, Detail, HotSearchVideo, Paged, PlayInfo, Post, PostCategory, RankItem, TagGroup, TopicCard, TopicDetail, User, UserProfile, VideoCard,
+  AccountHistoryPage, AccountIdentity, AccountSnapshot, Detail, HotSearchVideo, Paged, PlayInfo, Post, PostCategory, RankItem, TagGroup, TopicCard, TopicDetail, User, UserProfile, VideoCard,
 } from "./types";
 
 /* ── 运行环境 ───────────────────────────────────────────── */
@@ -63,7 +63,7 @@ const NET_FAIL = /dns|timed? ?out|timeout|connection|refused|reset|unreachable|b
 /** 只读命令：链路抖动时可以安全重试一次；写操作绝不重试（避免重复提交） */
 const READ_ONLY = new Set([
   "api_me", "api_feed", "api_original_videos", "api_category", "api_rank", "api_search",
-  "api_posts", "api_post", "api_post_comments", "api_video", "api_play", "api_comments",
+  "api_posts", "api_post", "api_video", "api_play",
   "api_topics", "api_topic", "api_tags", "api_tag_videos", "api_search_hot",
   "api_post_playback", "api_post_categories", "api_post_category", "api_post_tag", "api_related", "api_following", "api_user", "api_user_stats", "api_user_videos",
 ]);
@@ -173,16 +173,11 @@ export const api = {
   video: (id: number) => call<Detail>("api_video", { id }),
   play: (id: number, ep: number) => call<PlayInfo>("api_play", { id, ep }),
 
-  comments: (id: number, ep: number, page = 1, size = 20) =>
-    call<CommentPage>("api_comments", { id, ep, page, size }),
-  commentSend: (id: number, ep: number, text: string, replyId?: number) =>
-    call<unknown>("api_comment_send", { id, ep, text, replyId: replyId ?? null }),
 
   clearCache: () => invoke<{ webCache: boolean; platform: string }>("cache_clear"),
   netDiag: () => invoke<Record<string, unknown>>("net_diag"),
   postLike: (id: number, on: boolean, identity?: AccountIdentity) => call<unknown>("api_post_like", { id, on, expectedUserId: identity?.expectedUserId, expectedOrigin: identity?.expectedOrigin }),
   postCollect: (id: number, on: boolean, identity?: AccountIdentity) => call<unknown>("api_post_collect", { id, on, expectedUserId: identity?.expectedUserId, expectedOrigin: identity?.expectedOrigin }),
-  postComments: (id: number, page: number, size: number) => call<CommentPage>("api_post_comments", { id, page, size }),
   postCategories: () => call<{ items: PostCategory[] }>("api_post_categories"),
   postCategory: (route: string, page = 1, size = 20, sort?: string) =>
     call<Paged<Post>>("api_post_category", { route, page, size, sort: sort ?? null }),

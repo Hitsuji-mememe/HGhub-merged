@@ -7,7 +7,7 @@ import { api, cover, fmt, fmtTime, isMobile, logLine, playlist } from "../../sha
 import type { Detail, Episode, PlayInfo, Post, VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
 import { Img, Sheet } from "../../shared/ui/ui";
-import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
+import { ArticlePanel, EpisodesPanel } from "./Panels";
 import { useSocialCounts } from "./ActionRail";
 import { useProgressFlush } from "./useProgressFlush";
 import { setBackHandler } from "../../shared/lib/back";
@@ -131,7 +131,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [rateMenuOpen, setRateMenuOpen] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [err, setErr] = useState("");
-  const [panel, setPanel] = useState<"episodes" | "comments" | "article" | "detail" | null>(null);
+  const [panel, setPanel] = useState<"episodes" | "article" | "detail" | null>(null);
   /* 「内容」入口恒落详情页（2026-11-18 用户真机纠正）：蓝图 P2 的
      「落上次页」记忆使用户先看过选集后，「内容」与「选集」两钮完全
      同效（实测投诉「选集和内容重复」）。详情页经核查本无选集网格/
@@ -712,7 +712,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         case "m": case "M": setMuted((v) => !v); break;
         case "l": case "L": onLike(); break;
         case "s": case "S": onFav(); break;
-        case "c": case "C": setPanel("comments"); break;
         case "e": case "E": setPanel("episodes"); break;
         default: break;
       }
@@ -1679,7 +1678,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               抽屉）。热度与时间 shrink-0，长剧名先截断、不挤压右侧。 */}
           <div className="px-4 pb-0.5 flex items-baseline gap-2">
             <span className="min-w-0 truncate text-[15px] font-semibold text-[#F5F5F5] hg-ov-shadow">{meta.title}</span>
-            <span className="shrink-0 text-[11px] font-medium text-[#A1A5AD] tabular-nums">赞 {fmt(likeCount)} · 藏 {fmt(collectCount)} · 评 {fmt(meta.comment)}</span>
+            <span className="shrink-0 text-[11px] font-medium text-[#A1A5AD] tabular-nums">赞 {fmt(likeCount)} · 藏 {fmt(collectCount)}</span>
             <span className="shrink-0 ml-auto text-[11px] font-semibold text-[#A1A5AD] tabular-nums"><PlaybackTime clock={playbackClock} /> / {fmtTime(duration)}</span>
           </div>
           {/* 热区 ≥28px（B2 追加，同信息区 scrub 区口径）：旧包裹高 22px */}
@@ -1733,15 +1732,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       {/* 选集 / 详情 / 评论三页签面板：桌面停靠在右侧（画面让位），移动端底部弹层。
           Muse 2026-11-18 (用户裁定): 评论从独立弹层并入本面板页签；移动端操作行
           只剩「选集」单入口、恒落选集页（第11项合并裁定，推翻蓝图双入口），
-          详情/评论在面板内点页签切换、无页签记忆。 */}
+          详情在面板内点页签切换、无页签记忆（评论页签已于 3.2.2 砍单删除）。 */}
       {isDesktop ? (
         <div className={`desktop-dock-panel ${panel ? "is-open" : ""}`}>
           <div className="desktop-dock-inner">
-            {(panel === "detail" || panel === "episodes" || panel === "comments") ? (
+            {(panel === "detail" || panel === "episodes") ? (
               <>
                 <div className="shrink-0 flex items-center gap-2 px-4 pt-3 pb-2">
-                  <SegmentedControl className="flex-1" aria-label="剧集面板" activeIndex={panel === "episodes" ? 0 : panel === "detail" ? 1 : 2}>
-                    {([["episodes", "选集"], ["detail", "详情"], ["comments", "评论"]] as const).map(([k, l]) => (
+                  <SegmentedControl className="flex-1" aria-label="剧集面板" activeIndex={panel === "episodes" ? 0 : 1}>
+                    {([["episodes", "选集"], ["detail", "详情"]] as const).map(([k, l]) => (
                       <Button aria-pressed={panel === k} key={k} onClick={() => setPanel(k)}>{l}</Button>
                     ))}
                   </SegmentedControl>
@@ -1753,8 +1752,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 <div className="flex-1 min-h-0">
                   {panel === "episodes" ? (
                     <EpisodesPanel bare videoId={curId} episodes={episodes} current={curEp} onPick={pickEp} onClose={() => setPanel(null)} />
-                  ) : panel === "comments" ? (
-                    <CommentsPanel videoId={curId} ep={curEp} total={meta.comment} kind={kind} onClose={() => setPanel(null)} />
                   ) : (
                     detailBody(() => setPanel(null))
                   )}
@@ -1772,12 +1769,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             </div>
           </Sheet>
 
-          <Sheet open={active && (panel === "detail" || panel === "episodes" || panel === "comments")} label={panel === "episodes" ? "选集" : panel === "detail" ? "视频详情" : "评论"} onClose={() => setPanel(null)}>
+          <Sheet open={active && (panel === "detail" || panel === "episodes")} label={panel === "episodes" ? "选集" : "视频详情"} onClose={() => setPanel(null)}>
             <div className="video-details-sheet">
-              {/* 三页签抽屉：选集 / 详情 / 评论，单入口恒落选集，页签内切换 */}
+              {/* 两页签抽屉：选集 / 详情，单入口恒落选集，页签内切换 */}
               <div className="shrink-0 flex items-center gap-2 px-4 pb-2">
-                <SegmentedControl className="flex-1" aria-label="剧集面板" activeIndex={panel === "episodes" ? 0 : panel === "detail" ? 1 : 2}>
-                  {([["episodes", "选集"], ["detail", "详情"], ["comments", "评论"]] as const).map(([k, l]) => (
+                <SegmentedControl className="flex-1" aria-label="剧集面板" activeIndex={panel === "episodes" ? 0 : 1}>
+                  {([["episodes", "选集"], ["detail", "详情"]] as const).map(([k, l]) => (
                     <Button aria-pressed={panel === k} key={k} onClick={() => setPanel(k)}>{l}</Button>
                   ))}
                 </SegmentedControl>
@@ -1790,8 +1787,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               <div className="flex-1 min-h-0">
                 {panel === "episodes" ? (
                   <EpisodesPanel bare videoId={curId} episodes={episodes} current={curEp} onPick={pickEp} onClose={() => setPanel(null)} />
-                ) : panel === "comments" ? (
-                  <CommentsPanel videoId={curId} ep={curEp} total={meta.comment} kind={kind} onClose={() => setPanel(null)} />
                 ) : (
                   detailBody()
                 )}

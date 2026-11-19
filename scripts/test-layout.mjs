@@ -334,34 +334,36 @@ try {
       assert(sb && sb.x >= -1 && sb.x + sb.width <= viewport[0] + 1, `${name}: episodes sheet out of viewport ${JSON.stringify(sb)}`);
       // 单入口断言 (Muse 2026-11-18 第11项, 接棒): 原双入口形态保护
       // 「选集/内容两钮各落其页、落点跟随入口」; 用户极简裁定合并后
-      // 接棒为: ①操作行无「内容」钮 ②选集钮恒落选集页 ③抽屉内三页签
-      // 可达 (切到评论) ④关后重开仍落选集 (无页签记忆)。
+      // 接棒为: ①操作行无「内容」钮 ②选集钮恒落选集页 ③抽屉内页签
+      // 可达 (3.2.2 砍单后只剩选集/详情, 切到详情) ④关后重开仍落选集。
       assert.equal(await page.getByRole("button", { name: "内容", exact: true }).count(), 0,
         `${name}: ops row must not keep a separate 内容 entry (single 选集 entry)`);
       const tabBtn = (n) => sheet.getByRole("button", { name: n, exact: true });
       assert.equal(await tabBtn("选集").getAttribute("aria-pressed"), "true",
         `${name}: 选集 entry must land on the episodes tab`);
-      await tabBtn("评论").click();
-      await page.waitForFunction(() => document.querySelector('.video-details-sheet button[aria-pressed="true"]')?.textContent?.includes("评论"));
+      // 3.2.2 砍单适配（评论删除）: 页签只剩选集/详情, 切到详情页签。
+      await tabBtn("详情").click();
+      await page.waitForFunction(() => document.querySelector('.video-details-sheet button[aria-pressed="true"]')?.textContent?.includes("详情"));
+      assert.equal(await tabBtn("评论").count(), 0,
+        `${name}: comments tab must be gone (3.2.2 cut list)`);
       // 抽屉文字对比度断言 (2026-11-18, 缺陷6 再接棒): 上方实心底断言只
       // 保护背景——底钉死 #191B20 后文字仍随环境主题变量, 浅色主题下
       // 正文是 #25241f 暗字压深底, 主代理看图 (review-shots/02) 拦下。
-      // 原断言保护的「评论可读」由本断言接棒到文字终态: 正文恰为主字色
-      // #F5F5F5、时间等次级信息不低于基线 #A1A5AD (逐通道)。
-      await page.waitForFunction(() => document.querySelector(".video-details-sheet")?.textContent?.includes("长镜头"));
+      // 原断言保护的「抽屉正文可读」: 评论页签删除后 (3.2.2 砍单) 由详情
+      // 页的简介正文接棒: 正文恰为主字色 #F5F5F5、统计行等次级信息不低
+      // 于基线 #A1A5AD (逐通道)。
+      await page.waitForFunction(() => document.querySelector(".video-details-sheet")?.textContent?.includes("暂无简介"));
       const commentColors = await page.evaluate(() => {
         const sheetEl = document.querySelector(".video-details-sheet");
-        const bodyEl = [...sheetEl.querySelectorAll("p")].find(p => (p.textContent || "").includes("长镜头"));
-        const itemEl = bodyEl?.closest("div.flex-1");
-        const spans = itemEl ? [...itemEl.querySelectorAll("span")] : [];
-        const metaEl = spans[spans.length - 1];
+        const bodyEl = sheetEl?.querySelector(".video-details-description");
+        const metaEl = sheetEl?.querySelector(".video-details-stats span");
         const rgbOf = (el) => { const m = /(\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(el).color); return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null; };
         return { body: bodyEl ? rgbOf(bodyEl) : null, meta: metaEl ? rgbOf(metaEl) : null };
       });
       assert.deepEqual(commentColors.body, [245, 245, 245],
-        `${name}: comment body must render primary #F5F5F5 on the solid drawer, got ${JSON.stringify(commentColors)}`);
+        `${name}: drawer body must render primary #F5F5F5 on the solid drawer, got ${JSON.stringify(commentColors)}`);
       assert(commentColors.meta && commentColors.meta[0] >= 161 && commentColors.meta[1] >= 165 && commentColors.meta[2] >= 173,
-        `${name}: comment meta text must not fall below #A1A5AD, got ${JSON.stringify(commentColors)}`);
+        `${name}: drawer meta text must not fall below #A1A5AD, got ${JSON.stringify(commentColors)}`);
       // A3 断言 (收官批): 抽屉内只留一个关闭钮 (页签行右端) ——原实现
       // 评论页头部还有一个浮动 X, 用户真机点名双 X; 原 `.first()` 取法
       // 保护的是「至少有一个可关」, 由本计数断言接棒为「恰好一个」。

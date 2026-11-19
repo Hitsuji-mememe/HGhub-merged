@@ -8,7 +8,7 @@ import { useStore } from "../../shared/model/store";
 import { copyText } from "../../shared/lib/clipboard";
 import { Empty, Img, Sheet } from "../../shared/ui/ui";
 import { Player } from "../playback";
-import { IBack, ICommentF, IFireF, IFlame, IHeart, IHeartF, IPlayF, ISearch, IStar, IStarF } from "../../shared/ui/icons";
+import { IBack, IFireF, IFlame, IHeart, IHeartF, IPlayF, ISearch, IStar, IStarF } from "../../shared/ui/icons";
 import { handleArticleClick, sanitizeHtml } from "../../shared/lib/html";
 import { InplaceSearch } from "../search/InplaceSearch";
 import { FilteredContent } from "../../shared/ui/FilteredContent";
@@ -18,7 +18,6 @@ import { usePaginatedList } from "../../shared/lib/usePaginatedList";
 import { firstEnabledSource, sourcesForCategory } from "../sources/registry";
 import { getActiveRegistry } from "../sources/manifest";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from "../sources/SourceSwitcher";
-import { CommentsPanel } from "../feed/Panels";
 import { postHot } from "./postData";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 
@@ -136,8 +135,7 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
   const [loadedId, setLoadedId] = useState<number | null>(null);
   const autoBackKey = useRef("");
   const [tagMenu, setTagMenu] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
-  useEffect(() => { if (!active) { setTagMenu(false); setCommentsOpen(false); } }, [active]);
+  useEffect(() => { if (!active) { setTagMenu(false); } }, [active]);
   const currentPost = loadedId === id ? post : null;
   const blocked = filtering && currentPost ? blockReason(currentPost.tags) : null;
   const allowed = !filtering || (!!currentPost && !blocked);
@@ -152,7 +150,7 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
     toast("该内容命中屏蔽标签，已自动返回", "info");
     onBack();
   }, [active, filtering, currentPost, blocked, id, onBack, toast]);
-  useEffect(() => { if (!allowed) { setTagMenu(false); setCommentsOpen(false); } }, [allowed]);
+  useEffect(() => { if (!allowed) { setTagMenu(false); } }, [allowed]);
   const [err, setErr] = useState<string | null>(null);
   const [play, setPlay] = useState(false);
   /* 吃瓜帖详情里的 video_url 恒为空，视频地址只在 playback 接口里；
@@ -305,10 +303,6 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
                       {fav ? <IStarF size={15} className="text-amber" /> : <IStar size={15} />}
                       <span>{favCount > 0 ? fmt(favCount) : "收藏"}</span>
                     </Button>
-                    <Button onClick={() => setCommentsOpen(true)} className="h-9 px-3.5 rounded-full bg-s2 flex items-center gap-1.5 text-[13px] text-on pressable">
-                      <ICommentF size={14} />
-                      <span>{currentPost.counts?.comment ? fmt(currentPost.counts.comment) : "评论"}</span>
-                    </Button>
                   </>;
                 })()}
               </div>
@@ -324,8 +318,8 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
                 (999px) 经 .ios-image{border-radius:inherit} 继承裁切封面的链。 */}
             <div data-post-media className="relative w-full bg-black mx-auto mt-5" style={{ height: isMobile ? "min(48vh, 420px)" : "min(60vh, 640px)" }}>
               {play && src ? (
-                <Player src={src} scopeKey={id} poster={cover(currentPost.cover)} autoPlay active={active && !tagMenu && !commentsOpen} controls muted={muted} volume={volume}
-                  onToggleMute={() => setMuted((m) => !m)} diagnosticContext={{ video_id: id, active: active && !tagMenu && !commentsOpen }} className="w-full h-full"
+                <Player src={src} scopeKey={id} poster={cover(currentPost.cover)} autoPlay active={active && !tagMenu} controls muted={muted} volume={volume}
+                  onToggleMute={() => setMuted((m) => !m)} diagnosticContext={{ video_id: id, active: active && !tagMenu }} className="w-full h-full"
                   onEnded={() => {
                     /* 多段吃瓜视频：播完自动接下一段；末段保留播放器以便回拖或重看 */
                     if (seg < segs.length - 1) setSeg(seg + 1);
@@ -362,11 +356,6 @@ export function PostDetail({ id, onBack, active = true }: { id: number; onBack: 
           </>
         )}
       </div>
-      <Sheet open={commentsOpen && active} onClose={() => setCommentsOpen(false)}>
-        <div className="flex flex-col" style={{ height: "72dvh" }}>
-          <CommentsPanel videoId={id} ep={1} total={currentPost?.counts?.comment ?? 0} kind="post" onClose={() => setCommentsOpen(false)} />
-        </div>
-      </Sheet>
       <TagBlockMenu open={tagMenu && active} tags={currentPost?.tags || []} onClose={() => setTagMenu(false)} onSettings={() => push({ kind: "settings", section: "内容偏好" })} />
     </div>
   );

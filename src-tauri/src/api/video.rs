@@ -75,9 +75,6 @@ pub async fn api_play(state: State<'_, Api>, id: i64, ep: u32) -> Result<Value, 
     }
 }
 
-#[tauri::command]
-pub async fn api_comments(
-    state: State<'_, Api>,
     id: i64,
     ep: u32,
     page: u32,
@@ -90,9 +87,6 @@ pub async fn api_comments(
         .await
 }
 
-#[tauri::command]
-pub async fn api_comment_send(
-    state: State<'_, Api>,
     id: i64,
     ep: u32,
     text: String,
