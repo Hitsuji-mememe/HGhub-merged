@@ -19,22 +19,38 @@ let started = false;
 let attached = false;
 let picking = false;
 let checking = false;
-let timer = 0;
 let step = 0;
 let downStreak = 0;
 let failStreak = 0;
 let lastPickAt: number | null = null;
 let cancellation: Promise<void> = Promise.resolve();
 
+/* 计时器单一注册表（Muse 2026-11-19 根治包，audit5 条 2）：旧实现有
+ * 两套计时器——schedule 链的 timer 与 confirm-pending 的 20 秒确认任务，
+ * 后者无 handle、stopTimer 清不掉，关闭→重开后旧任务到期会多发一轮
+ * 无调度选线。现全部计时器收进同一注册表，stopTimer 停一切；确认
+ * 回调另带 pick epoch，开关/纪元变更后过期即弃（与 Rust 侧双代次对齐）。 */
+const timers = new Set<number>();
+let pickEpoch = 0;
+let confirmDelayMs = 20_000;
+/** 测试缝：确认延迟可注入（生产恒 20s）。 */
+export const setConfirmDelayForTests = (ms: number | null): void => { confirmDelayMs = ms ?? 20_000; };
+
+function later(fn: () => void, delay: number): number {
+  const id = window.setTimeout(() => { timers.delete(id); fn(); }, delay);
+  timers.add(id);
+  return id;
+}
+
 function stopTimer() {
-  window.clearTimeout(timer);
-  timer = 0;
+  for (const id of timers) window.clearTimeout(id);
+  timers.clear();
 }
 
 function schedule(delay: number) {
   stopTimer();
   if (!autoLineEnabled()) return;
-  timer = window.setTimeout(() => {
+  later(() => {
     if (navigator.onLine === false) {
       schedule(30_000);
     } else if (document.visibilityState === "visible") {
@@ -46,6 +62,7 @@ function schedule(delay: number) {
 }
 
 export const setAutoLine = (on: boolean): Promise<void> => {
+  pickEpoch += 1;
   enabledOverride = on;
   try { localStorage.setItem(STORAGE_KEYS.autoLine, on ? "on" : "off"); } catch { /* storage can be unavailable */ }
   if (!on) {
@@ -69,6 +86,8 @@ export type PickRound = {
   at: number;
   base: string;
   reason: string;
+  /** 本轮被会话熔断拦截（line_auto 的 breakerBlocked）：诊断/设置页据此明示。 */
+  breakerBlocked?: boolean;
   published: number | null;
   probed: number | null;
   okCount: number | null;
@@ -77,8 +96,21 @@ export type PickRound = {
 let lastRound: PickRound | null = null;
 export const lastPickRound = (): PickRound | null => lastRound;
 
+/* pending 槽（Muse 2026-11-19 根治包，audit6 P2-01 残项）：picking 中
+ * 到达的手动选线旧实现静默丢弃。现置位 pendingManual，在飞轮次 finally
+ * 消费、立即补跑一轮 force pick（仍受熔断/两轮确认约束，不新增旁路）；
+ * main-return 同理走 pendingMainReturn 槽补跑普通一轮。 */
+let pendingManual = false;
+let pendingMainReturn = false;
+
 export async function pickLine(reason: string, force = false, urgent = false): Promise<void> {
-  if (!autoLineEnabled() || picking || (!force && document.visibilityState !== "visible")) return;
+  if (!autoLineEnabled()) return;
+  if (picking) {
+    if (force) pendingManual = true;
+    else if (reason === "main-return") pendingMainReturn = true;
+    return;
+  }
+  if (!force && document.visibilityState !== "visible") return;
   if (!force && lastPickAt !== null && Date.now() - lastPickAt < PICK_COOLDOWN_MS) return;
   picking = true;
   let down = false;
@@ -95,6 +127,7 @@ export async function pickLine(reason: string, force = false, urgent = false): P
       at: Date.now(),
       base: result.base,
       reason: result.pick.reason,
+      breakerBlocked: result.breakerBlocked === true,
       published: result.pick.published ?? null,
       probed: result.pick.probed ?? null,
       okCount: result.pick.okCount ?? null,
@@ -102,6 +135,10 @@ export async function pickLine(reason: string, force = false, urgent = false): P
         host: hostOf(c.url), tier: c.tier, ms: c.ms, kbps: c.kbps ?? null,
       })),
     };
+    if (result.breakerBlocked) {
+      logLine(`[line] auto(${reason}) breaker-blocked keep ${hostOf(result.base)}`);
+      tracePlayback("line.breakerBlocked", { reason, line: hostOf(result.base) });
+    }
     const candidates = result.pick.candidates
       .map((candidate) => `${candidate.tier}:${candidate.kbps != null ? `${candidate.kbps}kbps` : candidate.ok ? "ok" : candidate.reachable ? "reachable" : "down"}/${candidate.ms}ms`)
       .join(",");
@@ -110,7 +147,11 @@ export async function pickLine(reason: string, force = false, urgent = false): P
        * 同胜者再胜才真切；胜者变了就重新计待确认。 */
       logLine(`[line] auto(${reason}) confirm-pending winner=${result.pick.pendingWinner ? hostOf(result.pick.pendingWinner) : "?"} keep ${hostOf(result.base)} | ${candidates}`);
       tracePlayback("line.confirmPending", { reason, winner: result.pick.pendingWinner ? hostOf(result.pick.pendingWinner) : "", line: hostOf(result.base) });
-      window.setTimeout(() => { void pickLine("confirm"); }, 20_000);
+      const epoch = pickEpoch;
+      later(() => {
+        if (epoch !== pickEpoch || !autoLineEnabled()) return;
+        void pickLine("confirm");
+      }, confirmDelayMs);
       return;
     }
     if (result.pick.reason === "all-down") {
@@ -133,31 +174,22 @@ export async function pickLine(reason: string, force = false, urgent = false): P
     tracePlayback("line.fail", { where: "auto", reason, err: (error as Error).message });
   } finally {
     picking = false;
+    if (pendingManual) {
+      pendingManual = false;
+      if (autoLineEnabled()) { void pickLine("manual-pending", true); return; }
+    }
+    if (pendingMainReturn) {
+      pendingMainReturn = false;
+      if (autoLineEnabled()) { void pickLine("main-return"); return; }
+    }
     if (started) schedule(down ? DOWN_RETRY_MS : HEALTH_STEPS[0]);
   }
 }
 
-async function tryMain(reason: string): Promise<void> {
-  if (!autoLineEnabled() || picking) return;
-  picking = true;
-  try {
-    await cancellation;
-    if (!autoLineEnabled()) return;
-    const result = await api.lineTryMain();
-    if (result.cancelled || !autoLineEnabled()) return;
-    logLine(`[line] main(${reason}) ok=${result.probe.ok} ms=${result.probe.ms} switched=${result.switched}`);
-    if (result.switched) {
-      window.dispatchEvent(new CustomEvent("hg:line", {
-        detail: { region: "intl", host: hostOf(result.base), ms: result.probe.ms },
-      }));
-      window.dispatchEvent(new Event("hg:line-changed"));
-    }
-  } catch (error) {
-    logLine(`[line] main(${reason}) failed: ${(error as Error).message}`);
-  } finally {
-    picking = false;
-  }
-}
+/* tryMain 收编（Muse 2026-11-19 根治包，audit6 条 5）：旧 line_try_main
+ * 单次健康检查即直切主站，绕过排名/两轮确认/熔断/记账四道。现删除该
+ * 切换权——check() 发现主站健康只触发一轮普通 pickLine("main-return")，
+ * 主站作为候选进统一排名、经同一 confirm/熔断/记账路径决定切不切。 */
 
 async function check(reason: string): Promise<void> {
   if (!autoLineEnabled() || checking) return;
@@ -174,7 +206,7 @@ async function check(reason: string): Promise<void> {
       /* 播放中护栏（整改 3）：回切主站会让播放器换 origin 重载——正在
        * 播放时不做这个常规切换，等下个健康周期/暂停后再回。故障路径
        * （下方 down 分支）不受此护栏影响。 */
-      if (hostOf(health.base) !== "huangguoai.com" && !isPlaybackPlaying()) await tryMain(reason);
+      if (hostOf(health.base) !== "huangguoai.com" && !isPlaybackPlaying()) await pickLine("main-return");
       schedule(HEALTH_STEPS[step]);
       return;
     }
