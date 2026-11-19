@@ -7,6 +7,12 @@
  * ＋同封面（不同 ID）必合并；跨批累计呈现（onPartial 累计快照经
  * aggregateHits 全量重聚合）不漏合并；跨源低置信仍不合并（既有
  * 置信门回归防线，不削弱）。
+ * 2026-11-19 fix322/play 修订（用户真机裁定，3.2.1 首验）：详情页
+ * 「来源副本」出现同名双副本是缺陷——副本层与卡片层共用同一去重
+ * 判定：同源 content 重复（同标题＋同封面、不同 ID）并卡后不再
+ * 保留第二副本（原「两 ID 副本各留一份、不误删」条款作废）；同源
+ * 判定优先于跨源置信合并（先全簇扫同源、再走置信），到达顺序与
+ * publishedAt 完整度差异不得把同一条目劈进两张卡各留一份副本。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -39,14 +45,46 @@ const TITLE = "3p 同一条帖子标题";
   assert.equal(groups.video.length + groups.drama.length + groups.image.length, 0, "不串到其他页签");
 }
 
-/* ── 同源同标题＋同封面、不同 ID → 一张卡（两 ID 副本各留一份） ── */
+/* ── 同源同标题＋同封面、不同 ID → 一张卡、副本只留一份
+ * （fix322/play 修订：副本层与卡片层共用同一去重判定——同内容
+ * 重复挂载在详情里不是两个可切换副本，只留高优先的第一份） ── */
 {
   const a = hit("huangguo", "黄果", "post", "12345", TITLE, COVER, 100, 7, 0);
   const b = hit("huangguo", "黄果", "post", "67890", TITLE, COVER, 100, 5, 1);
   const merged = mergeHits([a, b]);
   assert.equal(merged.length, 1, "同源同标题同封面不同 ID：只剩一张卡");
-  assert.equal(merged[0].copies.length, 2, "不同 ID 是两个不同键：副本各留一份、不误删");
-  assert.deepEqual(merged[0].copies.map((c) => c.item.externalId).sort(), ["12345", "67890"], "两 ID 均保留");
+  assert.equal(merged[0].copies.length, 1, "同源 content 重复：副本只留一份（详情不出现同名双副本）");
+  assert.equal(merged[0].copies[0].item.externalId, "12345", "保留高优先（热度高）的第一份");
+  assert.equal(merged[0].identityConfirmed, true, "同源 content 合并：身份确认口径不变");
+}
+
+/* ── 跨源簇内的同源 content 重复：副本不重复、alsoOn 不重名 ── */
+{
+  const q = hit("51chigua", "51吃瓜网", "post", "q1", TITLE, COVER, 100, 0, 0);
+  const p1 = hit("meiridasai", "每日大赛", "post", "p1", TITLE, COVER, 50, 0, 1);
+  const p2 = hit("meiridasai", "每日大赛", "post", "p2", TITLE, COVER, 50, 0, 2);
+  const merged = mergeHits([q, p1, p2]);
+  assert.equal(merged.length, 1, "跨源同题同封面先并成一簇");
+  assert.equal(merged[0].copies.filter((c) => c.sourceId === "meiridasai").length, 1, "簇内同一来源只留一个副本");
+  assert.equal(merged[0].copies.length, 2, "簇内副本总数 = 跨源两源各一份");
+  assert.deepEqual(merged[0].alsoOn, ["每日大赛"], "alsoOn 只记跨源来源名、不因同源重复重名");
+}
+
+/* ── 同源判定优先于置信合并：双路到达的 publishedAt 完整度不同，
+ * 后到一份不得被先建簇的置信匹配截走、在两张卡各留一份副本 ── */
+{
+  const DAY = 24 * 3600_000;
+  const t0 = 1_700_000_000_000;
+  const q = hit("51chigua", "51吃瓜网", "post", "q1", TITLE, "https://cdn-a.example.com/x/shared-name.jpg", 100, 0, 0);
+  q.publishedAt = t0;
+  const p1 = hit("meiridasai", "每日大赛", "post", "p1", TITLE, "https://cdn-b.example.com/y/shared-name.jpg", 50, 0, 1);
+  p1.publishedAt = t0 + 40 * DAY; // 与 q 时间远：置信 3+1-2=2 <3，自成一簇
+  const p2 = hit("meiridasai", "每日大赛", "post", "p1-dup", TITLE, "https://cdn-b.example.com/y/shared-name.jpg", 50, 0, 2);
+  p2.publishedAt = t0 + 3600_000; // 与 q 时间近：对 q 簇置信 3+1+1=5 ≥3（旧实现会先截入 q 簇）
+  const merged = mergeHits([q, p1, p2]);
+  const pCopies = merged.flatMap((m) => m.copies).filter((c) => c.sourceId === "meiridasai");
+  assert.equal(pCopies.length, 1, "同一条目（同源同内容）在全部卡片中只留一份副本");
+  assert.equal(pCopies[0].item.externalId, "p1", "副本归同源簇（与 p1 同簇），不被置信截胡");
 }
 
 /* ── 跨批到达：onPartial 累计快照在呈现层经 aggregateHits 全量

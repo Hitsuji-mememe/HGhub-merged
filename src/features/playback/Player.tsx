@@ -171,6 +171,7 @@ export default function Player({
         video,
         isCurrent: () => hlsRef.current === hls,
         traceStall: (_state, attempt) => trace("hls.append_stall", { attempt }),
+        traceGated: ({ gate, state }) => trace("hls.append_stall_gated", { gate, state }),
         retry: (reason) => proxyRecovery.retry(reason, true),
         onExhausted: (message) => { setErrMsg(message); setWaiting(false); setPlaying(false); },
       });

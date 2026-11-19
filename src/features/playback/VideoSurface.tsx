@@ -254,6 +254,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
           try { bufEnd = video.buffered.length > 0 ? Math.round(video.buffered.end(video.buffered.length - 1) * 10) / 10 : 0; } catch { /* 保持 -1 */ }
           trace("hls.append_stall", { attempt, state, rs: video.readyState, buf: bufEnd });
         },
+        traceGated: ({ gate, state }) => {
+          trace("hls.append_stall_gated", { gate, state, rs: video.readyState });
+        },
         retry: (reason) => proxyRecovery.retry(reason, true),
         onExhausted: (message) => onError?.(message),
       });

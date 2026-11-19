@@ -62,12 +62,19 @@ export function createHlsRecovery({ hls, video, url, isCurrent, isActive, resume
     error(data: ErrorData) {
       // hls.js already applies its own backoff to recoverable errors.
       if (!data.fatal || disposed || !isCurrent()) return;
-      cancelTimer();
       if (data.type !== Hls.ErrorTypes.NETWORK_ERROR && data.type !== Hls.ErrorTypes.MEDIA_ERROR) {
+        cancelTimer();
         pending = undefined;
         onFatal(data);
         return;
       }
+      /* 恢复排期不被后续错误推迟（fix322/play）：旧实现在此无条件
+       * cancelTimer 重排，而 attempts 只在计时器真正触发时递增——
+       * 同一故障期内 fatal 错误以小于恢复延迟的间隔持续到达时，
+       * 恢复永不执行、上限永不触发、onFatal 永不调用（饥饿型不
+       * 收敛）。现只更新 pending（待执行动作跟随最新错误，如分片
+       * 错后清单错改走 loadSource），排期由 schedule() 的
+       * timer 已存守卫保住原触发时刻。 */
       pending = data;
       schedule();
     },

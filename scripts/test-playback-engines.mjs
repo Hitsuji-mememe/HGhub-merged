@@ -71,6 +71,12 @@ try {
   check("F12 gate leaves watchdog suspended", r.f_gate_suspended, true);
   check("F12 resumed watchdog quiet before deadline", r.f_resumed_before_deadline, 0);
   check("F12 resumed watchdog stalls on renewed freeze", r.f_resumed_stall_fires, 1);
+  check("F14 append arm gated judgment is traced", r.f14_append_arm_gated, ["not-started"]);
+  check("F14 append arm gated without stalling", r.f14_append_arm_no_stall, 0);
+  check("F14 resumed watchdog still stalls", r.f14_after_resume_stall, 1);
+  check("F14 gated trace not duplicated after resume", r.f14_after_resume_gated, ["not-started"]);
+  check("F14 play arm gated judgment is traced", r.f14_play_arm_gated, ["buffered-no-play"]);
+  check("F14 play arm gated without stalling", r.f14_play_arm_no_stall, 0);
   check("F13 append deadline hands off without stalling", r.f_transfer_no_stall_yet, 0);
   check("F13 handed-off second arm stalls", r.f_transfer_stall_fires, 1);
   check("F13 handed-off state label", r.f_transfer_state, "buffered-no-play");
@@ -246,6 +252,7 @@ try {
   check("W4 attempt unchanged", r.w4_attempt_unchanged, 0);
   check("W5 stale instance stall dropped (retry)", r.w5_stale_no_retry, []);
   check("W5 stale instance stall dropped (exhausted)", r.w5_stale_no_exhausted, []);
+  check("W5 stale instance gated judgment is traced", r.w5_stale_gated, [{ gate: "stale_instance", state: "not-started" }]);
   check("W6 paused_by_user blocks escalation", r.w6_user_pause_no_retry, []);
   check("W6 paused_by_user attempt unchanged", r.w6_user_pause_attempt, 0);
   check("W7 paused_by_system still escalates", r.w7_system_pause_retry, ["append_stall"]);
@@ -253,6 +260,10 @@ try {
   check("W8 buffered-no-play state label", r.w8_buffered_no_play_state, ["buffered-no-play"]);
   check("W9 deadline predicate rescue (append window)", r.w9_predicate_rescue, []);
   check("W9 handed-off second arm escalates", r.w9_handoff_retry, ["append_stall"]);
+  check("W10 paused_by_user gated judgment is traced", r.w10_user_pause_gated, [{ gate: "paused_by_user", state: "not-started" }]);
+  check("W10 paused_by_user gated without retry", r.w10_user_pause_no_retry, []);
+  check("W10 paused_by_user gated attempt unchanged", r.w10_user_pause_attempt, 0);
+  check("W11 watchdog intent gate suspend is traced", r.w11_unwanted_gated, [{ gate: "watchdog_intent", state: "not-started" }]);
 
   // FB — 两臂等价（最终版 B 线任务 2，先证伪：同脚本结局元组必须一致）
   check("FB append arm gate->suspend->resume->stall tuple", r.fb_append_arm, { gatedStalls: 0, suspended: true, beforeDeadline: 0, afterResume: 1 });

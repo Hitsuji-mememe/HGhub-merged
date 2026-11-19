@@ -243,6 +243,39 @@ function run() {
     results.f_resumed_stall_fires = stalls;
     wd.dispose();
   }
+  /* ── F14 判死被意愿门挂起必须留痕（fix322/play）：两臂挂起时经
+   * onGated 报出被吞的判定，判死行为与挂起/复活语义不变。背景：
+   * 3.2.1 真机「用户可见卡死、诊断无 append_stall」——门后无痕即
+   * 无从定性。旧码无 onGated 通道，gated 恒空、本组必红。 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    let wanted = false;
+    const gated: string[] = [];
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => false, isPlaying: () => false, shouldEscalate: () => wanted, onStall: () => stalls++, onGated: s => gated.push(s) });
+    wd.fragLoaded();
+    clock.advance(4000);
+    results.f14_append_arm_gated = [...gated];
+    results.f14_append_arm_no_stall = stalls;
+    wanted = true;
+    wd.resume();
+    clock.advance(4000);
+    results.f14_after_resume_stall = stalls;
+    results.f14_after_resume_gated = [...gated];
+    wd.dispose();
+  }
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    const gated: string[] = [];
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => true, isPlaying: () => false, shouldEscalate: () => false, onStall: () => stalls++, onGated: s => gated.push(s) });
+    wd.fragLoaded();
+    wd.buffered();
+    clock.advance(20000);
+    results.f14_play_arm_gated = [...gated];
+    results.f14_play_arm_no_stall = stalls;
+    wd.dispose();
+  }
   /* ── F13 append 臂转交（audit5 条 1 旁路）：FRAG_BUFFERED 事件漏报、
    * append 到点复查 hasBuffered 命中 → 转交出画守候臂而非退役，
    * 出画窗内 playing 不来仍判死 buffered-no-play。旧实现必红。 ── */
@@ -821,7 +854,7 @@ function run() {
     }) as unknown as HTMLVideoElement;
     const harness = (over: { wanted?: boolean; current?: boolean; pause?: "playing" | "paused_by_user" | "paused_by_system"; bufferedLen?: number; attempt?: number } = {}) => {
       const clock = new FakeClock();
-      const calls = { retry: [] as string[], exhausted: [] as string[], traced: [] as { state: string; attempt: number }[] };
+      const calls = { retry: [] as string[], exhausted: [] as string[], traced: [] as { state: string; attempt: number }[], gated: [] as { gate: string; state: string }[] };
       const attemptRef = { current: over.attempt ?? 0 };
       const wd = createStallWatchdog({
         video: fakeVideo(over.bufferedLen ?? 0),
@@ -830,6 +863,7 @@ function run() {
         pauseState: () => over.pause ?? "playing",
         attemptRef,
         traceStall: (state, attempt) => calls.traced.push({ state, attempt }),
+        traceGated: (info) => calls.gated.push(info),
         retry: (reason) => calls.retry.push(reason),
         onExhausted: (m) => calls.exhausted.push(m),
         clock, timeoutMs: 4000,
@@ -875,13 +909,15 @@ function run() {
       results.w4_attempt_unchanged = h.attemptRef.current;
       h.wd.dispose();
     }
-    /* W5 旧实例判死 → 丢弃（换源后旧 hls 的回调不许动新源） */
+    /* W5 旧实例判死 → 丢弃（换源后旧 hls 的回调不许动新源）；
+     * fix322/play 起丢弃必留痕（stale_instance） */
     {
       const h = harness({ current: false });
       h.wd.fragLoaded();
       h.clock.advance(4000);
       results.w5_stale_no_retry = h.calls.retry;
       results.w5_stale_no_exhausted = h.calls.exhausted;
+      results.w5_stale_gated = h.calls.gated;
       h.wd.dispose();
     }
     /* W6 paused_by_user（即使 wanted 读数异常为真）→ 硬门控不升级。
@@ -922,6 +958,28 @@ function run() {
       results.w9_predicate_rescue = [...h.calls.retry];
       h.clock.advance(4000);
       results.w9_handoff_retry = [...h.calls.retry];
+      h.wd.dispose();
+    }
+    /* W10 paused_by_user 门吞判死必留痕（fix322/play）：行为同 W6
+     * （不升级、不计数），但账本必须看得见被吞的判定与门名——旧码
+     * gated 恒空、本例必红 */
+    {
+      const h = harness({ pause: "paused_by_user", wanted: true });
+      h.wd.fragLoaded();
+      h.clock.advance(8000);
+      results.w10_user_pause_gated = h.calls.gated;
+      results.w10_user_pause_no_retry = h.calls.retry;
+      results.w10_user_pause_attempt = h.attemptRef.current;
+      h.wd.dispose();
+    }
+    /* W11 构造期意愿门挂起留痕（fix322/play）：wanted=false 时判死
+     * 在看门狗内即被挂起（不到达 onStall 三道门），经
+     * watchdog_intent 报出——W4 的无声挂起自此有账 */
+    {
+      const h = harness({ wanted: false });
+      h.wd.fragLoaded();
+      h.clock.advance(8000);
+      results.w11_unwanted_gated = h.calls.gated;
       h.wd.dispose();
     }
     resetNativeFallbackForTests();

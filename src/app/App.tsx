@@ -13,6 +13,7 @@ import { ToastHost } from "../shared/ui/ui";
 import { DesktopRail, DesktopTitleBar } from "./shell/DesktopChrome";
 import ResizeHandles from "./shell/ResizeHandles";
 import { tracePlayback } from "../shared/diagnostics/playbackDiagnostics";
+import { classifyChainStart, decideChainSwipe, type ChainAncestor } from "./gestureChain";
 import { IGrid, IGridF, IHome, IHomeF, ISearch, IUser, IUserF } from "../shared/ui/icons";
 
 // Local chunks load on first visit; visited tabs stay mounted as before.
@@ -170,11 +171,17 @@ function AppBody() {
      （|dx|≥72 且 |dx|>|dy|×1.8）不误触；局部横滚区域（overflow-x 可滚
      的 chips 行/卡片行）、输入框、打开的 dialog/sheet 内起手不触发。
      底部页签保留作直接跳达，与本链并存。
-     手势仲裁优先级（Muse 2026-11-19 fix2.1 批四#12 定版，高→低）：
+     手势仲裁优先级（Muse 2026-11-19 fix2.1 批四#12 定版，fix322/play
+     修订，高→低）：
      ①输入框/横滚区/dialog 起手——本链整体不触发（上方 walk）；
+     ①′播放器手势面（data-player-surface）/进度条区
+       （data-feed-scrub-zone）起手——本链整体不触发（fix322 新增：
+       面内横拖即 seek 本身、位移 ≥72 与链方向锁重叠，旧版只让行
+       左缘 24px，面内 seek 被 pop/切页签抢走、整个画面被划出去；
+       起点分类与裁决见 gestureChain.ts＋其契约测试）；
      ②全屏 scrub 独占——fs 时本链不触发，横拖只归进度条；
      ③单击/双击/长按互斥——由播放器表面手势（mobileGestures）内部
-       按位移与时长仲裁，与本链的横划方向锁定（|dx|≥72）天然不重叠；
+       按位移与时长仲裁（横拖 seek 不在此列，归 ①′）；
      ④栈页右划返回——本链 pop，带 300ms 冷却防连退两层；
      ⑤详情页左划下一条——仅栈顶 feed 页、起手落在详情信息区
        （data-feed-info-zone）且不在进度条区（data-feed-scrub-zone）
@@ -183,65 +190,53 @@ function AppBody() {
     const el = mainRef.current;
     if (!el) return;
     let start: { x: number; y: number; blocked: boolean; inInfo: boolean; inScrub: boolean } | null = null;
+    /* 起点分类与终点裁决在 gestureChain.ts（纯函数＋契约测试）；此处
+       只做 DOM walk 产出祖先描述符与副作用分发（pop 300ms 冷却防连
+       退两层，fix2.1 批四#12）。 */
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) { start = null; return; }
       const t = e.touches[0];
-      let blocked = fs || loginOpen;
-      let inInfo = false;
-      let inScrub = false;
+      const ancestors: ChainAncestor[] = [];
       for (let n = e.target as Element | null; n && n !== el; n = n.parentElement) {
-        if (n.hasAttribute?.("data-feed-info-zone")) inInfo = true;
-        if (n.hasAttribute?.("data-feed-scrub-zone")) inScrub = true;
-        if (!blocked) {
-          if (n.tagName === "INPUT" || n.tagName === "TEXTAREA" || n.getAttribute("role") === "dialog") blocked = true;
-          else {
-            const s = getComputedStyle(n);
-            if ((s.overflowX === "auto" || s.overflowX === "scroll") && n.scrollWidth > n.clientWidth) blocked = true;
-          }
-        }
+        const s = getComputedStyle(n);
+        ancestors.push({
+          tagName: n.tagName,
+          role: n.getAttribute?.("role"),
+          feedInfoZone: !!n.hasAttribute?.("data-feed-info-zone"),
+          feedScrubZone: !!n.hasAttribute?.("data-feed-scrub-zone"),
+          playerSurface: !!n.hasAttribute?.("data-player-surface"),
+          hScrollable: (s.overflowX === "auto" || s.overflowX === "scroll") && n.scrollWidth > n.clientWidth,
+        });
       }
-      // 播放器左缘起手归边缘返回手势，本链只接中部
-      if (tab === "home" && stack.length === 0 && t.clientX <= 24) blocked = true;
-      // 栈内 Feed 页同理：左缘起手归 Feed 自己的边缘返回（关面板/退全屏/
-      // 返回同序），本链若再 pop 会一次退两层（Muse 2026-11-19 fix2 A1）
-      if (stack[stack.length - 1]?.kind === "feed" && t.clientX <= 24) blocked = true;
-      start = { x: t.clientX, y: t.clientY, blocked, inInfo, inScrub };
+      const c = classifyChainStart(ancestors, {
+        fs, loginOpen, tab, stackDepth: stack.length,
+        topKind: stack[stack.length - 1]?.kind, clientX: t.clientX,
+      });
+      start = { x: t.clientX, y: t.clientY, ...c };
     };
     const onEnd = (e: TouchEvent) => {
       const s = start;
       start = null;
-      if (!s || s.blocked) return;
+      if (!s) return;
       const t = e.changedTouches[0];
       if (!t) return;
-      const dx = t.clientX - s.x;
-      const dy = t.clientY - s.y;
-      if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.8) return;
-      const right = dx > 0;
-      const top = stack[stack.length - 1];
-      if (top) {
-        /* 栈页右划一律返回上一级（Muse 2026-11-19 fix2 A1，用户真机反馈：
-           此前只有设置页能滑回，其余栈页手势被吞、只能点〈）。与既有
-           手势的仲裁见上方五级优先级：全屏 fs 不触发本链（scrub 独占）；
-           栈内 Feed 左缘起手已在 onStart 让给 Feed 边缘返回，避免双 pop；
-           横滚区/输入框/dialog 起手仍按上方 walk 拦截。
-           fix2.1 批四#12 两处补强：pop 加 300ms 冷却（连发/抖动只退
-           一层）；左划在栈顶 feed 页的详情信息区（非进度条区）切下
-           一集/下一条——其余栈页左划仍无动作（链尾语义不变）。 */
-        if (right) {
-          const now = Date.now();
-          if (now - lastChainPopAt.current >= 300) {
-            lastChainPopAt.current = now;
-            pop();
-          }
-        } else if (top.kind === "feed" && s.inInfo && !s.inScrub) {
-          runDetailNext();
+      const action = decideChainSwipe(s, t.clientX - s.x, t.clientY - s.y, {
+        tab, topKind: stack[stack.length - 1]?.kind,
+      });
+      if (!action) return;
+      if (action.type === "pop") {
+        const now = Date.now();
+        if (now - lastChainPopAt.current >= 300) {
+          lastChainPopAt.current = now;
+          pop();
         }
-        return;
+      } else if (action.type === "detailNext") {
+        runDetailNext();
+      } else if (action.type === "tab") {
+        setTab(action.tab);
+      } else if (action.type === "pushSettings") {
+        push({ kind: "settings" });
       }
-      if (tab === "home") { if (!right) setTab("search"); }
-      else if (tab === "search") setTab(right ? "home" : "category");
-      else if (tab === "category") setTab(right ? "search" : "profile");
-      else if (tab === "profile") { if (right) setTab("category"); else push({ kind: "settings" }); }
     };
     el.addEventListener("touchstart", onStart, { passive: true });
     el.addEventListener("touchend", onEnd, { passive: true });
