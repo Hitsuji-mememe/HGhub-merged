@@ -133,7 +133,10 @@ export function noteDroppedLate(): void {
 
 export type LedgerBinding = {
   /** 写一条实例级事件：首次写账时惰性注册并把 (id, generation)
-   * 成对存下，此后恒用存下的 generation，不随调用方新值漂移。 */
+   * 成对存下；调用方代次推进（换源）时存下值随之推进，此后以
+   * 更小代次到达的事件按起源代次判为迟到——拒收并计 droppedLate
+   * （最终版 A 线 P2-08 证伪后修：旧实现把 generation 钉死首记值，
+   * 换源后新代事件被记成旧代、旧 HLS 迟到事件被记成新代混入）。 */
   record: (name: string, data: Record<string, unknown> | undefined, generation: number) => boolean;
   /** 注销绑定：注销后 record 不再重注册，改为真实累加 droppedLate。
    * 幂等。调用方须先经 record 发出 player.unmount 再 dispose，
@@ -163,6 +166,13 @@ export function createLedgerBinding(): LedgerBinding {
         }
         if (id === null) {
           id = registerPlayerInstance();
+          storedGeneration = generation;
+        } else if (storedGeneration !== null && generation < storedGeneration) {
+          /* 起源代次已落后于实例当前代次：旧源/旧 HLS 实例的迟到
+           * 事件，拒收并计数，不许记成新代次（P2-08 拒收落点）。 */
+          noteDroppedLate();
+          return false;
+        } else if (storedGeneration !== null && generation > storedGeneration) {
           storedGeneration = generation;
         }
         return recordIfCurrent(id, name, { generation: storedGeneration, ...(data ?? {}) });

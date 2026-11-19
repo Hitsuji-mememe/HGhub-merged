@@ -23,6 +23,9 @@ export type PlaybackFacts = {
   srDemoteCount?: number;
   /** 播放引擎（hls.js / native）。 */
   engine?: string;
+  /** 密度采样是否仅为暂定值（E 线 useSrDensity 的可选 provisional
+   * 字段）：内核消费侧按可选透传，缺失即未标注，不改变既有口径。 */
+  provisional?: boolean;
   at: number;
 };
 
