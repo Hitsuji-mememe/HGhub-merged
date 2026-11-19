@@ -161,6 +161,27 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
   /* 封面走本地解密代理，网络抖动会偶发失败：同地址重试两次再落到占位。
      代理入口只读 `u`，多余查询参数会被忽略，用它做重试的缓存戳。 */
   const retryUrl = !url || raw || attempt === 0 ? url : `${url}${url.includes("?") ? "&" : "?"}r=${attempt}`;
+  /* 已加载对账（Muse 2026-11-19 fix330/gallery-viewer）：load 事件与
+   * attempt 时钟是两条独立通道——事件可能早于 armed 翻转到达（effect
+   * 重跑把 settledRef 重置并重启 20s 计时，src 不变则再无 load 事件
+   * 落座，计时必然误判 timeout），也可能被缓存同步完成吞掉。真机
+   * 实证：图集缩略图已显示却在约 20s 后被误判超时换址重拉，慢通道
+   * 下三次 attempt 烧光落终局 HG、迟到的真实加载又被 settled 守卫
+   * 丢弃，全条只剩占位。故 effect 起算前与 timeout 裁决前都先与
+   * DOM img 的真实状态对账：已 complete 且有自然尺寸即按已加载
+   * 落座，不起算、不烧 attempt。 */
+  const settleOkFromDom = () => {
+    const imgEl = frameRef.current?.querySelector("img");
+    if (!imgEl || !imgEl.complete || imgEl.naturalWidth <= 0) return false;
+    if (!settledRef.current) {
+      settledRef.current = true;
+      traceFeed("image", { ev: "decoded", attempt, url: urlFingerprint(url) });
+      imageDisplayed();
+    }
+    setState((s) => (s === "displayed" ? s : "decoded"));
+    requestAnimationFrame(() => setState((s) => (s === "decoded" ? "displayed" : s)));
+    return true;
+  };
   useEffect(() => {
     if (armed) return;
     const el = frameRef.current;
@@ -174,6 +195,9 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
   }, [armed]);
   useEffect(() => {
     if (!url || !armed) return;
+    /* 起算前对账（fix330/gallery-viewer）：已加载的图不起算、不重置
+     * settled——armed 翻转引发的 effect 重跑不得烧掉已落座的加载。 */
+    if (settleOkFromDom()) return;
     settledRef.current = false;
     imageStarted();
     const fp = urlFingerprint(url);
@@ -181,6 +205,9 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
     traceFeed("image", { ev: "loading", attempt, url: fp });
     const failOrRetry = (reason: "timeout" | "network" | "decode") => {
       if (settledRef.current) return;
+      /* timeout 裁决前再对账：计时期间图可能已经真实到达（事件被
+       * 吞），DOM 已 complete 时按已加载落座，不误烧 attempt。 */
+      if (reason === "timeout" && settleOkFromDom()) return;
       settledRef.current = true;
       traceFeed("image", { ev: "failed", attempt, url: fp, reason, ms: Date.now() - startedAt });
       if (!raw && attempt < 2) {

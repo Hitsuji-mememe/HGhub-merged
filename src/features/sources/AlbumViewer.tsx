@@ -25,6 +25,19 @@
  *   在慢图源下快翻张张空白；(2) chrome 活动续命：缩略图条滚动/
  *   悬浮层触摸都算「还在用 chrome」，淡出计时据此重置，旧计时
  *   只挂呼出/切张，条上划找图满 3 秒整层在指下淡出。
+ * - 沉浸式安全区（Muse 2026-11-19 fix330/gallery-viewer，用户真
+ *   机实报全屏 chrome 与 iOS 状态栏同带重叠）：immersive 模式下
+ *   顶部/底部 chrome 按 --sat/--sab/--sal/--sar 让位（与 Feed 全屏
+ *   chrome 同口径）；fixed 覆满视口的宿主（SourceGallery）必须传
+ *   immersive，页内嵌宿主（搜索详情）不传——宿主页已处理安全区，
+ *   再让位会双重内边距。舞台本体保持全幅出血、不让位。
+ * - 缩略图随可见性加载（同线，用户真机实报全条只有当前张有图、
+ *   其余全是 HG 占位）：旧实现全量 lazy 挂载——浏览器原生 lazy
+ *   以条滚动口为取图窗口、Img attempt 时钟以主视口 IO 为起算窗
+ *   口，两窗口脱节，慢通道下 attempt 烧光落终局失败。现以条本
+ *   体为 root 的 IO 闩锁（nearThumbs）：进窗（含 600px 预取边
+ *   距）才挂 Img 且 eager 取图，挂载即取图、时钟同点起算；窗外
+ *   只占位、不挂 Img、不发请求、不起时钟，滚动到哪加载到哪。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../shared/ui/ios/controls";
@@ -33,7 +46,7 @@ import { IBack, IClose } from "../../shared/ui/icons";
 
 export const ALBUM_CHROME_IDLE_MS = 3000;
 
-export function AlbumViewer({ title, images, index, onIndexChange, onBack, backLabel, onClose, closeLabel = "关闭大图", footerNote }: {
+export function AlbumViewer({ title, images, index, onIndexChange, onBack, backLabel, onClose, closeLabel = "关闭大图", footerNote, immersive = false }: {
   title: string;
   images: string[];
   index: number;
@@ -43,6 +56,9 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
   onClose?: () => void;
   closeLabel?: string;
   footerNote?: string;
+  /* immersive：宿主为 fixed 覆满视口的全屏形态时为 true，chrome
+   * 按安全区变量让位（见文件头注）；页内嵌形态保持 false。 */
+  immersive?: boolean;
 }) {
   const [chrome, setChrome] = useState(true);
   /* chrome 活动计数（fix330/ui-fixes）：悬浮层上的滚动/触摸经
@@ -80,6 +96,36 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
       ?.scrollIntoView({ inline: "center", block: "nearest" });
   }, [chrome, idx]);
 
+  /* 缩略图可见性闩锁（fix330/gallery-viewer，见文件头注）：以条
+   * 本体为 root 观察每个缩略图格，进窗（左右各 600px 预取边距，
+   * 与 Img 视口预热同量级）即闩锁常驻——闩锁后挂 Img eager 取
+   * 图，此后不卸载（已解码图不重走 attempt）；未闩锁的格只渲染
+   * 占位、不产生请求与时钟。images 换组（换相册）时重置重观察。 */
+  const [nearThumbs, setNearThumbs] = useState<ReadonlySet<number>>(new Set());
+  useEffect(() => {
+    setNearThumbs(new Set());
+    const root = stripRef.current;
+    if (!root) return;
+    if (typeof IntersectionObserver !== "function") {
+      setNearThumbs(new Set(images.map((_, i) => i)));
+      return;
+    }
+    const io = new IntersectionObserver((entries) => {
+      setNearThumbs((prev) => {
+        let next: Set<number> | null = null;
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          const i = Number((e.target as HTMLElement).dataset.thumbIndex);
+          if (Number.isFinite(i) && !prev.has(i)) { next ??= new Set(prev); next.add(i); }
+        }
+        return next ?? prev;
+      });
+    }, { root, rootMargin: "0px 600px 0px 600px" });
+    root.querySelectorAll("[data-thumb-index]").forEach((el) => io.observe(el));
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [images]);
+
   const onStageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     const fx = (e.clientX - r.left) / Math.max(1, r.width);
@@ -89,6 +135,16 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
   };
 
   const chromeCls = `transition-opacity duration-300 ${chrome ? "opacity-100" : "opacity-0 pointer-events-none"}`;
+  /* chrome 安全区让位（fix330/gallery-viewer）：immersive 时内边
+   * 距＝安全区变量＋原 12px 呼吸距（--sat 本身已是 max(原生,
+   * env(), 12px)，顶栏再叠 12px 与 Feed 全屏 chrome 口径一致）；
+   * 非 immersive 保持原 12px 写死值，页内嵌形态外观不变。 */
+  const topChromeStyle: React.CSSProperties = immersive
+    ? { paddingTop: "calc(var(--sat, 0px) + 12px)", paddingLeft: "calc(var(--sal, 0px) + 12px)", paddingRight: "calc(var(--sar, 0px) + 12px)" }
+    : { paddingTop: 12, paddingLeft: 12, paddingRight: 12 };
+  const bottomChromeStyle: React.CSSProperties = immersive
+    ? { paddingBottom: "calc(var(--sab, 0px) + 12px)", paddingLeft: "calc(var(--sal, 0px) + 12px)", paddingRight: "calc(var(--sar, 0px) + 12px)" }
+    : { paddingBottom: 12, paddingLeft: 12, paddingRight: 12 };
   /* 悬浮层手势隔离：click 与全部 touch 事件都不冒泡到舞台——条上
    * 横滚、顶栏拖动一律不触发舞台横滑/点按判定（fix322/gallery）；
    * 同时 touch 即 chrome 活动、续命淡出计时（fix330/ui-fixes）。 */
@@ -131,7 +187,7 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
       <div data-album-chrome="top" className={`absolute inset-x-0 top-0 z-10 ${chromeCls}`}
         onClick={(e) => e.stopPropagation()}
         onTouchStart={stopTouch} onTouchMove={stopTouch} onTouchEnd={stopTouch}>
-        <div className="flex items-center gap-2 px-3 pt-3 pb-6 bg-gradient-to-b from-black/60 to-transparent">
+        <div className="flex items-center gap-2 pb-6 bg-gradient-to-b from-black/60 to-transparent" style={topChromeStyle}>
           <Button aria-label={backLabel} onClick={onBack}
             className="grid place-items-center w-11 h-11 shrink-0 rounded-full bg-black/40 text-white"><IBack size={20} /></Button>
           <h2 className="flex-1 min-w-0 truncate text-[15px] font-bold text-white">{title}</h2>
@@ -146,7 +202,7 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
       <div data-album-chrome="bottom" className={`absolute inset-x-0 bottom-0 z-10 ${chromeCls}`}
         onClick={(e) => e.stopPropagation()}
         onTouchStart={stopTouch} onTouchMove={stopTouch} onTouchEnd={stopTouch}>
-        <div className="px-3 pt-6 pb-3 bg-gradient-to-t from-black/60 to-transparent">
+        <div className="pt-6 bg-gradient-to-t from-black/60 to-transparent" style={bottomChromeStyle}>
           {footerNote && <p className="mb-2 text-[12px] text-white/75">{footerNote}</p>}
           {images.length > 1 && (
             <div ref={stripRef} className="scroll-x flex gap-2" role="group" aria-label="相册图片缩略图"
@@ -155,7 +211,11 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
                 <Button key={`${src}-${i}`} data-thumb-index={i} aria-label={`第 ${i + 1} 张`} aria-pressed={i === idx}
                   onClick={() => onIndexChange(i)}
                   className={`relative h-16 w-12 shrink-0 overflow-hidden rounded-[8px] ${i === idx ? "ring-2 ring-primary" : "opacity-70"}`}>
-                  <Img src={src} alt="" />
+                  {/* 闩锁进窗才挂图（nearThumbs，见文件头注）：窗外
+                      只占位，点选跳张不依赖图已挂载、照常可用。 */}
+                  {nearThumbs.has(i)
+                    ? <Img src={src} alt="" eager />
+                    : <span aria-hidden className="absolute inset-0 bg-white/10" />}
                 </Button>
               ))}
             </div>
