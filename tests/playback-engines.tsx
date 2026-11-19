@@ -726,6 +726,57 @@ import { useFsKeepAlive } from "../src/features/feed/useFsKeepAlive";
   })();
 }
 
+/* ── B7 useProxyPlaybackRecovery retry() 推导探针（整改 B7）：真实
+ * hook + 假 video/activity。判别用例：视频被系统暂停（paused=true、
+ * readyState≥2）但活状态意愿为想播（isPlayWanted=true、
+ * pauseState=paused_by_system）→ retry 快照 playing 必须是 true：
+ * 系统暂停不得被推导成「不想播」。旧推导走 !video.paused → false。 ── */
+import { useProxyPlaybackRecovery } from "../src/features/playback/useProxyPlaybackRecovery";
+{
+  const state = { want: true, kind: "paused_by_system" as "playing" | "paused_by_user" | "paused_by_system", wantSet: null as boolean | null };
+  let retryFn: ((source?: string, playWanted?: boolean) => void) | null = null;
+  let resumeFn: (() => { playing: boolean } | null) | null = null;
+  const video = document.createElement("video");
+  Object.defineProperty(video, "readyState", { value: 2 });
+  const videoRef = { current: video as HTMLVideoElement | null };
+  const activity = {
+    isActive: () => true,
+    isPlayWanted: () => state.want,
+    play: () => {},
+    pause: () => {},
+    setPlayWanted: (on: boolean) => { state.wantSet = on; },
+    pauseState: () => state.kind,
+  };
+  function Probe() {
+    const rec = useProxyPlaybackRecovery(videoRef, "https://media.example/x.m3u8", activity, () => {});
+    retryFn = rec.retry;
+    resumeFn = rec.resume as () => { playing: boolean } | null;
+    return null;
+  }
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  void (async () => {
+    /* 逐例重挂载：同一 hook 实例的 previous 快照优先于推导（契约本身），
+     * 不重挂载会掩盖逐例推导结果。 */
+    const run = async (n: number) => {
+      root.render(<Probe key={n} />);
+      await sleep(30);
+      retryFn?.("probe");
+      return resumeFn?.()?.playing ?? null;
+    };
+    state.kind = "paused_by_system"; state.want = true;
+    const systemWanted = await run(1);
+    state.kind = "paused_by_user"; state.want = false;
+    const userPaused = await run(2);
+    state.kind = "paused_by_system"; state.want = false;
+    const systemUnwanted = await run(3);
+    Object.assign(window, { __b7: { systemWanted, userPaused, systemUnwanted } });
+    root.unmount();
+  })();
+}
+
 /* ── B18 Player 接线用例（模块级观测点）：Player 组件 harness 在本
  * 夹具不可及（需 store/Tauri 全量装配），故以「Player 模块经 vite
  * 转换后的源码文本」为观测点断言生产接线存在：notePlaybackPlaying

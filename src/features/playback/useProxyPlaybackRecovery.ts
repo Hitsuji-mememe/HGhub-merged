@@ -6,6 +6,8 @@ type Activity = {
   play: (source: string, automatic?: boolean) => void;
   pause: (source?: string) => void;
   setPlayWanted: (on: boolean) => void;
+  /** 三态暂停状态（整改 B7）：retry 推导先查它，系统暂停不表态。 */
+  pauseState?: () => "playing" | "paused_by_user" | "paused_by_system";
 };
 type Resume = { src: string; time: number; playing: boolean; rate: number };
 
@@ -25,8 +27,20 @@ export function useProxyPlaybackRecovery(
     if (!src || !video) return;
     // Repeated retries must not replace the saved position with a reset clock.
     const previous = pending.current?.src === src ? pending.current : null;
-    const playing = playWanted ?? previous?.playing
-      ?? (activity.isActive() && video.readyState >= 2 && !video.error ? !video.paused : activity.isPlayWanted());
+    /* playing 推导顺序（整改 B7 收紧）：显式参数 → 上一份快照 → 活状态
+     * 意愿。旧实现第三顺位直接读 !video.paused：系统暂停（页面挂起/
+     * 全屏过渡打断）会被推导成「不想播」、反写 wanted。现先查三态：
+     * paused_by_user → false（硬意愿）；paused_by_system → 只沿用
+     * isPlayWanted（系统暂停不表态，不许推导成想播或不想播）；
+     * playing → true；无三态的旧调用方才回落旧活状态推导。 */
+    const derivePlaying = (): boolean => {
+      const ps = activity.pauseState?.();
+      if (ps === "paused_by_user") return false;
+      if (ps === "paused_by_system") return activity.isPlayWanted();
+      if (ps === "playing") return true;
+      return activity.isActive() && video.readyState >= 2 && !video.error ? !video.paused : activity.isPlayWanted();
+    };
+    const playing = playWanted ?? previous?.playing ?? derivePlaying();
     pending.current = {
       src,
       time: previous?.time ?? (Number.isFinite(video.currentTime) ? video.currentTime : 0),
