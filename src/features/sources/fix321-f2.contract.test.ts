@@ -91,10 +91,17 @@ const def = (id: string) => {
 }
 
 /* ── (c) SWAG / RedGifs：真站无 SSR 条目 → 解析为空必须显式
- * 失败（SourceParseEmptyError），不许返回假成功空列表。 ── */
-for (const [id, fixture] of [["swag", "real-swag-home.html"], ["redgifs", "real-redgifs-home.html"]] as const) {
+ * 失败（SourceParseEmptyError），不许返回假成功空列表。
+ * 断言适配（fix321-F2b）：两源已各自改走 API 模板（swag-api /
+ * redgifs-api，见 fix321-f2b.contract），不再是注册表 hls-site
+ * def；本节守的是「SPA 壳页经锚点模板解析为空必须显式失败」的
+ * 语义本身，改用同形态内联 hls-site def＋原真站夹具，断言不变。 ── */
+for (const [id, fixture, pattern] of [["swag", "real-swag-home.html", "/video/"], ["redgifs", "real-redgifs-home.html", "/watch/"]] as const) {
   setFetchPage(async () => fx(fixture));
-  const a = createHlsSiteAdapter(def(id));
+  const a = createHlsSiteAdapter({
+    ...def(id),
+    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: pattern, detailPath: "/x/{id}" } },
+  });
   let caught: unknown = null;
   try { await a.list(1, 20); } catch (e) { caught = e; }
   assert.ok(caught instanceof SourceParseEmptyError, `${id} 解析为空抛 SourceParseEmptyError（显式失败态）`);

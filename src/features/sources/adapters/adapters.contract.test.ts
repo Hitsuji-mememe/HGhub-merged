@@ -38,10 +38,13 @@ const def = (id: string) => {
  * 断言适配（Muse 2026-11-19 fix321-F2，不削弱覆盖）：肉视频参数已
  * 按真站校准为 /home + /v/<id>（见 fix321-f2.contract 真站夹具），
  * 不再是通用骨架形态；通用骨架（/?page= + /video/）覆盖移交参数
- * 同形态的 FC2 def，断言内容不变。 */
+ * 同形态的 FC2 def，断言内容不变。
+ * 再适配（fix321-F2b）：FC2 已按真站销量榜校准（/ranking/article/
+ * weekly + /article_search.php?id=），通用骨架覆盖再移交参数同形态
+ * 的目录源 hentaihaven def，断言内容不变。 */
 {
   setFetchPage(async (url) => (url.includes("/video/") && !url.endsWith("?page=1") && url.includes("aaa") ? fx("hls-detail.html") : url.includes("/video/aaa-1") ? fx("hls-detail.html") : fx("hls-list.html")));
-  const a = createHlsSiteAdapter(def("fc2"));
+  const a = createHlsSiteAdapter(def("hentaihaven"));
   const list = await a.list(1, 20);
   assert.equal(list.items.length, 2, "hls list 2 条");
   assert.equal(list.items[1].title, "夹具视频二");

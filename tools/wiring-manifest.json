@@ -915,6 +915,64 @@
       ],
       "symbol": "列表确为空",
       "each": true
+    },
+    {
+      "id": "fix321-f2b-swag-api-adapter",
+      "item": "3.2.1修复F2b线 SWAG 免登录 API 适配器 createSwagAdapter（模板定义＋工厂分发）",
+      "symbol": "createSwagAdapter",
+      "files": [
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/adapters/index.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f2b-redgifs-api-adapter",
+      "item": "3.2.1修复F2b线 RedGifs 官方 API 令牌链适配器 createRedgifsAdapter（模板定义＋工厂分发）",
+      "symbol": "createRedgifsAdapter",
+      "files": [
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/adapters/index.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f2b-stream-url-template",
+      "item": "3.2.1修复F2b线 肉视频站内流端点模板 streamUrlTemplate（templates 消费＋registry 肉视频参数）",
+      "symbol": "streamUrlTemplate",
+      "files": [
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/registry.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f2b-redgifs-auth-scoped",
+      "item": "3.2.1修复F2b线 Rust source_fetch 对 Authorization 仅 api.redgifs.com 定向放行 AUTHORIZATION_SCOPED_ORIGIN（定义＋过滤消费）",
+      "symbol": "AUTHORIZATION_SCOPED_ORIGIN",
+      "files": [
+        "src-tauri/src/api/source.rs"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f2b-heiliao-named",
+      "item": "3.2.1修复F2b线 黑料网 feedheiliao 自目录导入毕业为命名源（registry 命名条目＋catalog 毕业注记）",
+      "symbol": "feedheiliao",
+      "files": [
+        "src/features/sources/registry.ts",
+        "src/features/sources/catalog.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix321-f2b-51cg-domain",
+      "item": "3.2.1修复F2b线 51吃瓜现行域名 51cg1.com（registry baseUrls＋note）",
+      "symbol": "51cg1.com",
+      "files": [
+        "src/features/sources/registry.ts"
+      ],
+      "min": 2
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",

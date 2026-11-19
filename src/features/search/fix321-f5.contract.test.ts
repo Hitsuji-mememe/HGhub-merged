@@ -174,8 +174,11 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
   assert.ok(page.includes("JSON_SHORTIES"), "真站 shorties 条目数据在 JSON_SHORTIES 内嵌 JS 里");
   setFetchPage(async () => page);
   const a = createHlsSiteAdapter(def("shorties"));
-  const l = await a.list(1, 20);
-  assert.equal(l.items.length, 0, "锚点模板对真站 shorties 页解析零条目（详情/取流段同样无从谈起）");
+  /* 断言适配（协调者合并 F2 时）：F2 的 SourceParseEmptyError 已把
+   * 「取到页解析零条目」从静默空列表改为显式抛错——零条目这一事实
+   * 不变，呈现形态按新契约断言（抛错即证解析零条目）。 */
+  await assert.rejects(() => a.list(1, 20), /解析失败|SourceParseEmptyError|未解析到条目/,
+    "锚点模板对真站 shorties 页解析零条目（详情/取流段同样无从谈起）");
   assert.equal(searchPolicyFor(def("shorties")).include, false, "Shorties 处置：移出搜索扇出（源保留）");
 }
 

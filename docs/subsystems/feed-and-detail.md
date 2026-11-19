@@ -171,6 +171,20 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   /home + /v/<id>、PornPics 为 /recent/ + /galleries/（真站结构
   夹具 `adapters/fixtures/real-*.html`，契约
   `fix321-f2.contract.test.ts`）。
+- 外部源按真站校准第二轮（3.2.1 fix321-F2b，住宅出口四级验收推翻
+  机房定性后）：肉视频取流走站内端点模板 `streamUrlTemplate`
+  （/api/hls/<id>，resolve 不回详情页找 m3u8）；SWAG/RedGifs 改走
+  API 模板（`swag-api`：api.swag.live 免登录 feeds/messages，流为
+  AES 加密 HLS 超播放栈、resolve 诚实为空；`redgifs-api`：官方
+  匿名临时令牌＋Bearer，Rust `source_fetch` 对 Authorization 仅
+  api.redgifs.com origin 定向放行）；FC2 按销量榜＋作品页以普通
+  视频源校准（PPV 无免费流）；51吃瓜换域名 51cg1.com 解 blocked；
+  黑料网自目录导入毕业为命名源并启用（三段证据齐＋住宅四级
+  全通）；Hanime 取流 handshake（POST＋AES-GCM 信封）超 GET-only
+  取页契约、维持 probe 并 note 写明；解析层标题优先 h2/h3、封面
+  兜底 x-bg-loader-url/z-image-loader-url。全部源 App 侧未真机验，
+  状态最高「代码就绪未验证」（契约 `fix321-f2b.contract.test.ts`，
+  证据 `~/workspace/hghub/fix321/evidence/f2b/`）。
 - 吃瓜详情排版（最终版 D2 线，2026-11-19，用户实报）：`PostDetail`
   先文后视频——标题/元信息/标签/动作行/介绍正文在前，播放器区
   （`data-post-media`）移到正文之后；仍是点了才播（分段只解析备好、

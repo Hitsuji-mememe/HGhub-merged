@@ -17,6 +17,8 @@ const CORE_IDS = [
   "huangguo", "rouvideo", "91video", "pornhub", "xvideos", "hanime-tv", "swag", "fyptt",
   "redgifs", "rule34video", "51chigua", "meiridasai", "xiuren", "pornpics", "cosplaytele",
   "danbooru", "jabletv", "missav", "tikporn", "hanime1", "iwara", "myfans",
+  /* fix321-F2b：黑料网自目录导入毕业为命名源（契约变化适配） */
+  "feedheiliao",
 ];
 
 /* ── 注册表完整性 ── */
@@ -25,14 +27,15 @@ const CORE_IDS = [
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
   for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
   assert.ok(ids.has("fc2"), "FC2（用户点名）在册");
-  assert.equal(NAMED_SOURCES.length, CORE_IDS.length + 1, "命名源 = 核心 22 + FC2");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length + 1, "命名源 = 核心（含 F2b 毕业的黑料网） + FC2");
   assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
   for (const s of CATALOG_SOURCES) {
     assert.equal(s.enabled, false, `目录源 ${s.id} 默认未启用（远程清单可按 id 启用）`);
     assert.equal(s.maturity, "probe", `目录源 ${s.id} 一律 probe`);
     assert.ok(s.note?.includes("目录导入·未实测"), `目录源 ${s.id} 注记诚实标注未实测`);
   }
-  for (const blockedId of ["51chigua", "meiridasai", "xiuren", "danbooru"]) {
+  /* fix321-F2b：51chigua 换域名 51cg1.com 后解 blocked（契约变化适配） */
+  for (const blockedId of ["meiridasai", "xiuren", "danbooru"]) {
     const s = BUILTIN_SOURCES.find((x) => x.id === blockedId)!;
     assert.equal(s.maturity, "blocked");
     assert.equal(s.enabled, true, `${blockedId} blocked 保留口径：列表可见、点开诚实提示`);

@@ -11,9 +11,9 @@
 import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
-import { allImgSrcs, extractIframeSrc, extractM3u8, extractMp4, findAnchors, firstImgSrc, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
+import { allImgSrcs, extractIframeSrc, extractM3u8, extractMp4, findAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
 
-export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "preview-only", "none"] as const;
+export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "preview-only", "none"] as const;
 
 type Params = Record<string, unknown>;
 const str = (p: Params, k: string, d = "") => (typeof p[k] === "string" ? (p[k] as string) : d);
@@ -55,9 +55,9 @@ function parseAnchorList(html: string, base: string, sourceId: string, itemLinkP
     const href = absUrl(base, a.href);
     if (seen.has(href)) continue;
     seen.add(href);
-    const title = a.titleAttr || imgAlt(a.inner) || stripTags(a.inner) || titleFromHref(href);
+    const title = a.titleAttr || headingText(a.inner) || imgAlt(a.inner) || stripTags(a.inner) || titleFromHref(href);
     if (!title) continue;
-    items.push({ sourceId, externalId: href, title, cover: absUrl(base, firstImgSrc(a.inner)), href, tags: [] });
+    items.push({ sourceId, externalId: href, title, cover: absUrl(base, firstCoverSrc(a.inner)), href, tags: [] });
   }
   return items;
 }
@@ -78,6 +78,16 @@ async function htmlDetail(def: SourceDef, externalId: string): Promise<SourceDet
 
 async function htmlResolve(def: SourceDef, externalId: string): Promise<{ streams: { url: string; kind: "hls" | "file" }[] }> {
   const base = def.baseUrls[0];
+  /* 站内流端点模板（Muse 2026-11-19 fix321-F2b，肉视频）：真站流
+   * 不在详情页 HTML 里、而是站内固定形态端点 /api/hls/<id>（插件与
+   * 真站前端 chunk 双证据）；params.streamUrlTemplate 存在时直接按
+   * 条目 id 拼端点、不回详情页找 m3u8。id 取条目 href 末段。 */
+  const streamTpl = str((def.adapter.params ?? {}) as Params, "streamUrlTemplate", "");
+  if (streamTpl) {
+    let id = externalId;
+    try { id = new URL(externalId).pathname.split("/").filter(Boolean).pop() ?? externalId; } catch { /* externalId 本就是 id */ }
+    return { streams: [{ url: absUrl(base, fill(streamTpl, { id })), kind: "hls" as const }] };
+  }
   const html = await fetchPage(absUrl(base, externalId));
   const m3u8 = extractM3u8(html);
   if (m3u8) return { streams: [{ url: m3u8, kind: "hls" as const }] };
@@ -213,6 +223,139 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
     async search(q, page, size) {
       const posts = JSON.parse(await fetchPage(`${def.baseUrls[0]}${listPath}?tags=${encodeURIComponent(q)}&page=${page}&limit=${size}`)) as DbPost[];
       return { items: posts.map(toItem), pagination: pageOf(posts.length, page, size) };
+    },
+  };
+}
+
+/** (f) SWAG 公开 API（Muse 2026-11-19 fix321-F2b）：免登录通道
+ * api.swag.live（住宅验收四级全通＋本机出口实测 200，推翻旧「需
+ * 登录态」机房定性；结构据 Hentai-Park swag_shortvideo 插件）：
+ * 列表 GET /feeds/shorts_curated?limit&page → JSON 数组（行只有
+ * id/caption），逐条 GET /messages/<id> 补标题/封面（metadata.
+ * thumbnail_url 相对 public.swag.live）。只收免费短视频（sfw=
+ * false、type=short、unlockPrice=0、含 video asset）。流为
+ * AES-128 加密 HLS（清单 key URI 为 mock.url 占位、真钥须带
+ * X-Client-ID/X-Session-ID 会话头向 API 换取并重写清单）——超
+ * 本仓播放栈，resolve 诚实返回空、源维持 probe。 */
+export function createSwagAdapter(def: SourceDef): SourceAdapter {
+  const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? "https://api.swag.live";
+  const publicBase = "https://public.swag.live";
+  const headers = { Referer: `${def.baseUrls[0]}/`, "Accept-Language": "zh-TW" };
+  interface SwagAsset { id?: string; "content-type"?: string; url?: string; aes?: boolean }
+  interface SwagMessage {
+    id?: string; type?: string; sfw?: boolean; unlockPrice?: number | string;
+    caption?: string | { text?: string }; text?: string;
+    metadata?: { thumbnail_url?: string };
+    assets?: SwagAsset[];
+  }
+  const isFreeShort = (m: SwagMessage): boolean =>
+    m.sfw === false && m.type === "short" && Number(m.unlockPrice ?? 0) === 0 &&
+    Array.isArray(m.assets) && m.assets.some((x) => /^video\/(?:mp4|quicktime)$/i.test(String(x?.["content-type"] ?? "")));
+  const toItem = (m: SwagMessage): SourceItem | null => {
+    const id = String(m.id ?? "");
+    if (!/^[a-f0-9]{24}$/i.test(id)) return null;
+    const rawTitle = typeof m.caption === "object" ? m.caption?.text : m.caption;
+    const title = String(rawTitle || m.text || id).replace(/\s+/g, " ").trim();
+    const thumb = m.metadata?.thumbnail_url ?? "";
+    return {
+      sourceId: def.id, externalId: id, title,
+      cover: thumb ? absUrl(publicBase, thumb) : "",
+      href: `${def.baseUrls[0]}/post/${id}`, tags: [],
+    };
+  };
+  const getMessage = async (id: string): Promise<SwagMessage> =>
+    JSON.parse(await fetchPage(`${apiBase}/messages/${id}`, headers)) as SwagMessage;
+  return {
+    sourceId: def.id,
+    async list(page, size) {
+      const raw = await fetchPage(`${apiBase}/feeds/shorts_curated?limit=${size}&page=${page}`, headers);
+      const rows = JSON.parse(raw) as SwagMessage[];
+      if (!Array.isArray(rows)) throw new Error("SWAG 列表数据无效");
+      const items: SourceItem[] = [];
+      for (const row of rows) {
+        const id = String(row?.id ?? "");
+        if (!/^[a-f0-9]{24}$/i.test(id)) continue;
+        try {
+          const m = await getMessage(id);
+          if (!isFreeShort(m)) continue;
+          const item = toItem(m);
+          if (item) items.push(item);
+        } catch { /* 单条取数失败跳过该条，不拖垮整页（插件同口径） */ }
+      }
+      if (items.length === 0) throw new SourceParseEmptyError(def.id);
+      return { items, pagination: pageOf(rows.length, page, size) };
+    },
+    async detail(id) {
+      const m = await getMessage(id);
+      const item = toItem(m);
+      if (!item) throw new Error("SWAG 条目无效");
+      return { ...item, description: item.title, images: [], episodes: [] };
+    },
+    async resolve() {
+      /* AES-128 加密 HLS＋会话头换钥重写清单，超播放栈 → 诚实无流 */
+      return { streams: [] };
+    },
+  };
+}
+
+/** (g) RedGifs 官方 API（Muse 2026-11-19 fix321-F2b）：匿名临时
+ * 令牌链（结构据 Hentai-Park redgifs 插件＋官方 API 实测形态）：
+ * GET api.redgifs.com/v2/auth/temporary → {token}，后续调用带
+ * Authorization: Bearer <token>（Rust source_fetch 仅对
+ * api.redgifs.com origin 定向放行该头——令牌为匿名临时令牌、非
+ * 用户凭据）；search/list 走 /v2/gifs/search，detail 走
+ * /v2/gifs/<id>，流取 urls.hd 优先的 mp4 直链。令牌进程内缓存，
+ * 失效（取数抛错）时刷新一次重试。 */
+export function createRedgifsAdapter(def: SourceDef): SourceAdapter {
+  const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? "https://api.redgifs.com";
+  interface RgGif {
+    id?: string; title?: string; width?: number; height?: number; duration?: number;
+    urls?: { thumbnail?: string; sd?: string; hd?: string };
+  }
+  let token: string | null = null;
+  const auth = async (): Promise<string> => {
+    const d = JSON.parse(await fetchPage(`${apiBase}/v2/auth/temporary`)) as { token?: string };
+    if (!d.token) throw new Error("RedGifs 临时令牌获取失败");
+    token = d.token;
+    return token;
+  };
+  const api = async <T>(path: string): Promise<T> => {
+    const call = async () => JSON.parse(await fetchPage(`${apiBase}${path}`, { Authorization: `Bearer ${token ?? (await auth())}` })) as T;
+    try { return await call(); } catch { token = null; return await call(); }
+  };
+  const toItem = (g: RgGif): SourceItem | null => {
+    const id = String(g?.id ?? "");
+    if (!id) return null;
+    return {
+      sourceId: def.id, externalId: id, title: String(g.title || id),
+      cover: g.urls?.thumbnail ?? g.urls?.sd ?? "",
+      href: `${def.baseUrls[0]}/watch/${id}`, tags: [],
+      duration: g.duration ? String(g.duration) : undefined,
+    };
+  };
+  return {
+    sourceId: def.id,
+    async list(page, size) {
+      const d = await api<{ gifs?: RgGif[]; pages?: number }>(`/v2/gifs/search?search_text=&order=trending&count=${size}&page=${page}`);
+      const items = (d.gifs ?? []).map(toItem).filter((x): x is SourceItem => x !== null);
+      if (items.length === 0) throw new SourceParseEmptyError(def.id);
+      return { items, pagination: pageOf(items.length, page, size) };
+    },
+    async detail(id) {
+      const d = await api<{ gif?: RgGif }>(`/v2/gifs/${id}`);
+      const item = d.gif ? toItem(d.gif) : null;
+      if (!item) throw new Error("RedGifs 条目无效");
+      return { ...item, description: "", images: [], episodes: [{ label: "正片", externalId: id }] };
+    },
+    async resolve(id) {
+      const d = await api<{ gif?: RgGif }>(`/v2/gifs/${id}`);
+      const url = d.gif?.urls?.hd ?? d.gif?.urls?.sd;
+      return { streams: url ? [{ url, kind: "file" as const }] : [] };
+    },
+    async search(q, page, size) {
+      const d = await api<{ gifs?: RgGif[] }>(`/v2/gifs/search?search_text=${encodeURIComponent(q)}&order=trending&count=${size}&page=${page}`);
+      const items = (d.gifs ?? []).map(toItem).filter((x): x is SourceItem => x !== null);
+      return { items, pagination: pageOf(items.length, page, size) };
     },
   };
 }

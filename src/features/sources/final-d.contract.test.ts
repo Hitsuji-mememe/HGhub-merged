@@ -86,14 +86,16 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
 {
   setFetchPage(async (url) => (url.includes("/video/aaa-1") ? fx("hls-detail.html") : fx("hls-list.html")));
   /* 断言适配（Muse 2026-11-19 fix321-F2）：肉视频参数已按真站校准
-   * 为 /home + /v/<id>，通用骨架数据流改用参数同形态的 FC2 def。 */
-  const def = getBuiltinRegistry().find((s) => s.id === "fc2")!;
-  assert.equal(def.adapter.template, "hls-site", "fc2 模板为 hls-site（createAdapter 分发目标即下方工厂）");
+   * 为 /home + /v/<id>，通用骨架数据流改用参数同形态的 FC2 def。
+   * 再适配（fix321-F2b）：FC2 已按真站销量榜校准，通用骨架数据流
+   * 再移交参数同形态的目录源 hentaihaven def，断言内容不变。 */
+  const def = getBuiltinRegistry().find((s) => s.id === "hentaihaven")!;
+  assert.equal(def.adapter.template, "hls-site", "hentaihaven 模板为 hls-site（createAdapter 分发目标即下方工厂）");
   assert.ok(read("./adapters/index.ts").includes('case "hls-site": return createHlsSiteAdapter(def)'), "createAdapter 分发 hls-site → createHlsSiteAdapter");
   const adapter = createHlsSiteAdapter(def);
   const list = await adapter.list(1, 20);
   assert.equal(list.items.length, 2, "video 夹具列表 2 条");
-  assert.equal(list.items[0].sourceId, "fc2", "条目带源 id、不冒充黄果");
+  assert.equal(list.items[0].sourceId, "hentaihaven", "条目带源 id、不冒充黄果");
   const res = await adapter.resolve(list.items[0].externalId);
   assert.equal(res.streams[0].kind, "hls");
   assert.ok(res.streams[0].url.includes("master.m3u8"), "video resolve 出 HLS 地址供 Player 消费");

@@ -5,7 +5,7 @@
  */
 import type { SourceAdapter, SourceDef } from "../types";
 import { createNativeHuangguoAdapter } from "./nativeHuangguo";
-import { createChiguaAdapter, createDanbooruAdapter, createHlsSiteAdapter, createPreviewOnlyAdapter, createWpRestAdapter } from "./templates";
+import { createChiguaAdapter, createDanbooruAdapter, createHlsSiteAdapter, createPreviewOnlyAdapter, createRedgifsAdapter, createSwagAdapter, createWpRestAdapter } from "./templates";
 
 export function createAdapter(def: SourceDef): SourceAdapter | null {
   switch (def.adapter.template) {
@@ -14,6 +14,8 @@ export function createAdapter(def: SourceDef): SourceAdapter | null {
     case "wp-rest": return createWpRestAdapter(def);
     case "hls-site": return createHlsSiteAdapter(def);
     case "danbooru-api": return createDanbooruAdapter(def);
+    case "swag-api": return createSwagAdapter(def);
+    case "redgifs-api": return createRedgifsAdapter(def);
     case "preview-only": return createPreviewOnlyAdapter(def);
     default: return null;
   }
