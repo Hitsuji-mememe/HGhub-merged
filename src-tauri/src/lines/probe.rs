@@ -224,6 +224,11 @@ fn confirm_gate(
 /// 结果附 published/probed/okCount 三个覆盖计数（整改 2）：诊断报告
 /// 直接复用本轮探测结果，不再为生成报告重测一遍。
 pub async fn auto_pick(urgent: bool) -> Value {
+    /* 代理模式在测量开始时捕获（整改 A5，Hark G2 P2-1）：整轮探测
+     * 可达 20+ 秒，期间用户切代理时，测得的吞吐必须记回测量开始时
+     * 环境的账本键——记账点（下方 record 循环）现读当前模式会把
+     * 旧环境样本污染进新环境画像。 */
+    let mode_at_start = crate::proxy::mode();
     let mut hits = vec![probe_hit("main", FIXED[0].1).await];
     let listing = mirrors().await;
     let mut published = 0usize;
@@ -276,7 +281,11 @@ pub async fn auto_pick(urgent: bool) -> Value {
                 candidate.get("kbps").and_then(Value::as_u64),
             ) {
                 if kbps > 0 {
-                    super::ledger::record_throughput(url, kbps.saturating_mul(1000));
+                    super::ledger::record_throughput_with_mode(
+                        url,
+                        kbps.saturating_mul(1000),
+                        mode_at_start,
+                    );
                 }
             }
         }

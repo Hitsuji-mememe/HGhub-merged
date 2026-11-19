@@ -128,29 +128,46 @@ static LEDGER: Lazy<Mutex<HashMap<String, LineStats>>> =
 
 /// 账本键：origin × 代理模式。代理模式取当前应用代理设置
 /// （system/custom/off）——环境切换后新样本自动落到新键，旧键画像
-/// 不再被查到（查询同样按当前模式组键）。
+/// 不再被查到（查询同样按当前模式组键）。测量跨时较长的回写必须
+/// 走带模式版（record_throughput_with_mode）：键用测量开始时捕获
+/// 的模式，不许在写入时现读当前模式（整改 A5，Hark G2 P2-1——
+/// 在途探测跨代理切换会把旧环境样本记进新环境键、污染画像）。
 fn ledger_key(origin: &str) -> String {
-    format!("{origin}\u{1f}{}", crate::proxy::mode().as_str())
+    ledger_key_with_mode(origin, crate::proxy::mode().as_str())
+}
+
+fn ledger_key_with_mode(origin: &str, mode: &str) -> String {
+    format!("{origin}\u{1f}{mode}")
 }
 
 fn with_entry<R>(origin: &str, f: impl FnOnce(&mut LineStats) -> R) -> Option<R> {
-    let key = ledger_key(origin);
+    with_entry_key(&ledger_key(origin), f)
+}
+
+fn with_entry_key<R>(key: &str, f: impl FnOnce(&mut LineStats) -> R) -> Option<R> {
     let mut map = LEDGER.lock().ok()?;
-    if !map.contains_key(&key) {
+    if !map.contains_key(key) {
         if map.len() >= MAX_LINES {
             return None;
         }
-        map.insert(key.clone(), LineStats::default());
+        map.insert(key.to_string(), LineStats::default());
     }
-    map.get_mut(&key).map(f)
+    map.get_mut(key).map(f)
 }
 
 /// 主动探测吞吐回写（auto_pick 的候选探测结果，probe EWMA）。
 /// bps=0 由 Ewma::apply 拒绝（不计样本），条目本身照常建立——与
 /// 旧实现的可观察行为一致（snapshot 能看到条目、样本数为 0）。
 pub fn record_throughput(origin: &str, bps: u64) {
+    record_throughput_with_mode(origin, bps, crate::proxy::mode());
+}
+
+/// 带捕获模式的探测吞吐回写（整改 A5）：mode 是测量开始时捕获的
+/// 代理模式，整轮测量跨代理切换也记回测量环境的键。
+pub fn record_throughput_with_mode(origin: &str, bps: u64, mode: crate::proxy::Mode) {
     let now = Instant::now();
-    let _ = with_entry(origin, |stats| stats.probe.apply(bps as f64, now));
+    let key = ledger_key_with_mode(origin, mode.as_str());
+    let _ = with_entry_key(&key, |stats| stats.probe.apply(bps as f64, now));
 }
 
 /// 真实播放吞吐回写（line_record_playback 命令，play EWMA）：
@@ -506,6 +523,24 @@ mod tests {
     /* ── 飞行记录仪收口（Muse 2026-11-19 根治包，用户点名：诊断
      * 导出须含双账本摘要与熔断状态）：summary 拆键给原值、
      * breaker_status 与切换许可同口径惰性过期。 ── */
+    /* ── 整改 A5（Hark G2 P2-1）：记账键的 proxyMode 必须是测量时
+     * 捕获的模式，不是写入时读到的当前模式。 ── */
+    #[test]
+    fn throughput_records_under_captured_mode_not_current() {
+        let origin = uniq("mode-capture");
+        for _ in 0..3 {
+            record_throughput_with_mode(&origin, 7_000_000, crate::proxy::Mode::Custom);
+        }
+        // 测试进程当前模式为默认（system）：按当前模式查账应查不到，
+        // 样本只落在捕获的 custom 键下
+        assert_eq!(tiebreak_bps(&origin), None, "捕获模式≠当前模式时不应被当前键查到");
+        let entries = summary();
+        let e = entries.iter().find(|e| e.origin == origin).expect("汇总应含本条目");
+        assert_eq!(e.mode, "custom", "条目应记在测量时捕获的 proxyMode 键下");
+        assert_eq!(e.probe_samples, 3);
+        assert_eq!(e.probe_bps, Some(7_000_000.0));
+    }
+
     #[test]
     fn summary_splits_key_and_reports_both_ewmas() {
         let origin = uniq("summary");
