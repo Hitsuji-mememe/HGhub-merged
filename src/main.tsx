@@ -14,8 +14,10 @@ import { registerSrProbeV2 } from "./features/playback/srProbe";
 import { hasAcceptedAgreement } from "./shared/storage/usageAgreement";
 import { setFetchPage } from "./features/sources/adapters/fetchPage";
 import { recordFetchResult } from "./features/sources/adapters/fetchHealth";
-import { FALLBACK_APP_VERSION, getActiveRegistry, getRegistryInfo, resolveRegistry } from "./features/sources/manifest";
+import { FALLBACK_APP_VERSION, getActiveRegistry, getRegistryInfo, resolveRegistry, revertActiveSourceParams } from "./features/sources/manifest";
 import { sourceFetchAllowlistOrigins } from "./features/sources/allowlist";
+import { verifyAppliedAdapterParams } from "./features/sources/adapterParams";
+import { getSelfCheckResults, runSourceSelfCheck, saveSelfCheckResult } from "./features/sources/healthCheck";
 import { getVersion } from "@tauri-apps/api/app";
 import { sourceHealthLines } from "./features/sources/registryDiag";
 import { registerSourceRegistryProvider, registerSourceHealthProvider } from "./shared/diagnostics/sourceRegistry";
@@ -56,6 +58,23 @@ async function bootstrapRegistry(): Promise<void> {
   let appVersion = FALLBACK_APP_VERSION;
   try { appVersion = await getVersion(); } catch { /* 非 Tauri 环境回落 */ }
   try { await resolveRegistry({ appVersion }); } catch { /* resolveRegistry 内部已三段回退 */ }
+  /* 清单参数验证与自动回滚（Muse 2026-11-19 fix321-F8）：注册表落定
+   * 后，对本轮新应用的 hls-site 清单参数（pending 快照）逐源跑一次
+   * F7 式自检——复用 healthCheck 的 runSourceSelfCheck 引擎与落盘
+   * 口径（验证结果即该源最新自检）；应用前为好/未知且应用后变坏 →
+   * revertActiveSourceParams 回滚内置＋记 rejected（同版本不再应用）。
+   * 纯旁路静默：不阻塞挂载、无任何用户可见打扰，异常全吞。 */
+  void verifyAppliedAdapterParams({
+    getSources: () => getActiveRegistry().sources,
+    runCheck: async (def) => {
+      const result = await runSourceSelfCheck(def, { createAdapterFor: (d) => createAdapter(d), now: () => Date.now() });
+      saveSelfCheckResult(result);
+      return result;
+    },
+    getPriorResult: (id) => getSelfCheckResults()[id],
+    revertSource: (id) => revertActiveSourceParams(id),
+    now: () => Date.now(),
+  }).then(() => { window.dispatchEvent(new Event("hg:registry-changed")); }).catch(() => { /* 旁路 */ });
   window.dispatchEvent(new Event("hg:registry-changed"));
 }
 

@@ -1272,6 +1272,73 @@
       "item": "fix322/sr 线：松手不跳帧＋SR 呈现时刻走引擎完成回调 onFrameDone（引擎落定调用＋画布消费为 noteHoldSrPresent(doneAt)，不许退回提交时刻记 present）",
       "min": 3,
       "symbol": "onFrameDone"
+    },
+    {
+      "id": "fix321-f8-schema",
+      "item": "F8 清单参数 schema 校验 validateAdapterParams（定义＋manifest.validateManifest 消费）：非法参数只丢该条目参数",
+      "files": [
+        "src/features/sources/adapterParams.ts",
+        "src/features/sources/manifest.ts"
+      ],
+      "symbol": "validateAdapterParams",
+      "min": 2
+    },
+    {
+      "id": "fix321-f8-apply",
+      "item": "F8 参数应用快照 recordAppliedParams（定义＋applyManifest 覆盖生效点调用）",
+      "files": [
+        "src/features/sources/adapterParams.ts",
+        "src/features/sources/manifest.ts"
+      ],
+      "symbol": "recordAppliedParams",
+      "min": 2
+    },
+    {
+      "id": "fix321-f8-verify-wiring",
+      "item": "F8 应用后自检验证 verifyAppliedAdapterParams（定义＋main.tsx 启动装配）",
+      "files": [
+        "src/features/sources/adapterParams.ts",
+        "src/main.tsx"
+      ],
+      "symbol": "verifyAppliedAdapterParams",
+      "min": 2
+    },
+    {
+      "id": "fix321-f8-rollback",
+      "item": "F8 自动回滚生效点 revertActiveSourceParams（manifest 定义＋main.tsx 注入 verify 接缝）",
+      "files": [
+        "src/features/sources/manifest.ts",
+        "src/main.tsx"
+      ],
+      "symbol": "revertActiveSourceParams",
+      "min": 3
+    },
+    {
+      "id": "fix321-f8-diag-params",
+      "item": "F8 诊断明细呈现参数来源 adapterParamsSegmentText（registryDiag App 内明细消费）",
+      "files": [
+        "src/features/sources/registryDiag.ts"
+      ],
+      "symbol": "adapterParamsSegmentText(",
+      "min": 1
+    },
+    {
+      "id": "fix321-f8-diag-fault-class",
+      "item": "F8 诊断明细故障类标注 classifySourceFault（registryDiag 消费纯函数定性）",
+      "files": [
+        "src/features/sources/registryDiag.ts"
+      ],
+      "symbol": "classifySourceFault(",
+      "min": 1
+    },
+    {
+      "id": "fix321-f8-storage-key",
+      "item": "F8 参数状态落盘键 hghubx_*（不变量 7）",
+      "files": [
+        "src/features/sources/adapterParams.ts"
+      ],
+      "symbol": "hghubx_adapter_params_v1",
+      "min": 1
     }
   ]
 }
