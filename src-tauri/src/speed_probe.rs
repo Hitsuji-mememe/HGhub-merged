@@ -91,21 +91,49 @@ async fn speed_ab_inner() -> Result<Value, String> {
 /// 标记（结果 b_truncated=true），不整段读入内存（audit6 §五）。
 const B_BODY_MAX_BYTES: usize = 64 * 1024 * 1024;
 
+/// 解析后地址校验（整改 C7，可测函数）：B 路每跳解析出的地址必须
+/// 过生产策略的地址检查（严格模式下内网/回环/保留地址整体拒绝，
+/// FakeIP 例外与生产口径一致），不许只校验域名表面。
+pub(crate) fn ensure_addresses_public(
+    addrs: &[std::net::SocketAddr],
+    strict: bool,
+) -> Result<(), String> {
+    crate::network_policy::check_addresses_with_mode(addrs, strict)
+}
+
 /// B 路裸直连下载（P1-1 收口后）：目标先过生产策略校验；禁自动
 /// 重定向，逐跳用 network_policy::redirect_target 复检（禁 HTTPS
 /// 降级/内网目标，≤5 跳）；响应体流式累计、超 64MB 截断标记。
 /// 返回（读到的字节数， 是否被截断）。
+///
+/// DNS 固定（整改 C7，G4 P1-6／G2 P1-4）：旧实现裸 reqwest 自行
+/// 解析，域名解析到内网 IP 时字面校验绕过。现每跳先走
+/// network_policy::resolve_target（解析＋地址校验，口径同 net_diag）
+/// 再用 resolve_to_addrs 把连接钉到解析出的 IP，校验与连接同源；
+/// 重定向逐跳重做（新目标重新解析、重新校验、重新钉）。
 async fn speed_b_direct(seg_url: &str) -> Result<(usize, bool), String> {
     let mut next = crate::network_policy::parse_target(seg_url)
         .map_err(|e| format!("B 路目标未通过策略校验：{e}"))?;
-    let bare = reqwest::Client::builder()
-        .user_agent(crate::net::UA)
-        .no_proxy()
-        .timeout(Duration::from_secs(60))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| format!("B 路客户端构建失败：{e}"))?;
+    let strict = crate::network_policy::strict_security();
     for hop in 0..=5 {
+        let addrs = crate::network_policy::resolve_target(&next, strict)
+            .await
+            .map_err(|e| format!("B 路 DNS 解析/校验失败：{e}"))?;
+        ensure_addresses_public(&addrs, strict)?;
+        let host = next.host_str().ok_or("B 路目标缺少主机名")?;
+        let mut builder = reqwest::Client::builder()
+            .user_agent(crate::net::UA)
+            .no_proxy()
+            .timeout(Duration::from_secs(60))
+            .redirect(reqwest::redirect::Policy::none());
+        // IP 字面主机无需钉（resolve_target 已校验该 IP 本身）；域名
+        // 主机钉到刚校验过的地址集合，杜绝二次解析漂移/rebinding。
+        if next.host().map(|h| matches!(h, url::Host::Domain(_))).unwrap_or(false) {
+            builder = builder.resolve_to_addrs(host, &addrs);
+        }
+        let bare = builder
+            .build()
+            .map_err(|e| format!("B 路客户端构建失败：{e}"))?;
         let mut resp = bare
             .get(next.clone())
             .send()
@@ -178,4 +206,37 @@ fn resolve_uri(u: &str, base: &str) -> String {
         .and_then(|b| b.join(u))
         .map(|u| u.to_string())
         .unwrap_or_else(|_| u.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::SocketAddr;
+
+    fn addr(s: &str) -> SocketAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn b_route_rejects_domains_resolving_to_private_or_loopback() {
+        // 整改 C7：域名解析到内网/回环时必须拒绝（旧实现裸 reqwest
+        // 自行解析、只过字面校验，此类目标能绕过）。
+        for bad in ["127.0.0.1:443", "10.0.0.5:443", "192.168.1.9:443", "172.16.0.9:443", "[::1]:443"] {
+            assert!(
+                ensure_addresses_public(&[addr(bad)], true).is_err(),
+                "解析到 {bad} 必须被拒绝"
+            );
+        }
+        // 混合公私网答案整体拒绝，不许连接器回退到私网地址。
+        assert!(ensure_addresses_public(&[addr("8.8.8.8:443"), addr("127.0.0.1:443")], true).is_err());
+        // 空解析结果拒绝。
+        assert!(ensure_addresses_public(&[], true).is_err());
+    }
+
+    #[test]
+    fn b_route_allows_public_and_fakeip_addresses() {
+        assert!(ensure_addresses_public(&[addr("8.8.8.8:443")], true).is_ok());
+        // FakeIP（198.18.0.0/15）是生产策略既定例外，保持放行。
+        assert!(ensure_addresses_public(&[addr("198.18.0.7:443")], true).is_ok());
+    }
 }
