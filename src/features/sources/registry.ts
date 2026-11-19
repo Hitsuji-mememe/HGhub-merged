@@ -36,10 +36,10 @@ export const NAMED_SOURCES: SourceDef[] = [
   },
   {
     id: "rouvideo", displayName: "肉视频", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
+    adapter: { template: "hls-site", params: { listPath: "/home", itemLinkPattern: "/v/", detailPath: "/v/{id}" } },
     baseUrls: ["https://rou.video"],
     enabled: true, order: 20, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：入口为 18+ 年龄门页（按钮指向 /home），主 JS 两 chunk 内无数据 API 路径、门页 HTML 无条目；列表须自 /home 起爬、数据接口未定位 → probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站复核（2026-11-19 fix321-F2，本机出口参考）：根路径为 18+ 年龄门无条目、列表在 /home、条目锚点为 /v/<id>（卡片含 img 与标题文本），模板已按真站校准（旧 /?page= + /video/ 与真站结构完全不符、恒解析为空）、真站结构夹具解析出条目；详情页 SSR 无流地址（<video> 无 src、走站内 API 未定位）→ 列表已通、取流未证，仍 probe",
   },
   {
     id: "91video", displayName: "91视频", kind: "video", category: "video",
@@ -67,14 +67,14 @@ export const NAMED_SOURCES: SourceDef[] = [
     adapter: { template: "hls-site", params: { listPath: "/", itemLinkPattern: "/videos/hentai/", detailPath: "/videos/hentai/{id}" } },
     baseUrls: ["https://hanime.tv"],
     enabled: true, order: 24, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：首页 SSR 解析 68 条（/browse 是品牌/标签索引页、已改走首页）；详情页 SSR 无 m3u8/mp4、流走站内 api/v11 内部接口（页面见 search_hvs/api_base_url 痕迹）未验证 → probe；残留：分页路径与取流接口",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：首页 SSR 解析 68 条（/browse 是品牌/标签索引页、已改走首页）；详情页 SSR 无 m3u8/mp4、流走站内 api/v11 内部接口（页面见 search_hvs/api_base_url 痕迹）未验证 → probe；残留：分页路径与取流接口。fix321-F2 本机复核（本机出口参考）：首页锚点 /videos/hentai/<slug> 与现模板一致、真站结构夹具解析出条目，列表结构无问题；真机取页失败在本机出口未复现（本机 200），属出口/取页层差异、非解析问题",
   },
   {
     id: "swag", displayName: "SWAG", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
     baseUrls: ["https://swag.live"],
     enabled: true, order: 25, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：首页与 /video 页 SSR 均无条目锚点（Nuxt 客户端渲染、无 m3u8）、api.swag.live 需登录态；无免登录列表/流证据 → probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：首页与 /video 页 SSR 均无条目锚点（Nuxt 客户端渲染、无 m3u8）、api.swag.live 需登录态；无免登录列表/流证据 → probe。fix321-F2 本机复核（本机出口参考）：首页 200、全页 49 锚点无一条目锚点、/videos 为 404；解析为空现落显式失败态（SourceParseEmptyError）、不再显示假成功空页；免登录数据通道未定位前实际不可用",
   },
   {
     id: "fyptt", displayName: "Fyptt", kind: "video", category: "video",
@@ -88,7 +88,7 @@ export const NAMED_SOURCES: SourceDef[] = [
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/watch/", detailPath: "/watch/{id}" } },
     baseUrls: ["https://www.redgifs.com"],
     enabled: true, order: 27, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：官网为 SPA 壳、SSR 无条目；官方 API 实测 /v2/auth/temporary 返回 200 发临时令牌、但 /v2/gifs/search 带令牌仍 401，且 fetchPage 契约不支持 Authorization header——须取页契约支持 header（或令牌注入）后才可接 → probe",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：官网为 SPA 壳、SSR 无条目；官方 API 实测 /v2/auth/temporary 返回 200 发临时令牌、但 /v2/gifs/search 带令牌仍 401，且 fetchPage 契约不支持 Authorization header——须取页契约支持 header（或令牌注入）后才可接 → probe。fix321-F2 本机复核（本机出口参考）：首页 200 即 SPA 壳（0 锚点），解析为空现落显式失败态；根因在取页契约缺 Authorization、非解析问题",
   },
   {
     id: "rule34video", displayName: "Rule34Video", kind: "video", category: "video",
@@ -128,10 +128,10 @@ export const NAMED_SOURCES: SourceDef[] = [
   },
   {
     id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
-    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/gallery/", detailPath: "/gallery/{id}/" } },
+    adapter: { template: "hls-site", params: { listPath: "/recent/", itemLinkPattern: "/galleries/", detailPath: "/galleries/{id}/" } },
     baseUrls: ["https://www.pornpics.com"],
     enabled: true, order: 41, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：首页与 /galleries/（重定向回首页）SSR 均无图集锚点（281 锚点全为导航/语言/外链）、内容由前端渲染 → probe；残留：前端数据接口未定位",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站复核（2026-11-19 fix321-F2，本机出口参考）：旧判有误——首页确为分类索引无图集，但 /recent/ SSR 有图集 tile：单引号属性锚点 /galleries/<slug>-<id>/（img alt 为空、标题靠 slug 还原）；旧模板三处不符（列表路径 /、图案 /gallery/、解析只认双引号）已全修，解析层支持单引号属性与 slug 标题兜底、真站结构夹具解析出图集；图集详情页本机可达（17 图）未逐图验 → 仍 probe",
   },
   {
     id: "cosplaytele", displayName: "CosplayTele", kind: "image", category: "image",
@@ -202,6 +202,24 @@ export function getBuiltinRegistry(): SourceDef[] {
 
 export function sourcesForCategory(category: SourceDef["category"], list: SourceDef[] = getBuiltinRegistry()): SourceDef[] {
   return list.filter((s) => s.category === category && s.enabled);
+}
+
+/** 频道-源映射（Muse 2026-11-19 fix321-F2，真机首验「大量不可用」
+ * 根因之一）：频道页此前对所有频道都列全量 video 源——短剧频道把
+ * XVideos/Hanime/SWAG 等无短剧品类的源也列成切源片，点进去必然
+ * 空/失败。映射只按注册表既有字段判定（category/kind/
+ * capabilities），不按源名列名单：
+ * - 短剧（ai-duanju）：须 video 分类且 capabilities.episodes=true
+ *   （有分集/连续剧集结构才算有短剧品类映射）；当前无外部源满足，
+ *   该频道切源列表只剩原生黄果——如实无映射，不拿普通视频源充数；
+ * - 视频（original）：video 分类的全部已启用源；
+ * - 其余 cate 无外部源映射，返回空（调用方回落原生源）。 */
+export function sourcesForChannel(cate: string, list: SourceDef[] = getBuiltinRegistry()): SourceDef[] {
+  if (cate === "ai-duanju") {
+    return list.filter((s) => s.enabled && s.category === "video" && s.capabilities.episodes);
+  }
+  if (cate === "original") return sourcesForCategory("video", list);
+  return [];
 }
 
 export function firstEnabledSource(category: SourceDef["category"], list?: SourceDef[]): SourceDef | null {

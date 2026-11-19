@@ -7,20 +7,29 @@
  */
 import { Button } from "../../shared/ui/ios/controls";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
-import { sourcesForCategory } from "./registry.ts";
+import { sourcesForCategory, sourcesForChannel } from "./registry.ts";
 import { getActiveRegistry } from "./manifest.ts";
-import type { SourceCategory, SourceMaturity } from "./types.ts";
+import type { SourceCategory, SourceDef, SourceMaturity } from "./types.ts";
 
 export interface SourceOption { id: string; label: string; badge?: string }
+
+const toOption = (s: SourceDef): SourceOption => ({
+  id: s.id,
+  label: s.displayName,
+  badge: s.maturity === "preview" ? "仅预览" : s.maturity === "blocked" ? "暂不可用" : s.maturity === "probe" ? "未实测" : undefined,
+});
 
 /* UI 消费口径（Muse 2026-11-19 整改 D2）：一律读 active 注册表
  * （远程清单覆盖后即时生效），不再读内置表。 */
 export function sourceOptionsForCategory(category: SourceCategory): SourceOption[] {
-  return sourcesForCategory(category, getActiveRegistry().sources).map((s) => ({
-    id: s.id,
-    label: s.displayName,
-    badge: s.maturity === "preview" ? "仅预览" : s.maturity === "blocked" ? "暂不可用" : s.maturity === "probe" ? "未实测" : undefined,
-  }));
+  return sourcesForCategory(category, getActiveRegistry().sources).map(toOption);
+}
+
+/* 频道切源片口径（Muse 2026-11-19 fix321-F2）：按频道-源映射
+ * （registry.sourcesForChannel）取源，无该频道真实品类映射的源
+ * 不进该频道切源列表；sourcesForChannel 只返回已启用源。 */
+export function sourceOptionsForChannel(cate: string): SourceOption[] {
+  return sourcesForChannel(cate, getActiveRegistry().sources).map(toOption);
 }
 
 export function SourceSwitcher({ options, value, onChange, ariaLabel }: {

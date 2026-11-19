@@ -155,6 +155,22 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   矩阵守门：横屏用例走手动进/退全屏验出口（返回）可达，竖屏用例走
   呈现态流程（独立退出钮负断言 + 同套几何探针）。
 
+- 外部源浏览的频道映射与空态（3.2.1 fix321-F2，2026-11-19 真机首验
+  「大量不可用」）：频道页切源片只列对该频道有真实品类映射的源
+  （`registry.sourcesForChannel(cate)`，只按注册表 category/
+  capabilities 字段判定：短剧频道须 video 分类且
+  capabilities.episodes=true，当前无外部源满足、只剩原生黄果；
+  「视频」频道列全部已启用 video 源；陈旧选择不跨频道生效）。
+  浏览面（分类总览/频道/切源片）只显示已启用源，停用源只在
+  诊断明细面（`registryDiag.sourceHealthDetailLinesInApp`）可见。
+  适配器列表解析为空 ≠ 真空：HTML 锚点模板取到页却 0 条目抛
+  `SourceParseEmptyError`，经 SourceBrowse/SourceGallery 既有 err
+  通道落显式失败态＋重试；真空（结构化模板空数组）才显示
+  「列表确为空」。解析层支持双/单引号属性，锚点无标题时以 href
+  末段 slug 兜底（PornPics 图集形态）；肉视频列表按真站校准为
+  /home + /v/<id>、PornPics 为 /recent/ + /galleries/（真站结构
+  夹具 `adapters/fixtures/real-*.html`，契约
+  `fix321-f2.contract.test.ts`）。
 - 吃瓜详情排版（最终版 D2 线，2026-11-19，用户实报）：`PostDetail`
   先文后视频——标题/元信息/标签/动作行/介绍正文在前，播放器区
   （`data-post-media`）移到正文之后；仍是点了才播（分段只解析备好、

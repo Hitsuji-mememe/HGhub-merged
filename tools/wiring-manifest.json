@@ -885,6 +885,36 @@
         "src/features/category/Category.tsx"
       ],
       "min": 1
+    },
+    {
+      "id": "fix321-f2-channel-mapping",
+      "item": "F2 频道-源映射 sourcesForChannel（注册表定义＋SourceSwitcher 频道口径＋Category 消费）",
+      "files": [
+        "src/features/sources/registry.ts",
+        "src/features/sources/SourceSwitcher.tsx",
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "sourcesForChannel",
+      "each": true
+    },
+    {
+      "id": "fix321-f2-parse-empty-error",
+      "item": "F2 解析为空显式失败 SourceParseEmptyError（定义＋list 抛错点）",
+      "files": [
+        "src/features/sources/adapters/templates.ts"
+      ],
+      "symbol": "SourceParseEmptyError",
+      "min": 2
+    },
+    {
+      "id": "fix321-f2-true-empty-copy",
+      "item": "F2 真空文案与解析失败分离（SourceBrowse/SourceGallery 空态）",
+      "files": [
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourceGallery.tsx"
+      ],
+      "symbol": "列表确为空",
+      "each": true
     }
   ],
   "note": "接线清单（整改批次 2026-11-19 建立，验收规矩第 1/5 条）：每条对应一个「已修」条目的关键符号与其应有的生产调用方文件。scripts/check-wiring.mjs 扫描所列非测试源码，符号在所列文件中的出现次数不达标即 exit 非 0。后续批次只增不减：新条目交付时把其接线符号加进本表。",
