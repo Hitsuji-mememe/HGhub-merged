@@ -85,7 +85,7 @@ export default function Player({
   const [srSize, setSrSize] = useState({ w: 0, h: 0 });
   /* 密度采样与 VideoSurface 共用一份（audit6 P0-A 第 2 层）：旧实现用
    * 首样本锁定、无 codec，判档口径与 Feed 不可比，现删除改走共享 hook。 */
-  const { density: srDensity, ingest: ingestSrFrag, reset: resetSrDensity } = useSrDensity(src, store?.lineEpoch ?? 0);
+  const { density: srDensity, ingest: ingestSrFrag } = useSrDensity(src, store?.lineEpoch ?? 0);
   /* 正在播放的 level（整改 B4，与 VideoSurface 同口径）：判档采样只认这一档。 */
   const playingLevelRef = useRef(-1);
   /* 判档尺寸以 playing rendition 宽高为准（整改 B4），无密度时回落显示帧尺寸。 */
@@ -120,7 +120,10 @@ export default function Player({
     setErrMsg("");
     setWaiting(false);
     playingLevelRef.current = -1;
-    resetSrDensity();
+    /* 密度重置只认 hook 自身的 [srcKey, lineEpoch] 面（整改 B12）：
+     * 本 effect 还由 autoPlay/proxyRecovery.revision 触发，同源同线
+     * 重建时样本仍有效，此前在此额外 reset 属误清（重建后头几片退回
+     * 无密度判档），与 VideoSurface 不对齐，已删。 */
     const resume = proxyRecovery.resume();
     const source = playbackSource(src, Hls.isSupported());
     let disconnectNative: (() => void) | undefined;
