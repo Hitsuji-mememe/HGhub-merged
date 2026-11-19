@@ -274,20 +274,28 @@ export class WebGpuSrEngine {
   }
 
   static async create(canvas: HTMLCanvasElement, opts: { path: SrIngestPath; onLost: () => void }): Promise<WebGpuSrEngine | null> {
+    /* device 一旦建成，后续任何失败（ctx 为 null、configure/构造/
+     * buildPipelines 抛错）都必须先 destroy 再返回 null（fix2.1
+     * 批二#7）：旧实现两条早退路径漏销毁，失败重试会漏出 GPU 设备。 */
+    let device: GpuDeviceLike | null = null;
     try {
       const gpu = (navigator as unknown as { gpu?: { requestAdapter: () => Promise<{ requestDevice: () => Promise<GpuDeviceLike> } | null>; getPreferredCanvasFormat: () => string } }).gpu;
       if (!gpu) return null;
       const adapter = await gpu.requestAdapter();
       if (!adapter) return null;
-      const device = await adapter.requestDevice();
+      device = await adapter.requestDevice();
       const ctx = (canvas.getContext("webgpu") as unknown as GpuCanvasContextLike | null);
-      if (!ctx) return null;
+      if (!ctx) {
+        try { device.destroy?.(); } catch { /* 忽略 */ }
+        return null;
+      }
       const format = gpu.getPreferredCanvasFormat();
       ctx.configure({ device, format, alphaMode: "opaque" });
       const engine = new WebGpuSrEngine(device, ctx, format, opts.path, opts.onLost);
       engine.buildPipelines();
       return engine;
     } catch {
+      try { device?.destroy?.(); } catch { /* 忽略 */ }
       return null;
     }
   }
