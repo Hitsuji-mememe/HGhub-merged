@@ -27,6 +27,7 @@
  *   只挂呼出/切张，条上划找图满 3 秒整层在指下淡出。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { GESTURE_EDGE_PX } from "../../shared/lib/gestureGate";
 import { Button } from "../../shared/ui/ios/controls";
 import { Img } from "../../shared/ui/ui";
 import { IBack, IClose } from "../../shared/ui/icons";
@@ -108,6 +109,13 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
         if (!start || !t) return;
         const dx = t.clientX - start.x;
         const dy = t.clientY - start.y;
+        /* 边缘起手归壳层链返回（fix330/gesture-back 一致性批）：与
+           Feed 面 scrub 同一归属口径——左右缘 GESTURE_EDGE_PX 内
+           起手不翻页。旧版舞台无归属：频道页（栈页）内边缘右滑翻
+           上一张与 chain pop 同时成立、用户被划出页面；搜索详情
+           内的图集此前靠外层 dialog 祖先挡链才幸免，行为按入口
+           分叉（结构审计 C⑤ 点名）。 */
+        if (start.x <= GESTURE_EDGE_PX || window.innerWidth - start.x <= GESTURE_EDGE_PX) return;
         if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy)) { go(dx < 0 ? idx + 1 : idx - 1); setChrome(true); }
       }}
       onTouchCancel={() => { touchRef.current = null; }}>

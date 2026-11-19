@@ -12,6 +12,7 @@ import { ArticlePanel, EpisodesPanel } from "./Panels";
 import { useSocialCounts } from "./ActionRail";
 import { useProgressFlush } from "./useProgressFlush";
 import { setBackHandler } from "../../shared/lib/back";
+import { GESTURE_EDGE_PX } from "../../shared/lib/gestureGate";
 import { useDetailNext } from "./useDetailNext";
 import { copyText } from "../../shared/lib/clipboard";
 import {
@@ -250,9 +251,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     x: number; y: number; startY: number; t: number; timer: number | null;
     mode: "idle" | "hold" | "scrub" | "pan"; base: number; width: number; playing: boolean;
     rotated: boolean;
-    /* 边缘（左 20px / 右 22px）起手：优先给返回手势；rawX/rawY 为屏幕坐标（旋转舞台下方向判定不走舞台坐标）。
-       右缘左滑返回与左缘右滑并存同义（2026-11-18 第10项裁定：用户直觉方向就是右缘左滑）。 */
-    edge: boolean; edgeBack: boolean; edgeR: boolean; edgeBackR: boolean; rawX: number; rawY: number;
+    /* 边缘起手（左右缘各 GESTURE_EDGE_PX，屏幕坐标）：本面只做归属
+       ——边缘起手不 scrub/pan/hold；返回的判定与触发统一归壳层链
+       （shared/lib/gestureGate＋app/gestureChain，fix330/gesture-back
+       一致性批），本面旧自带判定（28px 锁定/64px 触发/doEdgeBack）
+       已删。rawX/rawY 为屏幕坐标（旋转舞台下方向判定不走舞台坐标）。
+       右缘左滑同为返回（2026-11-18 第10项裁定）由统一判定保留。 */
+    edge: boolean; edgeR: boolean; rawX: number; rawY: number;
   } | null>(null);
   /* 系统是否真的转成了横屏（iOS 原生旋转后为 true） */
   const [vpLandscape, setVpLandscape] = useState(
@@ -739,14 +744,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      控制层点播放钮、或双击画面），不靠锁显保底。桌面有自己的
      hover/闲置模型，不跟随。 */
 
-  /* 左边缘右滑返回（iOS back 手势，Muse 2026-11-18）：与硬件返回同序——
-     先关面板，再退全屏，最后回上一级（context 模式 onBack；home 根层无上一级，不动作）。
-     面板以 Sheet 呈现时手势落在弹层自身（DialogFrame 同样支持边缘右滑关闭）。 */
-  const doEdgeBack = () => {
-    if (panel || tagMenu) { closePanels(); return; }
-    if (fs) { exitFs(); return; }
-    if (onBack) onBack();
-  };
+  /* 边缘返回不在本面触发（fix330/gesture-back 一致性批）：旧版面内
+     自带判定（doEdgeBack：先关面板、再退全屏、最后 onBack）已删。
+     壳层链在边缘起手时经统一返回序分发——面板经本面登记的
+     setBackHandler／以 Sheet 呈现时经弹层自身的 overlay 登记先行
+     消费，退全屏与退栈（context 模式即 onBack 的落点）由返回序
+     后续步骤处理：落点与旧序等价，判定全 App 只剩一处。 */
 
   /* —— 长按固定 2x（松手恢复） / 横拖定位 / 单击显隐 —— */
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -784,8 +787,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       x: sx, y: sy, startY: sy, t: Date.now(), base: videoRef.current?.el()?.currentTime ?? playbackClock.getSnapshot(), width,
       mode: "idle" as "idle" | "hold" | "scrub" | "pan",
       rotated: rot,
-      edge: (e.clientX - rect.left) <= 20, edgeBack: false,
-      edgeR: (rect.right - e.clientX) <= 22, edgeBackR: false, rawX: e.clientX, rawY: e.clientY,
+      edge: e.clientX <= GESTURE_EDGE_PX,
+      edgeR: window.innerWidth - e.clientX <= GESTURE_EDGE_PX, rawX: e.clientX, rawY: e.clientY,
       playing: videoRef.current?.el()?.paused === false,
       timer: window.setTimeout(() => {
         const cur = gesture.current;
@@ -825,18 +828,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     /* 长按中：固定 2x，移动不做任何事，松手恢复（定版语义） */
     if (g.mode === "hold") return;
 
-    /* 左边缘起手优先给返回手势（Muse 2026-11-18）：方向未定前不许 scrub/pan
-       抢占（hold 已在 timer 处被 edge 挡下）；屏幕坐标右滑占优即锁定 edgeBack。
-       判定用 clientX/Y 而非舞台坐标——CSS 旋转舞台下屏幕方向与舞台方向不同，
-       iOS 返回手势认的是屏幕左边缘。 */
-    if (g.edge || g.edgeR) {
-      if (!g.edgeBack && !g.edgeBackR) {
-        const dxS = e.clientX - g.rawX, dyS = e.clientY - g.rawY;
-        if (g.edge && dxS > 28 && dxS > Math.abs(dyS) * 1.5) g.edgeBack = true;
-        if (g.edgeR && -dxS > 28 && -dxS > Math.abs(dyS) * 1.5) g.edgeBackR = true;
-      }
-      return;
-    }
+    /* 边缘起手整体让行（fix330/gesture-back 一致性批）：方向未定前
+       不许 scrub/pan 抢占（hold 已在 timer 处被 edge 挡下）；返回的
+       判定与触发归壳层链（屏幕坐标、统一门控），本面不再锁定/代行
+       （旧 28px／1.5 锥角锁定＋64px 触发已删）。判定认屏幕坐标而非
+       舞台坐标——CSS 旋转舞台下屏幕方向与舞台方向不同，返回手势
+       认的是屏幕边缘。 */
+    if (g.edge || g.edgeR) return;
 
     if (g.mode === "idle") {
       if (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy)) {
@@ -885,15 +883,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       if (g.playing && active) videoRef.current?.play();
       return;
     }
-    /* 边缘返回：已锁定 edgeBack 且右滑过 64px 才执行；边缘起手但未成手势的，
-       拖动一律吞掉（不落 pan/切集），只有轻点（<10px）放行到下方单击分支。 */
-    /* 边缘返回（左右同出口 doEdgeBack，右缘为第10项并存项）：已锁定且
-       向屏内滑动过 64px 才执行；两缘未成手势的边缘拖动同样吞掉，
-       只有轻点（<10px）放行单击分支。 */
-    if (g.edgeBack || g.edgeBackR) {
-      if (!cancelled && e && (g.edgeBack ? e.clientX - g.rawX : g.rawX - e.clientX) > 64) doEdgeBack();
-      return;
-    }
+    /* 边缘起手收尾：成返回手势的已由壳层链在 touchend 以统一门控
+       触发（本面不代行）；未成手势的边缘拖动一律吞掉（不落 pan/
+       切集），只有轻点（<10px）放行到下方单击分支。 */
     if ((g.edge || g.edgeR) && (cancelled || !e || Math.hypot(e.clientX - g.rawX, e.clientY - g.rawY) >= 10)) return;
     /* 竖滑手势（竖滑语义定版：恒切作品）：普通态 overlay 是
        touch-action:pan-y，原生滚动接管、本分支不到达；全屏态滚动
