@@ -14,12 +14,13 @@ export function useStallHeal(deps: {
   curEp: number;
   videoRef: React.RefObject<VideoHandle | null>;
   paused: boolean;
-  setPlayUrls: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  setHevcUrls: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  /* 播放 URL 缓存已收敛到 usePlayUrlCache（audit6 P1-3）：自愈只需按
+   * 作用域键清一条，不再直接操作两张状态表。 */
+  clearPlayUrl: (key: string) => void;
   setErr: React.Dispatch<React.SetStateAction<string>>;
   setProxyRetry: React.Dispatch<React.SetStateAction<number>>;
 }) {
-  const { active, isDesktop, playKey, curId, curEp, videoRef, paused, setPlayUrls, setHevcUrls, setErr, setProxyRetry } = deps;
+  const { active, isDesktop, playKey, curId, curEp, videoRef, paused, clearPlayUrl, setErr, setProxyRetry } = deps;
   const fragWindowRef = useRef<{ slow: boolean; kbps: number }[]>([]);
   const lastStallAtRef = useRef(0);
   const healStateRef = useRef<{ lastAt: number; counts: Record<string, number>; pendingKey: string | null; pendingAt: number }>(
@@ -75,8 +76,7 @@ export function useStallHeal(deps: {
       const t = v && Number.isFinite(v.currentTime) ? v.currentTime : 0;
       if (t > 1) healResumeRef.current = { key, t };
       tracePlayback("line.stallHeal", { stage: "re-resolve", key, resume_t: Math.round(t * 10) / 10 });
-      setPlayUrls((m) => { if (!m[key]) return m; const n = { ...m }; delete n[key]; return n; });
-      setHevcUrls((m) => { if (!m[key]) return m; const n = { ...m }; delete n[key]; return n; });
+      clearPlayUrl(key);
       setErr("");
       setProxyRetry((n) => n + 1);
     };

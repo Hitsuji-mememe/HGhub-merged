@@ -138,6 +138,18 @@ try {
   check("G gates v2 tail ratio blocks", r.g_tail_blocks, false);
   check("G gates v2 no path blocks", r.g_no_path_blocks, false);
 
+  check("K scoped play key format", r.k_scoped_key, "acct:3:7:42:2");
+  check("K scoped key changes with line epoch", r.k_scoped_key_changes_with_epoch, true);
+  check("K scoped key changes with account", r.k_scoped_key_changes_with_account, true);
+  check("K FIFO evicts oldest beyond capacity", r.k_fifo_evicts_oldest, ["k2", "k3", "k4"]);
+  check("K FIFO update does not evict", r.k_fifo_update_keeps, ["k2", "k3", "k4"]);
+  check("K record capped to capacity", r.k_record_capped, 2);
+  check("K prewarm first attempt due", r.k_prewarm_first_attempt, true);
+  check("K prewarm success never retries", r.k_prewarm_ok_never, false);
+  check("K prewarm failure within 30s not due", r.k_prewarm_too_soon, false);
+  check("K prewarm failure after 30s due once", r.k_prewarm_retry_due, true);
+  check("K prewarm retry exhausted", r.k_prewarm_retry_exhausted, false);
+
   // W — wiring-level stall escalation matrix (fix2 B1)
   check("W1 first stall retries in place", r.w1_first_stall_retry, ["append_stall"]);
   check("W1 attempt incremented", r.w1_attempt_after, 1);
@@ -158,6 +170,12 @@ try {
   check("W8 buffered-no-play state label", r.w8_buffered_no_play_state, ["buffered-no-play"]);
   check("W9 deadline predicate rescue (append window)", r.w9_predicate_rescue, []);
   check("W9 handed-off second arm escalates", r.w9_handoff_retry, ["append_stall"]);
+
+  await page.waitForFunction(() => (window).__keepAlive !== undefined, null, { timeout: 15000 });
+  const ka = await page.evaluate(() => (window).__keepAlive);
+  check("KA user pause during transition: zero keepAlive plays in 1.2s window", ka.pausedPlays, 0);
+  try { assert.ok(ka.resumedPlays >= 3, `want >=3, got ${ka.resumedPlays}`); report.passed.push("KA unpaused transition still resumes playback"); }
+  catch { report.failed.push(`KA unpaused transition still resumes playback: got ${ka.resumedPlays}, want >=3`); }
 
   await writeFile(join(output, "report.json"), JSON.stringify({ report, results: r }, null, 2));
   if (report.failed.length) {

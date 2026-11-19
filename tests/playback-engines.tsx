@@ -10,6 +10,8 @@ import { createStallWatchdog } from "../src/features/playback/stallWatchdogWirin
 import { effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
 import { createSrDensitySampler } from "../src/features/playback/useSrDensity";
 import { evaluateSrGatesV2 } from "../src/shared/diagnostics/gpuProbe";
+import { capRecordByFifo, scopedPlayKey, setCapped } from "../src/features/feed/cacheMap";
+import { prewarmRetryDue } from "../src/features/feed/prewarm";
 import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, lockHighestStartLevel, resolveAbrSeedBps } from "../src/features/playback/hlsConfig";
 
 class FakeClock implements StallClock {
@@ -350,6 +352,27 @@ function run() {
     results.g_no_path_blocks = evaluateSrGatesV2({ ...base, recommendedPath: null });
   }
 
+  /* ── K 缓存作用域与容量（audit6 P1-3/P2-07/P2-08） ── */
+  results.k_scoped_key = scopedPlayKey("acct:3", 7, 42, 2);
+  results.k_scoped_key_changes_with_epoch = scopedPlayKey("acct:3", 8, 42, 2) !== scopedPlayKey("acct:3", 7, 42, 2);
+  results.k_scoped_key_changes_with_account = scopedPlayKey("acct:4", 7, 42, 2) !== scopedPlayKey("acct:3", 7, 42, 2);
+  {
+    const m = new Map<string, number>();
+    for (let i = 0; i < 5; i++) setCapped(m, `k${i}`, i, 3);
+    results.k_fifo_evicts_oldest = [...m.keys()];
+    setCapped(m, "k4", 44, 3); // 更新已有键不淘汰
+    results.k_fifo_update_keeps = [...m.keys()];
+  }
+  {
+    const rec: Record<number, string> = { 1: "a", 2: "b", 3: "c", 4: "d" };
+    results.k_record_capped = Object.keys(capRecordByFifo(rec, 2)).length;
+  }
+  results.k_prewarm_first_attempt = prewarmRetryDue(undefined, 100_000);
+  results.k_prewarm_ok_never = prewarmRetryDue({ at: 0, ok: true, retries: 0 }, 100_000);
+  results.k_prewarm_too_soon = prewarmRetryDue({ at: 90_000, ok: false, retries: 0 }, 100_000);
+  results.k_prewarm_retry_due = prewarmRetryDue({ at: 60_000, ok: false, retries: 0 }, 100_000);
+  results.k_prewarm_retry_exhausted = prewarmRetryDue({ at: 0, ok: false, retries: 1 }, 100_000);
+
   /* ── W 接线级矩阵（fix2 B1）：createStallWatchdog 的真实升级链——
    * 判死→重建→再判死→会话降级→名额用尽报错，及三道门控（旧实例 /
    * 无意愿 / paused_by_user）与谓词救场。F6 测的是看门狗类本身与
@@ -472,3 +495,48 @@ function run() {
 }
 
 Object.assign(window, { __engines: run() });
+
+/* ── KA keepAlive 渲染探针（audit6 P1-4）：真实 hook + 真实定时器 ──
+ * A：过渡中用户暂停（paused 翻 true，effect 清定时器＋回调三查）→
+ * 1.2s 窗内零 play；B：未暂停 → 过渡打断后仍续播（play 被调用）。 */
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { useFsKeepAlive } from "../src/features/feed/useFsKeepAlive";
+{
+  const state = { paused: false, pausedNow: false, keyNow: "k1", plays: 0 };
+  let trigger: (() => void) | null = null;
+  function Probe({ paused }: { paused: boolean }) {
+    const keepAlive = useFsKeepAlive({
+      paused, playKey: "k1",
+      isUserPaused: () => state.pausedNow,
+      currentPlayKey: () => state.keyNow,
+      isVideoPaused: () => true,
+      play: () => { state.plays += 1; },
+    });
+    trigger = keepAlive;
+    return null;
+  }
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  void (async () => {
+    root.render(<Probe paused={false} />);
+    await sleep(30);
+    trigger?.(); // 进全屏：调度六发（首发在 +50ms）
+    await sleep(15);
+    state.pausedNow = true; // 用户在首发落地前暂停：六发必须全灭
+    root.render(<Probe paused />); // paused 变化 → 清定时器
+    await sleep(1400);
+    const pausedPlays = state.plays;
+    // B：恢复未暂停态，重新调度 → 应续播
+    state.pausedNow = false;
+    state.plays = 0;
+    root.render(<Probe paused={false} />);
+    await sleep(30);
+    trigger?.();
+    await sleep(1400);
+    Object.assign(window, { __keepAlive: { pausedPlays, resumedPlays: state.plays } });
+    root.unmount();
+  })();
+}
