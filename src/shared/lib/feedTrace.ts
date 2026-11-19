@@ -75,21 +75,33 @@ export function feedTraceSnapshot(): FeedTraceSnapshot {
   };
 }
 
-/** 最近一段分页会话的人话摘要（诊断报告用）：最后一次 page.state
- * 与最后一次失败、已成功加载的页数。无记录时返回 null。 */
+/** 分页会话的人话摘要（诊断报告用），按列表隔离（fix2.1 批三#10）：
+ * 旧实现把整个事件环混算成一组 loadedPages/lastState/lastFail——
+ * 同会话打开过多个列表时页数取全局 max、终态取全局最后，互相污染
+ * 到无法定性。现在按事件的 list 标识（手写分页与 usePaginatedList
+ * 都已带；缺失归「未标注」）逐列表汇总，各列表独立给出已加载页数、
+ * 终态与最近失败。无分页事件时返回 null。 */
 export function feedTraceSummary(): {
-  loadedPages: number;
-  lastState: string | null;
-  lastFail: string | null;
+  lists: Array<{
+    list: string;
+    loadedPages: number;
+    lastState: string | null;
+    lastFail: string | null;
+  }>;
 } | null {
-  if (!events.length) return null;
-  let loadedPages = 0;
-  let lastState: string | null = null;
-  let lastFail: string | null = null;
+  const byList = new Map<string, { loadedPages: number; lastState: string | null; lastFail: string | null }>();
   for (const e of events) {
-    if (e.kind === "page.success") loadedPages = Math.max(loadedPages, Number(e.data.page) || 0);
-    if (e.kind === "page.state") lastState = String(e.data.to ?? "");
-    if (e.kind === "page.fail") lastFail = `${String(e.data.reason ?? "error")}（第 ${String(e.data.page ?? "?")} 页）`;
+    if (!e.kind.startsWith("page.")) continue;
+    const list = typeof e.data.list === "string" && e.data.list ? e.data.list : "未标注";
+    let agg = byList.get(list);
+    if (!agg) {
+      agg = { loadedPages: 0, lastState: null, lastFail: null };
+      byList.set(list, agg);
+    }
+    if (e.kind === "page.success") agg.loadedPages = Math.max(agg.loadedPages, Number(e.data.page) || 0);
+    if (e.kind === "page.state") agg.lastState = String(e.data.to ?? "");
+    if (e.kind === "page.fail") agg.lastFail = `${String(e.data.reason ?? "error")}（第 ${String(e.data.page ?? "?")} 页）`;
   }
-  return { loadedPages, lastState, lastFail };
+  if (!byList.size) return null;
+  return { lists: [...byList.entries()].map(([list, agg]) => ({ list, ...agg })) };
 }

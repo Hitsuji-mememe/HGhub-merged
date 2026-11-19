@@ -402,8 +402,11 @@ const snap = feedTraceSnapshot();
 if (!summary) {
 lines.push("无记录（本会话未打开任何分页列表）");
 } else {
-const failText = summary.lastFail? ` · 最近失败 ${summary.lastFail}`: "";
-lines.push(`分页：已加载至第 ${summary.loadedPages} 页 · 终态 ${summary.lastState?? "未知"}${failText}`);
+/* 按列表隔离逐行输出（fix2.1 批三#10）：多列表同会话不再混算 */
+for (const l of summary.lists) {
+const failText = l.lastFail? ` · 最近失败 ${l.lastFail}`: "";
+lines.push(`分页[${l.list}]：已加载至第 ${l.loadedPages} 页 · 终态 ${l.lastState?? "未知"}${failText}`);
+}
 const reasons = Object.entries(snap.image.byReason).map(([k, v]) => `${k} ${v}`).join(" · ");
 lines.push(`封面：已显示 ${snap.image.displayed} · 终局失败 ${snap.image.failed}${reasons? `（${reasons}）`: ""} · 在途峰值 ${snap.image.inFlightPeak}`);
 const recent = snap.events.filter(e => e.kind.startsWith("page.")).slice(-4);

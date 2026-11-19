@@ -8,6 +8,10 @@ type Options<T> = {
   filtering?: boolean;
   resetKey?: string | number;
   rootMargin?: string;
+  /** 诊断轨迹的列表标识（fix2.1 批三#10）：本 hook 的分页事件统一带
+   * 上它，feedTraceSummary 按列表隔离汇总；手写分页（频道/专题/标签）
+   * 早已带 list，本 hook 此前缺失、多列表同会话时摘要混算。 */
+  listId?: string;
   getId: (item: T) => number | string;
   request: (page: number) => Promise<Paged<T> | null | undefined>;
 };
@@ -35,6 +39,7 @@ export function usePaginatedList<T>({
   filtering = false,
   resetKey = "",
   rootMargin = "240px",
+  listId = "paginated",
   getId,
   request,
 }: Options<T>) {
@@ -54,6 +59,8 @@ export function usePaginatedList<T>({
     lastFailAt: number;
     autoPrefetch: number;
   }>({ status: "idle", page: 0, pages: 1, seq: 0, lastFailAt: 0, autoPrefetch: 0 });
+  const listIdRef = useRef(listId);
+  listIdRef.current = listId;
   const requestRef = useRef(request);
   requestRef.current = request;
   const getIdRef = useRef(getId);
@@ -67,7 +74,7 @@ export function usePaginatedList<T>({
   const setStatus = useCallback((to: PageStatus) => {
     const m = machine.current;
     if (m.status === to) return;
-    traceFeed("page.state", { from: m.status, to, page: m.page });
+    traceFeed("page.state", { list: listIdRef.current, from: m.status, to, page: m.page });
     m.status = to;
     setLoading(to === "loading");
   }, []);
@@ -90,7 +97,7 @@ export function usePaginatedList<T>({
     }
     setStatus("loading");
     setErr("");
-    traceFeed("page.request", { page: target, source, seq, reset });
+    traceFeed("page.request", { list: listIdRef.current, page: target, source, seq, reset });
     const startedAt = Date.now();
     let timer: number | undefined;
     try {
@@ -101,7 +108,7 @@ export function usePaginatedList<T>({
         }),
       ]);
       if (gen !== generation.current || seq !== m.seq) {
-        traceFeed("page.stale", { page: target, seq, why: "late-response" });
+        traceFeed("page.stale", { list: listIdRef.current, page: target, seq, why: "late-response" });
         return;
       }
       const incoming = response?.items || [];
@@ -131,6 +138,7 @@ export function usePaginatedList<T>({
       const more = target < resolvedPages;
       setHasMore(more);
       traceFeed("page.success", {
+        list: listIdRef.current,
         page: target, received: incoming.length, unique: uniqueCount,
         pages: resolvedPages, total: response?.pagination?.total ?? null,
         ms: Date.now() - startedAt,
@@ -155,13 +163,14 @@ export function usePaginatedList<T>({
       }
     } catch (error) {
       if (gen !== generation.current || seq !== m.seq) {
-        traceFeed("page.stale", { page: target, seq, why: "late-error" });
+        traceFeed("page.stale", { list: listIdRef.current, page: target, seq, why: "late-error" });
         return;
       }
       const timedOut = error instanceof Error && error.message === "__feed_timeout__";
       if (timedOut) m.seq++; // 让悬挂中的原请求回来时按 stale 丢弃
       m.lastFailAt = Date.now();
       traceFeed("page.fail", {
+        list: listIdRef.current,
         page: target, seq, reason: timedOut ? "timeout" : "error",
         ms: Date.now() - startedAt,
         message: timedOut ? `请求超过 ${REQUEST_TIMEOUT_MS / 1000}s 未返回` : (error instanceof Error ? error.message : "加载失败"),
@@ -206,6 +215,7 @@ export function usePaginatedList<T>({
         const entry = entries[0];
         sentinelVisible.current = entry.isIntersecting;
         traceFeed("sentinel", {
+          list: listIdRef.current,
           isIntersecting: entry.isIntersecting,
           ratio: Math.round(entry.intersectionRatio * 100) / 100,
           status: machine.current.status, page: machine.current.page,

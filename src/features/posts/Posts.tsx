@@ -27,6 +27,7 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
   const { items, page, pages, loading, err, loadMore, scroller: scrollRef, sentinel } = usePaginatedList<Post>({
     filtering,
     resetKey: lineEpoch,
+    listId: "posts:remen-chigua",
     rootMargin: "240px",
     getId: (item) => item.id,
     request: (next) => api.postCategory("remen-chigua", next, 20, "latest"),

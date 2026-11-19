@@ -19,6 +19,7 @@ function useUserVideos(enabled: boolean, resetKey: string | number, request: (pa
     enabled,
     filtering,
     resetKey,
+    listId: `user-videos:${String(resetKey)}`,
     rootMargin: "200px",
     getId: (item) => item.id,
     request,
