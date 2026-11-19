@@ -173,7 +173,6 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   夹具 `adapters/fixtures/real-*.html`，契约
   `fix321-f2.contract.test.ts`）。
 - 图集查看器形态（3.2.1 fix321-F6，2026-11-19 用户实报图片太小）：图集查看统一走共用 `AlbumViewer`（`src/features/sources/AlbumViewer.tsx`，SourceGallery 与搜索图片详情同治）——舞台填满可用高度（SourceGallery 为 fixed 覆满视口、搜索详情页内 h-full）、图片 contain 贴边、无写死比例盒子与上下张按钮行；标题/计数/返回/关闭/缩略图条收进悬浮层（静止 3s 自动淡出、中央点按显隐、左右点按与横滑翻页、缩略图点选跳张且当前张高亮定位），index 受控于调用方单份状态。几何由 `scripts/test-layout.mjs` gallery 场景守门（舞台占可用区 ≥98%＋源码层无 4/5 写死盒）。
-- 源健康自检（3.2.1 fix321-F7，2026-11-19 新立项）：`src/features/sources/healthCheck.ts`——诊断「源总览」里没被用户点开过的源永远是「未发生」，行不行此前只能靠外部逐站人工验（验的是浏览器环境、不是 App 取页链）。自检替代之：启动后延迟 90s 静默开轮、分片错峰（每片 3 源、片间 45s），对全部已启用源（未启用/blocked/preview/none 与 preview-only 模板不探，blocked 按 maturity 排除）用其自身适配器走生产取页链（模板经 fetchPage→Rust `source_fetch`＋当前线路，原生黄果经既有 api 通道），每源硬预算 2 请求（列表 1 页＋有条目时详情 1 条，不取流）。结果逐源落盘 `hghubx_source_selfcheck_v1`（源 id/时刻/列表成败＋条目数/详情三态/失败形态/请求数，不记 URL/查询），TTL 24h 内不重探（一天最多一轮全量、跨重启算新鲜度）。呈现只进诊断两条路径且口径分清：导出 `sourceHealthLines()` 尾加自检行组（汇总＋稳定编号逐源行）、App 内明细 `sourceHealthDetailLinesInApp()` 每行并入自检段——均标「最近自检」口径，与「本会话取页」三态并存不互盖；无结果计「未自检」不冒充未发生。失败形态与取页健康同源（`adapters/fetchErrorClassify.ts` 的 `classifyFetchError` 为唯一出处，fetchHealth 再导出）：网络不可达/超时/校验拒绝/响应过大归「网络类」、HTTP 状态单列、`SourceParseEmptyError` 记「解析为空」、详情步未分类失败记「详情失败」，列表与详情分开记、详情失败不翻列表结论。红线：静默（无弹窗/角标/任何用户可见打扰）、只记观测不自动处置（不改任何源启用/成熟度）、调度在 `main.tsx` 启动装配注册且纯旁路（异常不影响启动与使用）。契约 `fix321-f7.contract.test.ts`（调度注册/结果进诊断/预算与资格，适配器经注入接缝隔离、不访问上游网络）。
 - 吃瓜详情排版（最终版 D2 线，2026-11-19，用户实报）：`PostDetail`
   先文后视频——标题/元信息/标签/动作行/介绍正文在前，播放器区
   （`data-post-media`）移到正文之后；仍是点了才播（分段只解析备好、

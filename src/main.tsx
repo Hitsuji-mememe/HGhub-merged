@@ -18,8 +18,6 @@ import { FALLBACK_APP_VERSION, getActiveRegistry, getRegistryInfo, resolveRegist
 import { getVersion } from "@tauri-apps/api/app";
 import { sourceHealthLines } from "./features/sources/registryDiag";
 import { registerSourceRegistryProvider, registerSourceHealthProvider } from "./shared/diagnostics/sourceRegistry";
-import { createAdapter } from "./features/sources/adapters/index";
-import { startSourceSelfCheckScheduler } from "./features/sources/healthCheck";
 
 const loadAcceptedApp = () => import("./app/AcceptedApp");
 const AcceptedApp = lazy(loadAcceptedApp);
@@ -84,15 +82,6 @@ registerSourceRegistryProvider(() => {
   return `清单 v${info.manifestVersion} · 来源 ${info.registrySource} · 内置 ${info.builtinCount} 源`;
 });
 registerSourceHealthProvider(() => sourceHealthLines());
-
-/* 源健康自检调度（Muse 2026-11-19 fix321-F7）：启动后延迟静默分批，
- * 对已启用源用其自身适配器（createAdapter 生产路径：模板适配器经
- * fetchPage→Rust 取页＋当前线路）做列表＋详情探测，结果落盘只进
- * 诊断与源明细、无任何用户可见打扰；纯旁路——注册与自检异常都不
- * 影响启动与正常使用（healthCheck 内已吞异常，此处再兜一层）。 */
-try {
-  startSourceSelfCheckScheduler({ createAdapterFor: (def) => createAdapter(def) });
-} catch { /* 自检调度注册失败不影响启动 */ }
 
 /* 运行期错误统一落到 debug.log，便于自查 */
 function report(kind: string, msg: string) {
