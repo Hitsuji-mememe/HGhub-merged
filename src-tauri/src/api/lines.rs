@@ -16,6 +16,14 @@ fn begin_line_selection() -> Result<u64, String> {
     Ok(*generation)
 }
 
+/// 只读快照当前选线代次（整改 A6，Hark G2 P2-4）：只探不切的命令
+/// 用它报 cancelled，不递增代次——递增会把在途 line_auto 误判为
+/// 已取消、丢掉一整轮选线。
+fn current_line_selection() -> Result<u64, String> {
+    let generation = LINE_SELECTION.lock().map_err(|_| "线路选择锁失败")?;
+    Ok(*generation)
+}
+
 #[tauri::command]
 pub async fn line_cancel() -> Result<(), String> {
     begin_line_selection()?;
@@ -189,7 +197,10 @@ pub async fn line_auto(state: State<'_, Api>, urgent: Option<bool>) -> Result<Va
 /// confirm_gate、熔断检查与 note_auto_switch 记账。
 #[tauri::command]
 pub async fn line_try_main() -> Result<Value, String> {
-    let selection = begin_line_selection()?;
+    // 只读命令不碰全局代次（整改 A6）：旧实现调 begin_line_selection
+    // 递增代次，任何调用都会把在途 line_auto 判 cancelled。现只取
+    // 快照比对——探测期间真有新选线开始时 cancelled 仍如实上报。
+    let selection = current_line_selection()?;
     crate::net::refresh_client();
     let probe = crate::lines::try_main().await;
     let generation = LINE_SELECTION.lock().map_err(|_| "线路选择锁失败")?;
