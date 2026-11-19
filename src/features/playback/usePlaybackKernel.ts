@@ -11,7 +11,8 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import Hls, { type FragLoadedData } from "hls.js";
 import { api } from "../../shared/api/api";
 import { mediaResource, observeHls, registerHlsVersion, usePlayerDiagnostics } from "../../shared/diagnostics/playbackDiagnostics";
-import { notePlaybackPlaying, publishPlaybackFacts, type PlaybackFacts } from "../../shared/diagnostics/playbackFacts";
+import { notePlaybackPlaying, publishPlaybackFacts, type PlaybackFacts, type PlaybackLevelFacts } from "../../shared/diagnostics/playbackFacts";
+import { levelFactsFromFirstRendition } from "../../shared/diagnostics/levelFacts";
 import { usePlaybackActivity } from "./usePlaybackActivity";
 import { createFragThroughputReporter, currentLineOrigin } from "./playbackThroughput";
 import { createStallWatchdog, wireStallWatchdogSignals, type StallGate, type StallRetryReason } from "./stallWatchdogWiring";
@@ -91,6 +92,7 @@ export function buildPlaybackFacts(input: {
   srMode: string;
   engine?: string;
   firstRendition?: string;
+  levelFacts?: PlaybackLevelFacts;
   pipeline?: string;
   srDemoteCount?: number;
   at: number;
@@ -104,6 +106,7 @@ export function buildPlaybackFacts(input: {
     ...(d?.codec !== undefined ? { codec: d.codec } : {}),
     srMode: input.srMode,
     ...(input.firstRendition !== undefined ? { firstRendition: input.firstRendition } : {}),
+    ...(input.levelFacts !== undefined ? { levelFacts: input.levelFacts } : {}),
     ...(input.pipeline !== undefined ? { pipeline: input.pipeline } : {}),
     ...(input.srDemoteCount !== undefined ? { srDemoteCount: input.srDemoteCount } : {}),
     ...(input.engine !== undefined ? { engine: input.engine } : {}),
@@ -167,6 +170,15 @@ export function usePlaybackKernel(opts: {
     firstRenditionRef.current = next;
     setFirstRenditionState(next);
   };
+  /* 结构化档位事实（3.3.0批诊断档位线）：与 firstRendition 同采集点
+   * 同步登记/复位，供报告独立档位行逐要素判缺失；state 仅作发布效应
+   * 的重跑触发（与 firstRendition state 同步变化），组装读 ref。 */
+  const [levelFacts, setLevelFactsState] = useState<PlaybackLevelFacts | undefined>(undefined);
+  const levelFactsRef = useRef<PlaybackLevelFacts | undefined>(undefined);
+  const setLevelFacts = (next: PlaybackLevelFacts | undefined) => {
+    levelFactsRef.current = next;
+    setLevelFactsState(next);
+  };
   const [webgpuEngaged, setWebgpuEngagedState] = useState(false);
   const webgpuRef = useRef(false);
   const setWebgpuEngaged = (next: boolean) => {
@@ -194,6 +206,7 @@ export function usePlaybackKernel(opts: {
   /** 换源时呈现侧事实复位（两面 layout 期的清零动作收敛一份）。 */
   const resetPresentation = () => {
     setFirstRendition(undefined);
+    setLevelFacts(undefined);
     demoteRef.current = 0;
     setSrDemoteCountState(0);
   };
@@ -226,12 +239,17 @@ export function usePlaybackKernel(opts: {
     hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => {
       core.setPlayingLevel(data.level);
     });
-    observeFirstRendition(hls, Hls.Events, r => setFirstRendition(formatFirstRendition(r)));
+    observeFirstRendition(hls, Hls.Events, r => {
+      setFirstRendition(formatFirstRendition(r));
+      setLevelFacts(levelFactsFromFirstRendition(r));
+    });
   };
   /** 原生路径 rendition 不可控（P0-A 第 1 层明示）：只记实际分辨率。 */
   const noteNativeRendition = (w: number, h: number) => {
     if (engineRef.current && engineRef.current !== "hls.js" && w > 0) {
       setFirstRendition(`原生实际 ${w}x${h}（档位不可控）`);
+      /* 原生无 rendition 枚举：档位三要素如实缺失并标来源（档位线）。 */
+      setLevelFacts({ missingNote: "原生引擎档位不可控（无 rendition 列表）" });
     }
   };
   /** 看门狗构造：意愿门控/判死/重建/降级全在 stallWatchdogWiring
@@ -297,6 +315,7 @@ export function usePlaybackKernel(opts: {
       srMode: input.srMode,
       engine: engineRef.current || undefined,
       firstRendition: firstRenditionRef.current,
+      levelFacts: levelFactsRef.current,
       pipeline: presentationPipeline({ webgpuEngaged: webgpuRef.current, canvasMode: input.canvasMode, filterMode: fm }),
       srDemoteCount: demoteRef.current,
       at: Date.now(),
@@ -319,6 +338,7 @@ export function usePlaybackKernel(opts: {
     publishFacts,
     resetPresentation,
     firstRendition,
+    levelFacts,
     webgpuEngaged,
     setWebgpuEngaged,
     srDemoteCount,

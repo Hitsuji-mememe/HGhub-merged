@@ -284,6 +284,15 @@
   发生；源总览取页计数走 `fetchCounts.countFetchStates`，成功/失败/
   未发生/记录缺失四计数之和恒等于源总数。回归见
   `fix321-f3b-diagnostic-summary.contract.test.ts`。
+  档位事实行（2026-11-19 3.3.0 批诊断档位线）：含播放证据（facts/
+  流水/账本任一）的报告必含独立「档位：」行（`levelFacts.ts` 的
+  `formatLevelFactsLine` 唯一拼装口径）——档数 N、当前档序号、最高档
+  分辨率/码率三要素逐项呈现，缺失项标「未知」＋缺失来源，不许只作
+  「超分：」行条件后缀静默省略。采集侧：`observeFirstRendition` 在
+  同一首分片触发点附带 levels 末位（最高档）参数，内核同步登记结构
+  化 `PlaybackFacts.levelFacts`（两播放面共用 attachHls；原生引擎标
+  不可控来源）；纯观测补强，不改 ABR/选档与 SR 判档。回归见
+  `fix330-diag-levels.contract.test.ts`。
 
 ## 验证命令
 

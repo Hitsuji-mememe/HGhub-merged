@@ -1323,6 +1323,26 @@
       "min": 1
     },
     {
+      "id": "fix330-diag-levels-report-line",
+      "item": "3.3.0批诊断档位线 报告独立档位行 formatLevelFactsLine（定义＋diagnosticReport 双分支消费）：含播放必出、三要素逐项、缺失标未知＋来源",
+      "files": [
+        "src/shared/diagnostics/levelFacts.ts",
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "symbol": "formatLevelFactsLine",
+      "min": 3
+    },
+    {
+      "id": "fix330-diag-levels-collect",
+      "item": "3.3.0批诊断档位线 结构化档位事实登记 levelFactsFromFirstRendition（定义＋播放内核 attachHls 采集点消费，两面共用）：附带最高档 levels 末位参数",
+      "files": [
+        "src/shared/diagnostics/levelFacts.ts",
+        "src/features/playback/usePlaybackKernel.ts"
+      ],
+      "symbol": "levelFactsFromFirstRendition",
+      "min": 2
+    },
+    {
       "id": "fix321-f8-diag-fault-class",
       "item": "F8 诊断明细故障类标注 classifySourceFault（registryDiag 消费纯函数定性）",
       "files": [

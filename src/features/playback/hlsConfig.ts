@@ -95,6 +95,13 @@ export type FirstRendition = {
   width?: number;
   height?: number;
   bitrate?: number;
+  /** 最高档（levels 末位）参数（Muse 2026-11-19 3.3.0批诊断档位线）：
+   * 报告「档位：」行的最高档要素来源——此前只记首分片所属档，最高档
+   * 分辨率/码率从未被采集，源有几档、最高档是什么在诊断里不可判读。
+   * 纯观测附带，不参与任何选档/ABR 决策。 */
+  topWidth?: number;
+  topHeight?: number;
+  topBitrate?: number;
 };
 
 export function formatFirstRendition(r: FirstRendition): string {
@@ -121,12 +128,16 @@ export function observeFirstRendition(
     const level = levels[data.frag.level];
     if (!level) return;
     done = true;
+    const top = levels[levels.length - 1];
     onFirst({
       index: data.frag.level + 1,
       total: levels.length,
       width: level.width || undefined,
       height: level.height || undefined,
       bitrate: level.bitrate || undefined,
+      topWidth: top?.width || undefined,
+      topHeight: top?.height || undefined,
+      topBitrate: top?.bitrate || undefined,
     });
   });
 }

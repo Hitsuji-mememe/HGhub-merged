@@ -21,6 +21,7 @@ import { nativeFallbackState} from "../../features/playback/mediaTransport";
 import { flushPlaybackLog, playbackLogApi} from "./playbackDiagnostics";
 import { ledgerPlaybackEvidence, selectFlowSegment } from "./flowSegments";
 import { readPlaybackFacts, type PlaybackFacts } from "./playbackFacts";
+import { formatLevelFactsLine } from "./levelFacts";
 import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot, validateLedgerIntegrity} from "./eventLedger";
 import { sourceRegistryVersion, sourceHealthLines } from "./sourceRegistry";
@@ -618,8 +619,19 @@ lines.push(`当前集源：${facts.w}x${facts.h}${codecText}${fpsText}${kbps? ` 
 /* 超分双行口径（audit6 P0-A 第 2 层）：判档是意图、实际管线是实况、
  * 降档次数是稳定性——分开报，禁止用单个「超分档位」冒充实况。 */
 lines.push(`超分：判档 ${facts.srMode} · 实际管线 ${facts.pipeline?? "未知"} · 降档 ${facts.srDemoteCount?? flow?.demoteCount?? 0} 次${facts.firstRendition? ` · 首分片档位 ${facts.firstRendition}`: ""}`);
+/* 独立档位行（Muse 2026-11-19 3.3.0批诊断档位线）：含播放的诊断
+ * 必含——三要素（档数/当前档/最高档分辨率·码率）逐项呈现，缺失标
+ * 未知＋来源，不再只作超分行的条件后缀静默省略（3.2.2 真机贴文缺行
+ * 实锤，定性见 fix330/evidence/diag-levels.md）。拼装唯一口径在
+ * levelFacts.formatLevelFactsLine。 */
+const levelLine = formatLevelFactsLine({ facts, hasPlayback: true });
+if (levelLine) lines.push(levelLine);
 } else {
 lines.push("当前集源：无（尚未播放）");
+/* facts 快照缺失但流水/账本有播放时档位行仍必出（同档位线口径）：
+ * 整行标未知＋快照缺失来源，不许因快照一侧为空整行消失。 */
+const levelLine = formatLevelFactsLine({ facts: null, hasPlayback: flow != null || ledgerEvidence.hasPlayback });
+if (levelLine) lines.push(levelLine);
 }
 if (flow && flow.demoteCount > 0) lines.push(`超分降档：本会话 ${flow.demoteCount} 次（帧成本超标自动降档——发热/功耗问题先看这个数）`);
 lines.push(`选线现状：当前 ${currentLineId?? "未知"}${round && Date.now() - round.at < 10 * 60_000? `；最近轮次发布 ${round.published?? "?"} 条、延迟探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条、吞吐探测池 ${round.measured.length} 条（池规则：可达 ≤6 全测／>6 池内轮换）`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}${flow? `；本会话切线 ${flow.lineSwitchCount} 次${flow.confirmPendingCount > 0? ` · 两轮确认待确认 ${flow.confirmPendingCount} 次`: ""}`: ""}`);

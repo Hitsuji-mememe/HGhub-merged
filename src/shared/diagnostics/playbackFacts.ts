@@ -3,6 +3,22 @@
  * 规格（分辨率/码率/密度/超分档位）」，而这些原本只活在播放面局部状态里。
  * 只是内存快照，不落盘；从未播放过则为空。 */
 
+/** 结构化档位事实（Muse 2026-11-19 3.3.0批诊断档位线）：首分片
+ * rendition 的结构化形态，与预格式化字符串 firstRendition 并存——
+ * 字符串供「超分：」行后缀，结构化字段供报告独立「档位：」行逐要素
+ * 判缺失（三要素：档数 total、当前档序号 currentIndex（1 起）、最高档
+ * topWidth/topHeight/topBitrate（levels 末位））。要素在会话中无从取得
+ * 时整键缺失，由报告层标「未知」；缺失原因可考时记 missingNote（如
+ * 原生引擎不可控），不许拿当前档参数冒充最高档。 */
+export type PlaybackLevelFacts = {
+  total?: number;
+  currentIndex?: number;
+  topWidth?: number;
+  topHeight?: number;
+  topBitrate?: number;
+  missingNote?: string;
+};
+
 export type PlaybackFacts = {
   w: number;
   h: number;
@@ -16,6 +32,9 @@ export type PlaybackFacts = {
   /** 首分片 rendition（audit6 P0-A 第 1 层）：如「第 3/4 档 · 1280x720 ·
    * 4500kbps」；原生路径为实际分辨率＋不可控标注。未知时缺失。 */
   firstRendition?: string;
+  /** 结构化档位事实（3.3.0批诊断档位线），与 firstRendition 同采集点
+   * 同步登记；旧发布路径只有字符串时缺失，报告层走字符串回落解析。 */
+  levelFacts?: PlaybackLevelFacts;
   /** 实际呈现管线（audit6 P0-A 第 2 层）：webgpu / webgl-crisp /
    * webgl-natural / svg-natural / none——与判档分开记，不许混报。 */
   pipeline?: string;
