@@ -271,6 +271,8 @@ mod tests {
             assert!(filter_source_post_headers(pairs(&[("x-signature", "s")]), origin).is_err(), "非 auth.hanime.tv origin 必须拒绝 POST");
         }
         assert!(filter_source_post_headers(pairs(&[("Host", "evil.example")]), Some("https://auth.hanime.tv")).is_err());
+    }
+
     /* fix330 接通批：X-Version 定向放行只对 Iwara 文件 host 生效，
      * 其他 origin（含 www/api 子域与仿冒子域）一律丢弃。 */
     #[test]
