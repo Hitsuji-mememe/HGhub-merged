@@ -11,7 +11,7 @@
 import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
-import { allImgSrcs, extractM3u8, findAnchors, firstImgSrc, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
+import { allImgSrcs, extractIframeSrc, extractM3u8, extractMp4, findAnchors, firstImgSrc, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
 
 export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "preview-only", "none"] as const;
 
@@ -47,12 +47,12 @@ async function htmlDetail(def: SourceDef, externalId: string): Promise<SourceDet
   const html = await fetchPage(absUrl(base, externalId));
   const title = metaContent(html, "og:title") || stripTags(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? "");
   const cover = metaContent(html, "og:image");
-  const m3u8 = extractM3u8(html);
+  const hasStream = extractM3u8(html) !== null || extractMp4(html) !== null;
   return {
     sourceId: def.id, externalId, title, cover: cover ? absUrl(base, cover) : "",
     href: absUrl(base, externalId), tags: [], description: metaContent(html, "description"),
     contentHtml: undefined, images: allImgSrcs(html).map((s) => absUrl(base, s)),
-    episodes: m3u8 ? [{ label: "正片", externalId }] : [],
+    episodes: hasStream ? [{ label: "正片", externalId }] : [],
   };
 }
 
@@ -60,7 +60,9 @@ async function htmlResolve(def: SourceDef, externalId: string): Promise<{ stream
   const base = def.baseUrls[0];
   const html = await fetchPage(absUrl(base, externalId));
   const m3u8 = extractM3u8(html);
-  return { streams: m3u8 ? [{ url: m3u8, kind: "hls" as const }] : [] };
+  if (m3u8) return { streams: [{ url: m3u8, kind: "hls" as const }] };
+  const mp4 = extractMp4(html);
+  return { streams: mp4 ? [{ url: mp4, kind: "file" as const }] : [] };
 }
 
 function htmlListAdapter(def: SourceDef): SourceAdapter {
@@ -134,8 +136,23 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
     },
     async resolve(id) {
       const p = JSON.parse(await fetchPage(`${apiUrl(listPath)}/${id}`)) as WpPost;
-      const m3u8 = extractM3u8(p.content?.rendered ?? "");
-      return { streams: m3u8 ? [{ url: m3u8, kind: "hls" as const }] : [] };
+      const content = p.content?.rendered ?? "";
+      const m3u8 = extractM3u8(content);
+      if (m3u8) return { streams: [{ url: m3u8, kind: "hls" as const }] };
+      const mp4 = extractMp4(content);
+      if (mp4) return { streams: [{ url: mp4, kind: "file" as const }] };
+      // WP 站常见形态：正文只嵌播放器 iframe，流地址在 iframe 页内。
+      const iframe = extractIframeSrc(content);
+      if (iframe) {
+        const playerHtml = await fetchPage(absUrl(def.baseUrls[0], iframe));
+        const im3u8 = extractM3u8(playerHtml);
+        if (im3u8) return { streams: [{ url: im3u8, kind: "hls" as const }] };
+        const imp4 = extractMp4(playerHtml);
+        if (imp4) return { streams: [{ url: imp4, kind: "file" as const }] };
+      }
+      // 图集型帖子：resolve 给正文首图作 file 流（与 danbooru-api 口径一致）。
+      const first = firstImgSrc(content);
+      return { streams: first ? [{ url: first, kind: "file" as const }] : [] };
     },
     async search(q, page, size) {
       const raw = await fetchPage(`${apiUrl(listPath)}?search=${encodeURIComponent(q)}&page=${page}&per_page=${size}`);

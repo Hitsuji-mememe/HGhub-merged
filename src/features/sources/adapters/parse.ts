@@ -52,9 +52,36 @@ export function metaContent(html: string, property: string): string {
   return decodeEntities(re.exec(html)?.[1] ?? re2.exec(html)?.[1] ?? "");
 }
 
+/** 还原嵌在 JS/JSON 里的转义 URL（\/ 与 &amp;），供流地址提取前预处理。 */
+export function unescapeUrlText(html: string): string {
+  return html.replace(/\\\//g, "/").replace(/&amp;/g, "&").replace(/\\u0026/g, "&");
+}
+
 export function extractM3u8(html: string): string | null {
-  const m = /https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/i.exec(html);
+  const m = /https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/i.exec(unescapeUrlText(html));
   return m ? m[0] : null;
+}
+
+/**
+ * mp4 直链兜底（KVS 系站点的 video_url / <source> 形态）：收集全部候选，
+ * 滤掉预览/时间轴缩略类，按文件名画质标记 1080>720>480 优先，否则取首个。
+ */
+export function extractMp4(html: string): string | null {
+  const text = unescapeUrlText(html);
+  const all = [...text.matchAll(/https?:\/\/[^\s"'<>\\]+?\.mp4(?:\?[^\s"'<>\\]*)?/gi)]
+    .map((m) => m[0])
+    .filter((u) => !/preview|timelines/i.test(u));
+  if (!all.length) return null;
+  for (const q of ["1080", "720", "480"]) {
+    const hit = all.find((u) => u.includes(q));
+    if (hit) return hit;
+  }
+  return all[0];
+}
+
+export function extractIframeSrc(html: string): string | null {
+  const m = /<iframe\b[^>]*\bsrc="([^"]+)"/i.exec(html);
+  return m ? decodeEntities(m[1]) : null;
 }
 
 export function pageOf(total: number, page: number, size: number): { page: number; pages: number; size: number; total: number } {
