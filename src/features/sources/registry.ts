@@ -57,10 +57,10 @@ export const BUILTIN_SOURCES: SourceDef[] = [
   },
   {
     id: "hanime-tv", displayName: "Hanime.tv", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/browse?page={page}", itemLinkPattern: "/videos/hentai/", detailPath: "/videos/hentai/{id}" } },
+    adapter: { template: "hls-site", params: { listPath: "/", itemLinkPattern: "/videos/hentai/", detailPath: "/videos/hentai/{id}" } },
     baseUrls: ["https://hanime.tv"],
     enabled: true, order: 24, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：首页 SSR 解析 68 条（/browse 是品牌/标签索引页、已改走首页）；详情页 SSR 无 m3u8/mp4、流走站内 api/v11 内部接口（页面见 search_hvs/api_base_url 痕迹）未验证 → probe；残留：分页路径与取流接口",
   },
   {
     id: "swag", displayName: "SWAG", kind: "video", category: "video",
