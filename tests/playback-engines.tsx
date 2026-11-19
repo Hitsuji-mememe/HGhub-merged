@@ -9,6 +9,7 @@ import { nativeFallbackState, noteNativeFallback, playbackSource, resetNativeFal
 import { createStallWatchdog } from "../src/features/playback/stallWatchdogWiring";
 import { effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
 import { createSrDensitySampler } from "../src/features/playback/useSrDensity";
+import { evaluateSrGatesV2 } from "../src/shared/diagnostics/gpuProbe";
 import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, lockHighestStartLevel, resolveAbrSeedBps } from "../src/features/playback/hlsConfig";
 
 class FakeClock implements StallClock {
@@ -331,6 +332,23 @@ function run() {
     results.h_lock_highest = [locked, (fake as { startLevel: number }).startLevel];
   }
   results.h_first_rendition = formatFirstRendition({ index: 4, total: 4, width: 1920, height: 1080, bitrate: 8_000_000 });
+
+  /* ── G 门禁 v2（audit6 P0-A 第 3 层）：逐项否决——任一门不过全不过 ── */
+  {
+    const base = {
+      recommendedPath: "copy" as const,
+      chain720: { ok: true, msAvg: 11.3, msP90: 15 },
+      chain1080: { ok: true, msAvg: 16.1, msP90: 20 },
+      deviceLost: 0, droppedRate720: 0.01, tailRatio720: 1.05,
+    };
+    results.g_all_pass = evaluateSrGatesV2(base);
+    results.g_p90_720_blocks = evaluateSrGatesV2({ ...base, chain720: { ok: true, msAvg: 11, msP90: 40 } });
+    results.g_1080_avg_blocks = evaluateSrGatesV2({ ...base, chain1080: { ok: true, msAvg: 26, msP90: 20 } });
+    results.g_device_lost_blocks = evaluateSrGatesV2({ ...base, deviceLost: 1 });
+    results.g_dropped_blocks = evaluateSrGatesV2({ ...base, droppedRate720: 0.06 });
+    results.g_tail_blocks = evaluateSrGatesV2({ ...base, tailRatio720: 1.25 });
+    results.g_no_path_blocks = evaluateSrGatesV2({ ...base, recommendedPath: null });
+  }
 
   /* ── W 接线级矩阵（fix2 B1）：createStallWatchdog 的真实升级链——
    * 判死→重建→再判死→会话降级→名额用尽报错，及三道门控（旧实例 /

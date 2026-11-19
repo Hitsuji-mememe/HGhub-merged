@@ -411,6 +411,10 @@ export function SuperResSvgDefs() {
   return (
     <svg width="0" height="0" aria-hidden style={{ position: "absolute", pointerEvents: "none", opacity: 0 }}>
       <defs>
+        {/* 保底参数对齐（Muse 2026-11-19 根治包，audit6 P0-A 第 3 层）：
+            SVG natural 边权 -0.18 与 WebGL natural 着色器的 wSharp 基准
+            -0.18 逐字一致、中心 1.72=1+4×0.18 总增益 1.0——两条管线切换
+            不跳变，核对留痕于此。仓内无 sr-quality 夹具，SSIM/锐度未测。 */}
         <filter id="hg-sr-filter-natural" colorInterpolationFilters="sRGB">
           <feConvolveMatrix
             order="3"

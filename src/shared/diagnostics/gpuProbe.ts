@@ -292,6 +292,11 @@ export function formatGpuProbeLines(result: GpuProbeResult | null): string[] {
  * 未注册（如 TV 版）时 v2 节如实记「未注册」。 */
 export type SrProbeResult = {
   at: string;
+  /** 结果来源（audit6 P0-A 第 3 层持久化）：persisted＝localStorage 命中、
+   * fresh＝本次新测；内存缓存直读时缺失。 */
+  source?: "persisted" | "fresh";
+  /** 持久化命中时的年龄（天，1 位小数）。 */
+  ageDays?: number;
   /** 720p 探针视频真实帧到达（rVFC presentedFrames）。 */
   presented720: number;
   frames720Ok: boolean;
@@ -301,18 +306,72 @@ export type SrProbeResult = {
   chain1080: { ok: boolean; msAvg: number | null; msP90: number | null };
   deviceLost: number;
   recommendedPath: "external" | "copy" | null;
-  /** 机器可判的采纳门：至少一条摄入路径可用 且 720p 全链平均成本
-   * < 33.3ms（720p@30 帧间隔）。画质门由同帧对比证据另行裁定。 */
+  /** 门禁 v2（audit6 P0-A 第 3 层）：见 evaluateSrGatesV2。 */
   gatesPass: boolean;
+  /** 720p 全链掉帧率（dropped/(processed+dropped)），门禁输入。 */
+  droppedRate720?: number;
+  /** 尾 1/3 段 avg ÷ 首段 avg（热衰减代理），门禁输入。 */
+  tailRatio720?: number | null;
 };
+
+/** 门禁 v2（Muse 2026-11-19 根治包，audit6 P0-A 第 3 层）：全部满足才过——
+ * 720p avg<33.3 且 P90<33.3；1080p avg<25 且 P90<33.3；deviceLost==0；
+ * bench 掉帧率<5%；尾段 avg ≤ 首段×1.2。旧门只看 720p avg 一项。 */
+export function evaluateSrGatesV2(r: {
+  recommendedPath: "external" | "copy" | null;
+  chain720: { ok: boolean; msAvg: number | null; msP90: number | null };
+  chain1080: { ok: boolean; msAvg: number | null; msP90: number | null };
+  deviceLost: number;
+  droppedRate720?: number;
+  tailRatio720?: number | null;
+}): boolean {
+  if (!r.recommendedPath) return false;
+  if (!r.chain720.ok || r.chain720.msAvg == null || r.chain720.msP90 == null) return false;
+  if (!(r.chain720.msAvg < 33.3 && r.chain720.msP90 < 33.3)) return false;
+  if (!r.chain1080.ok || r.chain1080.msAvg == null || r.chain1080.msP90 == null) return false;
+  if (!(r.chain1080.msAvg < 25 && r.chain1080.msP90 < 33.3)) return false;
+  if (r.deviceLost !== 0) return false;
+  if (r.droppedRate720 != null && !(r.droppedRate720 < 0.05)) return false;
+  if (r.tailRatio720 != null && !(r.tailRatio720 <= 1.2)) return false;
+  return true;
+}
+
+/* ── 探针持久化（audit6 P0-A 第 3 层）：结果落 localStorage，键＝设备
+ * 型号×iOS 版本×引擎版本；命中且 <30 天直接用，禁止每次启动重跑。
+ * 设备型号/iOS 版本只取 UA 可得的粗粒度标识（探针键用途，非指纹上报，
+ * 不出本机）。引擎版本由 features 注册时注入（shared 不反向依赖）。 */
+let srEngineVersion = 0;
+export function srProbeCacheKey(): string {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const model = /iPhone|iPad|iPod|Android|Macintosh|Windows/.exec(ua)?.[0] ?? "unknown";
+  const osVer = /OS (\d+_\d+)|Android (\d+)|Mac OS X (\d+_\d+)/.exec(ua)?.slice(1).find(Boolean) ?? "?";
+  return `hghubx_sr_probe_v1:${model}:${osVer}:e${srEngineVersion}`;
+}
+const SR_PROBE_MAX_AGE_MS = 30 * 24 * 3600_000;
+function readPersistedSrProbe(): SrProbeResult | null {
+  try {
+    const raw = localStorage.getItem(srProbeCacheKey());
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SrProbeResult;
+    const at = Date.parse(parsed.at);
+    if (!Number.isFinite(at)) return null;
+    const age = Date.now() - at;
+    if (age < 0 || age >= SR_PROBE_MAX_AGE_MS) return null;
+    return { ...parsed, source: "persisted", ageDays: Math.round((age / 86400_000) * 10) / 10 };
+  } catch { return null; }
+}
+function persistSrProbe(result: SrProbeResult): void {
+  try { localStorage.setItem(srProbeCacheKey(), JSON.stringify(result)); } catch { /* 存储不可用则下次重跑 */ }
+}
 
 type SrProbeRunner = () => Promise<SrProbeResult>;
 let srProbeRunner: SrProbeRunner | null = null;
 let srProbeCached: SrProbeResult | null = null;
 let srProbeInflight: Promise<SrProbeResult | null> | null = null;
 
-export function registerSrProbe(runner: SrProbeRunner): void {
+export function registerSrProbe(runner: SrProbeRunner, engineVersion = 0): void {
   srProbeRunner = runner;
+  srEngineVersion = engineVersion;
 }
 
 export function getSrProbeResult(): SrProbeResult | null {
@@ -323,16 +382,24 @@ export function srProbeRegistered(): boolean {
   return srProbeRunner !== null;
 }
 
-/** v1 完成后顺带跑 v2（幂等、永不 reject）。 */
+/** v1 完成后顺带跑 v2（幂等、永不 reject）。持久化命中（<30 天）直接
+ * 用，不重跑——探针是分钟级开销，不许每次启动付一遍。 */
 export function runSrProbe(): Promise<SrProbeResult | null> {
   if (srProbeCached) return Promise.resolve(srProbeCached);
   if (!srProbeRunner) return Promise.resolve(null);
+  const persisted = readPersistedSrProbe();
+  if (persisted) {
+    srProbeCached = persisted;
+    return Promise.resolve(persisted);
+  }
   if (srProbeInflight) return srProbeInflight;
   const runner = srProbeRunner;
   srProbeInflight = (async () => {
     try {
-      const result = await runner();
+      const fresh = await runner();
+      const result: SrProbeResult = { ...fresh, source: "fresh" };
       srProbeCached = result;
+      persistSrProbe(result);
       try {
         record("gpu.probe_v2", {
           path: result.recommendedPath,
@@ -355,11 +422,13 @@ export function formatSrProbeLines(result: SrProbeResult | null): string[] {
   if (!result) return ["探针 v2 尚未完成（v1 之后后台执行）"];
   const ms = (v: number | null) => (v === null ? "—" : `${v}ms`);
   return [
+    `结果来源 ${result.source === "persisted" ? `持久化命中（${result.ageDays ?? "?"} 天前）` : result.source === "fresh" ? "本次新测" : "内存缓存"} · 测于 ${result.at}`,
     `720p 真帧到达 ${result.frames720Ok ? "✓" : "✗"}（presentedFrames=${result.presented720}）`,
     `摄入·外部纹理 ${result.external.ok ? "✓" : "✗"} 平均 ${ms(result.external.msAvg)} / P90 ${ms(result.external.msP90)}（处理 ${result.external.processed} 帧、丢弃 ${result.external.dropped}）`,
     `摄入·拷贝 ${result.copy.ok ? "✓" : "✗"} 平均 ${ms(result.copy.msAvg)} / P90 ${ms(result.copy.msP90)}（处理 ${result.copy.processed} 帧、丢弃 ${result.copy.dropped}）`,
     `全链 720p ${result.chain720.ok ? "✓" : "✗"} 平均 ${ms(result.chain720.msAvg)} / P90 ${ms(result.chain720.msP90)}（帧预算 33.3ms：${result.chain720.withinBudget ? "过" : "不过"}）`,
-    `全链 1080p ${result.chain1080.ok ? "✓" : "✗"} 平均 ${ms(result.chain1080.msAvg)} / P90 ${ms(result.chain1080.msP90)}`,
-    `Device Lost（探针期）${result.deviceLost} 次；建议路径 ${result.recommendedPath ?? "无"}；机器采纳门 ${result.gatesPass ? "过" : "不过"}`,
+    `全链 1080p ${result.chain1080.ok ? "✓" : "✗"} 平均 ${ms(result.chain1080.msAvg)} / P90 ${ms(result.chain1080.msP90)}（门禁 avg<25 且 P90<33.3）`,
+    `720p 掉帧率 ${result.droppedRate720 != null ? `${(result.droppedRate720 * 100).toFixed(1)}%` : "—"}（门禁 <5%） · 尾/首段成本比 ${result.tailRatio720 != null ? result.tailRatio720.toFixed(2) : "—"}（门禁 ≤1.20）`,
+    `Device Lost（探针期）${result.deviceLost} 次；建议路径 ${result.recommendedPath ?? "无"}；机器采纳门 v2 ${result.gatesPass ? "过" : "不过"}`,
   ];
 }

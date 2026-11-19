@@ -15,8 +15,9 @@
  * body 外（屏外定位）以保证 WKWebView 也能给出当前纹理。
  */
 
-import { registerSrProbe, type SrProbeResult } from "../../shared/diagnostics/gpuProbe";
+import { evaluateSrGatesV2, registerSrProbe, type SrProbeResult } from "../../shared/diagnostics/gpuProbe";
 import { WebGpuSrEngine, type SrIngestPath } from "./webgpuSr";
+import { SR_ENGINE_VERSION } from "./SrCanvas";
 
 type VideoWithVfc = HTMLVideoElement & {
   requestVideoFrameCallback?: (cb: (now: number, metadata: { presentedFrames: number }) => void) => number;
@@ -98,7 +99,7 @@ function nextPresentedFrame(video: HTMLVideoElement, timeoutMs = 3000): Promise<
   });
 }
 
-type BenchResult = { ok: boolean; msAvg: number | null; msP90: number | null; processed: number; dropped: number };
+type BenchResult = { ok: boolean; msAvg: number | null; msP90: number | null; processed: number; dropped: number; tailRatio: number | null };
 
 async function benchPath(
   path: SrIngestPath,
@@ -107,33 +108,54 @@ async function benchPath(
   onLost: () => void,
   deadline = Number.POSITIVE_INFINITY,
 ): Promise<BenchResult> {
+  /* 真实呈现尺寸画布（audit6 P0-A 第 3 层）：旧实现 4×4 画布把 present/
+   * composite 成本测成约零、门数值系统性偏乐观。引擎输出为源 2× 上采样，
+   * 画布按输出纹理尺寸建，呈现段成本如实入账。 */
   const canvas = document.createElement("canvas");
-  canvas.width = 4;
-  canvas.height = 4;
-  canvas.style.cssText = "position:fixed;left:-9999px;top:0;width:4px;height:4px;pointer-events:none;";
+  canvas.width = Math.max(2, (video.videoWidth || 640) * 2);
+  canvas.height = Math.max(2, (video.videoHeight || 360) * 2);
+  canvas.style.cssText = "position:fixed;left:-9999px;top:0;pointer-events:none;";
   document.body.appendChild(canvas);
   let engine: WebGpuSrEngine | null = null;
+  let threw = false;
   try {
     engine = await WebGpuSrEngine.create(canvas, { path, onLost });
-    if (!engine) return { ok: false, msAvg: null, msP90: null, processed: 0, dropped: 0 };
+    if (!engine) return { ok: false, msAvg: null, msP90: null, processed: 0, dropped: 0, tailRatio: null };
+    let headAvg: number | null = null;
+    let headFrames = 0;
+    const headAt = Math.max(1, Math.floor(frames / 3));
     for (let i = 0; i < frames; i += 1) {
       /* 整场总预算（fix2.1 批三#8）：逐帧检查，耗尽即以已处理帧结算 */
       if (Date.now() > deadline) break;
       await nextPresentedFrame(video);
       engine.processFrame(video, 0);
+      if (i + 1 === headAt) {
+        const mid = engine.getStats();
+        headAvg = mid.frames ? mid.costAvgMs : null;
+        headFrames = mid.frames;
+      }
     }
     /* 等在飞帧结算 */
     await new Promise((r) => setTimeout(r, 600));
     const stats = engine.getStats();
+    let tailRatio: number | null = null;
+    if (headAvg != null && headAvg > 0 && stats.frames > headFrames && stats.costAvgMs != null) {
+      const tailAvg = (stats.costAvgMs * stats.frames - headAvg * headFrames) / (stats.frames - headFrames);
+      tailRatio = Math.round((tailAvg / headAvg) * 100) / 100;
+    }
     return {
-      ok: stats.frames > 0,
+      /* ok 定义（audit6 P0-A 第 3 层）：完成计划帧数 ≥90% 且无同步异常，
+       * 废除旧「处理 ≥1 帧即 ok」。 */
+      ok: !threw && stats.frames >= Math.floor(frames * 0.9),
       msAvg: stats.frames ? stats.costAvgMs : null,
       msP90: stats.frames ? stats.costP90Ms : null,
       processed: stats.frames,
       dropped: stats.droppedStale,
+      tailRatio,
     };
   } catch {
-    return { ok: false, msAvg: null, msP90: null, processed: 0, dropped: 0 };
+    threw = true;
+    return { ok: false, msAvg: null, msP90: null, processed: 0, dropped: 0, tailRatio: null };
   } finally {
     try { engine?.destroy(); } catch { /* 忽略 */ }
     canvas.remove();
@@ -148,7 +170,7 @@ async function runSrProbeV2(): Promise<SrProbeResult> {
   const deadline = Date.now() + 90000;
   let deviceLost = 0;
   const onLost = () => { deviceLost += 1; };
-  const empty: BenchResult = { ok: false, msAvg: null, msP90: null, processed: 0, dropped: 0 };
+  const empty: BenchResult = { ok: false, msAvg: null, msP90: null, processed: 0, dropped: 0, tailRatio: null };
   let presented720 = 0;
   let frames720Ok = false;
   let video720: HTMLVideoElement | null = null;
@@ -181,28 +203,36 @@ async function runSrProbeV2(): Promise<SrProbeResult> {
     let chain720 = { ok: false, msAvg: null as number | null, msP90: null as number | null, withinBudget: false };
     let chain1080 = { ok: false, msAvg: null as number | null, msP90: null as number | null };
     if (recommendedPath && Date.now() <= deadline) {
-      const full = await benchPath(recommendedPath, video720, 45, onLost, deadline);
+      /* 全链段 300 帧连续处理（audit6 P0-A 第 3 层）：尾段成本比作热衰减门。 */
+      const full = await benchPath(recommendedPath, video720, 300, onLost, deadline);
       chain720 = {
         ok: full.ok,
         msAvg: full.msAvg,
         msP90: full.msP90,
         withinBudget: full.ok && full.msAvg !== null && full.msAvg < FRAME_BUDGET_720P_MS,
       };
+      (chain720 as { droppedRate?: number }).droppedRate = full.processed + full.dropped > 0 ? full.dropped / (full.processed + full.dropped) : 0;
+      (chain720 as { tailRatio?: number | null }).tailRatio = full.tailRatio;
       try {
         if (Date.now() > deadline) throw new Error("整场预算耗尽，跳过 1080p 段");
         const loaded1080 = await loadProbeVideo("/probe/sr-1080p.mp4", 10);
         video1080 = loaded1080.video;
-        const b1080 = await benchPath(recommendedPath, video1080, 30, onLost, deadline);
+        const b1080 = await benchPath(recommendedPath, video1080, 300, onLost, deadline);
         chain1080 = { ok: b1080.ok, msAvg: b1080.msAvg, msP90: b1080.msP90 };
       } catch {
         chain1080 = { ok: false, msAvg: null, msP90: null };
       }
     }
-    return {
+    const full720 = chain720 as { droppedRate?: number; tailRatio?: number | null };
+    const result: SrProbeResult = {
       at, presented720, frames720Ok, external, copy, chain720, chain1080,
       deviceLost, recommendedPath,
-      gatesPass: recommendedPath !== null && chain720.withinBudget,
+      droppedRate720: full720.droppedRate,
+      tailRatio720: full720.tailRatio ?? null,
+      gatesPass: false,
     };
+    result.gatesPass = evaluateSrGatesV2(result);
+    return result;
   } finally {
     for (const v of [video720, video1080]) {
       try { v?.pause(); } catch { /* 忽略 */ }
@@ -215,5 +245,5 @@ let registered = false;
 export function registerSrProbeV2(): void {
   if (registered) return;
   registered = true;
-  registerSrProbe(runSrProbeV2);
+  registerSrProbe(runSrProbeV2, SR_ENGINE_VERSION);
 }

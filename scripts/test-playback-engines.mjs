@@ -130,6 +130,14 @@ try {
   check("H start level locks highest", r.h_lock_highest, [3, 3]);
   check("H first rendition format", r.h_first_rendition, "第 4/4 档 · 1920x1080 · 8000kbps");
 
+  check("G gates v2 all pass", r.g_all_pass, true);
+  check("G gates v2 720p P90 blocks", r.g_p90_720_blocks, false);
+  check("G gates v2 1080p avg blocks", r.g_1080_avg_blocks, false);
+  check("G gates v2 deviceLost blocks", r.g_device_lost_blocks, false);
+  check("G gates v2 dropped rate blocks", r.g_dropped_blocks, false);
+  check("G gates v2 tail ratio blocks", r.g_tail_blocks, false);
+  check("G gates v2 no path blocks", r.g_no_path_blocks, false);
+
   // W — wiring-level stall escalation matrix (fix2 B1)
   check("W1 first stall retries in place", r.w1_first_stall_retry, ["append_stall"]);
   check("W1 attempt incremented", r.w1_attempt_after, 1);
