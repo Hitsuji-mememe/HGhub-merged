@@ -9,6 +9,7 @@ import { AppendStallWatchdog } from "./appendStallWatchdog";
 import { createStallWatchdog, wireStallWatchdogSignals } from "./stallWatchdogWiring";
 import { mediaErrorMessage } from "./mediaErrors";
 import { mediaHost, mediaResource, observeHls, usePlayerDiagnostics } from "../../shared/diagnostics/playbackDiagnostics";
+import { notePlaybackPlaying } from "../../shared/diagnostics/playbackFacts";
 import { usePlaybackActivity } from "./usePlaybackActivity";
 import { useProxyPlaybackRecovery } from "./useProxyPlaybackRecovery";
 import { createHlsRecovery, type HlsRecovery } from "./hlsRecovery";
@@ -84,8 +85,11 @@ export default function Player({
   const [srSize, setSrSize] = useState({ w: 0, h: 0 });
   /* 密度采样与 VideoSurface 共用一份（audit6 P0-A 第 2 层）：旧实现用
    * 首样本锁定、无 codec，判档口径与 Feed 不可比，现删除改走共享 hook。 */
-  const { density: srDensity, ingest: ingestSrFrag, reset: resetSrDensity } = useSrDensity(src, store?.lineEpoch ?? 0);
-  const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h, srDensity ?? undefined);
+  const { density: srDensity, ingest: ingestSrFrag } = useSrDensity(src, store?.lineEpoch ?? 0);
+  /* 正在播放的 level（整改 B4，与 VideoSurface 同口径）：判档采样只认这一档。 */
+  const playingLevelRef = useRef(-1);
+  /* 判档尺寸以 playing rendition 宽高为准（整改 B4），无密度时回落显示帧尺寸。 */
+  const srMode = effectiveSrMode(store?.srPref ?? "auto", srDensity?.width || srSize.w, srDensity?.height || srSize.h, srDensity ?? undefined);
   /* U1 保底回报补接（Muse 2026-11-19 fix2 B3 不对称答复：漏接）：
    * VideoSurface 早已接 onActiveModeChange 并据 srVideoFilterMode 在
    * WebGL 降到 off 时挂 SVG natural 保底，Player 此前未接——同一
@@ -93,7 +97,7 @@ export default function Player({
    * 时直接裸播无保底）。无任何设计理由区别对待，属漏接，现补齐，
    * 选档纯函数与 VideoSurface 共用一份。 */
   const [canvasSrMode, setCanvasSrMode] = useState<SuperResMode>(srMode);
-  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback, canvasOffReason: srMode === "off" ? "judged" : "demoted" });
+  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback, canvasOffReason: svgFallback ? "unavailable" : srMode === "off" ? "judged" : "demoted" });
   const seek = useSeekInput({ time, duration, enabled: active && !controlsLocked, resetKey: src,
     onInteraction: (phase, input, target, pointerTarget) => trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget }),
     onSeek: (target, input) => {
@@ -115,7 +119,11 @@ export default function Player({
     if (!video || !src) return;
     setErrMsg("");
     setWaiting(false);
-    resetSrDensity();
+    playingLevelRef.current = -1;
+    /* 密度重置只认 hook 自身的 [srcKey, lineEpoch] 面（整改 B12）：
+     * 本 effect 还由 autoPlay/proxyRecovery.revision 触发，同源同线
+     * 重建时样本仍有效，此前在此额外 reset 属误清（重建后头几片退回
+     * 无密度判档），与 VideoSurface 不对齐，已删。 */
     const resume = proxyRecovery.resume();
     const source = playbackSource(src, Hls.isSupported());
     let disconnectNative: (() => void) | undefined;
@@ -165,6 +173,7 @@ export default function Player({
         retry: (reason) => proxyRecovery.retry(reason, true),
         onExhausted: (message) => { setErrMsg(message); setWaiting(false); setPlaying(false); },
       });
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => { playingLevelRef.current = data.level; });
       hls.loadSource(source.url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -174,9 +183,15 @@ export default function Player({
       });
       detachWatchdog = wireStallWatchdogSignals({
         hls, video, watchdog: stallWatchdog,
-        /* 超分密度：共享采样器（与 VideoSurface 同口径，audit6 P0-A 第 2 层） */
+        /* 超分密度：共享采样器（与 VideoSurface 同口径，audit6 P0-A 第 2 层；
+         * 整改 B4：采样身份与 rendition 全部取正在播放的 level） */
         onFragLoaded: (data) => {
-          ingestSrFrag({ loaded: data.frag.stats.loaded, duration: data.frag.duration, level: data.frag.level }, hls.levels[data.frag.level]);
+          const pl = playingLevelRef.current >= 0 ? playingLevelRef.current : hls.currentLevel;
+          const pLevel = pl >= 0 ? hls.levels[pl] : undefined;
+          ingestSrFrag(
+            { loaded: data.frag.stats.loaded, duration: data.frag.duration, level: pl >= 0 ? pl : data.frag.level },
+            pLevel ? { frameRate: pLevel.frameRate, videoCodec: pLevel.videoCodec, width: pLevel.width, height: pLevel.height, bitrate: pLevel.bitrate } : undefined,
+          );
         },
         onFragBuffered: () => { recovery.buffered(); setErrMsg(""); },
       });
@@ -190,6 +205,9 @@ export default function Player({
     }
 
     return () => {
+      /* 全局播放事实源（整改 B18）：与 VideoSurface 同一置位口径——
+       * 源卸载即视为不在播，autoLine 的 main-return 护栏据此判读。 */
+      notePlaybackPlaying(false);
       disconnectNative?.();
       stallWatchdog?.dispose();
       detachWatchdog?.();
@@ -256,14 +274,14 @@ export default function Player({
         onClick={toggle}
         onLoadedData={() => setVideoReady(true)}
         onCanPlay={() => setVideoReady(true)}
-        onPlay={() => { if (activity.isActive()) { setPlaying(true); onTogglePlay?.(true); } }}
-        onPause={() => { setPlaying(false); onTogglePlay?.(false); }}
+        onPlay={() => { if (activity.isActive()) { notePlaybackPlaying(true); setPlaying(true); onTogglePlay?.(true); } }}
+        onPause={() => { if (activity.isActive()) notePlaybackPlaying(false); setPlaying(false); onTogglePlay?.(false); }}
         onWaiting={() => setWaiting(true)}
-        onPlaying={() => { if (activity.isActive()) { setWaiting(false); setErrMsg(""); onPlaying?.(); } }}
+        onPlaying={() => { if (activity.isActive()) { notePlaybackPlaying(true); setWaiting(false); setErrMsg(""); onPlaying?.(); } }}
         onSeeked={() => setWaiting(false)}
         onTimeUpdate={(e) => setTime((e.target as HTMLVideoElement).currentTime)}
         onLoadedMetadata={(e) => { const v = e.target as HTMLVideoElement; setDuration(v.duration || 0); setSrSize({ w: v.videoWidth || 0, h: v.videoHeight || 0 }); }}
-        onEnded={() => { if (activity.isActive()) onEnded?.(); }}
+        onEnded={() => { notePlaybackPlaying(false); if (activity.isActive()) onEnded?.(); }}
         onError={() => {
           if (hlsRef.current) return;
           setWaiting(false);

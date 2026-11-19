@@ -26,9 +26,9 @@ import { stageXY, HOLD_DELAY_MS } from "./mobileHold";
 import { useFsIdle } from "./fsIdle";
 import { RateMenu } from "./RateMenu";
 import { useFeedPrewarm } from "./useFeedPrewarm";
-import { useStallHeal } from "./stallHeal";
+import { consumeHealResume, recordHealResume, useStallHeal } from "./stallHeal";
 import { useFeedDetails } from "./useFeedDetails";
-import { usePlayUrlCache } from "./usePlayUrlCache";
+import { isScopeOnlyChange, usePlayUrlCache } from "./usePlayUrlCache";
 import { useFsKeepAlive } from "./useFsKeepAlive";
 import { capStringRecordByFifo } from "./cacheMap";
 import { holdState } from "./holdState";
@@ -113,8 +113,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   }, []);
   const [renderIndex, setRenderIndex] = useState(startIndex);
   const [epMap, setEpMap] = useState<Record<number, number>>(() => (startEp ? { [videoIds[startIndex]]: startEp } : {}));
-  /* 播放 URL 缓存（audit6 P1-3/P2-08）：作用域键＋200 条 FIFO，见 usePlayUrlCache */
-  const playCache = usePlayUrlCache(accountScope, store.lineEpoch);
+  /* 播放 URL 缓存（audit6 P1-3/P2-08）：作用域键＋200 条 FIFO，见 usePlayUrlCache。
+     整改 B1：currentEntryRef 告知缓存层当前条目（作用域变化时键迁移保位）；
+     playSkipRef 是自愈强制重解析的内容键集（在 skip 集内不迁移）。 */
+  const currentEntryRef = useRef({ id: 0, ep: 1 });
+  const playSkipRef = useRef(new Set<string>());
+  const playCache = usePlayUrlCache(accountScope, store.lineEpoch, currentEntryRef, playSkipRef);
   const [playingKey, setPlayingKey] = useState("");
   const [proxyRetry, setProxyRetry] = useState(0);
   const [relatedByVideo, setRelatedByVideo] = useState<Record<string, VideoCard[]>>({});
@@ -135,12 +139,18 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      集数列表（只有「共 X 集」元信息），重复源就是这条落点记忆，
      故删除：选集只由选集钮到达、评论只由抽屉页签到达（播放面评论
      入口已随右栏撤销）、内容恒落详情，三入口互不重复。 */
-  /* 续播：拿到时长后再 seek 一次（只对进入时那一条生效） */
+  /* 续播：拿到时长后再 seek 一次（只对进入时那一条生效）。键用内容键
+     id:ep（顺藤检出 S1，随整改 B1）：旧作用域键在挂载后切线即与新
+     playKey 永不相等、续播静默丢失，与自愈接回同病。 */
   const resumeRef = useRef<{ key: string; t: number } | null>(
-    startTime && startTime > 1 ? { key: `${accountScope}:${store.lineEpoch}:${videoIds[startIndex]}:${startEp || 1}`, t: startTime } : null,
+    startTime && startTime > 1 ? { key: `${videoIds[startIndex]}:${startEp || 1}`, t: startTime } : null,
   );
   /* 观看进度：onTime 里节流写回 store，卸载时再兜一次 */
   const liveRef = useRef({ id: 0, ep: 1, dur: 0, t: 0, permissionKey: "", accountScope: "" });
+  /* 切线连续性（整改 B1）：按内容键 id:ep 记最后已知播放位置（作用域
+     变化时登记接回）＋上一 playKey/内容键（判定是否仅作用域变化）。 */
+  const lastPosRef = useRef(new Map<string, number>());
+  const prevPlayRef = useRef({ playKey: "", contentKey: "" });
   const historyWriter = useRef(addHistory);
   const lastSaveRef = useRef(0);
   const theater = store.theater;
@@ -229,6 +239,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   useEffect(() => { if (blocked && mode === "home" && active) onBlocked?.(curId); }, [blocked, mode, active, curId, onBlocked]);
   useEffect(() => { if (!allowed) { setPanel(null); setTagMenu(false); } }, [allowed]);
   const curEp = epMap[curId] || 1;
+  currentEntryRef.current = { id: curId, ep: curEp };
   const liked = isLiked(curId, curEp, kind);
   const collected = isFav(curId, kind);
   const likeActionKey = `like:${kind}:${curId}:${curEp}`;
@@ -252,6 +263,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const pendingActions = useRef(new Set<string>());
   /* 播放键作用域化（audit6 P1-3）：accountScope:lineEpoch:id:ep，与请求层键式统一 */
   const playKey = playCache.keyFor(curId, curEp);
+  /* 内容键（整改 B1）：epoch 无关的条目标识，切线连续性全链以它对账 */
+  const contentKey = `${curId}:${curEp}`;
   const playGuard = useRef({ allowed, id: curId, permissionKey, playKey });
   playGuard.current = { allowed, id: curId, permissionKey, playKey };
   const isCurrentPlayback = () => playGuard.current.allowed && playGuard.current.id === curId
@@ -268,7 +281,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 卡顿自愈（2.0.5）：逻辑在 ./stallHeal，Feed 只接线 */
   const { lastStallAtRef, healResumeRef, onFragStats, resetHealWindow } = useStallHeal({
     active, isDesktop, playKey, curId, curEp, videoRef, paused,
-    clearPlayUrl: playCache.clearKey, setErr, setProxyRetry,
+    invalidatePlay: (ck: string) => { playSkipRef.current.add(ck); }, setErr, setProxyRetry,
   });
   const measurementKey = JSON.stringify([accountScope, store.lineEpoch, permissionKey, playKey, playUrl]);
   const videoSize = vsize.key === measurementKey ? vsize : { key: measurementKey, w: 0, h: 0 };
@@ -297,6 +310,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     // Keep the writer from this observation; a later clear must invalidate old cleanup data.
     if (active) historyWriter.current = addHistory;
     liveRef.current = { id: curId, ep: curEp, dur: duration, t, permissionKey, accountScope };
+    lastPosRef.current.set(contentKey, t);
     playbackClock.publish(t);
     const now = Date.now();
     if (duration > 0 && now - lastSaveRef.current > 5000) {
@@ -310,15 +324,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (!isCurrentPlayback()) return;
     setDuration(d);
     liveRef.current = { id: curId, ep: curEp, dur: d, t: historyWriter.current === addHistory && liveRef.current.id === curId && liveRef.current.ep === curEp && liveRef.current.accountScope === accountScope ? liveRef.current.t : 0, permissionKey, accountScope };
-    /* 卡顿自愈重解析后的新源：把触发前的位置接回去 */
-    const hr = healResumeRef.current;
-    if (hr && hr.key === playKey && hr.t > 1 && (!d || hr.t < d - 3)) {
-      healResumeRef.current = null;
-      videoRef.current?.seek(hr.t, "stall_heal");
-      playbackClock.publish(hr.t);
+    /* 接回登记消费（整改 B1）：按内容键命中——自愈重解析与切线保位
+     * 共用此口径，epoch 变不再影响命中；只消费一次。 */
+    const healT = consumeHealResume(healResumeRef.current, curId, curEp);
+    if (healT !== null && healT > 1 && (!d || healT < d - 3)) {
+      videoRef.current?.seek(healT, "stall_heal");
+      playbackClock.publish(healT);
     }
     const r = resumeRef.current;
-    if (r && r.key === playKey && r.t > 1 && (!d || r.t < d - 3)) {
+    if (r && r.key === contentKey && r.t > 1 && (!d || r.t < d - 3)) {
       resumeRef.current = null;
       videoRef.current?.seek(r.t, "history_resume");
       playbackClock.publish(r.t);
@@ -373,6 +387,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 控件闲置隐藏：桌面 2.8s；移动全屏呈现（fs/fsUi）按设置秒数（#146-3）。
      调用点在 fsUi 定义之后：自动隐藏要覆盖竖屏即全屏呈现态。 */
   const { idle, setIdle, wake, arm } = useFsIdle(isDesktop, fsUi, paused, store.fsIdleSecs, boxRef, barPct !== null);
+  /* 单击判定到期读现值（整改 B5）：clean/idle/fsUi 的每渲染镜像 ref，超时回调不吃点击时捕获的快照 */
+  const cleanRef = useRef(clean); cleanRef.current = clean; const idleRef = useRef(idle); idleRef.current = idle; const fsUiRef = useRef(fsUi); fsUiRef.current = fsUi; const vpLandRef = useRef(vpLandscape); vpLandRef.current = vpLandscape;
   /* 竖屏快捷胶囊的显隐：不卸载、只改 opacity，这样淡入淡出都能过渡（#19） */
   /* 胶囊显隐只由缩放驱动（定版：仅 zoom>1.05 显示），不挂 clean：
      clean 的驱动源几经变更（播放状态→单击解耦），若继续挂 !clean，
@@ -595,8 +611,20 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const flushProgressRef = useProgressFlush({ kind, paused, liveRef, playGuard, actionContext, historyWriter });
 
   /* 切换条目/集数时重置播放状态（重置前尝试刷上一集位置：守卫仍对账
-     旧 playKey 时才写，选集路径已在 pickEp 同步刷过，此处兜底滑动切条目） */
+     旧 playKey 时才写，选集路径已在 pickEp 同步刷过，此处兜底滑动切条目）。
+     整改 B1：同 id:ep 仅作用域变化（切线/换代理）不算切换——不重置
+     暂停意图、不 publish(0)；切换前最后已知位置登记接回，新面时长
+     就绪时由 onDurationTick 接回（与自愈共用登记表）。 */
   useEffect(() => {
+    const prev = prevPlayRef.current;
+    const scopeOnly = isScopeOnlyChange(prev.playKey, playKey, prev.contentKey, contentKey);
+    prevPlayRef.current = { playKey, contentKey };
+    if (scopeOnly) {
+      const t = lastPosRef.current.get(contentKey) || 0;
+      if (t > 1) recordHealResume(healResumeRef.current, curId, curEp, t);
+      setPlayingKey(playKey);
+      return;
+    }
     flushProgressRef.current();
     setDuration(0); setErr(""); setWaiting(true); setPaused(false);
     setPlayingKey("");
@@ -860,12 +888,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         if (fsUi) setIdle(snap.idle);
         videoRef.current?.toggle();
       } else {
-        const snap = { clean, idle, fsUi };
+        /* 到期执行读现值（整改 B5）：250ms 内 clean/idle/fsUi 可能已被
+         * 其他路径（闲置隐藏、进出全屏）改动，按点击时快照翻转会翻错
+         * 方向；快照只保留在 tapJudgeRef 供双击恢复路径使用。 */
         const timer = window.setTimeout(() => {
           tapJudgeRef.current = null;
-          if (snap.fsUi) {
-            if (snap.idle) { wake(); setClean(false); } else { setIdle(true); setClean(true); }
-          } else setClean(!snap.clean);
+          if (fsUiRef.current) {
+            if (idleRef.current) { wake(); setClean(false); } else { setIdle(true); setClean(true); }
+          } else setClean(!cleanRef.current);
         }, 250) as unknown as number;
         tapJudgeRef.current = { timer, clean, idle };
       }
@@ -900,14 +930,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   }, [playKey]);
 
   /* 进出全屏：iOS 会在这时把播放打断，过渡期多次续播（audit6 P1-4：
-     实现收敛到 useFsKeepAlive——三查＋意愿门＋暂停/切条即清定时器） */
-  const pausedRef = useRef(paused);
-  pausedRef.current = paused;
+     实现收敛到 useFsKeepAlive——三查＋意愿门＋切条即清定时器；
+     整改 B2：第①查改活动层三态信号，系统打断不再被当用户暂停） */
   const playKeyRef = useRef(playKey);
   playKeyRef.current = playKey;
   const keepAlive = useFsKeepAlive({
-    paused, playKey,
-    isUserPaused: () => pausedRef.current,
+    playKey,
+    pauseState: () => videoRef.current?.pauseState() ?? "paused_by_system",
     currentPlayKey: () => playKeyRef.current,
     isVideoPaused: () => videoRef.current?.el()?.paused === true,
     play: () => videoRef.current?.play("fs_keepalive", true),
@@ -984,14 +1013,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (isDesktop) return undefined;
     const onViewportChange = () => {
       const isLand = window.innerWidth > window.innerHeight;
-      setVpLandscape((prev) => {
-        if (prev !== isLand && active) {
-          setFs(isLand);
-          keepAlive();
-          wake();
-        }
-        return isLand;
-      });
+      /* setFs/keepAlive/wake 挪出状态更新器（整改 B6）：更新器须纯，
+       * 副作用在其中会被双调用/丢弃语义影响；改读 vpLandRef 现值在
+       * 更新器外判定与调用，横置进全屏/竖回退出的行为一字不变。 */
+      if (vpLandRef.current !== isLand && active) { setFs(isLand); keepAlive(); wake(); }
+      vpLandRef.current = isLand;
+      setVpLandscape(isLand);
     };
     window.addEventListener("resize", onViewportChange);
     window.addEventListener("orientationchange", onViewportChange);
@@ -1072,11 +1099,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     videoRef.current?.trace("seek.input.move", { input: "mobile_bar" });
     barSeekTo(e.clientX, e.clientY);
   };
-  const onBarUp = (e: React.PointerEvent<HTMLDivElement>) => {
+  const onBarUp = (e: React.PointerEvent<HTMLDivElement>, cancelled = false) => {
     if (!barScrub.current) return;
     barScrub.current = false;
     e.stopPropagation();
-    const pct = barDrag.current?.moved ? barPctAt(e.clientX, e.clientY) : null;
+    /* pointercancel 只清拖动态、不提交 seek（整改 B9，与主手势面 onUp(true) 口径一致） */
+    const pct = !cancelled && barDrag.current?.moved ? barPctAt(e.clientX, e.clientY) : null;
     barDrag.current = null;
     if (pct != null && duration) {
       const target = pct * duration;
@@ -1259,7 +1287,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     /* 分类只认解码/格式证据：旧正则的裸 mediaError 会把 bufferStalled/bufferFull
                        等非解码 fatal 也锁死（审计实测命中）；hls 串形如 mediaError/<details>，
                        原生串靠 mediaErrors 的 (decode)/(format) token 命中。 */
-                    const decodeErr = /bufferAppend|decode|SRC_NOT_SUPPORTED|format/i.test(m);
+                    const decodeErr = /decode|SRC_NOT_SUPPORTED|format/i.test(m);
                     if (decodeErr && preferHevc && hevcUrl && !hevcDeadKeys.has(hevcKey)) {
                       setHevcDeadKeys((prev) => new Set(prev).add(hevcKey));
                       toast("本集高清播不了，已切标准", "info");
@@ -1447,7 +1475,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     </div>
                     )}
                     <div data-feed-scrub-zone="true" ref={barRef} className="mx-4 mt-2 relative" style={{ height: 14, touchAction: "none" }}
-                      onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
+                      onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={(e) => onBarUp(e, true)}>
                       {/* 轨道：几乎看不见，只暗示可拖动 */}
                       <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full" style={{ background: "rgba(255,255,255,.1)" }}>
                         <PlaybackProgress clock={playbackClock} duration={duration} preview={barPct} className="h-full rounded-full"
@@ -1614,7 +1642,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           </div>
           <div className="px-4" style={{ height: 22 }}>
             <div data-feed-scrub-zone="true" ref={barRef} className="relative h-full" style={{ touchAction: "none" }}
-              onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
+              onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={(e) => onBarUp(e, true)}>
               <div className="absolute inset-x-0 bottom-[8px] h-[2.5px] rounded-full" style={{ background: "rgba(255,255,255,.3)" }}>
                 <PlaybackProgress clock={playbackClock} duration={duration} preview={barPct} className="h-full rounded-full bg-white" />
               </div>

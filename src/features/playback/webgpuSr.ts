@@ -92,6 +92,35 @@ export type SrEngineStats = {
 
 const GPU_TEXTURE_USAGE = { TEXTURE_BINDING: 0x04, STORAGE_BINDING: 0x08, COPY_DST: 0x02, RENDER_ATTACHMENT: 0x10 } as const;
 
+/** 降级判定纯状态机（整改 B17-4）：与 WebGL 路径记账口径对齐——
+ * ≥2x 快速域（fastRate）样本不入窗（该域解码/合成负载翻倍，成本
+ * 天然超预算，入账必误降），退出快速域清窗＋清连击，窗口重启。
+ * 正常域：窗口 ≥30 帧后逐帧看尾 30 帧均值，连续 2 次超帧间隔预算
+ * 返回一次 "step"（调用方降一级或停用），step 后清窗重采。 */
+export function createSrDegradeGate() {
+  let costs: number[] = [];
+  let overStreak = 0;
+  let wasFastRate = false;
+  return {
+    sample(costMs: number, frameIntervalMs: number, fastRate: boolean): "none" | "step" {
+      if (fastRate) { wasFastRate = true; return "none"; }
+      if (wasFastRate) { wasFastRate = false; costs = []; overStreak = 0; }
+      costs.push(costMs);
+      if (costs.length > 240) costs.splice(0, costs.length - 240);
+      if (!(frameIntervalMs > 0) || costs.length < 30) return "none";
+      const recent = costs.slice(-30);
+      const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
+      if (avg > frameIntervalMs) {
+        overStreak += 1;
+        if (overStreak >= 2) { overStreak = 0; costs = []; return "step"; }
+      } else {
+        overStreak = 0;
+      }
+      return "none";
+    },
+  };
+}
+
 function convShader(pass: Extract<SrPass, { kind: "conv" }>, opts: { withResidual: boolean }): string {
   const inputTexNames: string[] = [];
   for (const t of pass.terms) if (!inputTexNames.includes(t.tex)) inputTexNames.push(t.tex);
@@ -240,14 +269,16 @@ export class WebGpuSrEngine {
   private dead = false;
   private lastError: string | null = null;
   private stats = { frames: 0, droppedStale: 0, costs: [] as number[], degrade: 0 as 0 | 1 | 2 };
-  private overStreak = 0;
+  private degradeGate = createSrDegradeGate();
+  private onDegrade: ((degrade: 0 | 1 | 2) => void) | null;
 
-  private constructor(device: GpuDeviceLike, ctx: GpuCanvasContextLike, format: string, path: SrIngestPath, onLost: () => void) {
+  private constructor(device: GpuDeviceLike, ctx: GpuCanvasContextLike, format: string, path: SrIngestPath, onLost: () => void, onDegrade?: (degrade: 0 | 1 | 2) => void) {
     this.device = device;
     this.ctx = ctx;
     this.canvasFormat = format;
     this.path = path;
     this.onLost = onLost;
+    this.onDegrade = onDegrade ?? null;
     this.sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
     /* 呈现矩形 uniform：2×vec4（dst/src），UNIFORM=0x40 | COPY_DST=0x08。 */
     this.presentUniform = device.createBuffer({ size: 32, usage: 0x40 | 0x08 });
@@ -270,15 +301,23 @@ export class WebGpuSrEngine {
    * ensureTextures 建纹理失败）不置 dead、不回调，上层永远等不到
    * 回退信号，与引擎头注的死亡承诺不符。destroy() 先置 dead，
    * 故销毁后的 lost 不会误报 onLost。 */
+  /* 档位变更统一出口（整改 B17-2）：每次变化都经 onDegrade 回报，
+   * 上层 facts 的呈现档/降档计数据此与真实管线保持一致。 */
+  private setDegrade(d: 0 | 1 | 2) {
+    if (this.stats.degrade === d) return;
+    this.stats.degrade = d;
+    try { this.onDegrade?.(d); } catch { /* 上层回调异常不外溢 */ }
+  }
+
   private failFatally(reason: string) {
     if (this.dead) return;
     this.dead = true;
-    this.stats.degrade = 2;
+    this.setDegrade(2);
     this.lastError = reason.slice(0, 200);
     try { this.onLost(); } catch { /* 上层回调异常不外溢 */ }
   }
 
-  static async create(canvas: HTMLCanvasElement, opts: { path: SrIngestPath; onLost: () => void }): Promise<WebGpuSrEngine | null> {
+  static async create(canvas: HTMLCanvasElement, opts: { path: SrIngestPath; onLost: () => void; onDegrade?: (degrade: 0 | 1 | 2) => void }): Promise<WebGpuSrEngine | null> {
     /* device 一旦建成，后续任何失败（ctx 为 null、configure/构造/
      * buildPipelines 抛错）都必须先 destroy 再返回 null（fix2.1
      * 批二#7）：旧实现两条早退路径漏销毁，失败重试会漏出 GPU 设备。 */
@@ -296,7 +335,7 @@ export class WebGpuSrEngine {
       }
       const format = gpu.getPreferredCanvasFormat();
       ctx.configure({ device, format, alphaMode: "opaque" });
-      const engine = new WebGpuSrEngine(device, ctx, format, opts.path, opts.onLost);
+      const engine = new WebGpuSrEngine(device, ctx, format, opts.path, opts.onLost, opts.onDegrade);
       engine.buildPipelines();
       return engine;
     } catch {
@@ -387,6 +426,9 @@ export class WebGpuSrEngine {
     }
     const device = this.device;
     const t0 = performance.now();
+    /* 快速域标记在本帧提交时捕获（整改 B17-4）：成本回调异步落定，
+     * 届时倍速可能已变，必须以本帧的倍速域为准。 */
+    const fastRate = video.playbackRate >= 2;
     try {
       /* ensureTextures 必须在 try 内（fix2.1 批二#6）：建纹理是同步
        * GPU 调用，失败属不可恢复——旧实现把它放在 try 外，异常直接
@@ -501,22 +543,13 @@ export class WebGpuSrEngine {
         this.stats.frames += 1;
         this.stats.costs.push(cost);
         if (this.stats.costs.length > 240) this.stats.costs.splice(0, this.stats.costs.length - 240);
-        /* 降级判定：预算 = 帧间隔；连续 30 帧平均超预算 → 降一级。 */
-        if (frameIntervalMs > 0 && this.stats.costs.length >= 30) {
-          const recent = this.stats.costs.slice(-30);
-          const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
-          if (avg > frameIntervalMs) {
-            this.overStreak += 1;
-            if (this.overStreak >= 2) {
-              this.overStreak = 0;
-              this.stats.costs = [];
-              if (this.stats.degrade === 0) this.stats.degrade = 1;
-              else if (this.stats.degrade === 1) {
-                this.failFatally("帧成本持续超预算，引擎停用");
-              }
-            }
-          } else {
-            this.overStreak = 0;
+        /* 降级判定走纯状态机（整改 B17-4）：stats.costs 只作报告口径
+         * （avg/p90），判定窗口在 gate 内且排除 ≥2x 快速域样本；
+         * step 时 0→1 降一级、1→停用。 */
+        if (this.degradeGate.sample(cost, frameIntervalMs, fastRate) === "step") {
+          if (this.stats.degrade === 0) this.setDegrade(1);
+          else if (this.stats.degrade === 1) {
+            this.failFatally("帧成本持续超预算，引擎停用");
           }
         }
       }).catch(() => { this.inFlight = false; });

@@ -9,12 +9,22 @@ import { nativeFallbackState, noteNativeFallback, playbackSource, resetNativeFal
 import { createStallWatchdog } from "../src/features/playback/stallWatchdogWiring";
 import { createSrPerfTracker, effectiveSrMode, presentationPipeline, srContentRect, srDemote, srHasConfirmedFrame, srPerfStep, srVideoFilterMode } from "../src/features/playback/SuperResCanvas";
 import { createSrDensitySampler } from "../src/features/playback/useSrDensity";
-import { evaluateSrGatesV2 } from "../src/shared/diagnostics/gpuProbe";
+import { evaluateSrGatesV2, runSrProbe, srProbeCacheKey } from "../src/shared/diagnostics/gpuProbe";
+import * as webgpuSrModule from "../src/features/playback/webgpuSr";
+import * as srCanvasModule from "../src/features/playback/SrCanvas";
+import SrCanvas from "../src/features/playback/SrCanvas";
+import * as webgpuCanvasModule from "../src/features/playback/WebGpuSrCanvas";
+import { registerSrProbeV2 } from "../src/features/playback/srProbe";
 import { capRecordByFifo, scopedPlayKey, setCapped } from "../src/features/feed/cacheMap";
 import { prewarmRetryDue } from "../src/features/feed/prewarm";
 import { createFragThroughputReporter, originOf } from "../src/features/playback/playbackThroughput";
+import * as throughputModule from "../src/features/playback/playbackThroughput";
 import { recordIfCurrent, registerPlayerInstance, snapshot as ledgerSnapshot, unregisterPlayerInstance, validateLedgerIntegrity } from "../src/shared/diagnostics/eventLedger";
 import { ABR_DEFAULT_ESTIMATE_BPS, createHlsPlayerConfig, formatFirstRendition, lockHighestStartLevel, resolveAbrSeedBps } from "../src/features/playback/hlsConfig";
+import { isPlaybackPlaying, notePlaybackPlaying } from "../src/shared/diagnostics/playbackFacts";
+import Hls from "hls.js";
+import { wireStallWatchdogSignals } from "../src/features/playback/stallWatchdogWiring";
+import { observeFirstRendition } from "../src/features/playback/hlsConfig";
 
 class FakeClock implements StallClock {
   now = 0;
@@ -249,6 +259,158 @@ function run() {
     wd.dispose();
   }
 
+  /* ── B10 append 臂意愿门（整改 B10，先核实后修）：append 窗内意愿
+   * 不在（shouldEscalate=false）→ append 臂必须与出画臂同态挂起、
+   * 不 retire；意愿恢复 resume() 后再卡死仍须判死。旧实现 append
+   * 臂先 retire 再调 onStall（接线层吞掉即永久退役），本例必红。 ── */
+  {
+    const clock = new FakeClock();
+    let stalls = 0;
+    let wanted = false;
+    const wd = new AppendStallWatchdog({ clock, hasBuffered: () => false, isPlaying: () => false, shouldEscalate: () => wanted, onStall: () => stalls++ });
+    wd.fragLoaded();
+    clock.advance(4000); // append 窗到期：意愿不在 → 挂起，不判死不退役
+    results.b10_append_gate_no_stall = stalls;
+    results.b10_append_gate_suspended = wd.isSuspended;
+    wanted = true;
+    wd.resume(); // 意愿恢复：append 臂重新起窗
+    clock.advance(3999);
+    results.b10_append_resumed_before_deadline = stalls;
+    clock.advance(1);
+    results.b10_append_resumed_stall_fires = stalls;
+    wd.dispose();
+  }
+
+  /* ── B18 全局播放事实源契约（整改 B18）：notePlaybackPlaying 是
+   * autoLine main-return 护栏的唯一事实源——置 true 后 isPlaybackPlaying
+   * 必须为 true，置 false 后必须为 false（两播放面共用同一口径）。
+   * Player 侧接线本身由文件末尾的模块级接线用例断言（__b18）。 ── */
+  notePlaybackPlaying(true);
+  results.b18_fact_playing_true = isPlaybackPlaying();
+  notePlaybackPlaying(false);
+  results.b18_fact_playing_false = isPlaybackPlaying();
+
+  /* ── B13 FRAG_LOADED 按类型过滤（整改 B13，先核实）：独立音频轨的
+   * 音频分片（frag.type="audio"）不得进看门狗记账/首档记录/密度入口；
+   * 只过滤 part/sn 的旧实现会让音频 level 与视频 level 交替出现。 ── */
+  {
+    const handlers = new Map<string, (e: unknown, data: unknown) => void>();
+    const fakeHls = { on: (ev: string, cb: (e: unknown, data: unknown) => void) => handlers.set(ev, cb) };
+    const fakeVideo = { addEventListener: () => {}, removeEventListener: () => {} };
+    let wdFragLoaded = 0;
+    let cbFragLoaded = 0;
+    const fakeWatchdog = { fragLoaded: () => { wdFragLoaded += 1; }, buffered: () => {}, playing: () => {}, appendStarted: () => {}, appendEnded: () => {}, resume: () => {} };
+    wireStallWatchdogSignals({
+      hls: fakeHls as unknown as Hls, video: fakeVideo as unknown as HTMLVideoElement,
+      watchdog: fakeWatchdog as unknown as AppendStallWatchdog,
+      onFragLoaded: () => { cbFragLoaded += 1; },
+    });
+    const onFrag = handlers.get(Hls.Events.FRAG_LOADED)!;
+    onFrag(null, { part: undefined, frag: { sn: 3, type: "audio", level: 0 } });
+    results.b13_watchdog_audio_frag_blocked = [wdFragLoaded, cbFragLoaded];
+    onFrag(null, { part: undefined, frag: { sn: 4, type: "main", level: 0 } });
+    results.b13_watchdog_main_frag_passes = [wdFragLoaded, cbFragLoaded];
+  }
+  {
+    const handlers = new Map<string, (e: unknown, data: unknown) => void>();
+    const fakeHls = {
+      levels: [{ width: 640, height: 360, bitrate: 800_000 }, { width: 1920, height: 1080, bitrate: 8_000_000 }],
+      on: (ev: string, cb: (e: unknown, data: unknown) => void) => handlers.set(ev, cb),
+    };
+    const seen: number[] = [];
+    observeFirstRendition(fakeHls as unknown as Hls, Hls.Events, r => seen.push(r.index));
+    const onFrag = handlers.get(Hls.Events.FRAG_LOADED)!;
+    onFrag(null, { frag: { level: 0, type: "audio" } });
+    results.b13_first_rendition_audio_blocked = [...seen];
+    onFrag(null, { frag: { level: 1, type: "main" } });
+    results.b13_first_rendition_main_recorded = [...seen];
+  }
+
+  /* ── B1 切线连续性·登记口径（整改 B1）：stallHeal 接回登记与作用域
+   * 判定 helper——登记键为 epoch 无关的 id:ep，epoch 变前写入、变后
+   * 按同键必须命中且只消费一次；作用域判定：同 id:ep 仅作用域变 →
+   * scopeOnly。两 helper 均为本项新增导出，经命名空间读取，旧代码
+   * 缺导出时结果为 "missing"（红）。 ── */
+  {
+    const sh = stallHealModule as unknown as {
+      recordHealResume?: (m: Map<string, number>, id: number, ep: number, t: number) => void;
+      consumeHealResume?: (m: Map<string, number>, id: number, ep: number) => number | null;
+    };
+    const reg = new Map<string, number>();
+    sh.recordHealResume?.(reg, 42, 2, 42);
+    results.b1_heal_resume_hits_after_epoch_change = sh.consumeHealResume ? sh.consumeHealResume(reg, 42, 2) : "missing";
+    results.b1_heal_resume_consumed_once = sh.consumeHealResume ? sh.consumeHealResume(reg, 42, 2) : "missing";
+    const pc = playUrlCacheModule as unknown as {
+      isScopeOnlyChange?: (prevKey: string, nextKey: string, prevContent: string, nextContent: string) => boolean;
+    };
+    results.b1_scope_only_same_content = pc.isScopeOnlyChange ? pc.isScopeOnlyChange("a:7:42:2", "a:8:42:2", "42:2", "42:2") : "missing";
+    results.b1_scope_only_diff_content = pc.isScopeOnlyChange ? pc.isScopeOnlyChange("a:7:42:2", "a:8:43:1", "42:2", "43:1") : "missing";
+    results.b1_scope_only_first_key = pc.isScopeOnlyChange ? pc.isScopeOnlyChange("", "a:8:42:2", "42:2", "42:2") : "missing";
+  }
+
+  /* ── B17-4 webgpuSr 降级门排除快速域（整改 B17-4）：纯状态机
+   * createSrDegradeGate——≥2x 域样本不入窗、退出清窗；正常域连续
+   * 两轮 30 帧均值超预算才 step。旧引擎内联判定无此导出且不排除
+   * 快速域，结果为 "missing"（红）。 ── */
+  {
+    const wg = webgpuSrModule as unknown as {
+      createSrDegradeGate?: () => { sample: (costMs: number, frameIntervalMs: number, fastRate: boolean) => "none" | "step" };
+    };
+    if (!wg.createSrDegradeGate) {
+      results.b17_gate_fast_domain_no_step = "missing";
+      results.b17_gate_step_at_31 = "missing";
+      results.b17_gate_window_restarts_after_fast = "missing";
+    } else {
+      const g1 = wg.createSrDegradeGate();
+      let fastStep = "none";
+      for (let i = 0; i < 100; i++) if (g1.sample(100, 33.3, true) === "step") fastStep = "step";
+      results.b17_gate_fast_domain_no_step = fastStep;
+      const g2 = wg.createSrDegradeGate();
+      let at30 = "none"; let at31 = "none";
+      for (let i = 1; i <= 31; i++) { const r = g2.sample(50, 33.3, false); if (i === 30) at30 = r; if (i === 31) at31 = r; }
+      results.b17_gate_step_at_31 = at30 === "none" && at31 === "step" ? "step" : `${at30}/${at31}`;
+      const g3 = wg.createSrDegradeGate();
+      for (let i = 0; i < 29; i++) g3.sample(50, 33.3, false);
+      g3.sample(100, 33.3, true);
+      let afterFast = "none";
+      for (let i = 0; i < 29; i++) if (g3.sample(50, 33.3, false) === "step") afterFast = "step";
+      results.b17_gate_window_restarts_after_fast = afterFast;
+    }
+  }
+
+  /* ── B17-2 WebGPU 档位回报口径（整改 B17-2）：呈现档 = srDemote
+   * (mode, degrade)——degrade 0 原档、1 降一档。旧组件只在首帧报一
+   * 次原 mode、无此导出，结果为 "missing"（红）。 ── */
+  {
+    const wc = webgpuCanvasModule as unknown as {
+      webgpuReportedMode?: (mode: string, degrade: 0 | 1 | 2) => string;
+    };
+    results.b17_reported_mode_degrade0 = wc.webgpuReportedMode ? wc.webgpuReportedMode("natural", 0) : "missing";
+    results.b17_reported_mode_degrade1 = wc.webgpuReportedMode ? wc.webgpuReportedMode("natural", 1) : "missing";
+  }
+
+  /* ── B17-3 死亡闩锁全局化（整改 B17-3）：note 后全部订阅者被通知
+   * 且闩锁置位。旧实现只有触发实例自知、无订阅导出，结果为
+   * "missing"（红）。测毕用测试复位口恢复闩锁，不污染后续探针。 ── */
+  {
+    const sc = srCanvasModule as unknown as {
+      subscribeWebgpuSessionDeath?: (fn: () => void) => () => void;
+      noteWebgpuSessionDeath?: () => void;
+      resetWebgpuSessionDeathForTests?: () => void;
+    };
+    if (!sc.subscribeWebgpuSessionDeath || !sc.noteWebgpuSessionDeath) {
+      results.b17_death_notifies_all = "missing";
+    } else {
+      let a = 0; let b = 0;
+      const offA = sc.subscribeWebgpuSessionDeath(() => { a += 1; });
+      sc.subscribeWebgpuSessionDeath(() => { b += 1; });
+      sc.noteWebgpuSessionDeath();
+      results.b17_death_notifies_all = a === 1 && b === 1 && srCanvasModule.isWebgpuSessionDead() ? "notified" : `a=${a},b=${b}`;
+      offA();
+      sc.resetWebgpuSessionDeathForTests?.();
+    }
+  }
+
   /* ── C 超分判档（模拟源参数 + 真实采样锚点） ── */
   results.c_1080p_high_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 12_000_000, fps: 30 });
   results.c_1080p_low_density = effectiveSrMode("auto", 1920, 1080, { bitrateBps: 2_500_000, fps: 30 });
@@ -349,6 +511,20 @@ function run() {
     results.s_reset_clears = sampler.current();
   }
 
+  /* ── B4 判档同 rendition（整改 B4）：下载分片属低档（frag 字节只够
+   * 400kbps）但正在播放的 level 是 1080p 档时，判档入参必须全部取
+   * playing level 同一 rendition：码率=该档标称码率、fps/codec/宽/高
+   * 同档，不许拿下载档字节或显示帧尺寸拼 bpp。 ── */
+  {
+    const sampler = createSrDensitySampler();
+    const playing = { frameRate: 30, videoCodec: "avc1.640028", width: 1920, height: 1080, bitrate: 8_000_000 };
+    let d: ReturnType<typeof sampler.ingest> = null;
+    for (let i = 0; i < 3; i++) d = sampler.ingest({ loaded: 100_000, duration: 2, level: 2 }, playing);
+    results.b4_density_bitrate_from_playing_level = d?.bitrateBps ?? null;
+    results.b4_density_size_from_playing_level = [d?.width ?? null, d?.height ?? null];
+    results.b4_density_fps_codec_from_playing_level = [d?.fps ?? null, d?.codec ?? null];
+  }
+
   /* ── H HLS 工厂（audit6 P0-A 第 1 层）：播种值、回退默认、锁最高档、
    * 首分片档位格式 ── */
   results.h_seed_from_round = resolveAbrSeedBps({ measured: [{ kbps: 1200 }, { kbps: 4500 }, { kbps: null }] });
@@ -362,6 +538,20 @@ function run() {
     results.h_lock_highest = [locked, (fake as { startLevel: number }).startLevel];
   }
   results.h_first_rendition = formatFirstRendition({ index: 4, total: 4, width: 1920, height: 1080, bitrate: 8_000_000 });
+  /* ── B11 ABR 播种取当前线路（整改 B11）：最快候选不是当前线路时，
+   * 播种值必须 = round.base 对应候选的 kbps，而非全候选 max。 ── */
+  results.b11_seed_current_line = resolveAbrSeedBps({
+    base: "https://line-b.example",
+    measured: [
+      { host: "line-a.example", kbps: 9000 },
+      { host: "line-b.example", kbps: 1500 },
+      { host: "line-c.example", kbps: null },
+    ],
+  });
+  results.b11_seed_current_line_missing = resolveAbrSeedBps({
+    base: "https://line-z.example",
+    measured: [{ host: "line-a.example", kbps: 9000 }],
+  });
 
   /* ── G 门禁 v2（audit6 P0-A 第 3 层）：逐项否决——任一门不过全不过 ── */
   {
@@ -415,6 +605,26 @@ function run() {
     results.t_flush_remainder = sent.length;
     results.t_origin_parse = originOf("https://line.example/path/x.m3u8");
     results.t_origin_bad = originOf("not a url");
+  }
+
+  /* ── B3 吞吐回写按当前线路 base 记账（整改 B3）：账本键必须是线路
+   * base 的 origin，不是媒体地址 origin（LOCAL 包装时媒体 origin 是
+   * hg://localhost，必错）。lineOriginFor 为本项新增导出，经模块命名
+   * 空间读取——旧代码无此导出时结果为 "missing"，即红。 ── */
+  {
+    const lineOriginFor = (throughputModule as unknown as {
+      lineOriginFor?: (round: { base: string } | null, fallbackSrc?: string) => string;
+    }).lineOriginFor;
+    results.b3_line_origin_from_base = typeof lineOriginFor === "function"
+      ? lineOriginFor({ base: "https://line-b.example" }, "hg://localhost/hls?u=zzz") : "missing";
+    results.b3_line_origin_no_round = typeof lineOriginFor === "function" ? lineOriginFor(null) : "missing";
+    const sent: [string, number][] = [];
+    const rep = createFragThroughputReporter((o, b) => sent.push([o, b]));
+    rep.setOrigin(typeof lineOriginFor === "function"
+      ? lineOriginFor({ base: "https://line-b.example" }, "https://media.example/x.m3u8")
+      : originOf("https://media.example/x.m3u8"));
+    for (let i = 0; i < 5; i++) rep.push(100_000, 100);
+    results.b3_reporter_keyed_by_line = [...sent];
   }
 
   /* ── L 事件账本接线（audit6 诊断一级模块）：注销后迟到丢弃且不入窗口、
@@ -561,19 +771,22 @@ function run() {
 
 Object.assign(window, { __engines: run() });
 
-/* ── KA keepAlive 渲染探针（audit6 P1-4）：真实 hook + 真实定时器 ──
- * A：过渡中用户暂停（paused 翻 true，effect 清定时器＋回调三查）→
- * 1.2s 窗内零 play；B：未暂停 → 过渡打断后仍续播（play 被调用）。 */
+/* ── KA keepAlive 渲染探针（audit6 P1-4 → 整改 B2 三态改版）：真实
+ * hook + 真实定时器 + 真实接线语义——Feed 层 paused=true 在两种情形
+ * 下都成立，区别只在活动层三态：A：paused_by_user（用户显式暂停）
+ * → 1.2s 窗内零 play（pausedPlays）；B：paused_by_system（全屏过渡
+ * 的系统打断，正是 keepAlive 要处理的场景）→ 必须续播
+ * （resumedPlays ≥3）。旧接线读 Feed.paused 粗信号，B 情形必被拦。 */
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { useFsKeepAlive } from "../src/features/feed/useFsKeepAlive";
 {
-  const state = { paused: false, pausedNow: false, keyNow: "k1", plays: 0 };
+  const state = { kind: "paused_by_system" as "playing" | "paused_by_user" | "paused_by_system", keyNow: "k1", plays: 0 };
   let trigger: (() => void) | null = null;
-  function Probe({ paused }: { paused: boolean }) {
+  function Probe() {
     const keepAlive = useFsKeepAlive({
-      paused, playKey: "k1",
-      isUserPaused: () => state.pausedNow,
+      playKey: "k1",
+      pauseState: () => state.kind,
       currentPlayKey: () => state.keyNow,
       isVideoPaused: () => true,
       play: () => { state.plays += 1; },
@@ -586,22 +799,164 @@ import { useFsKeepAlive } from "../src/features/feed/useFsKeepAlive";
   const root = createRoot(host);
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   void (async () => {
-    root.render(<Probe paused={false} />);
+    root.render(<Probe />);
     await sleep(30);
-    (trigger as (() => void) | null)?.(); // 进全屏：调度六发（首发在 +50ms）；断言绕 TS 对闭包内赋值的窄化误判（集成修复，Muse 2026-11-19）
-    await sleep(15);
-    state.pausedNow = true; // 用户在首发落地前暂停：六发必须全灭
-    root.render(<Probe paused />); // paused 变化 → 清定时器
+    // A：用户显式暂停 → 六发必须全灭
+    state.kind = "paused_by_user";
+    (trigger as (() => void) | null)?.();
     await sleep(1400);
     const pausedPlays = state.plays;
-    // B：恢复未暂停态，重新调度 → 应续播
-    state.pausedNow = false;
+    // B：系统打断（Feed.paused 同样为 true）→ 必须续播
+    state.kind = "paused_by_system";
     state.plays = 0;
-    root.render(<Probe paused={false} />);
-    await sleep(30);
     (trigger as (() => void) | null)?.();
     await sleep(1400);
     Object.assign(window, { __keepAlive: { pausedPlays, resumedPlays: state.plays } });
     root.unmount();
+  })();
+}
+
+/* ── B7 useProxyPlaybackRecovery retry() 推导探针（整改 B7）：真实
+ * hook + 假 video/activity。判别用例：视频被系统暂停（paused=true、
+ * readyState≥2）但活状态意愿为想播（isPlayWanted=true、
+ * pauseState=paused_by_system）→ retry 快照 playing 必须是 true：
+ * 系统暂停不得被推导成「不想播」。旧推导走 !video.paused → false。 ── */
+import { useProxyPlaybackRecovery } from "../src/features/playback/useProxyPlaybackRecovery";
+import * as playUrlCacheModule from "../src/features/feed/usePlayUrlCache";
+import { usePlayUrlCache } from "../src/features/feed/usePlayUrlCache";
+import * as stallHealModule from "../src/features/feed/stallHeal";
+{
+  const state = { want: true, kind: "paused_by_system" as "playing" | "paused_by_user" | "paused_by_system", wantSet: null as boolean | null };
+  let retryFn: ((source?: string, playWanted?: boolean) => void) | null = null;
+  let resumeFn: (() => { playing: boolean } | null) | null = null;
+  const video = document.createElement("video");
+  Object.defineProperty(video, "readyState", { value: 2 });
+  const videoRef = { current: video as HTMLVideoElement | null };
+  const activity = {
+    isActive: () => true,
+    isPlayWanted: () => state.want,
+    play: () => {},
+    pause: () => {},
+    setPlayWanted: (on: boolean) => { state.wantSet = on; },
+    pauseState: () => state.kind,
+  };
+  function Probe() {
+    const rec = useProxyPlaybackRecovery(videoRef, "https://media.example/x.m3u8", activity, () => {});
+    retryFn = rec.retry;
+    resumeFn = rec.resume as () => { playing: boolean } | null;
+    return null;
+  }
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  void (async () => {
+    /* 逐例重挂载：同一 hook 实例的 previous 快照优先于推导（契约本身），
+     * 不重挂载会掩盖逐例推导结果。 */
+    const run = async (n: number) => {
+      root.render(<Probe key={n} />);
+      await sleep(30);
+      retryFn?.("probe");
+      return resumeFn?.()?.playing ?? null;
+    };
+    state.kind = "paused_by_system"; state.want = true;
+    const systemWanted = await run(1);
+    state.kind = "paused_by_user"; state.want = false;
+    const userPaused = await run(2);
+    state.kind = "paused_by_system"; state.want = false;
+    const systemUnwanted = await run(3);
+    Object.assign(window, { __b7: { systemWanted, userPaused, systemUnwanted } });
+    root.unmount();
+  })();
+}
+
+/* ── B1 播放 URL 缓存真实 hook 探针（整改 B1）：当前条目播放中 →
+ * lineEpoch 自增 → 当前条目 URL 必须在新作用域键下仍可取（迁移、
+ * 不卸载），其余条目照旧整表失效；自愈 skip 集内的条目不迁移
+ * （强制重解析）；clearKey 必须两表都删（旧实现 main 删除成功
+ * 短路、hevc 残留）。旧 hook 无迁移且 clearKey 短路，本探针必红。 ── */
+{
+  const entryRef = { current: { id: 42, ep: 2 } };
+  const skipRef = { current: new Set<string>() };
+  let api: ReturnType<typeof usePlayUrlCache> | null = null;
+  function CacheProbe({ epoch }: { epoch: number }) {
+    api = usePlayUrlCache("acct", epoch, entryRef, skipRef);
+    return null;
+  }
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  void (async () => {
+    const waitApi = async () => { for (let i = 0; i < 60 && !api; i++) await sleep(50); return api!; };
+    root.render(<CacheProbe epoch={7} />);
+    const a = await waitApi();
+    a.setUrls(a.keyFor(42, 2), "https://m/main.m3u8", "https://m/hevc.m3u8");
+    a.setUrls(a.keyFor(9, 1), "https://m/other.m3u8");
+    root.render(<CacheProbe epoch={8} />);
+    await sleep(120);
+    const migratedMain = api!.getMain(api!.keyFor(42, 2)) ?? null;
+    const migratedHevc = api!.getHevc(api!.keyFor(42, 2)) ?? null;
+    const otherGone = api!.getMain(api!.keyFor(9, 1)) === undefined;
+    // 自愈失效集：当前条目在 skip 集内 → 不迁移、强制重解析
+    api!.setUrls(api!.keyFor(42, 2), "https://m/main2.m3u8", "https://m/hevc2.m3u8");
+    skipRef.current.add("42:2");
+    root.render(<CacheProbe epoch={9} />);
+    await sleep(120);
+    const skipBlocksMigration = api!.getMain(api!.keyFor(42, 2)) === undefined;
+    // clearKey 两表都删
+    api!.setUrls(api!.keyFor(5, 1), "https://m/m5.m3u8", "https://m/h5.m3u8");
+    api!.clearKey(api!.keyFor(5, 1));
+    const clearRemovesBoth = api!.getMain(api!.keyFor(5, 1)) === undefined && api!.getHevc(api!.keyFor(5, 1)) === undefined;
+    Object.assign(window, { __b1: { migratedMain, migratedHevc, otherGone, skipBlocksMigration, clearRemovesBoth } });
+    root.unmount();
+  })();
+}
+
+/* ── B17-1 探针等待对齐＋接管探针（整改 B17-1/B17-5）：探针未完成
+ * 时挂载的 SrCanvas 处于等待态；随后注入 30 天内有效的持久化全过
+ * 结果（gatesPass＋recommendedPath=copy，不重跑探针 runner）→ 该面
+ * 必须经 onPipelineChange 报出 engaged=true（接管 WebGPU 路径）。
+ * 开关未翻（SR_MODEL_DEFAULT_ENABLED=false）或等待上限只有 ~40s
+ * 且无人替挂载面调 runSrProbe 时，engaged 永不为 true（红）。 ── */
+{
+  const seen: boolean[] = [];
+  const video = document.createElement("video");
+  const videoRef = { current: video as HTMLVideoElement | null };
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  void (async () => {
+    root.render(<SrCanvas videoRef={videoRef} mode="natural" onPipelineChange={(v) => { seen.push(v); }} />);
+    await sleep(300);
+    const waitingBeforeProbe = !seen.includes(true);
+    try {
+      registerSrProbeV2();
+      localStorage.setItem(srProbeCacheKey(), JSON.stringify({ at: new Date().toISOString(), gatesPass: true, recommendedPath: "copy" }));
+      await runSrProbe();
+    } catch { /* 注册/持久化异常时接管自然失败，结果如实为 false */ }
+    const t0 = Date.now();
+    while (Date.now() - t0 < 6000 && !seen.includes(true)) await sleep(100);
+    Object.assign(window, { __srTakeover: { waitingBeforeProbe, sawEngaged: seen.includes(true), seen: [...seen] } });
+    root.unmount();
+  })();
+}
+
+/* ── B18 Player 接线用例（模块级观测点）：Player 组件 harness 在本
+ * 夹具不可及（需 store/Tauri 全量装配），故以「Player 模块经 vite
+ * 转换后的源码文本」为观测点断言生产接线存在：notePlaybackPlaying
+ * 必须被 import 且在播放/暂停/结束/卸载四类接线点出现（调用点计数
+ * ≥5：onPlay/onPlaying 置 true、onPause/onEnded/卸载 置 false）。
+ * 事实源语义本身由 run() 内 b18_fact_* 同步断言。 ── */
+{
+  void (async () => {
+    try {
+      const src = await fetch("/src/features/playback/Player.tsx").then(r => r.text());
+      const calls = (src.match(/notePlaybackPlaying\(/g) || []).length;
+      Object.assign(window, { __b18: { playerWired: src.includes("notePlaybackPlaying"), callSites: calls } });
+    } catch {
+      Object.assign(window, { __b18: { playerWired: false, callSites: 0 } });
+    }
   })();
 }

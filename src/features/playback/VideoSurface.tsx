@@ -15,7 +15,7 @@ import { effectiveSrMode, getSvgFilterUrl, presentationPipeline, srVideoFilterMo
 import SrCanvas from "./SrCanvas";
 import { createHlsPlayerConfig, currentLineSeedBps, formatFirstRendition, lockHighestStartLevel, observeFirstRendition } from "./hlsConfig";
 import { useSrDensity } from "./useSrDensity";
-import { createFragThroughputReporter, originOf } from "./playbackThroughput";
+import { createFragThroughputReporter, currentLineOrigin } from "./playbackThroughput";
 import { api } from "../../shared/api/api";
 
 export type FragStats = { bytes: number; loadMs: number; fragDuration: number; bitrate: number };
@@ -35,6 +35,9 @@ export type VideoHandle = {
   volume: (v: number) => void;
   isActive: () => boolean;
   isPlayWanted: () => boolean;
+  /** 活动层三态暂停信号（整改 B2）：Feed 的 keepAlive 等意愿门控经此
+   * 读取，不再用 Feed.paused 粗信号冒充用户暂停。 */
+  pauseState: () => "playing" | "paused_by_user" | "paused_by_system";
 };
 
 type Props = {
@@ -97,6 +100,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const stallSrcRef = useRef(src);
   if (stallSrcRef.current !== src) { stallSrcRef.current = src; stallAttemptRef.current = 0; }
   const nearEndFiredRef = useRef(false);
+  /* 正在播放的 level（整改 B4）：LEVEL_SWITCHED 维护、无事件时以
+   * hls.currentLevel 兜底；判档采样只认这一档的 rendition。 */
+  const playingLevelRef = useRef(-1);
   const reportedSizeRef = useRef({ key: "", w: 0, h: 0 });
   const measurementRef = useRef({ key: measurementKey, onSize });
   measurementRef.current = { key: measurementKey, onSize };
@@ -114,7 +120,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const [firstRendition, setFirstRendition] = useState<string | undefined>(undefined);
   const [webgpuEngaged, setWebgpuEngaged] = useState(false);
   const [srDemoteCount, setSrDemoteCount] = useState(0);
-  const srMode = effectiveSrMode(store?.srPref ?? "auto", srSize.w, srSize.h, srDensity ?? undefined);
+  /* 判档尺寸以密度携带的 playing rendition 宽高为准（整改 B4），未取
+   * 到密度时才回落显示帧尺寸。 */
+  const srMode = effectiveSrMode(store?.srPref ?? "auto", srDensity?.width || srSize.w, srDensity?.height || srSize.h, srDensity ?? undefined);
   /* U1：SuperResCanvas 回报的实际呈现档位（含性能降档结果）。合成层
    * 保底是否挂载按它判（见下方 videoFilter），不按判档 srMode 猜——
    * 判档是 crisp 但已被降到 off 时，保底同样要顶上。 */
@@ -134,7 +142,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   const canvasModeForFacts = canvasSrMode;
   useEffect(() => {
     if (srSize.w <= 0 || srSize.h <= 0) return;
-    const fm = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasModeForFacts, svgFallback, canvasOffReason: srMode === "off" ? "judged" : "demoted" });
+    const fm = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasModeForFacts, svgFallback, canvasOffReason: svgFallback ? "unavailable" : srMode === "off" ? "judged" : "demoted" });
     publishPlaybackFacts({ w: srSize.w, h: srSize.h, bitrateBps: srDensity?.bitrateBps, fps: srDensity?.fps, codec: srDensity?.codec, srMode, engine: engineRef.current || undefined, firstRendition, pipeline: presentationPipeline({ webgpuEngaged, canvasMode: canvasModeForFacts, filterMode: fm }), srDemoteCount, at: Date.now() });
   }, [srSize, srDensity, srMode, firstRendition, webgpuEngaged, canvasModeForFacts, svgFallback, srDemoteCount, store?.srPref]);
   const { trace, requestSeek } = usePlayerDiagnostics(videoRef, hlsRef, { ...diagnosticContext, active, resource: mediaResource(src) });
@@ -197,6 +205,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     volume: (vol: number) => { const v = videoRef.current; if (v) v.volume = vol; },
     isActive: () => activity.isActive(),
     isPlayWanted: () => activity.isPlayWanted(),
+    pauseState: () => activity.pauseState(),
   }), []);
 
   useEffect(() => {
@@ -214,7 +223,9 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
 
     const source = playbackSource(src, Hls.isSupported());
     engineRef.current = source.engine;
-    throughputRef.current?.setOrigin(originOf(src));
+    playingLevelRef.current = -1;
+    /* 吞吐回写按当前线路 base 记账（整改 B3）：不再用媒体地址 origin。 */
+    throughputRef.current?.setOrigin(currentLineOrigin());
     let disconnectNative: (() => void) | undefined;
     let stallWatchdog: AppendStallWatchdog | undefined;
     let detachWatchdog: (() => void) | undefined;
@@ -288,8 +299,15 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         /* 分片吞吐上报（2.0.5 卡顿自愈，Muse 2026-11-18 移植）：只报整片，耗时取 stats.loading 起止差 */
         onFragLoaded: (data) => {
         const st = data.frag.stats;
-        /* 超分密度：共享采样器（前 3 片中位数＋fps/codec，换 level 重采） */
-        ingestSrFrag({ loaded: st.loaded, duration: data.frag.duration, level: data.frag.level }, hls.levels[data.frag.level]);
+        /* 超分密度（整改 B4）：采样身份与 rendition 信息全部取正在播放
+         * 的 level（LEVEL_SWITCHED 维护、currentLevel 兜底），不取分片
+         * 的下载 level——ABR 换档后下载档与显示档可错开约 2 分钟。 */
+        const pl = playingLevelRef.current >= 0 ? playingLevelRef.current : hls.currentLevel;
+        const pLevel = pl >= 0 ? hls.levels[pl] : undefined;
+        ingestSrFrag(
+          { loaded: st.loaded, duration: data.frag.duration, level: pl >= 0 ? pl : data.frag.level },
+          pLevel ? { frameRate: pLevel.frameRate, videoCodec: pLevel.videoCodec, width: pLevel.width, height: pLevel.height, bitrate: pLevel.bitrate } : undefined,
+        );
         /* 真实播放吞吐入账（P0-B ⑤）：与下方消费者上报共用同一 loadMs 口径 */
         {
           const loadMs = st.loading.end > 0 && st.loading.end >= st.loading.start ? st.loading.end - st.loading.start : 0;
@@ -303,6 +321,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
         },
         onFragBuffered: () => recovery.buffered(),
       });
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => { playingLevelRef.current = data.level; });
       observeFirstRendition(hls, Hls.Events, r => setFirstRendition(formatFirstRendition(r)));
       hls.loadSource(source.url);
       hls.attachMedia(video);
@@ -362,6 +381,10 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
 
   useLayoutEffect(() => { recoveryRef.current?.activityChanged(); }, [active]);
 
+  /* 线路切换后吞吐账本键跟随新线路 base（整改 B3）：lineEpoch 变化即
+   * 刷新（hg:line-changed 时 lastPickRound 已先行更新，见 autoLine）。 */
+  useEffect(() => { throughputRef.current?.setOrigin(currentLineOrigin()); }, [store?.lineEpoch]);
+
   // iOS 内联播放：部分 WKWebView 只认 HTML 属性
   useEffect(() => {
     const v = videoRef.current;
@@ -389,7 +412,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
    * off / 性能降到 off）且用户未显式关时挂 SVG natural 保底；硬故障
    * svgFallback 时挂本档位滤镜（既有路径）。保底的退出全自动：WebGL
    * 升档恢复呈现的同一渲染内摘除，用户零操作。 */
-  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback, canvasOffReason: srMode === "off" ? "judged" : "demoted" });
+  const filterMode = srVideoFilterMode({ srPref: store?.srPref ?? "auto", srMode, canvasMode: canvasSrMode, svgFallback, canvasOffReason: svgFallback ? "unavailable" : srMode === "off" ? "judged" : "demoted" });
   const videoFilter = filterMode ? getSvgFilterUrl(filterMode) : undefined;
 
   return (

@@ -65,7 +65,8 @@ export class AppendStallWatchdog {
     /** 到点复查：已有可播缓冲则不算卡死（事件可能漏报）。 */
     hasBuffered: () => boolean;
     isPlaying: () => boolean;
-    /** 出画臂判死前的意愿门控：用户已暂停/不想播时不判死（缺省放行）。 */
+    /** 判死前的意愿门控（两臂共用，整改 B10）：用户已暂停/不想播时
+     * 不判死、转挂起（缺省放行）。 */
     shouldEscalate?: () => boolean;
     onStall: (state: AppendStallState) => void;
   }) {}
@@ -114,6 +115,13 @@ export class AppendStallWatchdog {
       if (this.appendInFlight && !this.extended) {
         this.extended = true;
         this.armTimer();
+        return;
+      }
+      /* 意愿门控（整改 B10）：append 臂与出画臂同态——意愿不在时
+       * 挂起而非 retire。旧实现先 retire 再调 onStall，接线层意愿门
+       * 把 onStall 吞掉后看门狗已永久退役，本源再卡死无人检出。 */
+      if (this.opts.shouldEscalate && !this.opts.shouldEscalate()) {
+        this.suspended = true;
         return;
       }
       const state: AppendStallState = !this.appendSeen

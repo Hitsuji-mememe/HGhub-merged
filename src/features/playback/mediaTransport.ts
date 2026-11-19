@@ -7,14 +7,20 @@ type PlaybackSource = { engine: "hls.js" | "native"; url: string; route: string 
 /* ── 会话级原生降级（2026-11-18 收官批 F 项）──
  * append 卡死按 App 会话发作（坏会话整场全坏）：看门狗在同一会话内
  * 二次判死后置此标记，后续所有视频的 playbackSource 直接走 native
- * 引擎，不再经 hls.js/MMS。只置一次，事实写进 trace（web.playback.fallback），
- * 诊断报告结论行据此提示。进程重启即清零（新会话重新给 hls.js 机会）。 */
+ * 引擎，不再经 hls.js/MMS。只置一次，事实写进 trace（playback.fallback，
+ * 落盘加 web. 前缀后为 web.playback.fallback），诊断报告结论行据此
+ * 提示。进程重启即清零（新会话重新给 hls.js 机会）。 */
 let nativeFallback: { reason: string; at: number } | null = null;
 
 export function noteNativeFallback(reason: string): boolean {
   if (nativeFallback) return false;
   nativeFallback = { reason, at: Date.now() };
-  tracePlayback("web.playback.fallback", { reason });
+  /* 事件名不带 web. 前缀（整改 B15）：落盘层统一加前缀，旧名
+   * "web.playback.fallback" 落盘成双前缀、报告按单前缀永不命中。 */
+  tracePlayback("playback.fallback", { reason });
+  /* 恢复结果统一埋点（整改 B14，diag-audit #12）：与代理恢复的
+   * recovery.outcome 同名同形，供诊断按 kind/result 聚合恢复结局。 */
+  tracePlayback("recovery.outcome", { kind: "native_fallback", result: "engaged", reason });
   return true;
 }
 
