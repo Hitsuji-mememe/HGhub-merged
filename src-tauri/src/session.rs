@@ -311,7 +311,7 @@ impl SessionStore {
             cur.origin = new_origin.to_string();
             cur.revision = cur.revision.wrapping_add(1);
         }
-        self.persist();
+        let _ = self.persist();
         true
     }
 
@@ -384,7 +384,7 @@ impl SessionStore {
             cur.user = user;
             cur.revision = cur.revision.wrapping_add(1);
         }
-        self.persist();
+        let _ = self.persist();
         true
     }
 
@@ -407,7 +407,7 @@ impl SessionStore {
             }
             cur.user = user;
         }
-        self.persist();
+        let _ = self.persist();
         true
     }
 
@@ -420,7 +420,7 @@ impl SessionStore {
             cur.user = serde_json::Value::Null;
             cur.revision = cur.revision.wrapping_add(1);
         }
-        self.persist();
+        let _ = self.persist();
         true
     }
 
@@ -433,7 +433,7 @@ impl SessionStore {
             cur.user = user;
             cur.revision = cur.revision.wrapping_add(1);
         }
-        self.persist();
+        let _ = self.persist();
     }
 
     pub fn clear(&self) {
@@ -444,29 +444,75 @@ impl SessionStore {
             cur.user = serde_json::Value::Null;
             cur.revision = cur.revision.wrapping_add(1);
         }
-        self.persist();
+        let _ = self.persist();
     }
 
-    fn persist(&self) {
+    /// 落盘（P2-16 根治，Muse 2026-11-19，audit6 §四）：旧实现
+    /// 全链静默——序列化/open/write/sync/rename 任一环失败都不记
+    /// 不报，落盘失败时内存会话照常、重启丢登录态且诊断无痕。现
+    /// 改返回 Result 并标明失败阶段；失败同时记 playback_log
+    /// （session.persist_failed）并更新 persist_status 供诊断 env
+    /// 段读取。调用方仍可忽略返回值（落盘失败不该打崩会话），
+    /// 但失败从此有痕。
+    fn persist(&self) -> Result<(), String> {
         // Keep state locked through the write so a slower earlier writer cannot persist over a new login.
         let snapshot = self.current.lock().unwrap();
-        if let Some(path) = self.file.lock().unwrap().as_ref() {
-            if let Ok(text) = serde_json::to_string_pretty(&*snapshot) {
-                let temp = path.with_extension("json.tmp");
-                let mut options = std::fs::OpenOptions::new();
-                options.write(true).create(true).truncate(true);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::OpenOptionsExt;
-                    options.mode(0o600);
-                }
-                if let Ok(mut file) = options.open(&temp) {
-                    use std::io::Write;
-                    if file.write_all(text.as_bytes()).is_ok() && file.sync_all().is_ok() {
-                        let _ = std::fs::rename(&temp, path);
-                    }
-                }
+        let result = self.persist_snapshot(&snapshot);
+        match &result {
+            Ok(()) => note_persist_status(true, "ok"),
+            Err(stage) => {
+                crate::playback_log::record(
+                    "session.persist_failed",
+                    serde_json::json!({ "stage": stage }),
+                );
+                note_persist_status(false, stage);
             }
         }
+        result
     }
+
+    fn persist_snapshot(&self, snapshot: &Session) -> Result<(), String> {
+        let Some(path) = self.file.lock().unwrap().as_ref().cloned() else {
+            // 未 bind 文件（测试/未初始化）：不算失败，与旧行为一致。
+            return Ok(());
+        };
+        let text = serde_json::to_string_pretty(snapshot).map_err(|_| "serialize".to_string())?;
+        let temp = path.with_extension("json.tmp");
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        use std::io::Write;
+        let mut file = options.open(&temp).map_err(|_| "open".to_string())?;
+        file.write_all(text.as_bytes()).map_err(|_| "write".to_string())?;
+        file.sync_all().map_err(|_| "sync".to_string())?;
+        std::fs::rename(&temp, &path).map_err(|_| "rename".to_string())?;
+        Ok(())
+    }
+}
+
+/// 最近一次会话落盘状态（P2-16）：供 net_diag 诊断报告 env 段读取，
+/// 让「重启丢登录态」类问题在诊断里有据可查。只记阶段与时刻，
+/// 不记路径/内容。
+static PERSIST_STATUS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
+
+fn note_persist_status(ok: bool, stage: &str) {
+    if let Ok(mut slot) = PERSIST_STATUS.lock() {
+        *slot = Some(serde_json::json!({
+            "ok": ok,
+            "stage": stage,
+            "at": crate::logging::utc_timestamp().unwrap_or_default(),
+        }));
+    }
+}
+
+pub fn persist_status() -> serde_json::Value {
+    PERSIST_STATUS
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+        .unwrap_or(serde_json::Value::Null)
 }
