@@ -112,7 +112,11 @@
   主线程长任务聚合（longtask_*，不支持记 null）、Feed/SR 组件面龄
   与窗口内重挂/卸载、HLS 实例 ID 与窗口内重建标志。聚合口径＝
   holdJank.summarizeHoldEvents（engaged/bypass 两桶，无显式布尔
-  不入桶）。回归见 playback-engines HP/HP2 组。
+  不入桶）。回归见 playback-engines HP/HP2 组。报告汇总节的数据源
+  钉死为事件账本保留窗全集（`ledgerSnapshot().events`，3.2.1 F3 线）：
+  hold.* 只落账本，播放日志是另一套存储且落盘名带 `web.` 前缀、
+  聚合器精确匹配不上——改喂日志即恒 0（3.2.0 真机实锤）；回归见
+  `fix321-f3-hold-summary.contract.test.ts`。
 - 代理恢复落点（最终版 B3 线，裁定条目 4）：useProxyPlaybackRecovery
   的 pending 快照在存续期间跟随用户 seek——元素 seeking 事件把
   快照 time 更新为最新 seek 目标，restore 落点以用户最新位置为

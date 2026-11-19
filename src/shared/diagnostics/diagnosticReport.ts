@@ -709,9 +709,15 @@ lines.push("读取失败（纯旁路，不影响本报告其余内容）");
  * A/B 对照，此分组就是真机一份诊断判读 SR 与松手卡顿是否相关的
  * 唯一对照（条目 9 判别力）。无 sr_engaged 标记的事件不入桶不推断。 */
 try {
-const lastPid = entries.length? entries[entries.length - 1].pid: null;
-const session = lastPid == null? entries: entries.filter(e => e.pid === lastPid);
-const hs = summarizeHoldEvents(session as unknown as { event: string; data?: Record<string, unknown> }[]);
+/* 数据源（Muse 2026-11-19 3.2.1修复F3线）：hold.* 事件的事实来源是
+ * 事件账本——汇总吃 ledgerSnapshot().events，与一键导出的账本尾段
+ * 同源。旧实现喂播放日志 entries（按最后一个 pid 过滤）：那是另一套
+ * 存储，且日志落盘名由 Rust 统一加 web. 前缀（web.hold.jank），聚合器
+ * 按 hold.jank 精确匹配恒不命中——3.2.0 真机实锤账本尾段有
+ * release_profile/jank ×3、汇总却报 0。账本事件无 pid、会话内不再
+ * 分段，口径＝本会话保留窗全集（最近 512 条），与报告头留存范围
+ * 一致；回归见 fix321-f3-hold-summary.contract.test.ts。 */
+const hs = summarizeHoldEvents(ledgerSnapshot().events);
 lines.push("── 长按松手分组（SR 接管 vs 判档直通）──");
 lines.push(`SR 接管：长按 ${hs.engaged.holds} 次 · 松手卡顿 ${hs.engaged.janks} 次`);
 lines.push(`判档直通：长按 ${hs.bypass.holds} 次 · 松手卡顿 ${hs.bypass.janks} 次`);
