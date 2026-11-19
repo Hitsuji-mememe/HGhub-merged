@@ -36,10 +36,10 @@ export const BUILTIN_SOURCES: SourceDef[] = [
   },
   {
     id: "91video", displayName: "91视频", kind: "video", category: "video",
-    adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/view_video.php", detailPath: "/view_video.php?viewkey={id}" } },
+    adapter: { template: "hls-site", params: { listPath: "/index.php?page={page}", itemLinkPattern: "/view_video.php", detailPath: "/view_video.php?viewkey={id}" } },
     baseUrls: ["https://91porn.com"],
-    enabled: true, order: 21, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "通用 HLS 模板实例化；未真站实测",
+    enabled: true, order: 21, maturity: "stable",
+    capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：过 18+ 声明页后 index.php 列表解析 24 条、详情页 <source> mp4 直链（ccm.91p52.com）可提取；分页 ?page= 为该站经典参数、未逐页验",
   },
   {
     id: "pornhub", displayName: "Pornhub", kind: "video", category: "video",
