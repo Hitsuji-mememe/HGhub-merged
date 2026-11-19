@@ -60,6 +60,8 @@
 | 2026-11-19 | copyExternalImageToTexture 目标纹理缺 RENDER_ATTACHMENT 被校验拒绝 | 同上：staging 纹理只有 CopyDst，拷贝被拒、摄入趟读到空纹理且无显性报错 | Dawn 对该拷贝的目标 usage 有硬性要求（CopyDst＋RenderAttachment），文档不显眼 | 摄入 staging 纹理 usage 固定带 RENDER_ATTACHMENT；引擎对 uncapturederror 一律按死亡回退，不许静默黑屏 | `src/features/playback/webgpuSr.ts` makeStaging/uncapturederror |
 | 2026-11-19 | 热缓存下 CI 仍全量重编 270 个 crate | fix2 C1 基线：rust-cache 还原 2s 命中，cargo 仍输出 270 条 Compiling、Rust 段 5m31s | rust-cache 还原的是 src-tauri/target，Xcode「Build Rust Code」阶段（tauri ios xcode-script 子进程）的增量状态与之不衔接 | 提速要打在 rustc 调用级缓存（sccache）并把 RUSTC_WRAPPER 写进生成工程的阶段脚本本身——workflow 层 export 进不到 xcodebuild 阶段（fix1 已证） | `scripts/patch-ios-sccache.mjs`；fix2 存档 build-timing/baseline.md |
 
+| 2026-11-19 | 频道列全量源、解析为空冒充真空：无品类映射的源点进去必然空/失败，取到页解析 0 条目还显示「已取数，但列表为空」的假成功空页 | 3.2.0 真机首验「大量不可用」：短剧频道把全部 video 源列成切源片；肉视频/PornPics 模板参数与真站结构三处不符（列表路径/链接图案/只认双引号属性）恒解析为空；SWAG/RedGifs 无 SSR 条目同走假空页 | 频道切源必须按品类映射过滤（registry 字段判定、不按源名列名单）；HTML 解析 0 条目一律显式失败（SourceParseEmptyError 走列表层 err 通道），真空与解析失败分开；模板参数校准必须以真站结构夹具为准（本机 curl 抓取摘录），不凭通用骨架想当然 | `src/features/sources/registry.ts` sourcesForChannel；`adapters/templates.ts` SourceParseEmptyError；`adapters/parse.ts` 单引号属性；`src/features/sources/fix321-f2.contract.test.ts`（真站夹具五源） |
+
 新回归的追加方式：
 
 1. 在对应子系统页确认这是当前行为变化，不是提案。

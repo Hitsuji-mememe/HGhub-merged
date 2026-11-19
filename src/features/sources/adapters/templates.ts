@@ -26,6 +26,26 @@ function absUrl(base: string, href: string): string {
   try { return new URL(href, base).href; } catch { return href; }
 }
 
+/** 解析为空错误（Muse 2026-11-19 fix321-F2）：取页成功但锚点解析
+ * 为 0 = 页面结构与模板不匹配（或内容由前端渲染），不是「真空」。
+ * 列表层据此落显式失败态，不许再显示假成功空页；search 不用本错
+ * （搜索无结果是合法真空）。 */
+export class SourceParseEmptyError extends Error {
+  constructor(sourceId: string) {
+    super(`列表解析失败：${sourceId} 取回的页面未解析到条目（页面结构与适配器模板不匹配，或内容由前端渲染）`);
+    this.name = "SourceParseEmptyError";
+  }
+}
+
+/** 标题兜底（fix321-F2）：锚点无 title/alt/文本时（如 PornPics 图集
+ * tile 的 img alt 为空）由 href 末段 slug 还原（去尾部数字 id）。 */
+function titleFromHref(href: string): string {
+  try {
+    const seg = new URL(href).pathname.split("/").filter(Boolean).pop() ?? "";
+    return decodeURIComponent(seg).replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").replace(/\s+\d+$/, "").trim();
+  } catch { return ""; }
+}
+
 /** 锚点列表解析（chigua 与 hls-site 共用）：href 含 itemLinkPattern 的锚点为条目。 */
 function parseAnchorList(html: string, base: string, sourceId: string, itemLinkPattern: string): SourceItem[] {
   const seen = new Set<string>();
@@ -35,7 +55,7 @@ function parseAnchorList(html: string, base: string, sourceId: string, itemLinkP
     const href = absUrl(base, a.href);
     if (seen.has(href)) continue;
     seen.add(href);
-    const title = a.titleAttr || imgAlt(a.inner) || stripTags(a.inner);
+    const title = a.titleAttr || imgAlt(a.inner) || stripTags(a.inner) || titleFromHref(href);
     if (!title) continue;
     items.push({ sourceId, externalId: href, title, cover: absUrl(base, firstImgSrc(a.inner)), href, tags: [] });
   }
@@ -75,6 +95,8 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
       const base = def.baseUrls[0];
       const html = await fetchPage(absUrl(base, fill(listPath, { page })));
       const all = parseAnchorList(html, base, def.id, itemLinkPattern);
+      /* 未知不是空（fix321-F2）：取到页却 0 条目 = 解析失败，显式抛错走列表层错误通道 */
+      if (all.length === 0) throw new SourceParseEmptyError(def.id);
       const items = all.slice(0, size);
       return { items, pagination: pageOf(all.length, page, size) };
     },

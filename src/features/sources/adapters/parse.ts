@@ -16,33 +16,36 @@ export function stripTags(html: string): string {
 
 export interface Anchor { href: string; inner: string; titleAttr: string }
 
+/* 属性引号双形态（Muse 2026-11-19 fix321-F2）：真站复核发现
+ * PornPics /recent/ 的锚点与 img 全用单引号属性，旧正则只认双引号
+ * → 条目整体不可见。以下提取一律双/单引号通吃（反向引用钉住配对）。 */
 export function findAnchors(html: string): Anchor[] {
   const out: Anchor[] = [];
-  const re = /<a\b[^>]*\bhref="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  const re = /<a\b[^>]*\bhref=(["'])([^"']+)\1[^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
     const openTag = m[0].slice(0, m[0].indexOf(">") + 1);
-    const title = /\btitle="([^"]*)"/i.exec(openTag)?.[1] ?? "";
-    out.push({ href: decodeEntities(m[1]), inner: m[2], titleAttr: decodeEntities(title) });
+    const title = /\btitle=(["'])([^"']*)\1/i.exec(openTag)?.[2] ?? "";
+    out.push({ href: decodeEntities(m[2]), inner: m[3], titleAttr: decodeEntities(title) });
   }
   return out;
 }
 
 export function firstImgSrc(fragment: string): string {
-  const m = /<img\b[^>]*\b(?:data-src|data-original|src)="([^"]+)"/i.exec(fragment);
-  return m ? decodeEntities(m[1]) : "";
+  const m = /<img\b[^>]*\b(?:data-src|data-original|src)=(["'])([^"']+)\1/i.exec(fragment);
+  return m ? decodeEntities(m[2]) : "";
 }
 
 export function imgAlt(fragment: string): string {
-  const m = /<img\b[^>]*\balt="([^"]*)"/i.exec(fragment);
-  return m ? decodeEntities(m[1]) : "";
+  const m = /<img\b[^>]*\balt=(["'])([^"']*)\1/i.exec(fragment);
+  return m ? decodeEntities(m[2]) : "";
 }
 
 export function allImgSrcs(html: string): string[] {
   const out: string[] = [];
-  const re = /<img\b[^>]*\b(?:data-src|data-original|src)="([^"]+)"/gi;
+  const re = /<img\b[^>]*\b(?:data-src|data-original|src)=(["'])([^"']+)\1/gi;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) out.push(decodeEntities(m[1]));
+  while ((m = re.exec(html)) !== null) out.push(decodeEntities(m[2]));
   return out;
 }
 

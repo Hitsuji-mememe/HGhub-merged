@@ -14,9 +14,9 @@ import { dedupedIncoming } from "../../shared/lib/dedup";
 import { traceFeed } from "../../shared/lib/feedTrace";
 import { Empty } from "../../shared/ui/ui";
 import { IAward, IBack, IChevR, IFilm, IFlame, IGrid, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
-import { firstEnabledSource, sourcesForCategory } from "../sources/registry";
+import { firstEnabledSource, sourcesForCategory, sourcesForChannel } from "../sources/registry";
 import { getActiveRegistry } from "../sources/manifest";
-import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from "../sources/SourceSwitcher";
+import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory, sourceOptionsForChannel } from "../sources/SourceSwitcher";
 import SourceBrowse from "../sources/SourceBrowse";
 import SourceGallery from "../sources/SourceGallery";
 
@@ -204,12 +204,13 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
           )}
         </section>
 
-        {/* 图片分区（Muse 2026-11-19 最终版 D 线，①用户亲定条目8）：
-            列 active 注册表 category="image" 的源——启用源经
-            sourcesForCategory 如实列出（maturity 徽标照 SourceSwitcher
-            口径），点开推既有 channel 栈页（cate="image:<源id>"）进
-            图集浏览页；目录导入的未启用图源单列如实呈现「未启用」，
-            不可点开、不假装可用（远程清单启用后自动转入上方列表）。 */}
+        {/* 图片分区（Muse 2026-11-19 最终版 D 线，①用户亲定条目8；
+            2026-11-19 fix321-F2 修订）：只列 active 注册表
+            category="image" 的已启用源（sourcesForCategory 只返回
+            enabled，maturity 徽标照 SourceSwitcher 口径），点开推
+            既有 channel 栈页（cate="image:<源id>"）进图集浏览页。
+            浏览面只显示已启用源：停用状态的源不在此排队，只在源管理/
+            诊断明细面可见（远程清单启用后自动转入本列表）。 */}
         <section aria-label="图片" className="mb-5 a-rise">
           <div className="flex items-center gap-3 mb-3">
             <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IGrid size={18} strokeWidth={1.9} /></span>
@@ -227,12 +228,6 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
                     : null}
                 <IChevR size={14} />
               </Button>
-            ))}
-            {activeSources.filter((s) => s.category === "image" && !s.enabled).map((s) => (
-              <div key={s.id} className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 opacity-60">
-                <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
-                <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">未启用</span>
-              </div>
             ))}
           </div>
         </section>
@@ -298,8 +293,15 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
     window.addEventListener("hg:registry-changed", onRegistry);
     return () => window.removeEventListener("hg:registry-changed", onRegistry);
   }, []);
-  const videoSourceOptions = [{ id: "huangguo", label: "黄果" }, ...sourceOptionsForCategory("video")];
-  const channelSource = sourcesForCategory("video", getActiveRegistry().sources).find((s) => s.id === channelSourceId);
+  /* 切源片按频道-源映射（Muse 2026-11-19 fix321-F2）：只列对本
+   * 频道有真实品类映射的源（sourcesForChannel(cate)），无映射源
+   * 不进本频道列表；陈旧选择（来自其他频道）不在本频道映射内时
+   * 回落原生黄果，不跨频道生效。 */
+  const videoSourceOptions = [{ id: "huangguo", label: "黄果" }, ...sourceOptionsForChannel(cate)];
+  const effectiveChannelSourceId = channelSourceId === "huangguo" || videoSourceOptions.some((o) => o.id === channelSourceId)
+    ? channelSourceId
+    : "huangguo";
+  const channelSource = sourcesForChannel(cate, getActiveRegistry().sources).find((s) => s.id === effectiveChannelSourceId);
   const [serverSort, setServerSort] = useState<(typeof CHANNEL_SORTS)[number]["value"]>("latest");
   const [originalCate, setOriginalCate] = useState<(typeof ORIGINAL_CATES)[number]["value"]>("all");
   const [pageItems, setPageItems] = useState<VideoCard[][]>([]);
@@ -434,7 +436,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
    * createAdapter 生产调用为 0）：blocked 维持既有诚实提示页；
    * 其余（stable/probe）经 SourceBrowse 走适配器真取数，失败错误
    * 态＋重试，不回落黄果数据冒充。 */
-  if (channelSourceId !== "huangguo") {
+  if (effectiveChannelSourceId !== "huangguo") {
     return (
       <div className="ios-page absolute inset-0 bg-bg flex flex-col">
         <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
@@ -442,14 +444,14 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
             <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
             <div className="flex-1 min-w-0">
               <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
-              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">数据源：{channelSource?.displayName ?? channelSourceId}</div>
+              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">数据源：{channelSource?.displayName ?? effectiveChannelSourceId}</div>
             </div>
           </div>
-          <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={channelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
+          <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={effectiveChannelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
         </div>
         <div className="flex-1 scroll-y pb-8">
           {!channelSource || channelSource.maturity === "blocked" ? (
-            <SourcePendingNotice displayName={channelSource?.displayName ?? channelSourceId} maturity={channelSource?.maturity} note={channelSource?.note} />
+            <SourcePendingNotice displayName={channelSource?.displayName ?? effectiveChannelSourceId} maturity={channelSource?.maturity} note={channelSource?.note} />
           ) : (
             <SourceBrowse def={channelSource} />
           )}
@@ -477,7 +479,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
             ))}
           </div>
         )}
-        <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={channelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
+        <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={effectiveChannelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
       </div>
       <div ref={scrollContainer} className="flex-1 scroll-y pt-3.5 pb-8" aria-busy={loading}>
         {items.length > 0 && replacing && <p role="status" className="mb-3 text-[12px] text-mut">{loading ? "正在更新，暂时保留上次结果…" : "当前显示上次结果，请重试以更新筛选。"}</p>}

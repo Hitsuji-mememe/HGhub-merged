@@ -280,11 +280,13 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
 /* ── 真实模板 search 数据流（夹具）：hls-site 与 wp-rest 的 search 非占位 ── */
 {
   setFetchPage(async () => fx("hls-list.html"));
-  const a = createHlsSiteAdapter(def("rouvideo"));
+  /* 断言适配（Muse 2026-11-19 fix321-F2）：肉视频参数已按真站校准
+   * 为 /v/<id>，通用骨架 search 数据流改用参数同形态的 FC2 def。 */
+  const a = createHlsSiteAdapter(def("fc2"));
   assert.ok(a.search, "hls-site 适配器有 search");
   const r = await a.search!("夹具", 1, 20);
   assert.equal(r.items.length, 2, "hls search 解析出夹具条目");
-  assert.equal(r.items[0].sourceId, "rouvideo", "search 条目带源 id");
+  assert.equal(r.items[0].sourceId, "fc2", "search 条目带源 id");
 }
 {
   setFetchPage(async () => fx("wp-rest-list.json"));

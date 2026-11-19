@@ -138,7 +138,7 @@ export default function SourceBrowse({ def }: { def: SourceDef }) {
       ) : loading ? (
         <div className="flex justify-center py-10"><Loader className="w-8 h-8 spinner" /></div>
       ) : (
-        <Empty icon={<IFilm size={26} />} title="该源暂无内容" sub="适配器已取数，但列表为空" />
+        <Empty icon={<IFilm size={26} />} title="该源暂无内容" sub="已取数，列表确为空（解析不到条目时已按加载失败处理）" />
       )}
       {loading && items.length > 0 && <div className="flex justify-center py-3"><Loader className="w-6 h-6 spinner" /></div>}
       {!loading && !err && page < pages && items.length > 0 && (
