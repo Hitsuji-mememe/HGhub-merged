@@ -324,28 +324,37 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
           <Empty icon={<IFilm size={26} />} title="播放地址获取失败" sub={detail.message} action="重试" onAction={() => void openItem(detail.item)} />
         )}
         {detail.phase === "ready" && (
-          <div className="px-4">
-            <Player src={detail.streamUrl} poster={cover(detail.item.cover)} autoPlay active controls
-              scopeKey={`${def.id}:${detail.currentEpExternalId}`}
-              onPlaying={() => {
-                /* G4 历史写入（fix334/L3）：真起播首帧才记，集数＝
-                 * 当前集 ordinal；同集重复 playing 不重复记（去重
-                 * 键含当前集，换集自动再记）。 */
-                const key = `${detail.item.externalId}:${detail.currentEpExternalId}`;
-                if (historyKeyRef.current === key) return;
-                historyKeyRef.current = key;
-                addExternalHistory(detail.item,
-                  detail.detail ? episodeOrdinal(detail.detail, detail.currentEpExternalId) : 1,
-                  choices.length || undefined);
-              }}
-              diagnosticContext={{ view: "source_browse", source_id: def.id }}
-              className="w-full aspect-video" />
-            <p className="mt-3 text-[12px] text-mut">数据源：{def.displayName}（经适配器实时取数，非黄果数据）</p>
-            {choices.length > 1 && (
-              <EpisodePicker choices={choices} currentKey={detail.currentEpExternalId}
-                onPick={(c) => void pickEpisode(c)} />
-            )}
-            {detail.epError && <p role="alert" className="mt-2 text-[12px] text-danger">{detail.epError}</p>}
+          <div>
+            {/* 呈现对齐（fix335/c-presentation）：播放器与 SourcePosts
+             * 同规格——脱详情自带 px-4、套同款定高容器、Player 填满
+             * 容器，不再是 aspect-video 小格子（审计
+             * audit-player-size 头条）；数据源注记与选集留在 px-4
+             * 块内，scopeKey/起播记史口径逐字不变。 */}
+            <div className="relative w-full bg-black" style={{ height: "min(48vh, 420px)" }}>
+              <Player src={detail.streamUrl} poster={cover(detail.item.cover)} autoPlay active controls
+                scopeKey={`${def.id}:${detail.currentEpExternalId}`}
+                onPlaying={() => {
+                  /* G4 历史写入（fix334/L3）：真起播首帧才记，集数＝
+                   * 当前集 ordinal；同集重复 playing 不重复记（去重
+                   * 键含当前集，换集自动再记）。 */
+                  const key = `${detail.item.externalId}:${detail.currentEpExternalId}`;
+                  if (historyKeyRef.current === key) return;
+                  historyKeyRef.current = key;
+                  addExternalHistory(detail.item,
+                    detail.detail ? episodeOrdinal(detail.detail, detail.currentEpExternalId) : 1,
+                    choices.length || undefined);
+                }}
+                diagnosticContext={{ view: "source_browse", source_id: def.id }}
+                className="w-full h-full" />
+            </div>
+            <div className="px-4">
+              <p className="mt-3 text-[12px] text-mut">数据源：{def.displayName}（经适配器实时取数，非黄果数据）</p>
+              {choices.length > 1 && (
+                <EpisodePicker choices={choices} currentKey={detail.currentEpExternalId}
+                  onPick={(c) => void pickEpisode(c)} />
+              )}
+              {detail.epError && <p role="alert" className="mt-2 text-[12px] text-danger">{detail.epError}</p>}
+            </div>
           </div>
         )}
       </div>

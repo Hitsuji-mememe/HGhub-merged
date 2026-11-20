@@ -652,6 +652,31 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   `fix334-library.contract.test.ts` §7 逐环透传/消费形断言（旧
   红：全仓无 openExternalEp），详见
   `~/workspace/hghub/fix334/evidence/sweep-fixes.md`。
+- **最终版 C 呈现：外部详情播放器同规格化＋搜索帖子副本正文全文
+  （fix335/c-presentation，3.3.5）**：外部详情是宿主页内嵌态、继
+  承页级边距（`--ios-page-inset` 18pt/侧）再叠详情自带 `px-4`，
+  且视频面从未对齐原生定高容器——`SourceBrowse` ready 块与
+  `Search` 外部详情 video/drama 分支各写一份 `px-4`＋
+  `w-full aspect-video`，真机实得 325×183pt 小格子（原生帖子详
+  情 393×409pt、`SourcePosts` 357×409pt）。现两处同治（抄
+  `SourcePosts` 现成先例，不新造规格）：Player 脱 `px-4`、套
+  `relative w-full bg-black`＋`height: min(48vh, 420px)` 定高容
+  器、className 改 `w-full h-full`，实得 357×409pt 与
+  `SourcePosts` 一致；注记/选集/简介留 `px-4` 块内，Player 本
+  体与全屏 hook 不动，scopeKey/选集/守卫落点逐字不变。宿主页边
+  距的最后 36pt 差（可选负边距补偿）本批不做：SourceBrowse 详
+  情根与页头同根、Search 详情层多 phase 共用容器，补偿会改页
+  头对齐与各 phase 宽度一致性，留主线裁定（审计
+  `~/workspace/hghub/fix335/audit-player-size.md` 可选 (a)）。
+  同批 S2：`Search` 帖子副本此前只消费 detail 的
+  cover/description/images、`contentHtml` 在手不渲染——现接
+  `SourcePosts` 同一提取—重构链（`extractArticleBlocks` 判据/
+  过滤单一出处）：提取到块→article-body 块渲染（块按文档序含
+  正文图、图片纵列只在降级路径保留）；定位到内容但段级全杀→
+  显简介；提取不到→`sanitizeHtml` 旧渲染（外链经
+  `handleArticleClick`＋本页 `openSafeLink`，与正身同实现）；
+  再无→简介。证据 `~/workspace/hghub/fix335/evidence/c-presentation.md`
+  （scratch 结构夹具改前 7/7、改后断言在旧树 8 红/新树 14/14）。
 
 ## 验证命令
 
