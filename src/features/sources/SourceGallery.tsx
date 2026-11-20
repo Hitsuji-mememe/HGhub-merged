@@ -44,6 +44,11 @@ export default function SourceGallery({ def, openExternalId }: {
   const [album, setAlbum] = useState<AlbumState | null>(null);
   const busy = useRef(false);
   const seq = useRef(0);
+  /* 相册 detail 专用代次（fix335/a-album-guard）：与列表 load 的
+   * seq 分开——同 SourceBrowse epSeq 先例（一面一 seq）；若与 load
+   * 共用，openAlbum 抢占会让在飞 load 的 finally 跳过 busy 复位、
+   * 列表单飞闩死锁。 */
+  const albumSeq = useRef(0);
   const failAt = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -101,12 +106,20 @@ export default function SourceGallery({ def, openExternalId }: {
   const openExternalConsumed = useRef<string | null>(null);
   useEffect(() => {
     seq.current++;
+    albumSeq.current++;
     busy.current = false;
     openExternalConsumed.current = null;
     setItems([]); setPage(0); setPages(1); setAlbum(null);
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def.id]);
+
+  /* 关相册＝同时作废在飞 detail（fix335/a-album-guard）：加载中
+   * 返回/关闭后迟到响应不得把已关覆层复活（同切源复活一病）。 */
+  const closeAlbum = useCallback(() => {
+    albumSeq.current++;
+    setAlbum(null);
+  }, []);
 
   /* 嵌套返回语义（fix331/gesture-precedence）：相册查看态活在本
    * 组件局部状态里（fixed 覆层但无弹层登记）——打开期间向统一
@@ -116,8 +129,8 @@ export default function SourceGallery({ def, openExternalId }: {
   const albumOpen = album !== null;
   useEffect(() => {
     if (!albumOpen) return undefined;
-    return registerOverlayBack(() => { setAlbum(null); return true; });
-  }, [albumOpen]);
+    return registerOverlayBack(() => { closeAlbum(); return true; });
+  }, [albumOpen, closeAlbum]);
 
   /* 逐图失败明细的面标注（fix331/gallery-device）：图集查看态记
    * gallery、相册网格记 source-list，诊断导出据此分面定位；卸载还原
@@ -130,14 +143,21 @@ export default function SourceGallery({ def, openExternalId }: {
   const openAlbum = useCallback(async (item: SourceItem) => {
     const adapter = createAdapter(def);
     if (!adapter) { setAlbum({ phase: "error", item, message: "该源未注册可用适配器" }); return; }
+    /* 代次守卫（fix335/a-album-guard，照 load 的 seq 既有形态）：
+     * 切源（重置 effect 先行 albumSeq++）、改开他册、加载中关闭
+     * 任一发生，本次 detail 的迟到响应直接丢弃——旧码无条件
+     * setAlbum，慢 detail 落地会把旧源相册覆层复活到新源列表
+     * 之上（A 线旁记、夹具三场景旧红在案）。 */
+    const mySeq = ++albumSeq.current;
     setAlbum({ phase: "loading", item });
     try {
       const d = await adapter.detail(item.externalId);
+      if (mySeq !== albumSeq.current) return;
       const images = (d.images?.length ? d.images : [d.cover]).filter(Boolean);
       if (!images.length) { setAlbum({ phase: "error", item, message: "该相册未解析到图片" }); return; }
       setAlbum({ phase: "ready", item, images, index: 0 });
     } catch (e) {
-      setAlbum({ phase: "error", item, message: (e as Error).message || "图集加载失败" });
+      if (mySeq === albumSeq.current) { setAlbum({ phase: "error", item, message: (e as Error).message || "图集加载失败" }); }
     }
   }, [def]);
 
@@ -164,8 +184,8 @@ export default function SourceGallery({ def, openExternalId }: {
         <div className="fixed inset-0 z-40 bg-black">
           <AlbumViewer title={album.item.title} images={album.images} index={album.index}
             onIndexChange={(i) => setAlbum({ ...album, index: i })}
-            onBack={() => setAlbum(null)} backLabel="返回相册列表"
-            onClose={() => setAlbum(null)} immersive
+            onBack={closeAlbum} backLabel="返回相册列表"
+            onClose={closeAlbum} immersive
             headerAction={(
               <Button aria-label={fav ? "取消收藏" : "收藏"} disabled={favPending}
                 onClick={() => {
@@ -182,7 +202,7 @@ export default function SourceGallery({ def, openExternalId }: {
     return (
       <div className="flex flex-col">
         <div className="flex items-center gap-2 px-4 pt-2 pb-3">
-          <Button aria-label="返回相册列表" onClick={() => setAlbum(null)} className="ios-nav-btn"><IBack size={20} /></Button>
+          <Button aria-label="返回相册列表" onClick={closeAlbum} className="ios-nav-btn"><IBack size={20} /></Button>
           <h2 className="flex-1 min-w-0 truncate text-[15px] font-bold text-on">{album.item.title}</h2>
         </div>
         {album.phase === "loading" && (
