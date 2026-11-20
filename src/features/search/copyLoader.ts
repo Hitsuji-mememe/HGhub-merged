@@ -16,6 +16,13 @@
  * 阻断 resolve（降级 detail=undefined、由 resolve 成败定成败）：
  * detail 解析口径比 resolve 更挑剔的源（如详情页标题缺失但流
  * 表可得）不因本次接线回归为不可播。
+ *
+ * 按集取流（2026-11-20 fix334/L2 G3）：opts.episodeExternalId
+ * 给定时 video/drama 的 resolve 目标换为所选集的 externalId
+ * （012 集 externalId 形态 <slug>/episode-<n>，适配器 resolve
+ * 已支持按集解析）；缺省仍为条目 id（默认第一集，既有行为
+ * 不变）。detail 段与缓存口径不随集变（detail 本就是整条目
+ * 详情、含全集列表）。
  */
 import type { SourceAdapter, SourceDef, SourceDetail } from "../sources/types.ts";
 import type { CopyRef, GlobalSearchKind } from "./multiSourceSearch.ts";
@@ -49,6 +56,7 @@ export async function loadSearchCopy(
   kind: GlobalSearchKind,
   copy: CopyRef,
   deps: CopyLoaderDeps,
+  opts?: { episodeExternalId?: string },
 ): Promise<CopyLoadResult> {
   const def = deps.getDef(copy.sourceId);
   if (!def) throw new Error("源不在注册表");
@@ -62,7 +70,7 @@ export async function loadSearchCopy(
         deps.detailCache.set(copyCacheKey(copy), detail);
       } catch { /* detail 段失败降级：不阻断取流，由 resolve 定成败 */ }
     }
-    const res = await adapter.resolve(copy.item.externalId);
+    const res = await adapter.resolve(opts?.episodeExternalId ?? copy.item.externalId);
     const stream = res.streams[0];
     if (!stream) throw new Error("该副本未解析到可播放地址");
     return { streamUrl: stream.url, detail };

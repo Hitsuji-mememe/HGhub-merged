@@ -23,6 +23,8 @@ import { createAdapter } from "../sources/adapters/index.ts";
 import { sourceStableId } from "../sources/registryDiag";
 import type { SourceDef, SourceDetail, SourceItem } from "../sources/types";
 import { useTitleFallback } from "../sources/titleFallback.ts";
+import { episodeChoicesForSurface, type EpisodeChoice } from "../sources/episodes.ts";
+import { EpisodePicker } from "../sources/EpisodePicker";
 import { Player } from "../playback";
 import { fetchHealthSnapshot } from "../sources/adapters/fetchHealth.ts";
 import {
@@ -49,7 +51,11 @@ import { copyCacheKey, loadSearchCopy } from "./copyLoader";
  * 黄果通道失败保留既有错误行＋重试（其余源结果照常）。
  * 外部条目点击走 D 线接通口径：视频 resolve→Player、图片 detail→
  * 图集、帖子 detail→正文，均在本页详情层呈现（外部源无黄果数值
- * id 路由）；多副本可切换（副本 pills），默认副本按「可用性→
+ * id 路由）；多集条目（fix334/L2 G3）视频/短剧详情带选集
+ * （EpisodePicker，适用性经 episodes.episodeChoicesForSurface
+ * 派生），切集在当前副本内经 copyLoader 按集 resolve 换流、
+ * 失败诚实呈现不回落第一集；SourceBrowse 是第一条同治路径。
+ * 多副本可切换（副本 pills），默认副本按「可用性→
  * 结构完整度→历史可靠性→分层 tiebreak」选择链定，失败经
  * loadWithFallback 静默顺延（search.copy_fail 留痕）——自动顺延
  * 仅限身份已确认的合并条目，身份未确认时只试默认副本、失败后
@@ -74,6 +80,12 @@ type ExtReady = {
   streamUrl?: string;
   detail?: SourceDetail;
   images?: string[];
+  /** 当前在播的集（externalId，fix334/L2 G3）：缺省＝detail 首集
+   * （resolve 条目 id 的默认集）；副本切换/重开详情时不带此字段、
+   * 自然回落默认集。 */
+  epExternalId?: string;
+  /** 切集失败的诚实呈现（留当前集继续播，不回落第一集冒充成功）。 */
+  epError?: string;
 };
 type ExtDetailState =
   | { phase: "loading"; merged: MergedHit }
@@ -424,12 +436,12 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
    * 路径可被契约直驱；video/drama 在彼处先走适配器 detail 段再
    * resolve（此前直调 resolve、详情面拿不到 detail）。本处只组装
    * 生产依赖（active 注册表＋工厂＋组件级 detail 缓存）。 */
-  const loadCopy = async (merged: MergedHit, copy: CopyRef): Promise<Omit<ExtReady, "merged" | "ordered" | "active">> =>
+  const loadCopy = async (merged: MergedHit, copy: CopyRef, episodeExternalId?: string): Promise<Omit<ExtReady, "merged" | "ordered" | "active">> =>
     loadSearchCopy(merged.kind, copy, {
       getDef: (id) => getActiveRegistry().sources.find((s) => s.id === id),
       makeAdapter: (def) => createAdapter(def),
       detailCache: detailCache.current,
-    });
+    }, episodeExternalId ? { episodeExternalId } : undefined);
 
   const traceCopyFail = (sourceId: string) => {
     const defs = getActiveRegistry().sources;
@@ -505,6 +517,32 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     } catch {
       traceCopyFail(copy.sourceId);
       setExtDetail({ phase: "error", merged, message: "该副本加载失败，可换其他副本或重试" });
+    }
+  };
+
+  /* 切集（fix334/L2 G3）：在当前副本内以所选集 externalId 经加载
+   * 核重新取流（copyLoader 按集 resolve），只换 streamUrl 与当前
+   * 集标注、不动副本序。竞态以 extEpSeq 只认最后一次点选且落点
+   * 校验仍是同一详情/同一副本；失败（含无流）诚实呈现：留当前
+   * 集继续播＋epError 明示，不静默回落第一集冒充成功（与副本切
+   * 换的静默保持口径不同——切集是用户明确点选的集，落空必须
+   * 让用户知道没切成）。 */
+  const extEpSeq = useRef(0);
+  const switchEpisode = async (merged: MergedHit, current: ExtReady, choice: EpisodeChoice) => {
+    if (choice.externalId === current.epExternalId) return;
+    const mySeq = ++extEpSeq.current;
+    const stillCurrent = (d: ExtReady) => d.merged === merged && d.active === current.active && extEpSeq.current === mySeq;
+    try {
+      const value = await loadCopy(merged, current.active, choice.externalId);
+      if (!value.streamUrl) throw new Error("未解析到可播放地址");
+      setExtDetail((cur) => (cur?.phase === "ready" && stillCurrent(cur.data)
+        ? { phase: "ready", data: { ...cur.data, streamUrl: value.streamUrl, detail: value.detail ?? cur.data.detail, epExternalId: choice.externalId, epError: undefined } }
+        : cur));
+    } catch {
+      traceCopyFail(current.active.sourceId);
+      setExtDetail((cur) => (cur?.phase === "ready" && stillCurrent(cur.data)
+        ? { phase: "ready", data: { ...cur.data, epError: `切换到「${choice.label}」失败（仍在播放当前集）` } }
+        : cur));
     }
   };
 
@@ -638,17 +676,33 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
           {extDetail.phase === "ready" && (() => {
             const data = extDetail.data;
             if (merged.kind === "video" || merged.kind === "drama") {
+              /* 选集（fix334/L2 G3）：适用性经派生（宿主面
+               * search-external-detail 路由∧模板 multi），多集时在
+               * Player 下渲染 EpisodePicker；scopeKey 随当前集变更
+               * 防串集缓存。单集/不适用无选集区、观感不变。 */
+              const activeDef = getActiveRegistry().sources.find((s) => s.id === data.active.sourceId);
+              const choices = episodeChoicesForSurface("search-external-detail", activeDef, data.detail);
+              const currentEpId = data.epExternalId ?? choices[0]?.externalId ?? data.active.item.externalId;
+              const currentChoice = choices.find((c) => c.externalId === currentEpId);
               return (
                 <div className="px-4 pt-2">
                   {data.streamUrl ? (
                     <Player src={data.streamUrl} poster={cover(data.active.item.cover)} autoPlay active controls
-                      scopeKey={`search:${data.active.sourceId}:${data.active.item.externalId}`}
+                      scopeKey={`search:${data.active.sourceId}:${currentEpId}`}
                       diagnosticContext={{ view: "search_external", source_id: data.active.sourceId }}
                       className="w-full aspect-video" />
                   ) : (
                     <Empty icon={<IFilm size={26} />} title="播放地址获取失败" />
                   )}
                   <p className="mt-3 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>
+                  {choices.length > 1 && currentChoice && (
+                    <p className="mt-1 text-[12px] text-mut">当前播放：{currentChoice.label}</p>
+                  )}
+                  {choices.length > 1 && (
+                    <EpisodePicker choices={choices} currentKey={currentEpId}
+                      onPick={(c) => void switchEpisode(merged, data, c)} />
+                  )}
+                  {data.epError && <p role="alert" className="mt-2 text-[12px] text-danger">{data.epError}</p>}
                   {data.detail?.description && <p className="mt-2 text-[13px] text-on/85 leading-relaxed">{data.detail.description}</p>}
                 </div>
               );

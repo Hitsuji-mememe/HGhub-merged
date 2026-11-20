@@ -493,6 +493,35 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   契约文本断言，清扫口径见 L1 报告。设计订正三条（声明 c 与自检
   事实矛盾、015 搜索资格、searchPath 口径）以码上事实为准，详见
   `~/workspace/hghub/fix334/evidence/l1-surfaces.md`。
+- **结构批 L2：G3 多集选集消费者接线（fix334，未出包）**：外部源
+  detail 的多集 episodes（字符串 externalId 形态）此前无消费者——
+  全仓只有 App 012 的 detail 产多集、resolve 已支持按集取流，用
+  户打开多集条目却只能播第一集。本线补齐：纯函数模块
+  `src/features/sources/episodes.ts`（`episodeChoices` 归一＋
+  `episodeChoicesForSurface` 适用性派生：宿主面经 L1
+  `routeForSurface` 路由∧模板能力事实 `episodes==="multi"`，不
+  本地另判）＋轻量组件 `EpisodePicker.tsx`（内嵌可展开段，形态
+  对齐原生选集面板：30 集分段、正/倒序、当前集高亮、44px 热
+  区；展开期登记全局 back 先收起再关详情）＋两条路径接线：
+  ①`SourceBrowse` openItem 改 detail 与 resolve 并发（detail 失
+  败降级不阻断取流），选中集经 `adapter.resolve` 按集换流、Player
+  scopeKey 随当前集变更防串集缓存；②`Search` 外部详情经
+  `copyLoader.loadSearchCopy` 新增可选 `episodeExternalId` 透传
+  （video/drama 按集 resolve），切集只在当前副本内换流。切集失
+  败两面同口径：留当前集继续播＋页面明示失败，**不静默回落第
+  一集冒充成功**；单集条目与不适用源详情行为逐字不变（无 detail
+  请求增量之外的变化，选集区不渲染）。**caps 裁定（与设计 §3.1
+  的翻 caps 指示相左、已明报）**：012 注册表
+  `capabilities.episodes` 维持 false 不翻——该字段是短剧频道
+  （ai-duanju）的品类映射门（`sourcesForChannel` 只认它，消费
+  面 Category 切源名单＋SourceSwitcher），翻 true 会让里番分集
+  源进短剧频道名单、且与 surfaces 声明 e（no-drama-mapping）及
+  L1 契约「channel-drama 成员仅原生」冲突；集数产出事实以
+  `templateCapabilities` 的 multi 为唯一出处，选集面不读 caps，
+  两层分工在 registry note 与 templateCapabilities 文件头双处
+  钉死。契约 `fix334-g3.contract.test.ts`（旧红：基线无
+  episodes.ts 模块缺失；新绿六节含两路径接线文本断言与 caps
+  分层守门），详见 `~/workspace/hghub/fix334/evidence/l2-g3.md`。
 
 ## 验证命令
 

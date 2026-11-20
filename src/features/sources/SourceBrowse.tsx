@@ -15,6 +15,16 @@
  * "feed"）按黄果数值 id 走仓内 api，承接不了外部源流地址，故外部
  * 详情在本页内呈现、返回走本页内状态（与栈页 push/pop 口径并存，
  * 不新增路由 kind）。
+ *
+ * 选集（2026-11-20 fix334/L2 G3）：openItem 改 detail＋resolve
+ * 并发（照 SourcePosts 既有形态）——detail 供选集与当前集标注，
+ * 失败降级不阻断取流（详情口径比取流挑剔的源不因接线回归为不
+ * 可播，与 search/copyLoader 同口径），成败仍由 resolve 定。多集
+ * 条目（适用性经 episodes.episodeChoicesForSurface 派生：宿主面
+ * play-external 路由∧模板 multi）在 Player 下渲染 EpisodePicker，
+ * 选集以所选 externalId 重新 resolve 换流、Player scopeKey 随当
+ * 前集变更防串集缓存；切集失败留当前集继续播＋错误行明示，不
+ * 静默回落第一集冒充成功。Search 外部详情是第二条同治路径。
  */
 import { Button } from "../../shared/ui/ios/controls";
 import { Loader } from "../../shared/ui/ios/effects";
@@ -27,11 +37,19 @@ import { Player } from "../playback";
 import { registerOverlayBack } from "../../shared/lib/back";
 import { createAdapter } from "./adapters/index.ts";
 import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
-import type { SourceDef, SourceItem } from "./types.ts";
+import { episodeChoicesForSurface, type EpisodeChoice } from "./episodes.ts";
+import { EpisodePicker } from "./EpisodePicker";
+import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
 type DetailState =
   | { phase: "loading"; item: SourceItem }
-  | { phase: "ready"; item: SourceItem; streamUrl: string }
+  | {
+      phase: "ready"; item: SourceItem; detail?: SourceDetail; streamUrl: string;
+      /** 当前实际在播的集（externalId）：选集换流与 scopeKey 的事实源。 */
+      currentEpExternalId: string;
+      /** 切集失败的诚实呈现（留当前集继续播，不回落第一集冒充成功）。 */
+      epError?: string;
+    }
   | { phase: "error"; item: SourceItem; message: string };
 
 export default function SourceBrowse({ def, onDetailOpenChange }: {
@@ -122,22 +140,65 @@ export default function SourceBrowse({ def, onDetailOpenChange }: {
     const adapter = createAdapter(def);
     if (!adapter) { setDetail({ phase: "error", item, message: "该源未注册可用适配器" }); return; }
     setDetail({ phase: "loading", item });
-    try {
-      const res = await adapter.resolve(item.externalId);
-      const stream = res.streams[0];
-      if (!stream) { setDetail({ phase: "error", item, message: "该条目未解析到可播放地址" }); return; }
-      setDetail({ phase: "ready", item, streamUrl: stream.url });
-    } catch (e) {
-      setDetail({ phase: "error", item, message: (e as Error).message || "播放地址解析失败" });
+    /* detail＋resolve 并发（照 SourcePosts 既有形态）：detail 供
+     * 选集，失败降级（detail=undefined、无选集区）不阻断取流；
+     * resolve 定成败，错误口径与此前单 resolve 时一致。 */
+    const [detailRes, streamRes] = await Promise.allSettled([
+      adapter.detail(item.externalId),
+      adapter.resolve(item.externalId),
+    ]);
+    if (streamRes.status === "rejected") {
+      setDetail({ phase: "error", item, message: (streamRes.reason as Error).message || "播放地址解析失败" });
+      return;
     }
+    const stream = streamRes.value.streams[0];
+    if (!stream) { setDetail({ phase: "error", item, message: "该条目未解析到可播放地址" }); return; }
+    const d = detailRes.status === "fulfilled" ? detailRes.value : undefined;
+    const choices = episodeChoicesForSurface("play-external", def, d);
+    setDetail({
+      phase: "ready", item, detail: d, streamUrl: stream.url,
+      currentEpExternalId: choices[0]?.externalId ?? item.externalId,
+    });
   }, [def]);
 
+  /* 切集：以所选集 externalId 重新 resolve 换流。竞态以 epSeq 只
+   * 认最后一次点选；失败（含无流）不换流、不回落第一集——留在
+   * 当前集继续播，epError 明示切到哪集失败。 */
+  const epSeq = useRef(0);
+  const pickEpisode = useCallback(async (choice: EpisodeChoice) => {
+    const cur = detail;
+    if (!cur || cur.phase !== "ready" || choice.externalId === cur.currentEpExternalId) return;
+    const adapter = createAdapter(def);
+    if (!adapter) return;
+    const mySeq = ++epSeq.current;
+    const applyIfCurrent = (patch: Partial<Extract<DetailState, { phase: "ready" }>>) => {
+      setDetail((prev) => (prev && prev.phase === "ready" && prev.item === cur.item && epSeq.current === mySeq
+        ? { ...prev, ...patch }
+        : prev));
+    };
+    try {
+      const res = await adapter.resolve(choice.externalId);
+      const stream = res.streams[0];
+      if (!stream) throw new Error("未解析到可播放地址");
+      applyIfCurrent({ streamUrl: stream.url, currentEpExternalId: choice.externalId, epError: undefined });
+    } catch (e) {
+      applyIfCurrent({ epError: `切换到「${choice.label}」失败：${(e as Error).message || "播放地址解析失败"}（仍在播放当前集）` });
+    }
+  }, [def, detail]);
+
   if (detail) {
+    const choices = detail.phase === "ready" ? episodeChoicesForSurface("play-external", def, detail.detail) : [];
+    const currentChoice = detail.phase === "ready"
+      ? choices.find((c) => c.externalId === detail.currentEpExternalId)
+      : undefined;
     return (
       <div className="flex flex-col">
         <div className="flex items-center gap-2 px-4 pt-2 pb-3">
           <Button aria-label="返回列表" onClick={() => setDetail(null)} className="ios-nav-btn"><IBack size={20} /></Button>
           <h2 className="flex-1 min-w-0 truncate text-[15px] font-bold text-on">{detail.item.title}</h2>
+          {choices.length > 1 && currentChoice && (
+            <span className="shrink-0 text-[12px] text-mut">{currentChoice.label}</span>
+          )}
         </div>
         {detail.phase === "loading" && (
           <div className="flex justify-center py-16"><Loader className="w-8 h-8 spinner" /></div>
@@ -148,10 +209,15 @@ export default function SourceBrowse({ def, onDetailOpenChange }: {
         {detail.phase === "ready" && (
           <div className="px-4">
             <Player src={detail.streamUrl} poster={cover(detail.item.cover)} autoPlay active controls
-              scopeKey={`${def.id}:${detail.item.externalId}`}
+              scopeKey={`${def.id}:${detail.currentEpExternalId}`}
               diagnosticContext={{ view: "source_browse", source_id: def.id }}
               className="w-full aspect-video" />
             <p className="mt-3 text-[12px] text-mut">数据源：{def.displayName}（经适配器实时取数，非黄果数据）</p>
+            {choices.length > 1 && (
+              <EpisodePicker choices={choices} currentKey={detail.currentEpExternalId}
+                onPick={(c) => void pickEpisode(c)} />
+            )}
+            {detail.epError && <p role="alert" className="mt-2 text-[12px] text-danger">{detail.epError}</p>}
           </div>
         )}
       </div>

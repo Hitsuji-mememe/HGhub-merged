@@ -2098,6 +2098,46 @@
       "item": "结构批 L1：模板能力事实单一出处 templateCapabilitiesFor（定义＋surfaces 派生消费）",
       "min": 2,
       "symbol": "templateCapabilitiesFor"
+    },
+    {
+      "files": [
+        "src/features/sources/episodes.ts",
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/search/Search.tsx"
+      ],
+      "id": "fix334-g3-episodes-derivation",
+      "item": "结构批 L2／G3：选集适用性单一派生 episodeChoicesForSurface（定义＋SourceBrowse／Search 两宿主消费）",
+      "min": 3,
+      "symbol": "episodeChoicesForSurface"
+    },
+    {
+      "files": [
+        "src/features/sources/EpisodePicker.tsx",
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/search/Search.tsx"
+      ],
+      "id": "fix334-g3-episode-picker",
+      "item": "结构批 L2／G3：外部源选集组件 EpisodePicker（定义＋两宿主渲染）",
+      "min": 3,
+      "symbol": "EpisodePicker"
+    },
+    {
+      "files": [
+        "src/features/search/copyLoader.ts"
+      ],
+      "id": "fix334-g3-copyloader-episode",
+      "item": "结构批 L2／G3：copyLoader 按集 resolve（所选集 externalId 优先、缺省条目 id）",
+      "min": 1,
+      "symbol": "opts?.episodeExternalId ?? copy.item.externalId"
+    },
+    {
+      "files": [
+        "src/features/sources/SourceBrowse.tsx"
+      ],
+      "id": "fix334-g3-sourcebrowse-detail",
+      "item": "结构批 L2／G3：SourceBrowse openItem 并发取 detail 供选集（失败降级不阻断取流）",
+      "min": 1,
+      "symbol": "adapter.detail(item.externalId)"
     }
   ]
 }
