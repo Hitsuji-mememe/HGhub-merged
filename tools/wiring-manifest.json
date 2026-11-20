@@ -1892,6 +1892,16 @@
         "src/features/sources/SourceSwitcher.tsx"
       ],
       "each": true
+    },
+    {
+      "files": [
+        "src/features/sources/adapters/parse.ts",
+        "src/features/sources/adapters/templates.ts"
+      ],
+      "id": "fix333-list-noise-card-container",
+      "item": "fix333/list-noise 列表层非帖锚点稳杀：findCardAnchors 卡片容器限定采集（parse 定义＋templates parseAnchorList 消费），导航/页脚锚点不进条目、广告三标记显式排除",
+      "min": 3,
+      "symbol": "findCardAnchors"
     }
   ]
 }
