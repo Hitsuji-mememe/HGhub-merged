@@ -31,7 +31,12 @@
  *   内自检零刷新、最近结果停在前一日）：进入某源浏览面时若其
  *   结果缺失/已过期/清单版本已变，单源后台补探一次
  *   （ensureSourceSelfCheck），完成经订阅通知刷新展示面徽标；
- *   全量调度的时序竞态（清单拉取挂起越过首轮时刻）也由此兜底。
+ *   全量调度的时序竞态（清单拉取挂起越过首轮时刻）也由此兜底；
+ * - 展示面批量补探（2026-11-20 再补，3.3.2 真机验收坐实缺口：
+ *   总览行/切换器只读派生不触发，未点开过的源长挂「未实测」）：
+ *   展示状态的面挂载时对本面展示的源批量补探
+ *   （ensureSourcesSelfCheck）——与单源补探共用判定/去重/预算，
+ *   串行排队、任一时刻至多 1 个补探在飞，不阻塞渲染。
  *
  * 请求预算（硬上限）：每源最多 SELF_CHECK_MAX_REQUESTS_PER_SOURCE
  * =3 个请求——列表 1 页，列表有条目才再取 1 条详情，视频类详情
@@ -479,24 +484,68 @@ export interface SelfCheckTopUpDeps {
   now?: () => number;
 }
 
+/** 启动一次单源补探（单源/批量补探共用核心）：需要补探∧不在飞
+ * 才启动；返回补探完成承诺（不 reject），未启动返回 null。完成
+ * 经 saveSelfCheckResult 落盘并通知订阅刷新徽标。 */
+function launchTopUp(def: SourceDef, deps: SelfCheckTopUpDeps): Promise<void> | null {
+  try {
+    const now = (deps.now ?? (() => Date.now()))();
+    if (!selfCheckNeedsProbe(def, getSelfCheckResults(), now, getActiveRegistry().manifestVersion, getRegistryInfo().appVersion)) return null;
+    if (topUpInFlight.has(def.id)) return null;
+    topUpInFlight.add(def.id);
+    return runSourceSelfCheck(def, { createAdapterFor: deps.createAdapterFor, now: () => now })
+      .then((result) => { saveSelfCheckResult(result); })
+      .catch(() => { /* 旁路：补探失败不影响浏览 */ })
+      .finally(() => { topUpInFlight.delete(def.id); });
+  } catch {
+    return null;
+  }
+}
+
 /** 单源补探：结果缺失/已过期/清单版本已变才跑（selfCheckNeedsProbe
  * 口径与全量计划同源），在飞去重；完成经 saveSelfCheckResult 落盘
  * 并通知订阅刷新徽标。返回是否真正启动了一次补探。全程旁路：
  * 任何异常吞掉、不抛、不打扰用户。 */
 export function ensureSourceSelfCheck(def: SourceDef, deps: SelfCheckTopUpDeps): boolean {
-  try {
-    const now = (deps.now ?? (() => Date.now()))();
-    if (!selfCheckNeedsProbe(def, getSelfCheckResults(), now, getActiveRegistry().manifestVersion, getRegistryInfo().appVersion)) return false;
-    if (topUpInFlight.has(def.id)) return false;
-    topUpInFlight.add(def.id);
-    void runSourceSelfCheck(def, { createAdapterFor: deps.createAdapterFor, now: () => now })
-      .then((result) => { saveSelfCheckResult(result); })
-      .catch(() => { /* 旁路：补探失败不影响浏览 */ })
-      .finally(() => { topUpInFlight.delete(def.id); });
-    return true;
-  } catch {
-    return false;
-  }
+  return launchTopUp(def, deps) !== null;
+}
+
+/* ── 展示面批量补探（2026-11-20 fix333/selfcheck-trigger） ──
+ * 缺口（3.3.2 真机验收）：补探此前只挂三浏览面、且只探当前选中
+ * 的单个源；用户看状态的总览行与切换器只读派生不触发——刚升级
+ * （指纹含 App 版本、旧结果全失效）或从未点开过的源在总览长期
+ * 挂「未实测」，正是用户 2026-11-20 01:02 定的核心痛点。本入口
+ * 供展示面挂载时对其展示的源批量补探：判定/去重/资格/每源预算
+ * 与单源补探全同（launchTopUp 一处），不另起调度。额外纪律是
+ * 串行节制：名单内逐个启动并等其落盘才探下一个、多个展示面
+ * 同挂载经模块级链依次排队——任一时刻至多 1 个补探在飞，进
+ * 页面不打满请求；后到批次启动时先行结果多已落盘，
+ * launchTopUp 按新鲜口径自然跳过。后到/重复挂载零重探。
+ * 返回实际启动的补探数；全程旁路、不 reject、不阻塞渲染。 */
+
+let topUpBatchChain: Promise<unknown> = Promise.resolve();
+
+export function ensureSourcesSelfCheck(defs: readonly SourceDef[], deps: SelfCheckTopUpDeps): Promise<number> {
+  const run = async (): Promise<number> => {
+    let started = 0;
+    const seen = new Set<string>();
+    for (const def of defs) {
+      if (seen.has(def.id)) continue;
+      seen.add(def.id);
+      const pending = launchTopUp(def, deps);
+      if (pending) {
+        started += 1;
+        await pending;
+      }
+    }
+    return started;
+  };
+  const result = topUpBatchChain.then(run, run);
+  topUpBatchChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }
 
 let schedulerStarted = false;

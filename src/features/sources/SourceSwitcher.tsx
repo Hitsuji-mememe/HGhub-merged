@@ -8,13 +8,16 @@
  * 「暂不可用」，用户保留口径：列表可见、点开诚实提示，不删不假
  * 数据）。旧口径对 probe 一律挂「未实测」，与自检结果双轨并存、
  * 探过了也永不摘标，已废。
+ * 触发口径（2026-11-20 fix333/selfcheck-trigger）：切换器同为展
+ * 示面，挂载时对展示的选项源批量补探（useSourceSelfCheckOnShow）
+ * ——此前只读不触发，未点开过的源在本面长挂「未实测」。
  */
 import { Button } from "../../shared/ui/ios/controls";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 import { sourcesForCategory, sourcesForChannel } from "./registry.ts";
 import { getActiveRegistry, getRegistryInfo } from "./manifest.ts";
 import { getSelfCheckResults, sourceHealthBadgeText } from "./healthCheck.ts";
-import { useSourceHealthResults } from "./sourceHealth.ts";
+import { useSourceHealthResults, useSourceSelfCheckOnShow } from "./sourceHealth.ts";
 import type { SourceCategory, SourceDef, SourceMaturity } from "./types.ts";
 
 export interface SourceOption { id: string; label: string; badge?: string }
@@ -47,6 +50,14 @@ export function SourceSwitcher({ options, value, onChange, ariaLabel }: {
   /* 订阅自检结果：补探/整轮落盘即重渲染，徽标按最新派生重算
    * （options 构建时的 badge 只作注册表外 id 的回落）。 */
   const healthResults = useSourceHealthResults();
+  /* 展示面补探（fix333/selfcheck-trigger）：切换器是状态展示面，
+   * 此前只读派生不触发——选项里从未点开过的源永远挂「未实测」。
+   * 挂载时对本面展示的选项源批量补探（healthCheck 串行队列节
+   * 制、后台不阻塞）；频道页/帖子页/总览吃瓜区的切换器同覆盖。 */
+  const optionDefs = options
+    .map((o) => getActiveRegistry().sources.find((s) => s.id === o.id))
+    .filter((d): d is SourceDef => !!d);
+  useSourceSelfCheckOnShow(optionDefs);
   if (options.length <= 1) return null;
   const badgeFor = (o: SourceOption): string | undefined => {
     const def = getActiveRegistry().sources.find((s) => s.id === o.id);

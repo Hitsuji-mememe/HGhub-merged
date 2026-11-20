@@ -1872,6 +1872,26 @@
       "item": "fix333-P2 选中源被清单停用：resolveSelectedSource 三态唯一派生（active/disabled/gone），吃瓜全量/总览/图片深链/视频深链/频道外源五面共用，停用落停用口径、页头与提示不外显内部 id",
       "min": 6,
       "symbol": "resolveSelectedSource"
+    },
+    {
+      "id": "fix333-selfcheck-batch-topup",
+      "item": "fix333/selfcheck-trigger 展示面批量补探 ensureSourcesSelfCheck：healthCheck 定义＋sourceHealth 钩子消费（串行队列、与单源补探共用判定/去重/预算）",
+      "symbol": "ensureSourcesSelfCheck",
+      "files": [
+        "src/features/sources/healthCheck.ts",
+        "src/features/sources/sourceHealth.ts"
+      ],
+      "min": 3
+    },
+    {
+      "id": "fix333-selfcheck-onshow-hook",
+      "item": "fix333/selfcheck-trigger 展示面补探钩子 useSourceSelfCheckOnShow：分类总览行与源切换器（频道页/帖子页经切换器覆盖）各须在位",
+      "symbol": "useSourceSelfCheckOnShow",
+      "files": [
+        "src/features/category/Category.tsx",
+        "src/features/sources/SourceSwitcher.tsx"
+      ],
+      "each": true
     }
   ]
 }
