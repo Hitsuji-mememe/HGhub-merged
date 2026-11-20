@@ -29,8 +29,9 @@ import { copyText } from "../../shared/lib/clipboard";
 import { handleArticleClick, sanitizeHtml } from "../../shared/lib/html";
 import { MediaCard } from "../../shared/ui/cards";
 import { Empty, Img } from "../../shared/ui/ui";
-import { IBack, IFireF, IPlayF } from "../../shared/ui/icons";
+import { IBack, IFireF, IPlayF, IStar, IStarF } from "../../shared/ui/icons";
 import { useStore } from "../../shared/model/store";
+import { externalHashId } from "../../shared/model/localLibrary";
 import { registerOverlayBack } from "../../shared/lib/back";
 import { Player } from "../playback";
 import { extractArticleBlocks } from "./articleBlocks.ts";
@@ -45,7 +46,7 @@ type DetailState =
   | { phase: "ready"; item: SourceItem; detail: SourceDetail; streamUrl: string | null; play: boolean }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourcePosts({ def, compact = false, onShowAll, onSettledEmpty }: {
+export default function SourcePosts({ def, compact = false, onShowAll, onSettledEmpty, openExternalId }: {
   def: SourceDef;
   /** compact＝分类总览预览形态：只拉第一页少量条目、无哨兵续页，
    * 底部「查看全部」由调用方接（跳吃瓜页）。 */
@@ -55,10 +56,13 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
    * 至少一页）∧非加载∧无错误∧条目为 0 时报 true，其余报 false；
    * 分类总览据此整区隐藏空的吃瓜区。不传则不回报（Posts 页）。 */
   onSettledEmpty?: (empty: boolean) => void;
+  /** G4 回访直达（fix334/L3）：同 SourceBrowse 口径——已加载列表
+   * 含目标条目才自动打开、消费一次，不在列表不强求。 */
+  openExternalId?: string;
 }) {
   /* 进入浏览面补探（fix331/source-reliability）：同 SourceBrowse 口径。 */
   useSourceSelfCheckOnView(def);
-  const { toast } = useStore();
+  const { toast, isFav, setExternalCollected, actionPending } = useStore();
   const [items, setItems] = useState<SourceItem[]>([]);
   const [page, setPage] = useState(0);
   const [pages, setPages] = useState(1);
@@ -137,9 +141,11 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
     return () => io.disconnect();
   }, [compact, loading, err, page, pages, items.length, load]);
 
+  const openExternalConsumed = useRef<string | null>(null);
   useEffect(() => {
     seq.current++;
     busy.current = false;
+    openExternalConsumed.current = null;
     setItems([]); setPage(0); setPages(1); setDetail(null);
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,6 +186,16 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
     }
   }, [def]);
 
+  /* 回访直达消费（G4）：在可见列表（验杀/标题兜底后）中命中才
+   * 打开，消费一次。 */
+  useEffect(() => {
+    if (!openExternalId || openExternalConsumed.current === openExternalId) return;
+    const target = visibleItems.find((x) => x.externalId === openExternalId);
+    if (!target) return;
+    openExternalConsumed.current = openExternalId;
+    void openItem(target);
+  }, [openExternalId, visibleItems, openItem]);
+
   /* 正文提取—重构（fix330/reader）：ready 详情的 contentHtml 按文档
    * 顺序拆成内容块；标题取 detail 数据（与正文首行重复时去重），
    * 不从正文块里猜。提取结果随详情对象 memo，切换条目自动失效。 */
@@ -201,11 +217,27 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   };
 
   if (detail) {
+    /* G4 收藏（fix334/L3）：快照取详情口径的标题/封面（detail 优先
+     * 于列表裸数据，与正文标题同源）；帖子不写历史（原生 parity）。 */
+    const favItem = detail.phase === "ready"
+      ? { ...detail.item, title: detail.detail.title || detail.item.title, cover: detail.detail.cover || detail.item.cover }
+      : detail.item;
+    const itemHash = externalHashId(favItem);
+    const fav = isFav(itemHash, "post");
+    const favPending = actionPending(`collect:post:${itemHash}`);
     return (
       <div className="flex flex-col">
         <div className="flex items-center gap-2 px-4 pt-2 pb-3">
           <Button aria-label="返回列表" onClick={() => setDetail(null)} className="ios-nav-btn"><IBack size={20} /></Button>
           <h2 className="flex-1 min-w-0 truncate text-[15px] font-bold text-on">{detail.item.title}</h2>
+          <Button aria-label={fav ? "取消收藏" : "收藏"} disabled={favPending}
+            onClick={() => {
+              void setExternalCollected("post", favItem, !fav);
+              toast(fav ? "已取消收藏" : "已收藏", "star");
+            }}
+            className="grid place-items-center w-9 h-9 shrink-0 rounded-full bg-s2">
+            {fav ? <IStarF size={17} className="text-amber" /> : <IStar size={17} />}
+          </Button>
         </div>
         {detail.phase === "loading" && (
           <div className="flex justify-center py-16"><Loader className="w-8 h-8 spinner" /></div>

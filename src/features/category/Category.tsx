@@ -430,7 +430,11 @@ const ORIGINAL_CATES = [
 const originalSort = (cate: (typeof ORIGINAL_CATES)[number]["value"]) =>
   cate === "all" ? "new" : "latest";
 
-export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: string; onBack: () => void; wide: boolean }) {
+export function ChannelPage({ cate, name, onBack, wide, openExternalId }: {
+  cate: string; name: string; onBack: () => void; wide: boolean;
+  /** G4 回访直达（fix334/L3）：透传给深链分支的浏览组件。 */
+  openExternalId?: string;
+}) {
   const { push, lineEpoch } = useStore();
   const kindSignals = useCanonicalKindSignals(`${scope}:${lineEpoch}`);
   const { preferences } = useContentPreferences();
@@ -637,7 +641,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
           {!imageSource || imageSource.maturity === "blocked" ? (
             <SourcePendingNotice displayName={imageSelected?.label ?? name} maturity={imageSource?.maturity} note={imageSource?.note} selectedKind={imageSelected?.kind} />
           ) : (
-            <SourceGallery def={imageSource} />
+            <SourceGallery def={imageSource} openExternalId={openExternalId} />
           )}
         </div>
       </div>
@@ -675,7 +679,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
           {!videoSource || videoSource.maturity === "blocked" ? (
             <SourcePendingNotice displayName={videoSelected?.label ?? name} maturity={videoSource?.maturity} note={videoSource?.note} selectedKind={videoSelected?.kind} />
           ) : (
-            <SourceBrowse def={videoSource} onDetailOpenChange={setBrowseDetailOpen} />
+            <SourceBrowse def={videoSource} onDetailOpenChange={setBrowseDetailOpen} openExternalId={openExternalId} />
           )}
         </div>
       </div>

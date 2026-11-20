@@ -100,7 +100,7 @@ export type SurfaceId = (typeof SURFACES)[number]["id"];
 
 export type BrowseComponent =
   | "SourceBrowse" | "SourcePosts" | "SourceGallery"
-  | "SearchFanout" | "SearchExternalDetail";
+  | "SearchFanout" | "SearchExternalDetail" | "ProfileLibrary";
 
 export type SurfaceRoute =
   | { kind: "native" }
@@ -148,9 +148,6 @@ export const SURFACE_DECLARATIONS: Record<string, { reason: string }> = {
   },
   "blocked-not-probed": {
     reason: "blocked/preview 源不自检：点开都不拉数据、自检更不探（healthCheck.selfCheckEligible 现行口径）",
-  },
-  "g4-pending": {
-    reason: "外部源×收藏/历史：回访解析未接（G4 在途，结构批 L3 落地 extRefs 后转正）——落地前显式声明，不许静默缺席",
   },
   "no-adapter": {
     reason: "模板无适配器（template=none/未知模板）：无 detail/resolve 段，任何浏览/播放面都无从接通（注册表完整性契约本应挡下 enabled 的此形态，本条只作派生兜底）",
@@ -300,11 +297,14 @@ export function routeForSurface(
       return browseOrNoAdapter(def, def.category === "posts" ? "SourcePosts" : "SourceBrowse");
     }
 
-    /* 资料库：原生已接；外部源 G4 在途（声明标明，不许静默）。 */
+    /* 资料库：原生已接；外部源自 fix334/L3（G4）起经 extRefs 快照
+     * 侧表接通——收藏/历史在 Profile 以快照出卡、点开经 openExternalId
+     * 回访对应源面（落点再由该面的派生裁定现状：停用/下线/blocked
+     * 落诚实提示，快照不冒充现状）。未启用源不进资料库成员。 */
     case "library": {
       if (isNativeSource(def)) return NATIVE;
       if (!def.enabled) return na("not-enabled");
-      return na("g4-pending");
+      return browseOrNoAdapter(def, "ProfileLibrary");
     }
 
     /* 诊断列示：全注册表在册（含停用源的计数/明细），无逐源导航。 */

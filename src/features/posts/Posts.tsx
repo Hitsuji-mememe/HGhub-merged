@@ -35,7 +35,14 @@ const scope = LOCAL_SCOPE;
 export const shouldResetPostForNav = (prevId: number | null, id: number): boolean => prevId !== id;
 
 /* ================= 吃瓜列表 ================= */
-export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean }) {
+export function PostsPage({ onBack, wide, initialSourceId, openExternalId }: {
+  onBack: () => void; wide: boolean;
+  /** G4 回访直达（fix334/L3）：资料库点开外部帖子收藏时指定初始
+   * 源（缺省仍走第一顺位 enabled 源的既有口径）；源已停用/下线时
+   * 选中态三态照常落诚实提示，不白屏。 */
+  initialSourceId?: string;
+  openExternalId?: string;
+}) {
   const { push, lineEpoch } = useStore();
   const [searching, setSearching] = useState(false);
   /* 源切换（根治包多源线条目5）：默认吃瓜分类第一顺位 enabled 源；
@@ -53,7 +60,7 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
     return () => window.removeEventListener("hg:registry-changed", onRegistry);
   }, []);
   const postSourceOptions = sourceOptionsForCategory("posts");
-  const [sourceId, setSourceId] = useState(() => firstEnabledSource("posts", getActiveRegistry().sources)?.id ?? "huangguo");
+  const [sourceId, setSourceId] = useState(() => initialSourceId ?? firstEnabledSource("posts", getActiveRegistry().sources)?.id ?? "huangguo");
   const isNativeSource = sourceId === "huangguo";
   /* 选中态校验（fix333-P2，G5）：选中源不在 active 表时不再以
    * undefined 落通用提示——三态经 resolveSelectedSource 唯一派生，
@@ -89,7 +96,7 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
         </div>
         <div className="flex-1 scroll-y pb-8">
           {postsRoute === "browse" && activeSource ? (
-            <SourcePosts def={activeSource} />
+            <SourcePosts def={activeSource} openExternalId={openExternalId} />
           ) : (
             <SourcePendingNotice displayName={selectedSource.label} maturity={activeSource?.maturity} note={activeSource?.note} selectedKind={selectedSource.kind} />
           )}

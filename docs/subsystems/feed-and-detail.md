@@ -522,6 +522,27 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   钉死。契约 `fix334-g3.contract.test.ts`（旧红：基线无
   episodes.ts 模块缺失；新绿六节含两路径接线文本断言与 caps
   分层守门），详见 `~/workspace/hghub/fix334/evidence/l2-g3.md`。
+- **结构批 L3：G4 外部源收藏/历史接线（fix334，未出包）**：外部条
+  目此前能播不能藏——收藏/历史只存 hashExternalId 桥接哈希（不
+  可逆），Profile 靠原生 api 回查必失败。本线补齐：资料库加
+  `extRefs` 快照侧表（同一 Persist 键新可选字段、无迁移，形状与
+  修剪口径见 storage-and-preferences 子系统页 5b）；写入四面——
+  `SourceBrowse` 详情头收藏钮＋Player `onPlaying` 首帧写历史
+  （集数＝当前集 ordinal）、`SourcePosts` 详情头收藏钮（帖子不
+  写历史＝原生 parity）、`SourceGallery` 经 AlbumViewer 顶栏动
+  作槽注入收藏钮（kind=image 落 postFavs）、`Search` 外部详情
+  页头收藏钮（kind 按 merged.kind 映射）＋视频/短剧播放写历史；
+  读取一面——`Profile` 命中快照直接出卡（不调原生 api）、未命
+  中仍走既有回查，点开经 `routeForSurface` 派生消费定落点
+  （deeplink-video/image/posts-page）并带 `openExternalId` 直达
+  对应条目（目标不在宿主首屏列表不强求）。`surfaces` library
+  派生随之转正：外部已启用源＝browse（ProfileLibrary），L1 的
+  g4-pending 在途声明删除。诚实边界：源停用/下线/blocked 后回
+  访落既有 P2 三态提示页、不白屏；外部历史只恢复到集不到秒
+  （行 t=0/dur=0）。契约 `fix334-library.contract.test.ts`（旧
+  红：基线 localLibrary 无 externalHashId 等封装、library 派生
+  ＝g4-pending；新绿七节含旧格式读入零变化与逐面接线文本断
+  言），详见 `~/workspace/hghub/fix334/evidence/l3-g4.md`。
 
 ## 验证命令
 

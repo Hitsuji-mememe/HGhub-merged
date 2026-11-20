@@ -77,6 +77,20 @@
    收敛为常量 `LOCAL_SCOPE`（`local`），详情、标签门、播放和动作 key 形如
    `${scope}:${lineEpoch}:...`，代次判别只剩 `lineEpoch`。收藏即本地真值，不存在
    “状态未知”：空数组就是还没有收藏（旧 `favoritesKnown` 三态随同步一并删除）。
+5b. 外部源快照侧表（fix334/L3 G4）：资料库的收藏/历史集合只存数字 id，
+   外部条目经 `hashExternalId(`${sourceId}:${externalId}`)` 桥接成数字
+   id（与 sources 的 mapToVideoCard/mapToPost 同串、不可逆）。回访所需
+   的最小快照存 `LibraryData.extRefs`（同一 Persist 键的新可选字段，
+   无新键、无迁移、继承 `LOCAL_SCOPE`）：`{sourceId, externalId, kind:
+   video|post|image, title, cover, epCount?}`，key＝桥接哈希。写入只经
+   `localLibrary` 的 `setExternalCollected`/`addExternalHistory`（快照与
+   收藏/历史同一次落盘）；`sanitizeLibraryData` 只保留 key 与重算哈希
+   相等∧形状合法∧仍被 favs/postFavs/history/localHistory 任一引用
+   的行，孤儿修剪只在 sanitize/merge/persist 三处、同一判据。外部历史
+   行恒 `t=0/dur=0`：外部「续播」只恢复到集（ep）、不到秒。旧数据无
+   `extRefs` 读入归一为空表、其余字段逐字不变；旧版读新数据忽略该
+   字段（外部 id 在旧版 Profile 落诚实加载失败，不丢原生数据）。
+   快照只作呈现与回访寻址，源现状以回访落点的 surfaces 派生为准。
 6. 升级吸收：旧版登录用户的资料库只在 `hghubx_accounts_v1` 分桶里，形状
    `{version:1, accounts:{[JSON.stringify([origin, userId])]: data}}`。`loadPersist()`
    经 `absorbLegacyAccounts()` 把全桶幂等合并进本机资料库（history 逐行时间戳仲裁、
