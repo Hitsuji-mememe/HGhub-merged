@@ -477,6 +477,22 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   (sourceId, externalId) 叠加到扇出条目——MergedHit 展示标题取
   代表副本 item.title、合并标题信号同受益；覆盖集随 extHits 在
   submit 与两条清空路径同步重置。接线断言入 M1 契约 (6)。
+- **结构批 L1：surfaces 派生模块影子落位（fix334，未出包）**：
+  `src/features/sources/surfaces.ts` 把 21 个展示面 × 每源的路由
+  裁定收成单一纯函数派生（`routeForSurface`／`sourcesForSurface`），
+  输入＝active 注册表＋模板能力事实（`adapters/templateCapabilities.ts`
+  单一出处：search＝探针∧caps、detailPlay＝探针、episodes 形态逐
+  模板登记）＋P2 `resolveSelectedSource`；不适用一律引用声明表
+  `SURFACE_DECLARATIONS` 的条目，不许散落硬编码。**本线只影子落
+  位**：派生产出裁定但不替换任何面的现行判断，各面替换在 L2/L3
+  接线时逐面做；`validateSurfaceDerivation`＋契约
+  `fix334-surfaces.contract.test.ts` 对三组注册表状态（内置／清单
+  v3 同形／合成变体）全面×全源断言完备性（漏格、browse 无适配
+  器、伪造声明、两出口不一致、声明腐烂均抛错）。诊断面 M20
+  （`sourceHealthDetailLinesInApp`）标注死面：无生产消费者、只余
+  契约文本断言，清扫口径见 L1 报告。设计订正三条（声明 c 与自检
+  事实矛盾、015 搜索资格、searchPath 口径）以码上事实为准，详见
+  `~/workspace/hghub/fix334/evidence/l1-surfaces.md`。
 
 ## 验证命令
 

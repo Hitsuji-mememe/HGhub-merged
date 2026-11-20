@@ -2061,6 +2061,43 @@
       "item": "fix333/m7-selfcheck M9 自检指纹分维度：selfCheckFingerprintFor（协议版本＋适配器纪元＋源切片，引擎落印＋命中判定＋旧指纹迁移共用），App 版本与清单整体版本退役出指纹",
       "min": 3,
       "symbol": "selfCheckFingerprintFor"
+    },
+    {
+      "files": [
+        "src/features/sources/surfaces.ts"
+      ],
+      "id": "fix334-surfaces-route-def",
+      "item": "结构批 L1：surfaces 派生模块面路由定义 routeForSurface（影子落位，消费者替换留 L2/L3）",
+      "min": 1,
+      "symbol": "export function routeForSurface"
+    },
+    {
+      "files": [
+        "src/features/sources/surfaces.ts"
+      ],
+      "id": "fix334-surfaces-route-consumer",
+      "item": "结构批 L1：sourcesForSurface 以 routeForSurface 派生列示源集（两出口一致性由完备性契约断言）",
+      "min": 1,
+      "symbol": "routeForSurface(surface, def, ctx)"
+    },
+    {
+      "files": [
+        "src/features/sources/surfaces.ts"
+      ],
+      "id": "fix334-surfaces-declarations",
+      "item": "结构批 L1：不适用声明表 SURFACE_DECLARATIONS（定义＋完备性校验器存在性与防腐烂双向消费）",
+      "min": 2,
+      "symbol": "SURFACE_DECLARATIONS"
+    },
+    {
+      "files": [
+        "src/features/sources/adapters/templateCapabilities.ts",
+        "src/features/sources/surfaces.ts"
+      ],
+      "id": "fix334-template-capabilities",
+      "item": "结构批 L1：模板能力事实单一出处 templateCapabilitiesFor（定义＋surfaces 派生消费）",
+      "min": 2,
+      "symbol": "templateCapabilitiesFor"
     }
   ]
 }
