@@ -158,6 +158,18 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   取页行为变更按 M7 纪律 bump `SELF_CHECK_ADAPTER_EPOCH` 至 2。
   证据：`~/workspace/hghub/fix335/evidence/a-pagination.md`（旧红
   harness、逐源信号表、故障注入三项双树实测）。
+  fix335/a-album-guard（2026-11-20）：图集详情代次守卫——
+  `SourceGallery.openAlbum` 此前是三套源 UI 里唯一无代次守卫的
+  详情落点：await 后无条件 setAlbum，慢 detail 在切源/改开他册/
+  加载中关闭后落地都会把旧相册覆层复活（A 线故障注入旁记）。
+  现行口径：相册面独立 `albumSeq`（照 load 的 seq 形态、同
+  SourceBrowse `epSeq` 一面一 seq 先例；与 load 共用会抢占其
+  finally 的 busy 复位、闩死列表单飞），openAlbum 取 mySeq、
+  落地前比对丢弃迟到响应；切源重置 effect 与全部关闭路径
+  （closeAlbum：返回序登记/查看器 onBack/onClose/页内返回钮）
+  先行 albumSeq++ 作废在飞请求。证据：
+  `~/workspace/hghub/fix335/evidence/a-album-guard.md`（夹具三
+  场景双树实测：切源复活/改开覆盖/关闭复活，旧红新绿）。
 - 封面状态机（同批）：`ImageLoad` 状态 loading→decoded→displayed 或
   failed(reason)（http/timeout/decode 分因），每 attempt 20s 超时，
   src 变化自动重试；失败计数与分页证据同节进诊断报告。fix2.1 修正
