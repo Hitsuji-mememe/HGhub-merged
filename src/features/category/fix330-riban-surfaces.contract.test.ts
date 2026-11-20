@@ -70,7 +70,11 @@ const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara", "hentaihaven"];
 {
   const src = readFileSync(new URL("./Category.tsx", import.meta.url), "utf8");
   assert.ok(src.includes('aria-label="视频源"'), "总览有「视频源」区段（与图片区同列示形态）");
-  assert.ok(src.includes("sourcesForCategory(\"video\", activeSources)"), "总览列示消费 active 注册表 category=video 选择器（非内置表、非写死名单）");
+  /* 断言适配（fix335/e-category）：总览四区改读 surfaces 派生，
+   * 列示名单由 sourcesForSurface(overview-video-rows) 派生（与
+   * routeForSurface 互为一致、仍消费 active 注册表、非写死名单）；
+   * 上方选择器口径段对 sourcesForCategory 本身的断言不变。 */
+  assert.ok(src.includes("sourcesForSurface(\"overview-video-rows\", activeSources)"), "总览列示消费 surfaces 派生（active 注册表、非内置表、非写死名单）");
   assert.ok(src.includes("cate: `video:${s.id}`"), "总览条目深链 cate=video:<源id>（与 image:<源id> 同约定）");
   assert.ok(src.includes('cate.startsWith("video:")'), "ChannelPage 识别 video: 深链（原生频道加载跳过＋专属分支）");
   assert.ok(src.includes("SourceBrowse def={videoSource}"), "video: 分支经 SourceBrowse 走适配器真取数（生产调用点）");

@@ -1,12 +1,11 @@
 import { Button } from "../../shared/ui/ios/controls";
 import { Loader } from "../../shared/ui/ios/effects";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, fmt } from "../../shared/api/api";
-import type { Post, VideoCard } from "../../shared/api/types";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { api } from "../../shared/api/api";
+import type { VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
 import { LOCAL_SCOPE } from "../../shared/model/localLibrary";
-import { MediaCard, Masonry, RowCard } from "../../shared/ui/cards";
-import { FilteredContent } from "../../shared/ui/FilteredContent";
+import { Masonry } from "../../shared/ui/cards";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { CollectionLink, CollectionLinks } from "../../shared/ui/CollectionLink";
 import { InplaceSearch } from "../search/InplaceSearch";
@@ -24,16 +23,15 @@ import { traceFeed } from "../../shared/lib/feedTrace";
 const scope = LOCAL_SCOPE;
 import { Empty } from "../../shared/ui/ui";
 import { IAward, IBack, IChevR, IFilm, IFlame, IGrid, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
-import { firstEnabledSource, sourcesForCategory, sourcesForChannel } from "../sources/registry";
+import { getBuiltinRegistry, sourcesForCategory, sourcesForChannel } from "../sources/registry";
 import { getActiveRegistry } from "../sources/manifest";
-import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory, sourceOptionsForChannel } from "../sources/SourceSwitcher";
+import { SourcePendingNotice, SourceSwitcher, sourceOptionsForChannel } from "../sources/SourceSwitcher";
 import { sourceHealthBadgeText } from "../sources/healthCheck";
 import { useSourceHealthResults, useSourceSelfCheckOnShow } from "../sources/sourceHealth";
+import { isNativeSource, nativeSourceId, sourcesForSurface } from "../sources/surfaces";
 import type { SourceDef } from "../sources/types";
 import SourceBrowse from "../sources/SourceBrowse";
 import SourceGallery from "../sources/SourceGallery";
-import SourcePosts from "../sources/SourcePosts";
-import { resolvePostsBrowse } from "../sources/postsRoute";
 import { resolveSelectedSource } from "../sources/selectedSource";
 import { contentSectionVisible } from "./overviewSections";
 
@@ -85,14 +83,18 @@ function useCanonicalKindSignals(envKey: string) {
   return { fetchFor, signalFor, version };
 }
 
-/* ================= 分类总览 ================= */
+/* ================= 分类总览 =================
+ * 索引化（Muse 2026-11-20 fix335/e-category，设计
+ * fix335/design-category-hub.md 方案②，用户真机反馈「分类页纵深
+ * 过大、样式不统一」）：总览回归纯索引——预览全部收进频道内页，
+ * 每频道一行统一索引行（OverviewIndexRow），点按 1 次到达内页；
+ * 四区名单一律改读 surfaces 派生（sourcesForSurface），不再本地
+ * 拼装。总览只回答「有哪些频道/源、状态如何」，内容归内页。
+ * 纵深：现行计数 ≈1.0 屏、注册表全启用 ≈1.5 屏封顶（旧形态
+ * ≈3.6 屏），量取口径见设计 §1/§3。 */
 export default function Category({ wide, active }: { wide: boolean; active: boolean }) {
-  const { push, lineEpoch, setTab } = useStore();
-  const kindSignals = useCanonicalKindSignals(`${scope}:${lineEpoch}`);
-  const [rows, setRows] = useState<Record<string, VideoCard[]>>({});
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState<Record<string, boolean>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  void active; /* 索引为静态派生、无首开预览请求，active 不再门控加载 */
+  const { push, setTab } = useStore();
   /* 注册表口径（Muse 2026-11-19 整改 D2）：读 active 表（远程清单
    * 覆盖生效），hg:registry-changed 后刷新；不再读内置表。 */
   const [, setRegistryTick] = useState(0);
@@ -108,137 +110,30 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
   const healthResults = useSourceHealthResults();
   const sourceBadge = (s: SourceDef): string | undefined =>
     sourceHealthBadgeText(s, healthResults[s.id], Date.now());
-  /* 吃瓜数据源（条目5）：默认第一顺位 enabled 源，切换整段换源不混排 */
-  const postSourceOptions = sourceOptionsForCategory("posts");
-  const [postsSourceId, setPostsSourceId] = useState(() => firstEnabledSource("posts", getActiveRegistry().sources)?.id ?? "huangguo");
-  /* 选中态校验（fix333-P2，G5）：与 Posts 页同一派生，停用源不再以
-   * undefined 落「尚未接通」假文案；提示一律读 label，内部 id 永不进文案。 */
-  const postsSelected = resolveSelectedSource(
-    postsSourceId,
-    sourcesForCategory("posts", activeSources),
-  );
-  const postsSource = postsSelected.kind === "active" ? postsSelected.def : undefined;
-  const mounted = useRef(false);
-  const started = useRef(false);
-  const pending = useRef(new Set<string>());
-  const errorsRef = useRef(errors);
-  errorsRef.current = errors;
-  const lineEpochRef = useRef(lineEpoch);
-  lineEpochRef.current = lineEpoch;
-  const retryKeys = useRef(new Set<string>());
-  /* 吃瓜外部源（SourcePosts compact）的已结空态回报（fix330/ui-
-   * fixes 空区隐藏）：按源 id 记「已结算且为空」，总览吃瓜区据此
-   * 整区隐藏；源切换/重新有数据时回报 false 自动恢复。 */
-  const [settledEmptySources, setSettledEmptySources] = useState<ReadonlySet<string>>(new Set());
-  const reportSettledEmpty = useCallback((sourceId: string, empty: boolean) => {
-    setSettledEmptySources((prev) => {
-      if (prev.has(sourceId) === empty) return prev;
-      const next = new Set(prev);
-      if (empty) next.add(sourceId); else next.delete(sourceId);
-      return next;
-    });
-  }, []);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
-
-  const loadPreview = useCallback(async (key: string): Promise<void> => {
-    if (pending.current.has(key)) return;
-    const requestEpoch = lineEpochRef.current;
-    pending.current.add(key);
-    setLoading(m => ({ ...m, [key]: true }));
-    setErrors(m => ({ ...m, [key]: "" }));
-    try {
-      if (key === "posts") {
-        const result = await api.postCategory("remen-chigua", 1, 8, "latest");
-        if (requestEpoch !== lineEpochRef.current) { retryKeys.current.add(key); return; }
-        if (mounted.current) setPosts(result?.items || []);
-      } else {
-        /* 「视频」频道（original）内混排多集剧集，预览按内容性质
-         * 分组（F4 线）：窗口放大到 20 条再分组，视频区取 video 组
-         * 前 8、drama 组补入短剧区，避免过滤后预览饿死。 */
-        const result = key === "original"
-          ? await api.originalVideos("all", 1, 20, "new")
-          : await api.category(key, 1, 8, "latest");
-        if (requestEpoch !== lineEpochRef.current) { retryKeys.current.add(key); return; }
-        if (mounted.current) setRows(m => ({ ...m, [key]: result?.items || [] }));
-      }
-    } catch (error) {
-      const stale = requestEpoch !== lineEpochRef.current;
-      if (mounted.current && !stale) setErrors(m => ({ ...m, [key]: (error as Error).message || "加载失败" }));
-      /* 请求在旧线路上发出、期间线路已切换：等 finally 里用新线路补拉一次 */
-      if (stale) retryKeys.current.add(key);
-    } finally {
-      pending.current.delete(key);
-      if (mounted.current) setLoading(m => ({ ...m, [key]: false }));
-      const retry = retryKeys.current.delete(key);
-      if (retry && mounted.current) void loadPreview(key);
-    }
-  }, []);
-
-  useEffect(() => {
-    // 首次打开分类才加载，避免启动时后台频道请求/封面与首页视频竞争网络。
-    if (!active || started.current) return;
-    started.current = true;
-    CHANNELS.forEach(c => { void loadPreview(c.cate); });
-    void loadPreview("posts");
-  }, [active, loadPreview]);
-
-  /* 线路切换后：已打开过的分类在新线路上重新获取，避免残留旧线路数据 */
-  const prevEpoch = useRef(lineEpoch);
-  useEffect(() => {
-    if (prevEpoch.current === lineEpoch) return;
-    prevEpoch.current = lineEpoch;
-    if (!started.current) return;
-    setRows({});
-    setPosts([]);
-    setErrors({});
-    CHANNELS.forEach(c => { void loadPreview(c.cate); });
-    void loadPreview("posts");
-  }, [lineEpoch, loadPreview]);
-
-  /* 总览归类补判（fix322）：original 预览窗口到达后，对性质未决
-   * 定者（单集/无信号、无标记）批量查 Detail 品类标记；信号写入
-   * 后 version 自增触发下方分组重算、条目自动归位。 */
-  useEffect(() => {
-    const originals = rows["original"];
-    if (originals?.length) void kindSignals.fetchFor(originals);
-  }, [rows, kindSignals]);
-
-  /* 性质分组（Muse 2026-11-19 3.2.1 修复 F4 线＋fix322 标记线，
-   * 与搜索共用 shared/lib/contentKind 统一裁决）：总览视频区只出
-   * resolved video 组；original 频道里的 drama 组条目补入短剧区
-   * （按 id 去重），多集条目在总览只归短剧一处、不在两区重复出
-   * 现；unknown 组（补判未到/无标记）暂不呈现于任一区。重算依
-   * 赖 kindSignals.version（补判到达信号），render 期现算。 */
-  void kindSignals.version;
-  const originalKindGroups = partitionCardsByResolvedKind(rows["original"] || [], kindSignals.signalFor);
-
-  /* 吃瓜区可见性（fix330/ui-fixes 空区隐藏）：黄果模式走总览自有
-   * posts 状态谓词；外部源 browse 模式走 SourcePosts 已结空态回
-   * 报；pending/blocked 诚实提示不是内容区、恒可见。 */
-  const guaVisible = postsSourceId === "huangguo"
-    ? contentSectionVisible({ attempted: errors.posts !== undefined, loading: loading.posts === true, hasError: !!errors.posts, count: posts.length })
-    : resolvePostsBrowse(postsSource) === "browse" && postsSource
-      ? !settledEmptySources.has(postsSourceId)
-      : true;
-  const imageSources = sourcesForCategory("image", activeSources);
-  /* 里番（视频品类外部源）总览入口（Muse 2026-11-19
-   * fix330-riban-surfaces）：3.3.0 真机首验实锤同吃瓜旧病——注册表
-   * 已启用 ≠ 浏览面已接通：总览此前只有图片区有源入口列示，视频
-   * 品类源只能先进「视频」频道页再切源片到达，总览面完全缺席。
-   * 现与图片区同口径列示（active 注册表 category="video" 已启用
-   * 源、probe 带「未实测」标），点开推 cate="video:<源id>" 深链页
-   * （ChannelPage 镜像 image: 约定渲染 SourceBrowse）。 */
-  const videoSources = sourcesForCategory("video", activeSources);
-  /* 总览展示面补探（fix333/selfcheck-trigger，3.3.2 真机验收缺
-   * 口）：图片/视频源行此前只读派生、不触发补探——刚升级（旧结
-   * 果指纹失效）或从未点开过的源在本面长期挂「未实测」。挂载
-   * 时对本面展示的行源批量补探（healthCheck 串行队列、后台不
-   * 阻塞渲染）；吃瓜切源片由 SourceSwitcher 自身同口径触发。 */
-  useSourceSelfCheckOnShow([...imageSources, ...videoSources]);
+  /* 四区名单改读 surfaces 派生（fix334 完备性契约同源）：行区＝
+   * 该面有确定行为的源集（blocked 源以 listed 在行内列示、点开
+   * 由深链面落诚实提示），与 routeForSurface 互为一致，不再以
+   * sourcesForCategory 在本面另判一遍。 */
+  const imageRowSources = sourcesForSurface("overview-image-rows", activeSources);
+  const videoRowSources = sourcesForSurface("overview-video-rows", activeSources);
+  const postsRowSources = sourcesForSurface("overview-posts", activeSources);
+  /* 总览展示面补探（fix333/selfcheck-trigger）：图片/视频行区挂载
+   * 时批量补探保留原样；吃瓜的 show-batch 此前靠总览切源器挂载
+   * 触发，索引化后切源器退场——改挂本面索引行渲染处，对
+   * overview-posts 派生名单同钩子同口径批量补探（surfaces 的
+   * topUp 声明与落点由 fix334-surfaces 契约对账）。 */
+  useSourceSelfCheckOnShow(postsRowSources);
+  useSourceSelfCheckOnShow([...imageRowSources, ...videoRowSources]);
+  /* 空区隐藏（fix330/ui-fixes 谓词保留给源行区）：行区名单是注册
+   * 表同步派生（无异步加载态），以已结算口径消费同一谓词——无已
+   * 启用源整区不渲染；频道行是原生恒在，不套空区谓词。 */
+  const imageSectionVisible = contentSectionVisible({ attempted: true, loading: false, hasError: false, count: imageRowSources.length });
+  const videoSectionVisible = contentSectionVisible({ attempted: true, loading: false, hasError: false, count: videoRowSources.length });
+  /* 页头计数按实际渲染派生（废除旧手算口径）：
+   * 频道行＝CHANNELS 两条＋吃瓜一条，行区按可见性各计一区。 */
+  const sectionCount = CHANNELS.length + 1
+    + (imageSectionVisible ? 1 : 0)
+    + (videoSectionVisible ? 1 : 0);
 
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
@@ -252,7 +147,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             </Button>
           )}
           <h1 className="ios-page-title text-on">分类</h1>
-          <span className="text-[12px] text-mut">{CHANNELS.length + 3} 个频道</span>
+          <span className="text-[12px] text-mut">{sectionCount} 个频道</span>
         </div>
       </div>
 
@@ -271,129 +166,57 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             onClick={() => push({ kind: "tags" })} />
         </CollectionLinks>
 
-        {CHANNELS.map((c, ci) => {
-          const rawList = rows[c.cate] || [];
-          const list = c.cate === "original"
-            ? originalKindGroups.video.slice(0, 8)
-            : c.cate === "ai-duanju"
-              ? [...rawList, ...originalKindGroups.drama.filter((d) => !rawList.some((x) => x.id === d.id))]
-              : rawList;
-          const ChannelIcon = c.Icon;
-          /* 空区隐藏（fix330/ui-fixes 用户裁定，含「视频」区）：
-           * 已尝试（loadPreview 起始即写 errors[key]）∧非加载∧无
-           * 错误∧呈现条目为 0 才整区不渲染；加载中/未尝试/出错保
-           * 持可见。original 区的 list 为渲染期分组结果，补判信号
-           * 迟到归位时条目出现、本区自动恢复呈现。 */
-          if (!contentSectionVisible({ attempted: errors[c.cate] !== undefined, loading: loading[c.cate] === true, hasError: !!errors[c.cate], count: list.length })) return null;
-          return (
-            <section key={c.cate} aria-label={c.name} className="mb-6 a-rise" style={{ animationDelay: `${Math.min(ci * 50, 300)}ms` }}>
-              <Button onClick={() => push({ kind: "channel", cate: c.cate, name: c.name })}
-                className="w-full flex items-center gap-3 mb-3 text-left pressable group">
-                <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0">
-                  <ChannelIcon size={18} strokeWidth={1.9} />
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span role="heading" aria-level={2} className="block text-[16px] font-bold text-on leading-tight">{c.name}</span>
-                </span>
-                <span className="inline-flex items-center gap-0.5 text-[13px] font-medium leading-none text-mut group-hover:text-primary transition-colors shrink-0">
-                  <span>全部</span><IChevR size={14} />
-                </span>
-              </Button>
-              <FilteredContent items={list} scopeKey={c.cate}>{visible => <div className="scroll-x flex gap-3 snap-x" role="group" aria-label={`${c.name}影片预览`}>
-                {visible.map((v) => (
-                  <RowCard key={v.id} v={v} onOpen={() => push({ kind: "feed", videoIds: visible.map((x) => x.id), index: visible.findIndex((x) => x.id === v.id), title: c.name })} />
-                ))}
-                {!list.length && <PreviewStatus name={c.name} loading={loading[c.cate] !== false} error={errors[c.cate]} onRetry={() => void loadPreview(c.cate)} />}
-              </div>}</FilteredContent>
-            </section>
-          );
-        })}
-
-        {/* 吃瓜 */}
-        {guaVisible && (
-        <section aria-label="吃瓜" className="mb-5 a-rise">
-          <Button onClick={() => push({ kind: "posts" })}
-            className="w-full flex items-center gap-3 mb-3 text-left pressable group">
-            <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0">
-              <IFlame size={18} strokeWidth={1.9} />
-            </span>
-            <span className="flex-1 min-w-0">
-              <span role="heading" aria-level={2} className="block text-[16px] font-bold text-on leading-tight">吃瓜</span>
-            </span>
-            <span className="inline-flex items-center gap-0.5 text-[13px] font-medium leading-none text-mut group-hover:text-primary transition-colors shrink-0">
-              <span>全部</span><IChevR size={14} />
-            </span>
-          </Button>
-          <div className="mb-3"><SourceSwitcher options={postSourceOptions} value={postsSourceId} onChange={setPostsSourceId} ariaLabel="吃瓜数据源切换" /></div>
-          {postsSourceId === "huangguo" ? (
-          <FilteredContent items={posts} scopeKey="posts">{visible => <div className="scroll-x flex gap-3 snap-x" role="group" aria-label="吃瓜内容预览">
-            {visible.map((post) => (
-              <div key={post.id} className="ios-row-card"><MediaCard title={post.title} cover={post.cover} surface="posts-native"
-                subtitle={`${fmt(post.hot)} 次浏览`} onOpen={() => push({ kind: "post", id: post.id })} /></div>
-            ))}
-            {!posts.length && <PreviewStatus name="吃瓜" loading={loading.posts !== false} error={errors.posts} onRetry={() => void loadPreview("posts")} />}
-          </div>}</FilteredContent>
-          ) : resolvePostsBrowse(postsSource) === "browse" && postsSource ? (
-            /* 吃瓜预览接线（3.3.0 接通批，与 Posts 页同判定）：非黄果
-             * 非 blocked 源经 SourcePosts compact 真取数；blocked 仍
-             * 走诚实提示。此前本预览对一切非黄果源无条件提示。 */
-            <SourcePosts def={postsSource} compact onShowAll={() => push({ kind: "posts" })} onSettledEmpty={(empty) => reportSettledEmpty(postsSourceId, empty)} />
-          ) : (
-            <SourcePendingNotice displayName={postsSelected.label} maturity={postsSource?.maturity} note={postsSource?.note} selectedKind={postsSelected.kind} />
-          )}
+        {/* 频道索引行：短剧/视频进 ChannelPage、吃瓜进 PostsPage，
+            均为既有内页（全量网格＋切源＋分页都在内页），总览不
+            再预取预览内容。 */}
+        <section aria-label="频道" className="mb-5 a-rise">
+          <div className="flex flex-col gap-2">
+            {CHANNELS.map((c) => {
+              const ChannelIcon = c.Icon;
+              return (
+                <OverviewIndexRow key={c.cate} title={c.name}
+                  icon={<ChannelIcon size={18} strokeWidth={1.9} />}
+                  onClick={() => push({ kind: "channel", cate: c.cate, name: c.name })} />
+              );
+            })}
+            <OverviewIndexRow title="吃瓜"
+              icon={<IFlame size={18} strokeWidth={1.9} />}
+              onClick={() => push({ kind: "posts" })} />
+          </div>
         </section>
-        )}
 
-        {/* 图片分区（Muse 2026-11-19 最终版 D 线，①用户亲定条目8；
-            2026-11-19 fix321-F2 修订）：只列 active 注册表
-            category="image" 的已启用源（sourcesForCategory 只返回
-            enabled，状态徽标与切换器同读健康单一派生），点开推
-            既有 channel 栈页（cate="image:<源id>"）进图集浏览页。
-            浏览面只显示已启用源：停用状态的源不在此排队，只在源管理/
-            诊断明细面可见（远程清单启用后自动转入本列表）。 */}
-        {/* 空区隐藏（fix330/ui-fixes）：本区是图片源入口列表，「空」
-            ＝无已启用图片源——整区不渲染；有源（含 blocked 徽标源）
-            照常列出。 */}
-        {imageSources.length > 0 && (
+        {/* 图片源行区：与频道行同一索引行组件；行内状态徽标读健康
+            单一派生（009「不可用」等），点开推 cate="image:<源id>"
+            深链页（ChannelPage 分支经 SourceGallery 取数、blocked
+            由行内 listed 列示、点开落诚实提示）。空区整区不渲染。 */}
+        {imageSectionVisible && (
         <section aria-label="图片" className="mb-5 a-rise">
           <div className="flex items-center gap-3 mb-3">
             <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IGrid size={18} strokeWidth={1.9} /></span>
             <span role="heading" aria-level={2} className="block text-[16px] font-bold text-on leading-tight">图片</span>
           </div>
           <div className="flex flex-col gap-2">
-            {imageSources.map((s) => (
-              <Button key={s.id} onClick={() => push({ kind: "channel", cate: `image:${s.id}`, name: s.displayName })}
-                className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 text-left pressable">
-                <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
-                {(() => { const b = sourceBadge(s); return b ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">{b}</span> : null; })()}
-                <IChevR size={14} />
-              </Button>
+            {imageRowSources.map((s) => (
+              <OverviewIndexRow key={s.id} title={s.displayName} badge={sourceBadge(s)}
+                onClick={() => push({ kind: "channel", cate: `image:${s.id}`, name: s.displayName })} />
             ))}
           </div>
         </section>
         )}
 
-
-        {/* 视频源分区（Muse 2026-11-19 fix330-riban-surfaces）：
-            与图片分区同列示口径——只列 active 注册表 category=
-            "video" 的已启用源（sourcesForCategory 只返回 enabled，
-            状态徽标同图片区：读健康单一派生），点开推既有 channel
-            栈页（cate="video:<源id>"）进该源浏览页（SourceBrowse）。
-            空区隐藏同图片区：无已启用视频源时整区不渲染。 */}
-        {videoSources.length > 0 && (
+        {/* 视频源行区（fix330-riban-surfaces 列示义务随索引化保留）：
+            与图片区同口径，点开推 cate="video:<源id>" 深链页
+            （ChannelPage 分支经 SourceBrowse 取数）。 */}
+        {videoSectionVisible && (
         <section aria-label="视频源" className="mb-5 a-rise">
           <div className="flex items-center gap-3 mb-3">
             <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IAward size={18} strokeWidth={1.9} /></span>
             <span role="heading" aria-level={2} className="block text-[16px] font-bold text-on leading-tight">视频源</span>
           </div>
           <div className="flex flex-col gap-2">
-            {videoSources.map((s) => (
-              <Button key={s.id} onClick={() => push({ kind: "channel", cate: `video:${s.id}`, name: s.displayName })}
-                className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 text-left pressable">
-                <span className="flex-1 min-w-0 text-[14px] font-medium text-on">{s.displayName}</span>
-                {(() => { const b = sourceBadge(s); return b ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">{b}</span> : null; })()}
-                <IChevR size={14} />
-              </Button>
+            {videoRowSources.map((s) => (
+              <OverviewIndexRow key={s.id} title={s.displayName} badge={sourceBadge(s)}
+                onClick={() => push({ kind: "channel", cate: `video:${s.id}`, name: s.displayName })} />
             ))}
           </div>
         </section>
@@ -406,11 +229,24 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
   );
 }
 
-function PreviewStatus({ name, loading, error, onRetry }: { name: string; loading: boolean; error?: string; onRetry: () => void }) {
-  return <div role="status" aria-busy={loading} className="h-[150px] flex flex-col justify-center items-start gap-2 text-[12px] text-dim px-1">
-    <span>{loading ? "加载中…" : error || "暂无内容"}</span>
-    {!loading && error && <Button aria-label={`重试${name}`} onClick={onRetry} className="text-primary pressable">重试</Button>}
-  </div>;
+/* 总览统一索引行（fix335/e-category）：频道行与源行共用同一行
+ * 组件——可选图标（频道行）与可选状态徽标（源行）为两个槽位，
+ * 行高/底色/字号全行一致，点按一律进既有内页或深链页。 */
+function OverviewIndexRow({ icon, title, badge, onClick }: {
+  icon?: ReactNode;
+  title: string;
+  badge?: string;
+  onClick: () => void;
+}) {
+  return (
+    <Button onClick={onClick}
+      className="w-full flex items-center gap-3 rounded-[16px] bg-s2 px-4 py-3 text-left pressable">
+      {icon && <span className="w-6 shrink-0 flex items-center justify-center text-mut">{icon}</span>}
+      <span className="flex-1 min-w-0 truncate text-[14px] font-medium text-on">{title}</span>
+      {badge ? <span className="shrink-0 rounded-full bg-s3 px-2 py-0.5 text-[11px] font-semibold text-mut">{badge}</span> : null}
+      <IChevR size={14} />
+    </Button>
+  );
 }
 
 /* ================= 频道详情页 ================= */
@@ -443,8 +279,13 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
   const { preferences } = useContentPreferences();
   const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
   const [searching, setSearching] = useState(false);
+  /* 原生源引用收敛（fix335/e-category）：原生选项与回落值一律经
+   * surfaces 的 nativeSourceId 派生、显示名读注册表 def，不再写
+   * id 字面量（原生判定仍以 isNativeSource 模板判据为准）。 */
+  const nativeId = nativeSourceId();
+  const nativeLabel = getBuiltinRegistry().find((d) => d.id === nativeId)?.displayName ?? "黄果";
   /* 视频数据源（条目5）：黄果为本频道原生源；切其他源整页换源不混排 */
-  const [channelSourceId, setChannelSourceId] = useState("huangguo");
+  const [channelSourceId, setChannelSourceId] = useState(nativeId);
   /* 注册表口径（整改 D2）：同 Category，读 active 表并订阅刷新 */
   const [, setRegistryTick] = useState(0);
   useEffect(() => {
@@ -456,10 +297,10 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
    * 频道有真实品类映射的源（sourcesForChannel(cate)），无映射源
    * 不进本频道列表；陈旧选择（来自其他频道）不在本频道映射内时
    * 回落原生黄果，不跨频道生效。 */
-  const videoSourceOptions = [{ id: "huangguo", label: "黄果" }, ...sourceOptionsForChannel(cate)];
-  const effectiveChannelSourceId = channelSourceId === "huangguo" || videoSourceOptions.some((o) => o.id === channelSourceId)
+  const videoSourceOptions = [{ id: nativeId, label: nativeLabel }, ...sourceOptionsForChannel(cate)];
+  const effectiveChannelSourceId = channelSourceId === nativeId || videoSourceOptions.some((o) => o.id === channelSourceId)
     ? channelSourceId
-    : "huangguo";
+    : nativeId;
   /* 选中态校验（fix333-P2）：与 effective 回落同口径的派生——effective
    * 已保证 id 在切源片内时 channelSource 必在位，此处只为统一页头/
    * 提示的 label 口径，不再 `?? id`；若将来回落口径变化，停用态仍
@@ -698,7 +539,7 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
    * createAdapter 生产调用为 0）：blocked 维持既有诚实提示页；
    * 其余（stable/probe）经 SourceBrowse 走适配器真取数，失败错误
    * 态＋重试，不回落黄果数据冒充。 */
-  if (effectiveChannelSourceId !== "huangguo") {
+  if (effectiveChannelSourceId !== nativeId) {
     return (
       <div className="ios-page absolute inset-0 bg-bg flex flex-col">
         {!browseDetailOpen && (

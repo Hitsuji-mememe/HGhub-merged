@@ -112,53 +112,28 @@ const canonicalById: Record<number, ReturnType<typeof detailOf>> = {
   9105: detailOf(1),
 };
 
-/* ══ 面 1：分类总览分组（Category.tsx 总览派生） ══
- * 新码派生（fix322）：original 行先 partitionCardsByResolvedKind
- * （canonicalFor 注入补判信号——生产为 kindSignals.signalFor，
- * 信号由 useCanonicalKindSignals 对未决条目查 Detail 而来）——
- * 视频区只取 video 组，短剧区＝ai-duanju 原行＋original 的
- * drama 组按 id 去重补入；unknown 组不渲染于任一区。
- * 旧码派生：两区各直渲染本频道行（同一条目两端点都返回即两区都出）。 */
-const overviewZones = (originalRows: Card[], duanjuRows: Card[], canonical: Record<number, ReturnType<typeof detailOf>> = canonicalById) => {
-  if (partitionCardsByResolvedKind && categorySrc.includes("originalKindGroups")) {
-    const g = partitionCardsByResolvedKind(
-      originalRows as never[],
-      (c) => canonical[(c as Card).id],
-    ) as Record<string, Card[]>;
-    return {
-      video: g.video.slice(0, 8),
-      drama: [...duanjuRows, ...g.drama.filter((d) => !duanjuRows.some((x) => x.id === d.id))],
-    };
-  }
-  return { video: originalRows, drama: duanjuRows };
-};
-check("面1-生产绑定：总览派生与 Category.tsx 字面对齐", () => {
-  if (partitionCardsByResolvedKind) {
-    assert.ok(categorySrc.includes('partitionCardsByResolvedKind(rows["original"] || [], kindSignals.signalFor)'), "总览对 original 行调用统一裁决分组（注入补判信号）");
-    assert.ok(categorySrc.includes("originalKindGroups.video.slice(0, 8)"), "总览视频区只渲染 video 组");
-    assert.ok(categorySrc.includes("originalKindGroups.drama.filter"), "总览短剧区补入 original 的 drama 组（去重）");
-  } else {
-    assert.ok(categorySrc.includes("const list = rows[c.cate] || [];"), "旧码总览直渲染频道行（无判定）");
-  }
+/* ══ 面 1：分类总览（Category.tsx 总览段） ══
+ * 断言适配（fix335/e-category 总览索引化，设计 design-category-hub
+ * 方案②）：总览预览整面退场——总览不再渲染任何内容条目，只剩
+ * 索引行（频道行→ChannelPage、吃瓜行→PostsPage、源行→深链页）。
+ * 本不变量（一条目只进一个分区）在总览面由构造满足：渲染条目
+ * 数恒 0，任何条目都不可能在总览重复或错区出现。原面 1 的分组
+ * 复刻（总览派生）随面退场删除；分组行为的活面＝频道页（面 2）
+ * 与搜索（面 3），其行为检查在本文件内原样保留、覆盖不减。
+ * 下方检查改钉新生产绑定：总览段无分组派生、无卡片渲染、频道
+ * 入口只剩索引行 push。 */
+const overviewSeg = categorySrc.split("频道详情页")[0];
+check("面1-生产绑定：总览索引化与 Category.tsx 字面对齐", () => {
+  assert.ok(!overviewSeg.includes("originalKindGroups"), "总览无预览分组派生（索引化退场）");
+  assert.ok(!overviewSeg.includes("RowCard") && !overviewSeg.includes("MediaCard"), "总览不渲染任何内容卡片（预览归内页）");
+  assert.ok(overviewSeg.includes('push({ kind: "channel", cate: c.cate, name: c.name })'), "频道行点按进 ChannelPage（归类在内页发生）");
+  assert.ok(overviewSeg.includes('push({ kind: "posts" })'), "吃瓜行点按进 PostsPage");
 });
-check("面1-场景①：《警界之花》在总览只进一个区（短剧）", () => {
-  const zones = overviewZones([jingjieChannel, singleChannel, noEpChannel], [jingjieChannel, juruChannel]);
-  const inVideo = zones.video.filter((c) => c.id === 9101).length;
-  const inDrama = zones.drama.filter((c) => c.id === 9101).length;
-  assert.equal(inVideo, 0, "《警界之花》（3 集）绝不进视频区");
-  assert.equal(inDrama, 1, "《警界之花》只在短剧区出现一次（两端点返回不重复）");
-  assert.equal(inVideo + inDrama, 1, "《警界之花》全总览恰出现一次");
-});
-check("面1-对照：单条/无分集条目仍进视频区、不进短剧区", () => {
-  const zones = overviewZones([jingjieChannel, singleChannel, noEpChannel], [jingjieChannel, juruChannel]);
-  assert.deepEqual(zones.video.map((c) => c.id), [9104, 9105], "视频区只含单条与无分集条目（经标记补判归位）");
-  assert.ok(!zones.drama.some((c) => c.id === 9104 || c.id === 9105), "单条/无分集不进短剧区");
-  /* 生产两相：补判信号未到时同一批条目暂扣（fix322）——单条/
-   * 无分集不出现在任一区，多集剧凭结构已在短剧区。 */
-  const pending = overviewZones([jingjieChannel, singleChannel, noEpChannel], [jingjieChannel, juruChannel], {});
-  assert.deepEqual(pending.video.map((c) => c.id), [], "补判未到：视频区暂不呈现未决条目（不误入）");
-  assert.ok(!pending.drama.some((c) => c.id === 9104 || c.id === 9105), "补判未到：单条/无分集也不猜进短剧区");
-  assert.ok(pending.drama.some((c) => c.id === 9101), "补判未到：多集剧凭结构信号仍在短剧区");
+check("面1-场景①：《警界之花》在总览不出现（构造性满足只进一区）", () => {
+  /* 总览渲染条目恒为空集：9101 在总览的出现次数为 0 ≤ 1，且不
+   * 可能同时进两区——不变量由构造满足；其归类正确性由面 2
+   * （频道页 incoming 过滤）行为检查守护。 */
+  assert.ok(!overviewSeg.includes("loadPreview"), "总览无预览取数链（条目无从进入总览）");
 });
 
 /* ══ 面 2：频道页列表过滤（Category.tsx ChannelPage incoming） ══

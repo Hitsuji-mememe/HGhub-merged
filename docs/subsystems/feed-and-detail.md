@@ -231,6 +231,31 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   `~/workspace/hghub/fix335/evidence/f-discovery.md`；契约
   `fix335-f-discovery.contract.test.ts`（登记表＋逐源行为＋缺省
   路径逐字对照＋指纹规范化）。
+  fix335/e-category（2026-11-20）：分类总览索引化（设计
+  `fix335/design-category-hub.md` 方案②，用户真机反馈纵深过大
+  ＋样式不统一）——总览删全部预览段（频道横滑预览/吃瓜
+  compact 预览与 loadPreview 取数链整链退场），频道行与图片/
+  视频源行统一为同一索引行组件 `OverviewIndexRow`，点按 1 次
+  进既有内页（ChannelPage/PostsPage/深链页）；总览四区名单
+  改读 surfaces 派生 `sourcesForSurface`（overview-channels
+  为原生恒在行、overview-posts 只供补探名单、overview-image-
+  rows/overview-video-rows 为行集），不再本地拼装。总览分工
+  自此只答「有哪些频道/源、状态如何」，内容与归类全归内页
+  （性质分组的活面只剩频道页，`partitionCardsByResolvedKind`
+  在总览的消费随预览退场）。吃瓜 show-batch 补探改挂索引行
+  渲染处 `useSourceSelfCheckOnShow(postsRowSources)`（摘除即
+  wiring 红，突变已验）；图片/视频行区批量补探原样保留。源
+  行徽标仍读 healthCheck 单一派生、逐行与改版前同形；空区隐
+  藏谓词 `contentSectionVisible` 保留给源行区（注册表同步派
+  生以已结算口径＋计数消费）；页头「N 个频道」改按实际渲染
+  派生（频道行 3＋可见行区数），废除旧手算。纵深（设计边际
+  模型，夹具同集核对）：真机计数集 ≈3.67 屏 → ≈0.98 屏，
+  注册表全启用 ≈1.56 屏封顶。连带收敛：ChannelPage 内 4 处
+  原生 id 字面量（切源 state 初值/原生选项/回落/外源分支判
+  定）改经 `surfaces.nativeSourceId()` 派生＋注册表 def 取名，
+  Category.tsx 内原生 id 字面量清零（postsRoute 1 处与
+  Posts.tsx 的 isNativeSource 本地定义 1 处不在本线范围、留
+  集成清单）。证据：`~/workspace/hghub/fix335/evidence/e-category.md`。
 - 封面状态机（同批）：`ImageLoad` 状态 loading→decoded→displayed 或
   failed(reason)（http/timeout/decode 分因），每 attempt 20s 超时，
   src 变化自动重试；失败计数与分页证据同节进诊断报告。fix2.1 修正

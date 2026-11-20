@@ -163,6 +163,15 @@ export function isNativeSource(def: SourceDef): boolean {
   return def.adapter.template === "native-huangguo";
 }
 
+/** 原生源 id 的单一出处（fix335/e-category 收敛）：由模板判据自
+ * 内置注册表派生——需要以 id 形态引用原生源的面（频道页切源片
+ * 的原生选项/回落值）一律经此取值，不许再写 id 字面量。 */
+export function nativeSourceId(): string {
+  const def = getBuiltinRegistry().find(isNativeSource);
+  if (!def) throw new Error("surfaces 完备性：内置注册表缺原生源（template=native-huangguo）");
+  return def.id;
+}
+
 const na = (declaration: string): SurfaceRoute => ({ kind: "not-applicable", declaration });
 const notice = (reason: "blocked" | "disabled" | "gone"): SurfaceRoute => ({ kind: "notice", reason });
 const browse = (component: BrowseComponent): SurfaceRoute => ({ kind: "browse", component });

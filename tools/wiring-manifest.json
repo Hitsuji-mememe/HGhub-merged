@@ -1423,11 +1423,11 @@
     },
     {
       "id": "fix330-chigua-posts-route",
-      "item": "3.3.0吃瓜线 吃瓜浏览面统一路由判定 resolvePostsBrowse（定义＋Posts/Category 两消费面）",
+      "item": "3.3.0吃瓜线 吃瓜浏览面统一路由判定 resolvePostsBrowse（定义＋Posts 消费面＋surfaces 派生消费）；fix335/e-category 适配：总览吃瓜预览退场、总览改经 surfaces 派生消费同一判定，第三消费点由 Category 直引改为 surfaces.ts",
       "files": [
         "src/features/sources/postsRoute.ts",
         "src/features/posts/Posts.tsx",
-        "src/features/category/Category.tsx"
+        "src/features/sources/surfaces.ts"
       ],
       "symbol": "resolvePostsBrowse",
       "each": true
@@ -1452,9 +1452,9 @@
     },
     {
       "id": "fix330-chigua-sourceposts-mounted-category",
-      "item": "3.3.0吃瓜线 分类总览吃瓜预览挂载 SourcePosts（compact）",
+      "item": "3.3.0吃瓜线 SourcePosts 生产挂载（原分类总览 compact 预览挂载；fix335/e-category 总览索引化后 compact 挂载随预览退场，本条改守 Posts 页全量挂载——SourcePosts 唯一生产挂载面）",
       "files": [
-        "src/features/category/Category.tsx"
+        "src/features/posts/Posts.tsx"
       ],
       "symbol": "SourcePosts",
       "min": 2
@@ -1598,7 +1598,7 @@
     },
     {
       "id": "fix330-ui-overview-empty",
-      "item": "fix330/ui-fixes 分类总览空区隐藏谓词 contentSectionVisible（定义＋频道区/吃瓜区消费）",
+      "item": "fix330/ui-fixes 分类总览空区隐藏谓词 contentSectionVisible（定义＋总览消费）；fix335/e-category 适配：频道/吃瓜预览区退场后谓词保留给源行区（派生计数口径消费）",
       "symbol": "contentSectionVisible",
       "files": [
         "src/features/category/overviewSections.ts",
@@ -1608,7 +1608,7 @@
     },
     {
       "id": "fix330-ui-settled-empty",
-      "item": "fix330/ui-fixes SourcePosts 已结空态回报 onSettledEmpty（定义/回报＋总览吃瓜区消费）",
+      "item": "fix330/ui-fixes SourcePosts 已结空态回报 onSettledEmpty（定义/回报口＋可选 prop 消费形态保留）；fix335/e-category 后总览 compact 消费退场、计数由 SourcePosts 本体落点满足，Posts 页不传不受影响",
       "symbol": "onSettledEmpty",
       "files": [
         "src/features/sources/SourcePosts.tsx",
@@ -2254,6 +2254,34 @@
       "item": "fix335/selfcheck-paging 自检分页信号一致性抽查：healthCheck 引擎在第 1 页信号称有下一页时多取第 2 页核对（可达/非空/与第 1 页不全同），失败经 classifySelfCheckResult 单一派生降级部分可用（段名「分页」）；摘除第 2 页调用点即红",
       "min": 1,
       "symbol": "adapter.list(2,"
+    },
+    {
+      "id": "fix335-e-overview-derivation",
+      "item": "fix335/e-category 分类总览索引化：四区改读 surfaces 派生 sourcesForSurface（图片行/视频行/吃瓜补探名单），不再本地拼装名单",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "sourcesForSurface(\"overview-",
+      "min": 3
+    },
+    {
+      "id": "fix335-e-posts-topup-relocated",
+      "item": "fix335/e-category 吃瓜补探改挂：overview-posts 的 show-batch 触发由总览切源器挂载改挂索引行渲染处 useSourceSelfCheckOnShow(postsRowSources)（摘此调用契约须红）",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "useSourceSelfCheckOnShow(postsRowSources)",
+      "min": 1
+    },
+    {
+      "id": "fix335-e-native-id-convergence",
+      "item": "fix335/e-category 原生源 id 收敛：surfaces.nativeSourceId 单一出处（定义＋Category 频道页消费），Category 内不再有原生 id 字面量判定/回落",
+      "files": [
+        "src/features/sources/surfaces.ts",
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "nativeSourceId",
+      "min": 3
     }
   ]
 }
