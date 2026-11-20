@@ -40,7 +40,7 @@ import {
   HANIME1_SORT_VALUES,
   HENTAIHAVEN_PERIOD_OPTIONS,
   IWARA_SORT_OPTIONS,
-  readDiscoveryCategories,
+  readDiscoveryRanks,
 } from "./templates.ts";
 
 export type EpisodesForm = "none" | "single" | "multi";
@@ -101,16 +101,17 @@ export interface DiscoveryOption {
 }
 
 export interface DiscoverySpec {
-  /** 分类维度：params＝注册表栏目表（吃瓜三源，options 已填）；
-   * taxonomy＝运行时经适配器 taxonomy() 取 categories（WP/002，
-   * options 恒空、由 DiscoveryBar 填充）。 */
+  /** 分类维度：taxonomy＝运行时经适配器 taxonomy() 取 categories
+   * （WP/002，options 恒空、由 DiscoveryBar 填充）；params 形态随
+   * fix337 吃瓜面分类轴下线已无登記者（类型保留）。 */
   categories?: { source: "params" | "taxonomy"; options: DiscoveryOption[] };
   /** 标签过滤维度（选项经 taxonomy() 的 tags，Top-N 呈现）。 */
   tagFilter?: boolean;
   /** 排序维度：options 含默认值项，点选默认值＝清除该维度。 */
   sorts?: DiscoveryOption[];
   sortDefault?: string;
-  /** 榜单周期维度（仅 012）：同 sorts 的默认值口径。 */
+  /** 榜单周期维度（012 的 trending 周期＋吃瓜三源的站方榜单，
+   * fix337 起）：同 sorts 的默认值口径。 */
   rankPeriods?: DiscoveryOption[];
   periodDefault?: string;
   /** 登记证据与日期（空 spec 为空串）。 */
@@ -131,22 +132,48 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
   const t = def.adapter.template;
   switch (t) {
     case "chigua": {
-      /* 栏目归档：栏目表与 categoryPath 模板都在注册表 params
-       * （唯一出处）；缺任一即不登记。两类栏目未入栏目表（登记只
-       * 会得到恒解析为空的错误页）：①公告存档栏目（003 往期活动/
-       * 004 主题大赛，内容被推广过滤 announcementCats 全覆盖）；
-       * ②003 每日大赛——该栏目全数是「每日大赛之【…】」征集帖、
-       * 被推广过滤的大赛组合判据全覆盖（2026-11-20 实抓分类页
-       * 25/25 卡命中，量测见 F 线报告）。004 的每日大赛无此组合
-       * 判据（未声明 contestCat），照常登记。 */
+      /* 吃瓜面发现口径（Muse 2026-11-20 fix337/chigua-surface 改版，
+       * 用户裁定＋调查 fix337/evidence/chigua-surface-investigation.md）：
+       * 发现只走热点榜单/时间排序/查找——分类轴整体下线（26/19/30
+       * 个栏目 chips 平铺把真榜单埋进栏目表、用户从不按栏目找）；
+       * 栏目表保留在注册表 params，只作 categoryPath 路径校验全集，
+       * 不再作发现入口。登记只一件——榜单：栏目表中标 rank 的子集
+       * （readDiscoveryRanks 为唯一出处）进 rankPeriods、由
+       * disc.period 承载、复用 categoryPath 归档取页；首项空值＝
+       * 缺省流并标「最新」（三源缺省流即站方最新流、实拉证）——
+       * 「最新」不另登记 sorts：站方无第二时间序参数，单项 sorts
+       * 在 DiscoveryBar 只会渲染出一行点了无反应的 chips（噪声），
+       * 榜单行首项已同时承载呈现与退出榜单的路径。003/004 的榜单
+       * 是站方编辑栏目形态、005 是站方真周期榜（日/周/月/热门），
+       * 均经生产路径实拉真出条目。
+       * 公告存档栏目（003 51hd/004 ztds）与 003 大赛征集栏目本就不
+       * 在栏目表内（被推广过滤全覆盖、登记只会恒解析为空），口径
+       * 不变；非榜单栏目（含 004/005 的每日大赛栏目）不标 rank、
+       * 不进发现面。categoryPath 缺失即榜单机制不可用、不登记。 */
       const params = (def.adapter.params ?? {}) as Record<string, unknown>;
-      const cats = readDiscoveryCategories(def);
-      if (typeof params.categoryPath !== "string" || !params.categoryPath || cats.length === 0) return EMPTY_DISCOVERY_SPEC;
+      const ranks = readDiscoveryRanks(def);
+      const hasRankPath = typeof params.categoryPath === "string" && params.categoryPath.length > 0;
+      if (ranks.length === 0 || !hasRankPath) return EMPTY_DISCOVERY_SPEC;
       return {
-        categories: { source: "params", options: cats.map((c) => ({ value: c.slug, label: c.name })) },
-        evidence: `栏目归档模板与栏目表经首页导航实证（${F_EVIDENCE}）`,
+        rankPeriods: [{ value: "", label: "最新" }, ...ranks.map((c) => ({ value: c.slug, label: c.name }))],
+        periodDefault: "",
+        evidence: "吃瓜面调查 2026-11-20（fix337/evidence/chigua-surface-investigation.md）：缺省流即最新流、榜单栏目/周期榜生产路径实拉真出条目",
       };
     }
+    case "native-huangguo":
+      /* 001 排序登记（fix337/chigua-surface）：上游 postCategory 的
+       * sort 参数实证——hot 按热度值严格降序、缺省 latest 为时间序
+       * （调查报告 §三）。原生 Posts 页不经 DiscoveryBar（该组件只
+       * 挂外部源三面），切换在 Posts 页内自理；本登记是维度事实的
+       * 单一出处与契约钉。 */
+      return {
+        sorts: [
+          { value: "", label: "最新" },
+          { value: "hot", label: "最热" },
+        ],
+        sortDefault: "",
+        evidence: "吃瓜面调查 2026-11-20（fix337/evidence/chigua-surface-investigation.md）：上游 sort=hot 热度值严格降序实拉",
+      };
     case "wp-rest":
       /* taxonomy 端点（categories 20/tags 1198 为 006 实测规模）与
        * orderby/categories/tags 过滤参数经探针实证；chips 只许

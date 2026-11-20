@@ -6,11 +6,16 @@
  * 覆盖（证据：fix335/evidence/f-probes.md 探针＋f-residential-
  * verify.md 住宅终验，2026-11-20）：
  * (A) DiscoverySpec 登记表：逐源断言登记全集与排除项——未实证不
- *     登记（007/native/未启用的 gelbooru/yandere 恒空）；003 栏目
- *     26（公告存档 51hd 与大赛征集栏目 mrds 被推广过滤全覆盖、
- *     不登记）、004 栏目 19（公告存档 ztds 不登记）、005 栏目 30；
- *     009 九值逐字繁体；011 只 monthly/all（weekly/daily 不得出现
- *     在登记任何位置）；008 无 tagFilter（无选项来源）。
+ *     登记（007/未启用的 gelbooru/yandere 恒空）；009 九值逐字
+ *     繁体；011 只 monthly/all（weekly/daily 不得出现在登记任何
+ *     位置）；008 无 tagFilter（无选项来源）。
+ *     fix337/chigua-surface 改版（用户裁定＋调查
+ *     fix337/evidence/chigua-surface-investigation.md，2026-11-20）：
+ *     吃瓜三源分类轴整体下线（栏目表保留在注册表 params 作
+ *     categoryPath 路径校验全集、不再作发现入口），发现只剩榜单
+ *     （period 承载榜单 slug、复用 categoryPath 机制；子集以栏目
+ *     表 rank 标记为唯一出处）＋最新默认档；001 登记最新/最热
+ *     （上游 sort=hot 热度序实证）。
  * (B) 适配器行为（setFetchPage 录制 URL＋夹具）：逐源断言 disc
  *     切换后请求形态与返回集变化合登记口径，且缺省路径 URL 与条
  *     件逐字不变（对照 @ea0d431 现行写死值）；未登记/非法 disc 值
@@ -33,6 +38,7 @@ import { discoverySpecFor, hasDiscovery } from "./adapters/templateCapabilities.
 import {
   createChiguaAdapter, createDanbooruAdapter, createHanime1Adapter,
   createHentaihavenAdapter, createIwaraAdapter, createWpRestAdapter,
+  readDiscoveryCategories, readDiscoveryRanks,
 } from "./adapters/templates.ts";
 import { createHanimeApiAdapter } from "./adapters/hanimeApi.ts";
 import { setFetchPage } from "./adapters/fetchPage.ts";
@@ -54,7 +60,7 @@ const recorder = (body: string | ((url: string) => string)) => {
 /* ── (A) 登记表 ── */
 {
   const expectDiscovery: Record<string, boolean> = {
-    huangguo: false, "hanime-tv": true, "51chigua": true, meiridasai: true,
+    huangguo: true, "hanime-tv": true, "51chigua": true, meiridasai: true,
     feedheiliao: true, xiuren: true, pornpics: false, cosplaytele: true,
     danbooru: true, hanime1: true, iwara: true, hentaihaven: true,
     pixibb: true, nudecosplay: true, yandere: false, gelbooru: false,
@@ -65,19 +71,38 @@ const recorder = (body: string | ((url: string) => string)) => {
     assert.equal(hasDiscovery(spec), expectDiscovery[d.id], `${d.id} 登记有无`);
     if (expectDiscovery[d.id]) assert.ok(spec.evidence.length > 0, `${d.id} 登记带证据`);
   }
-  const c003 = discoverySpecFor(def("51chigua")).categories;
-  assert.equal(c003?.source, "params");
-  assert.equal(c003?.options.length, 26, "003 登记 26 栏目（28 导航栏目摘公告存档与大赛征集两类）");
-  assert.ok(!c003?.options.some((o) => o.value === "51hd"), "003 公告存档栏目 51hd 不登记");
-  assert.ok(!c003?.options.some((o) => o.value === "mrds"), "003 每日大赛（征集帖全覆盖）不登记");
-  assert.ok(c003?.options.some((o) => o.value === "whhl" && o.label === "网红黑料"), "003 whhl 在登记");
-  const c004 = discoverySpecFor(def("meiridasai")).categories;
-  assert.equal(c004?.options.length, 19, "004 登记 19 栏目（20 摘公告存档）");
-  assert.ok(!c004?.options.some((o) => o.value === "ztds"), "004 公告存档栏目 ztds 不登记");
-  assert.ok(c004?.options.some((o) => o.value === "mrds"), "004 每日大赛无组合判据、照常登记");
-  const c005 = discoverySpecFor(def("feedheiliao")).categories;
-  assert.equal(c005?.options.length, 30, "005 登记 30 栏目（导航全集）");
-  assert.ok(c005?.options.some((o) => o.value === "ysdj" && o.label === "成人短剧"), "005 ysdj 在登记");
+  /* fix337/chigua-surface：吃瓜三源分类轴下线、榜单＋最新登场
+   * （口径见文件头）。栏目表全集保留在注册表 params（路径校验
+   * 出处），公告存档（51hd/ztds 本就不在表内）与非榜单栏目一律
+   * 不进发现登记。 */
+  for (const id of ["51chigua", "meiridasai", "feedheiliao"]) {
+    const s = discoverySpecFor(def(id));
+    assert.equal(s.categories, undefined, `${id} 分类轴下线、不登记 categories`);
+    assert.equal(s.sorts, undefined, `${id} 不登记 sorts（无第二时间序、单项行是无操作噪声；最新由榜单行首项承载）`);
+    assert.equal(s.periodDefault, "", `${id} periodDefault 为缺省流`);
+    assert.equal(s.rankPeriods?.[0]?.value, "", `${id} 榜单行首项＝缺省流（退出榜单的路径）`);
+  }
+  assert.deepEqual(discoverySpecFor(def("51chigua")).rankPeriods?.map((o) => o.value),
+    ["", "mrdg", "rdsj"], "003 榜单＝吃瓜榜单＋热门大瓜（站方编辑栏目形态）");
+  assert.deepEqual(discoverySpecFor(def("meiridasai")).rankPeriods?.map((o) => o.value),
+    ["", "rstt"], "004 榜单＝热搜吃瓜（站方编辑栏目形态）");
+  assert.deepEqual(discoverySpecFor(def("feedheiliao")).rankPeriods?.map((o) => o.value),
+    ["", "mrrb", "zbjx", "ybrg", "jqrm"], "005 榜单＝日/周/月/热门四周期榜（站方真周期榜）");
+  const chiguaRankValues = ["51chigua", "meiridasai", "feedheiliao"]
+    .flatMap((id) => discoverySpecFor(def(id)).rankPeriods?.map((o) => o.value) ?? []);
+  for (const banned of ["51hd", "ztds", "whhl", "ysdj", "mrds"]) {
+    assert.ok(!chiguaRankValues.includes(banned), `非榜单栏目 ${banned} 不进榜单登记`);
+  }
+  assert.equal(readDiscoveryCategories(def("51chigua")).length, 26, "003 栏目表保留 26（路径校验全集）");
+  assert.equal(readDiscoveryCategories(def("meiridasai")).length, 19, "004 栏目表保留 19（路径校验全集）");
+  assert.equal(readDiscoveryCategories(def("feedheiliao")).length, 30, "005 栏目表保留 30（路径校验全集）");
+  assert.deepEqual(readDiscoveryRanks(def("51chigua")).map((c) => c.slug), ["mrdg", "rdsj"], "003 rank 标记子集");
+  assert.deepEqual(readDiscoveryRanks(def("meiridasai")).map((c) => c.slug), ["rstt"], "004 rank 标记子集");
+  assert.deepEqual(readDiscoveryRanks(def("feedheiliao")).map((c) => c.slug),
+    ["mrrb", "zbjx", "ybrg", "jqrm"], "005 rank 标记子集（日/周/月/热门序）");
+  const s001 = discoverySpecFor(def("huangguo"));
+  assert.deepEqual(s001.sorts?.map((o) => o.value), ["", "hot"], "001 登记最新/最热（上游 sort=hot 实证）");
+  assert.equal(s001.sortDefault, "");
 
   const s009 = discoverySpecFor(def("hanime1"));
   assert.deepEqual(s009.sorts?.map((o) => o.value),
@@ -141,6 +166,33 @@ const recorder = (body: string | ((url: string) => string)) => {
   assert.equal(urls[1], "https://heiliao.com/mrds/page/2/", "005 栏目第 2 页 /page/{page}/ 形态");
   await a.list(1, 20);
   assert.equal(urls[2], "https://heiliao.com/page/1/", "005 缺省路径逐字不变");
+}
+{ // 003 榜单（fix337：period 承载榜单 slug、复用 categoryPath 机制；
+  // 非榜单栏目与未知值回落缺省流——榜单子集以 rank 标记为准）
+  const urls = recorder(fx("real-51cg-home-cards.html"));
+  const a = createChiguaAdapter(def("51chigua"));
+  await a.list(1, 20, { period: "mrdg" });
+  assert.equal(urls[0], "https://51cg1.com/category/mrdg/", "003 榜单走栏目归档路径");
+  await a.list(1, 20, { period: "whhl" });
+  assert.equal(urls[1], "https://51cg1.com/page/1/", "003 非榜单栏目不入 period、回落缺省流");
+  await a.list(1, 20, { period: "bogus" });
+  assert.equal(urls[2], "https://51cg1.com/page/1/", "003 未知 period 回落缺省流");
+}
+{ // 005 榜单（fix337：周期榜同 categoryPath 形态）
+  const urls = recorder(fx("real-heiliao-category-mrds.html"));
+  const a = createChiguaAdapter(def("feedheiliao"));
+  await a.list(1, 20, { period: "mrrb" });
+  assert.equal(urls[0], "https://heiliao.com/mrrb/", "005 日榜第 1 页裸路径");
+  await a.list(2, 20, { period: "mrrb" });
+  assert.equal(urls[1], "https://heiliao.com/mrrb/page/2/", "005 日榜第 2 页路径");
+}
+{ // 005 搜索拆雷（fix337）：未声明 searchPath 不得回退模板默认形把
+  // 首页流冒充搜索结果（违反「未知不是空」）——显式抛错且抛错前不
+  // 发任何请求；005 caps.search 本就 false、无 UI 入口。
+  const urls = recorder(fx("real-heiliao-category-mrds.html"));
+  const a = createChiguaAdapter(def("feedheiliao"));
+  await assert.rejects(() => a.search!("不存在的词", 1, 20), /无搜索段/, "005 search 显式抛无搜索段");
+  assert.equal(urls.length, 0, "005 search 抛错前不发任何请求");
 }
 { // WP taxonomy＋过滤＋排序（构造 JSON 夹具）
   const posts = JSON.stringify([
@@ -236,6 +288,7 @@ const recorder = (body: string | ((url: string) => string)) => {
   assert.equal(discFingerprint({ category: "mrds" }), "cat=mrds");
   assert.equal(discFingerprint({ sort: "order:score", category: "x" }), "cat=x&sort=order%3Ascore", "字段定序 cat→sort→period→tag＋值编码");
   assert.equal(discFingerprint({ period: "all", tag: "7" }), "period=all&tag=7");
+  assert.equal(discFingerprint({ period: "mrrb" }), "period=mrrb", "榜单 period 进指纹（滚动恢复 key 隔离榜单面）");
   assert.notEqual(discFingerprint({ sort: "views" }), discFingerprint({ sort: "date" }), "不同维度指纹不同（位置隔离）");
 }
 
@@ -258,6 +311,15 @@ const recorder = (body: string | ((url: string) => string)) => {
     assert.ok(src.includes(listCall), `${file} list 传 disc`);
   }
   assert.ok(read("./SourcePosts.tsx").includes("!compact && <DiscoveryBar"), "SourcePosts compact 形态不渲染维度条");
+  /* fix337：001 最热接线——原生适配器 list 消费 disc.sort（缺省与
+   * 非 hot 值回落 latest），原生 Posts 页带最新/最热切换且排序经
+   * 页内状态进 request 与 resetKey（切换整表重置、不混排）。 */
+  const native001 = read("./adapters/nativeHuangguo.ts");
+  assert.ok(native001.includes("disc?.sort"), "001 适配器 list 消费 disc.sort");
+  assert.ok(native001.includes('"hot"'), "001 hot 档入参在适配器");
+  const postsPage = read("../posts/Posts.tsx");
+  assert.ok(postsPage.includes("最热"), "原生 Posts 页带最热切换");
+  assert.ok(postsPage.includes("postSort"), "原生 Posts 页排序经页内状态 postSort 驱动");
 }
 
 console.log("fix335-f-discovery contract: OK");

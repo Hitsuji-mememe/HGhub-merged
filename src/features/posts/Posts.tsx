@@ -71,13 +71,17 @@ export function PostsPage({ onBack, wide, initialSourceId, openExternalId }: {
     sourcesForCategory("posts", getActiveRegistry().sources),
   );
   const activeSource = selectedSource.kind === "active" ? selectedSource.def : undefined;
+  /* 最新/最热切换（fix337/chigua-surface）：001 上游 sort 参数实证
+   * （hot＝热度值降序）；排序进 resetKey——切换即整表重置重拉，
+   * 不与旧序混排。维度登记出处＝discoverySpecFor(native-huangguo)。 */
+  const [postSort, setPostSort] = useState<"latest" | "hot">("latest");
   const { items, page, pages, loading, err, loadMore, scroller: scrollRef, sentinel } = usePaginatedList<Post>({
     enabled: isNativeSource,
-    resetKey: `${lineEpoch}:${sourceId}`,
+    resetKey: `${lineEpoch}:${sourceId}:${postSort}`,
     listId: "posts:remen-chigua",
     rootMargin: "240px",
     getId: (item) => item.id,
-    request: (next) => api.postCategory("remen-chigua", next, 20, "latest"),
+    request: (next) => api.postCategory("remen-chigua", next, 20, postSort),
   });
   /* 外部源分支的宿主 scroller（fix335/d-scroll）：下传给 SourcePosts
    * 供滚动恢复 hook 读写（原生分支走 usePaginatedList 的 scroller、
@@ -123,6 +127,10 @@ export function PostsPage({ onBack, wide, initialSourceId, openExternalId }: {
           <Button onClick={() => setSearching(true)} aria-label="搜索吃瓜" className="ios-nav-btn"><ISearch size={18} /></Button>
         </div>
         <div className="px-4 pb-2"><SourceSwitcher options={postSourceOptions} value={sourceId} onChange={setSourceId} ariaLabel="吃瓜数据源切换" /></div>
+        <div className="px-4 pb-2 flex gap-1.5" role="group" aria-label="吃瓜排序">
+          <Button aria-pressed={postSort === "latest"} onClick={() => setPostSort("latest")} className="ios-filter-pill shrink-0">最新</Button>
+          <Button aria-pressed={postSort === "hot"} onClick={() => setPostSort("hot")} className="ios-filter-pill shrink-0">最热</Button>
+        </div>
       </div>
       <div ref={scrollRef} aria-busy={loading} className="flex-1 scroll-y pt-3.5 pb-8">
         {items.length ? (

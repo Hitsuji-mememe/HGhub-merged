@@ -231,6 +231,26 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   `~/workspace/hghub/fix335/evidence/f-discovery.md`；契约
   `fix335-f-discovery.contract.test.ts`（登记表＋逐源行为＋缺省
   路径逐字对照＋指纹规范化）。
+  fix337/chigua-surface（2026-11-20）：吃瓜面发现口径改版（用户
+  裁定：发现只走热点榜单/时间排序/查找，不按栏目、不按作者）——
+  吃瓜三源分类轴整体下线：注册表栏目表（discoveryCategories）保
+  留为 categoryPath 路径校验全集、不再作发现入口，其中标 rank 的
+  榜单子集（readDiscoveryRanks 为唯一出处：003 吃瓜榜单/热门大
+  瓜、004 热搜吃瓜、005 日/周/月/热门四榜）进 DiscoverySpec 的
+  rankPeriods、由 disc.period 承载并复用 categoryPath 归档取页
+  （period 已在 discFingerprint 内、滚动 key 天然隔离）；榜单行
+  首项空值＝缺省流标「最新」（三源缺省流即站方最新流，不另登记
+  单项 sorts——DiscoveryBar 会渲染成一行无操作 chips）。001 登记
+  最新/最热（上游 sort=hot 热度序实证），原生适配器 list 消费
+  disc.sort（缺省/异值回落 latest），切换在原生 Posts 页内（排
+  序进 resetKey、整表重置）。005 搜索假回退拆除：chigua 模板未声
+  明 searchPath 时 search 显式抛「无搜索段」（旧 WP 默认形把首
+  页流冒充搜索结果、违反未知不是空；hls-site 模板不在拆除范
+  围）。适配器取页行为变更同步 bump SELF_CHECK_ADAPTER_EPOCH
+  至 3。证据：`~/workspace/hghub/fix337/evidence/chigua-surface.md`
+  （调查 `chigua-surface-investigation.md`）；契约
+  `fix335-f-discovery.contract.test.ts`（登记表改版＋period 榜单
+  行为＋005 抛错钉）与 `fix333-m4`（005 搜索腿改钉抛错语义）。
   fix335/e-category（2026-11-20）：分类总览索引化（设计
   `fix335/design-category-hub.md` 方案②，用户真机反馈纵深过大
   ＋样式不统一）——总览删全部预览段（频道横滑预览/吃瓜

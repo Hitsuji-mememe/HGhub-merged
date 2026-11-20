@@ -2,6 +2,9 @@
  * 黄果 native 适配器（Muse 2026-11-19 根治包）：包既有 api 调用，
  * 不重写任何上游逻辑。list/detail 走帖子板块（remen-chigua，
  * 与 Posts.tsx 现行写死口径一致），resolve 走 postPlayback 分段接口。
+ * 排序（Muse 2026-11-20 fix337/chigua-surface）：list 消费
+ * disc.sort——"hot"＝最热（上游按热度值降序、实证见吃瓜面调查
+ * 报告），缺省与任何其他值回落 "latest"（时间序、旧行为逐字不变）。
  */
 import { api } from "../../../shared/api/api";
 import type { Post } from "../../../shared/api/types";
@@ -20,8 +23,9 @@ const toItem = (p: Post): SourceItem => ({
 export function createNativeHuangguoAdapter(): SourceAdapter {
   return {
     sourceId: "huangguo",
-    async list(page, size) {
-      const r = await api.postCategory("remen-chigua", page, size, "latest");
+    async list(page, size, disc) {
+      const sort = disc?.sort === "hot" ? "hot" : "latest";
+      const r = await api.postCategory("remen-chigua", page, size, sort);
       return { items: (r?.items ?? []).map(toItem), pagination: r.pagination };
     },
     async detail(id) {
