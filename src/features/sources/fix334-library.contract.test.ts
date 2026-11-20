@@ -212,6 +212,20 @@ assert.equal(typeof lib.applyExternalHistory, "function", "L3 须暴露 applyExt
   assert.ok(profile.includes("extRefs"), "Profile 读 extRefs 快照出卡");
   assert.ok(profile.includes("routeForSurface"), "Profile 回访路由经 surfaces 派生消费");
   assert.ok(profile.includes("openExternalId"), "Profile 点开外部卡带 openExternalId 直达");
+  /* 续播到集回访链（fix334 清扫已坏-2：此前 ep 只记录与显示、
+   * 回访无路径消费，点开恒回第一集而文档已按已交付宣称——本段
+   * 逐环钉透传/消费形，断言由清扫修复线任务书授权）：历史行 ep
+   * 经 Profile→Page→App→ChannelPage 透传 SourceBrowse，openItem
+   * 按 ordinal 取回目标集起播（设计 §4.4 机制）。 */
+  assert.ok(profile.includes("openExternal(ref, progress?.ep)"), "Profile 历史点开外部视频带记录集数");
+  assert.ok(profile.includes("openExternalEp: startEp"), "Profile push 频道页带 openExternalEp");
+  const app = srcText("../../app/App.tsx");
+  assert.ok(app.includes("openExternalEp={page.openExternalEp}"), "App 装配透传 openExternalEp 到频道页");
+  const category = srcText("../category/Category.tsx");
+  assert.ok(category.includes("openExternalEp={openExternalEp}"), "ChannelPage 透传 openExternalEp 到 SourceBrowse");
+  assert.ok(browse.includes("openExternalEp?: number"), "SourceBrowse 声明 openExternalEp 入参");
+  assert.ok(browse.includes("openItem(target, openExternalEp)"), "SourceBrowse 回访消费 openExternalEp 起播");
+  assert.ok(browse.includes("[wantEp - 1]") && browse.includes("adapter.resolve(target.externalId)"), "SourceBrowse 按 ordinal 取回目标集 resolve");
   const store = srcText("../../shared/model/store.tsx");
   assert.ok(store.includes("setExternalCollected") && store.includes("addExternalHistory") && store.includes("extRefs"),
     "store 暴露 extRefs＋两封装");

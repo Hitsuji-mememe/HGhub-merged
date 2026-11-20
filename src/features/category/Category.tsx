@@ -430,10 +430,13 @@ const ORIGINAL_CATES = [
 const originalSort = (cate: (typeof ORIGINAL_CATES)[number]["value"]) =>
   cate === "all" ? "new" : "latest";
 
-export function ChannelPage({ cate, name, onBack, wide, openExternalId }: {
+export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExternalEp }: {
   cate: string; name: string; onBack: () => void; wide: boolean;
   /** G4 回访直达（fix334/L3）：透传给深链分支的浏览组件。 */
   openExternalId?: string;
+  /** 续播到集（fix334 清扫已坏-2）：历史回访带入的集序位，只透
+   * 传给视频分支的 SourceBrowse（图集无集数概念、不消费）。 */
+  openExternalEp?: number;
 }) {
   const { push, lineEpoch } = useStore();
   const kindSignals = useCanonicalKindSignals(`${scope}:${lineEpoch}`);
@@ -679,7 +682,7 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId }: {
           {!videoSource || videoSource.maturity === "blocked" ? (
             <SourcePendingNotice displayName={videoSelected?.label ?? name} maturity={videoSource?.maturity} note={videoSource?.note} selectedKind={videoSelected?.kind} />
           ) : (
-            <SourceBrowse def={videoSource} onDetailOpenChange={setBrowseDetailOpen} openExternalId={openExternalId} />
+            <SourceBrowse def={videoSource} onDetailOpenChange={setBrowseDetailOpen} openExternalId={openExternalId} openExternalEp={openExternalEp} />
           )}
         </div>
       </div>

@@ -558,6 +558,19 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   `adapterParamsSegmentText`／`classifySourceFault` 就此失去生产
   消费者（构建器与契约覆盖保留），去留留清扫裁定。集成报告
   `~/workspace/hghub/fix334/integration-report-334.md`。
+- **结构批清扫修复：续播到集补实现（fix334，3.3.4）**：独立清扫
+  证伪——L3 条目所称「外部历史只恢复到集」此前只有记录与卡面
+  显示、无任何回访消费路径，Profile 点开历史恒回第一集（已
+  坏-2）。本线补齐消费链：`Profile` 历史点开外部视频时带该行
+  `ep`，经 Page/频道页新字段 `openExternalEp` 透传
+  `SourceBrowse`，`openItem` 按 ordinal 取回 `choices[ordinal-1]`
+  以既有选集/resolve 路径起播（设计 §4.4 机制，不另造路径）；
+  单集与无 ep 记录条目行为不变，目标集缺位或取流失败回落默认
+  集起播并明示「未能恢复到第 N 集」，不静默串集。口径自此与
+  实现一致：外部续播只到集、不到秒（行 t=0/dur=0 不变）。契约
+  `fix334-library.contract.test.ts` §7 逐环透传/消费形断言（旧
+  红：全仓无 openExternalEp），详见
+  `~/workspace/hghub/fix334/evidence/sweep-fixes.md`。
 
 ## 验证命令
 

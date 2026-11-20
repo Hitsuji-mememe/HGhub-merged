@@ -30,6 +30,13 @@
  * setExternalCollected 写桥接哈希＋extRefs 快照；Player onPlaying
  * 首帧经 addExternalHistory 记历史（集数＝当前集 ordinal）。回访
  * 经 openExternalId prop 直达（资料库/Profile 发起）。
+ *
+ * 续播到集（2026-11-20 fix334 清扫修复，已坏-2 补实现）：历史回访
+ * 另经 openExternalEp 带入记录的集序位，openItem 按 ordinal 取回
+ * choices[ordinal-1] 起播（外部续播只到集、不到秒，与资料库行
+ * t=0/dur=0 口径一致）；目标集缺位或取流失败回落默认集起播并
+ * 明示，不静默冒充恢复成功。此前 ep 只记录与显示、回访恒回第
+ * 一集，子系统页「只恢复到集」的口径自本批起与实现一致。
  */
 import { Button } from "../../shared/ui/ios/controls";
 import { Loader } from "../../shared/ui/ios/effects";
@@ -59,7 +66,7 @@ type DetailState =
     }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourceBrowse({ def, onDetailOpenChange, openExternalId }: {
+export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, openExternalEp }: {
   def: SourceDef;
   /** 详情开合回报（Muse 2026-11-20 fix331/covers-header，3.3.1 真机
    * 首验问题②）：本组件挂在 ChannelPage 内，详情自带一层页头（返回
@@ -71,6 +78,9 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId }
    * 条目 externalId——首屏列表含该条目才自动打开（消费一次），不
    * 在首屏不强求翻页寻找（设计 D-3）。 */
   openExternalId?: string;
+  /** 续播到集（fix334 清扫已坏-2）：历史回访带入该行记录的集序
+   * 位（1 起）；仅回访直达消费，列表点开不带、行为不变。 */
+  openExternalEp?: number;
 }) {
   const { isFav, setExternalCollected, addExternalHistory, actionPending, toast } = useStore();
   /* 进入浏览面补探（fix331/source-reliability）：自检结果缺失/
@@ -154,16 +164,44 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId }
     return registerOverlayBack(() => { setDetail(null); return true; });
   }, [detailOpen]);
 
-  const openItem = useCallback(async (item: SourceItem) => {
+  const openItem = useCallback(async (item: SourceItem, startEpOrdinal?: number) => {
     historyKeyRef.current = "";
     const adapter = createAdapter(def);
     if (!adapter) { setDetail({ phase: "error", item, message: "该源未注册可用适配器" }); return; }
     setDetail({ phase: "loading", item });
+    /* 续播到集（fix334 清扫已坏-2 补实现，设计 §4.4 机制）：回访
+     * 带入 ordinal>1 时先取 detail 定 choices、按 ordinal 取回
+     * 目标集再 resolve，起播落点即记录的集（复用 L2 选集派生，
+     * 不另造路径）；命中即返回。目标集缺位（集表漂移）或其取流
+     * 失败 → 落回下方默认路径起播，并以 epError 明示未恢复到记
+     * 录集，不静默串集冒充成功。 */
+    const wantEp = startEpOrdinal !== undefined && startEpOrdinal > 1 ? startEpOrdinal : undefined;
+    let prefetched: SourceDetail | undefined;
+    let prefetchedDone = false;
+    if (wantEp) {
+      try { prefetched = await adapter.detail(item.externalId); } catch { prefetched = undefined; }
+      prefetchedDone = true;
+      const preChoices = episodeChoicesForSurface("play-external", def, prefetched);
+      const target = preChoices[wantEp - 1];
+      if (target) {
+        try {
+          const res = await adapter.resolve(target.externalId);
+          const stream = res.streams[0];
+          if (!stream) throw new Error("未解析到可播放地址");
+          setDetail({
+            phase: "ready", item, detail: prefetched, streamUrl: stream.url,
+            currentEpExternalId: target.externalId,
+          });
+          return;
+        } catch { /* 回落默认集＋明示（下方 ready 构造带 epError） */ }
+      }
+    }
     /* detail＋resolve 并发（照 SourcePosts 既有形态）：detail 供
      * 选集，失败降级（detail=undefined、无选集区）不阻断取流；
-     * resolve 定成败，错误口径与此前单 resolve 时一致。 */
+     * resolve 定成败，错误口径与此前单 resolve 时一致。续播路径
+     * 已取的 detail 直接复用、不重复请求。 */
     const [detailRes, streamRes] = await Promise.allSettled([
-      adapter.detail(item.externalId),
+      prefetchedDone ? Promise.resolve(prefetched) : adapter.detail(item.externalId),
       adapter.resolve(item.externalId),
     ]);
     if (streamRes.status === "rejected") {
@@ -177,18 +215,20 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId }
     setDetail({
       phase: "ready", item, detail: d, streamUrl: stream.url,
       currentEpExternalId: choices[0]?.externalId ?? item.externalId,
+      ...(wantEp ? { epError: `未能恢复到第 ${wantEp} 集，已从第一集播放` } : {}),
     });
   }, [def]);
 
   /* 回访直达消费（G4）：目标条目出现在已加载列表中才打开，消费
-   * 一次；不在列表（含未加载完）不做任何强求动作。 */
+   * 一次；不在列表（含未加载完）不做任何强求动作。历史回访另带
+   * openExternalEp（续播到集）随本次打开一并消费。 */
   useEffect(() => {
     if (!openExternalId || openExternalConsumed.current === openExternalId) return;
     const target = items.find((x) => x.externalId === openExternalId);
     if (!target) return;
     openExternalConsumed.current = openExternalId;
-    void openItem(target);
-  }, [openExternalId, items, openItem]);
+    void openItem(target, openExternalEp);
+  }, [openExternalId, openExternalEp, items, openItem]);
 
   /* 切集：以所选集 externalId 重新 resolve 换流。竞态以 epSeq 只
    * 认最后一次点选；失败（含无流）不换流、不回落第一集——留在

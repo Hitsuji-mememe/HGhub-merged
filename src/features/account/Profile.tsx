@@ -80,8 +80,9 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
    * 派生消费、不在本地另判——browse/notice 都推既有深链页（页内
    * 同一派生落浏览组件或 P2 三态诚实提示：停用/下线/blocked 不
    * 白屏、不假装能播）；not-applicable（源已从注册表消失到无从
-   * 落点）才在本面诚实告知。 */
-  const openExternal = (ref: ExternalRef) => {
+   * 落点）才在本面诚实告知。历史入口另带该行 ep（续播到集，
+   * fix334 清扫已坏-2 补实现）：外部历史只恢复到集、不到秒。 */
+  const openExternal = (ref: ExternalRef, startEp?: number) => {
     const surface = ref.kind === "video" ? "deeplink-video" : ref.kind === "image" ? "deeplink-image" : "posts-page";
     const active = getActiveRegistry().sources;
     const builtin = getBuiltinRegistry();
@@ -91,7 +92,10 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
     if (ref.kind === "post") {
       push({ kind: "posts", sourceId: ref.sourceId, openExternalId: ref.externalId });
     } else {
-      push({ kind: "channel", cate: `${ref.kind}:${ref.sourceId}`, name: sourceNameOf(ref.sourceId), openExternalId: ref.externalId });
+      /* 续播到集（fix334 清扫已坏-2 补实现）：历史入口带入该行
+       * 记录的集序位，经频道页透传 SourceBrowse 按集起播；收藏
+       * 入口与无记录时 startEp 缺省、回访行为与既有口径一致。 */
+      push({ kind: "channel", cate: `${ref.kind}:${ref.sourceId}`, name: sourceNameOf(ref.sourceId), openExternalId: ref.externalId, openExternalEp: startEp });
     }
   };
 
@@ -223,7 +227,7 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
                     badge={ref.epCount ? `${ref.epCount} 集` : undefined}
                     subtitle={sourceNameOf(ref.sourceId)}
                     progress={progress ? (progress.t >= 1 ? `第 ${progress.ep} 集 · ${fmtTime(progress.t)}` : `第 ${progress.ep} 集`) : undefined}
-                    onOpen={() => openExternal(ref)} />;
+                    onOpen={() => openExternal(ref, progress?.ep)} />;
                 }
                 const c = entry.detail!;
                 const progress = progressOf(c.id);
