@@ -36,6 +36,7 @@ import { Player } from "../playback";
 import { extractArticleBlocks } from "./articleBlocks.ts";
 import { createAdapter } from "./adapters/index.ts";
 import { useStaffPromoVerify } from "./promoVerify.ts";
+import { useTitleFallback } from "./titleFallback.ts";
 import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
@@ -72,18 +73,29 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   /* 站务型推广帖异步验杀（fix333/promo-004）：仅声明 staffVerify
    * 的源（当前只有 feedheiliao）生效——列表先正常渲染，后台逐条
    * 抓详情验真伪，已判站务型的卡就地撤下；其余源 hiddenIds 恒空、
-   * visibleItems 与 items 逐条一致。分页/加载状态仍以原始 items
-   * 为准（验杀不改变分页推进），呈现与已结空态按 visibleItems。 */
+   * 条目集与 items 一致。分页/加载状态仍以原始 items 为准（验杀
+   * 不改变分页推进），呈现与已结空态按 visibleItems。 */
   const fetchDetailForVerify = useCallback((id: string) => {
     const adapter = createAdapter(def);
     if (!adapter) return Promise.reject(new Error("该源未注册可用适配器"));
     return adapter.detail(id);
   }, [def]);
   const hiddenIds = useStaffPromoVerify(def, items, fetchDetailForVerify);
-  const visibleItems = useMemo(
-    () => (hiddenIds.size ? items.filter((i) => !hiddenIds.has(i.externalId)) : items),
-    [items, hiddenIds],
-  );
+  /* 空壳卡标题兜底（fix333/m1-title-fallback）：卡内无标题载体的
+   * 真帖在适配器层以裸数字 id 充标题（list-noise §4 实证、detail
+   * 抽查全是真帖，不许杀）——本 hook 仅对裸 id 标题卡后台抓
+   * detail 回填真标题、落盘缓存只补一次，失败保留裸 id 显示、
+   * 不撤卡。与验杀共用同一 detail 注入接缝且正交：验杀决定卡
+   * 在不在，本 hook 决定卡显示什么标题，在 visibleItems 叠加。 */
+  const titleOverrides = useTitleFallback(def, items, fetchDetailForVerify);
+  const visibleItems = useMemo(() => {
+    const base = hiddenIds.size ? items.filter((i) => !hiddenIds.has(i.externalId)) : items;
+    if (!titleOverrides.size) return base;
+    return base.map((i) => {
+      const t = titleOverrides.get(i.externalId);
+      return t && t !== i.title ? { ...i, title: t } : i;
+    });
+  }, [items, hiddenIds, titleOverrides]);
 
   const load = useCallback(async (reset: boolean) => {
     if (busy.current) return;

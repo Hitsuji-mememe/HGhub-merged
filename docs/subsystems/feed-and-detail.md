@@ -434,6 +434,20 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   `fix333-promo-004.contract.test.ts`＋promo 样本回归
   （`~/workspace/hghub/fix333/evidence/promo-004/`）。
 
+- 空壳卡标题兜底（fix333/M1，2026-11-20；Muse）：source-003 列表
+  存在封面-only 卡（卡内无标题载体），`parseAnchorList` 标题链落
+  `titleFromHref` 兜底、对 /archives/<纯数字 id>/ 产出裸数字 id 充
+  标题；普查实证 4 例且 detail 抽查全是真帖（不许杀）。`SourcePosts`
+  经 `titleFallback.ts` 仅对裸 id 标题卡（`isBareIdTitle`：标题纯
+  数字 ∧ 等于自身 href 末段 id）后台抓详情回填真标题，与验杀共用
+  detail 注入接缝且正交（验杀定存废、本 hook 叠标题）；真标题按帖
+  落盘（`hghubx_title_fallback_v1`，作用域＝源 id＋兜底版本＋适配
+  器模板，版本变自动失效、每帖只补一次）；并发 ≤3，抓取失败或
+  detail 标题为空保留裸 id 显示、不撤卡不报错（下次挂载再试）。
+  全量与 compact 两形态同口径。契约
+  `fix333-m1-title-fallback.contract.test.ts`＋003 样本回归
+  （`~/workspace/hghub/fix333/evidence/m1-title-fallback/`）。
+
 ## 验证命令
 
 ```sh

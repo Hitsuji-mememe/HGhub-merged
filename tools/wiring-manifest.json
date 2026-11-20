@@ -2012,6 +2012,25 @@
         "src/features/search/multiSourceSearch.ts"
       ],
       "min": 2
+    },
+    {
+      "files": [
+        "src/features/sources/titleFallback.ts",
+        "src/features/sources/SourcePosts.tsx"
+      ],
+      "id": "fix333-m1-title-fallback-hook",
+      "item": "fix333/M1 空壳卡标题兜底接线：useTitleFallback（titleFallback 定义＋SourcePosts 消费，与验杀共用注入适配器 detail），裸 id 标题卡后台补真标题回填显示、失败保留裸 id",
+      "min": 2,
+      "symbol": "useTitleFallback"
+    },
+    {
+      "files": [
+        "src/features/sources/titleFallback.ts"
+      ],
+      "id": "fix333-m1-title-fallback-scope",
+      "item": "fix333/M1 标题缓存作用域：titleFallbackScope（源 id＋兜底版本＋适配器模板）组装、会话与 hook 共用、落盘时清旧版本作用域",
+      "min": 3,
+      "symbol": "titleFallbackScope"
     }
   ]
 }
