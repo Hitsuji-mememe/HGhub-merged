@@ -35,6 +35,7 @@ import { registerOverlayBack } from "../../shared/lib/back";
 import { Player } from "../playback";
 import { extractArticleBlocks } from "./articleBlocks.ts";
 import { createAdapter } from "./adapters/index.ts";
+import { useStaffPromoVerify } from "./promoVerify.ts";
 import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
@@ -67,6 +68,22 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   const seq = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const pageSize = compact ? 8 : 20;
+
+  /* 站务型推广帖异步验杀（fix333/promo-004）：仅声明 staffVerify
+   * 的源（当前只有 feedheiliao）生效——列表先正常渲染，后台逐条
+   * 抓详情验真伪，已判站务型的卡就地撤下；其余源 hiddenIds 恒空、
+   * visibleItems 与 items 逐条一致。分页/加载状态仍以原始 items
+   * 为准（验杀不改变分页推进），呈现与已结空态按 visibleItems。 */
+  const fetchDetailForVerify = useCallback((id: string) => {
+    const adapter = createAdapter(def);
+    if (!adapter) return Promise.reject(new Error("该源未注册可用适配器"));
+    return adapter.detail(id);
+  }, [def]);
+  const hiddenIds = useStaffPromoVerify(def, items, fetchDetailForVerify);
+  const visibleItems = useMemo(
+    () => (hiddenIds.size ? items.filter((i) => !hiddenIds.has(i.externalId)) : items),
+    [items, hiddenIds],
+  );
 
   const load = useCallback(async (reset: boolean) => {
     if (busy.current) return;
@@ -119,7 +136,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   /* 已结空态回报（fix330/ui-fixes）：page>0 表示至少一页成功返回
    * （失败走 err 不算已结）；源切换时 items/page 先复位、loading
    * 回 true，回报自动回到 false，总览区不会被旧源空态误藏。 */
-  const settledEmpty = !loading && !err && items.length === 0 && page > 0;
+  const settledEmpty = !loading && !err && visibleItems.length === 0 && page > 0;
   useEffect(() => {
     onSettledEmpty?.(settledEmpty);
   }, [settledEmpty, onSettledEmpty]);
@@ -253,9 +270,9 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
           <span>{err}</span><Button className="px-3 text-primary" onClick={() => void load(false)}>重试</Button>
         </div>
       )}
-      {items.length ? (
+      {visibleItems.length ? (
         <div className="ios-media-grid" data-ui="media-grid">
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <MediaCard key={item.externalId} title={item.title} cover={item.cover} surface="source-posts"
               subtitle={item.tags?.slice(0, 2).join(" · ") || def.displayName}
               onOpen={() => void openItem(item)} />
@@ -276,7 +293,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
       {!compact && !loading && !err && page >= pages && items.length > 0 && (
         <div className="text-center text-[12px] text-dim py-3">— 已经到底啦 —</div>
       )}
-      {compact && items.length > 0 && onShowAll && (
+      {compact && visibleItems.length > 0 && onShowAll && (
         <Button onClick={onShowAll} className="w-full mt-3 text-primary">查看全部</Button>
       )}
     </div>
