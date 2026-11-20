@@ -14,6 +14,10 @@
  * 末段三字段＋清单版本指纹，本文件假适配器 resolve 改回真流、
  * 全部结果夹具补齐新格式字段；资格/TTL/落盘口径不变、覆盖不降，
  * 全链派生与补探口径由 fix331-reliability.contract.test.ts 承接。
+ * 断言适配（2026-11-20 fix333/m7-selfcheck）：结果指纹改三维
+ * （协议版本/适配器纪元/源切片），夹具改按对应 def 盖指纹
+ * （selfCheckFingerprintFor）；资格/TTL/落盘/诊断口径不变、
+ * 覆盖不降，指纹逐维口径由 fix333-m7-selfcheck 契约承接。
  * 不访问真实网络：适配器经注入接缝（createAdapterFor）以假适配器
  * 隔离；registryDiag.ts 本体不在 node 直导入（其 fetchHealth→
  * playbackDiagnostics 链含 Tauri/react 导入，为既有约束），其消费
@@ -22,7 +26,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { getBuiltinRegistry } from "./registry.ts";
-import { getActiveRegistry, getRegistryInfo } from "./manifest.ts";
 import { SourceParseEmptyError } from "./adapters/templates.ts";
 import {
   SELF_CHECK_MAX_REQUESTS_PER_SOURCE,
@@ -38,6 +41,7 @@ import {
   selfCheckDiagLines,
   selfCheckEligible,
   selfCheckFailureKind,
+  selfCheckFingerprintFor,
   selfCheckSegmentText,
   startSourceSelfCheckScheduler,
   type SourceSelfCheckResult,
@@ -138,10 +142,11 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
 
 /* ── (c) 频率上限：结果未过期（TTL 内）不重探、过期才重探 ── */
 {
+  const hanimeDef = getBuiltinRegistry().find((s) => s.id === "hanime-tv")!;
   const fresh: SourceSelfCheckResult = {
     sourceId: "hanime-tv", at: NOW - 1000, listOk: true, itemCount: 3,
     listFailure: null, detail: "ok", detailFailure: null, requests: 3,
-    tail: "ok", tailKind: "stream", tailFailure: null, manifestVersion: getActiveRegistry().manifestVersion, appVersion: getRegistryInfo().appVersion,
+    tail: "ok", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(hanimeDef),
   };
   const stale = { ...fresh, at: NOW - SELF_CHECK_TTL_MS - 1 };
   assert.ok(!buildSelfCheckPlan(getBuiltinRegistry(), { "hanime-tv": fresh }, NOW).some((s) => s.id === "hanime-tv"), "TTL 内不重探");
@@ -199,7 +204,7 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   const r: SourceSelfCheckResult = {
     sourceId: "swag", at: NOW, listOk: false, itemCount: 0,
     listFailure: "解析为空", detail: "skipped", detailFailure: null, requests: 1,
-    tail: "skipped", tailKind: "stream", tailFailure: null, manifestVersion: getActiveRegistry().manifestVersion, appVersion: getRegistryInfo().appVersion,
+    tail: "skipped", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(fakeDef("swag")),
   };
   saveSelfCheckResult(r);
   assert.ok(storage.map.has(SELF_CHECK_STORAGE_KEY), "结果写入落盘键");
@@ -213,15 +218,15 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
 
 /* ── (b) 结果进诊断：自检行含稳定编号、最近自接口径与失败形态 ── */
 {
+  const huangguoDef = getBuiltinRegistry().find((s) => s.id === "huangguo")!;
   const sources = [
-    { id: "huangguo", stableId: "source-001" },
-    { id: "swag", stableId: "source-013" },
-    { id: "91video", stableId: "source-003" },
+    { id: "huangguo", stableId: "source-001", def: huangguoDef },
+    { id: "swag", stableId: "source-013", def: fakeDef("swag") },
+    { id: "91video", stableId: "source-003", def: fakeDef("91video") },
   ];
-  const mv = getActiveRegistry().manifestVersion;
   const results: Record<string, SourceSelfCheckResult> = {
-    swag: { sourceId: "swag", at: NOW, listOk: false, itemCount: 0, listFailure: "解析为空", detail: "skipped", detailFailure: null, requests: 1, tail: "skipped", tailKind: "stream", tailFailure: null, manifestVersion: mv, appVersion: getRegistryInfo().appVersion },
-    huangguo: { sourceId: "huangguo", at: NOW, listOk: true, itemCount: 12, listFailure: null, detail: "ok", detailFailure: null, requests: 3, tail: "ok", tailKind: "stream", tailFailure: null, manifestVersion: mv, appVersion: getRegistryInfo().appVersion },
+    swag: { sourceId: "swag", at: NOW, listOk: false, itemCount: 0, listFailure: "解析为空", detail: "skipped", detailFailure: null, requests: 1, tail: "skipped", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(fakeDef("swag")) },
+    huangguo: { sourceId: "huangguo", at: NOW, listOk: true, itemCount: 12, listFailure: null, detail: "ok", detailFailure: null, requests: 3, tail: "ok", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(huangguoDef) },
   };
   const lines = selfCheckDiagLines(sources, results);
   const joined = lines.join("\n");

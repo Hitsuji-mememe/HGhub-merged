@@ -149,8 +149,7 @@ export function sourceHealthLines(): string[] {
   lines.push(...selfCheckDiagLines(
     sources
       .map((s, i) => ({ id: s.id, stableId: sourceStableId(i), def: defs[i] }))
-      .filter((x) => x.def && selfCheckEligible(x.def))
-      .map(({ id, stableId }) => ({ id, stableId })),
+      .filter((x) => x.def && selfCheckEligible(x.def)),
     getSelfCheckResults(),
   ));
   return lines;
@@ -180,7 +179,7 @@ export function sourceHealthDetailLinesInApp(): string[] {
      * 句读同一派生（selfCheckStatusText），与展示面徽标同源。 */
     const check = selfCheck[s.id];
     const checkText = check
-      ? `${selfCheckSegmentText(check)} · 健康状态 ${selfCheckStatusText(check, Date.now(), info.manifestVersion, info.appVersion)}`
+      ? `${selfCheckSegmentText(check)} · 健康状态 ${selfCheckStatusText(check, defs[i], Date.now())}`
       : "未自检";
     /* 清单参数段＋故障类标注（fix321-F8）：参数来源（清单 vN/已回滚）
      * 只在有下发记录时呈现；故障类按 classifySourceFault 纯函数口径

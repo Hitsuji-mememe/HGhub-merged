@@ -17,10 +17,16 @@
  * 节制——串行队列（任一时刻至多 1 个补探在飞）、每源请求不超
  * 既有硬预算、与单源补探共用在飞去重；(c) 结果新鲜/不合格源
  * 零调用（不许无谓重探、不许探未启用/blocked 源）；(d) 指纹
- * 不符（App 已换代）重新补探；(e) 展示面接线以文本断言钉住
+ * 不符（适配器纪元不符）重新补探；(e) 展示面接线以文本断言钉住
  * （Category 总览行/SourceSwitcher 含 React 链不在 node 直导入，
  * 同 fix331 先例）。
  * 不访问真实网络：适配器经注入接缝以假适配器隔离。
+ *
+ * 断言适配（2026-11-20 fix333/m7-selfcheck）：结果指纹改三维
+ * （协议版本/适配器纪元/源切片），夹具改按 def 盖指纹、派生
+ * 调用签名收敛为 (结果, def, now)；(d) 的作废形态由「App 已
+ * 换代」改「适配器纪元不符」接棒，口径不变、覆盖不降。批量
+ * 补探排序（M7）由 fix333-m7-selfcheck 契约承接。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -32,15 +38,13 @@ import {
   ensureSourcesSelfCheck,
   getSelfCheckResults,
   saveSelfCheckResult,
+  selfCheckFingerprintFor,
   type SourceSelfCheckResult,
 } from "./healthCheck.ts";
-import { getActiveRegistry, getRegistryInfo } from "./manifest.ts";
 import type { SourceAdapter, SourceDef } from "./types.ts";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const NOW = 1_700_000_000_000;
-const MV = getActiveRegistry().manifestVersion;
-const AV = getRegistryInfo().appVersion;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function fakeStorage() {
@@ -110,11 +114,11 @@ function factoryFor(t: BatchTracker, gates?: Map<string, Promise<void>>) {
   };
 }
 
-function mkResult(over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckResult {
+function mkResult(def: SourceDef, over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckResult {
   return {
-    sourceId: "s", at: NOW, listOk: true, itemCount: 5, listFailure: null,
+    sourceId: def.id, at: NOW, listOk: true, itemCount: 5, listFailure: null,
     detail: "ok", detailFailure: null, requests: 3,
-    tail: "ok", tailKind: "stream", tailFailure: null, manifestVersion: MV, appVersion: AV,
+    tail: "ok", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(def),
     ...over,
   };
 }
@@ -138,7 +142,7 @@ function mkResult(over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckRes
     assert.ok(r, `${def.id} 补探结果已落盘`);
     assert.ok(r.requests <= SELF_CHECK_MAX_REQUESTS_PER_SOURCE, `${def.id} 不超既有每源硬预算`);
     assert.notEqual(
-      classifySelfCheckResult(r, NOW, MV, AV).status, "unchecked",
+      classifySelfCheckResult(r, def, NOW).status, "unchecked",
       `${def.id} 落盘后派生脱离未自检（徽标转四态之一，不再长挂未实测）`,
     );
   }
@@ -152,8 +156,8 @@ function mkResult(over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckRes
   bindSelfCheckStorage(fakeStorage());
   const a = fakeDef("t-fresh-a");
   const b = fakeDef("t-fresh-b");
-  saveSelfCheckResult(mkResult({ sourceId: "t-fresh-a" }));
-  saveSelfCheckResult(mkResult({ sourceId: "t-fresh-b" }));
+  saveSelfCheckResult(mkResult(a));
+  saveSelfCheckResult(mkResult(b));
   const t = newTracker();
   const started = await ensureSourcesSelfCheck([a, b], { createAdapterFor: factoryFor(t), now: () => NOW });
   assert.equal(started, 0, "结果新鲜时批量补探零启动");
@@ -167,15 +171,19 @@ function mkResult(over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckRes
   bindSelfCheckStorage(null);
 }
 
-/* ── (d) 指纹不符（App 已换代）：旧结果判过期、重新补探 ── */
+/* ── (d) 指纹不符（适配器纪元不符）：旧结果判过期、重新补探 ── */
 {
   bindSelfCheckStorage(fakeStorage());
   const def = fakeDef("t-upgraded");
-  saveSelfCheckResult(mkResult({ sourceId: "t-upgraded", appVersion: "0.0.0-old" }));
+  saveSelfCheckResult(mkResult(def, { adapterEpoch: 0 }));
   const t = newTracker();
   const started = await ensureSourcesSelfCheck([def], { createAdapterFor: factoryFor(t), now: () => NOW });
-  assert.equal(started, 1, "App 换代后旧指纹结果在展示面挂载时重新补探（升级场景不再长挂未实测）");
-  assert.equal(getSelfCheckResults()["t-upgraded"].appVersion, AV, "补探结果带现行 App 版本指纹");
+  assert.equal(started, 1, "适配器纪元不符的旧指纹结果在展示面挂载时重新补探（升级场景不再长挂未实测）");
+  assert.deepEqual(
+    (({ protocolVersion, adapterEpoch, sourceScope }) => ({ protocolVersion, adapterEpoch, sourceScope }))(getSelfCheckResults()["t-upgraded"]),
+    selfCheckFingerprintFor(def),
+    "补探结果带现行三维指纹",
+  );
   bindSelfCheckStorage(null);
 }
 

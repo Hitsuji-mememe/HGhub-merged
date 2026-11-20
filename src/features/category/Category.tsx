@@ -25,7 +25,7 @@ const scope = LOCAL_SCOPE;
 import { Empty } from "../../shared/ui/ui";
 import { IAward, IBack, IChevR, IFilm, IFlame, IGrid, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
 import { firstEnabledSource, sourcesForCategory, sourcesForChannel } from "../sources/registry";
-import { getActiveRegistry, getRegistryInfo } from "../sources/manifest";
+import { getActiveRegistry } from "../sources/manifest";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory, sourceOptionsForChannel } from "../sources/SourceSwitcher";
 import { sourceHealthBadgeText } from "../sources/healthCheck";
 import { useSourceHealthResults, useSourceSelfCheckOnShow } from "../sources/sourceHealth";
@@ -107,7 +107,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
    * 未探回落 maturity），补探完成即刷新——不再静态读 maturity。 */
   const healthResults = useSourceHealthResults();
   const sourceBadge = (s: SourceDef): string | undefined =>
-    sourceHealthBadgeText(s, healthResults[s.id], Date.now(), getActiveRegistry().manifestVersion, getRegistryInfo().appVersion);
+    sourceHealthBadgeText(s, healthResults[s.id], Date.now());
   /* 吃瓜数据源（条目5）：默认第一顺位 enabled 源，切换整段换源不混排 */
   const postSourceOptions = sourceOptionsForCategory("posts");
   const [postsSourceId, setPostsSourceId] = useState(() => firstEnabledSource("posts", getActiveRegistry().sources)?.id ?? "huangguo");
