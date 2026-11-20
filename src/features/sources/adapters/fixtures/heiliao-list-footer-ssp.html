@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<!-- 真站结构形态夹具（fix333/list-noise）：004 主题（div.video-item 卡）列表页。
+     形态据 2026-11-20 普查真实页蒸馏（域名/标题合成）：video-item 帖子卡、
+     每卡后隐藏广告位（ssp-placement＋template：内含 pgx-card 假锚与一张
+     渲染区真卡的克隆——真站 p1 实测模板内卡片 id 全部是渲染卡克隆）、
+     模板内 pgx 仿卡最坏情况（video-item＋/archives/ 同形 href＋pgx 标记、
+     无渲染副本）、页脚站务/招募锚点组。 -->
+<html><head><title>列表页形态夹具</title></head>
+<body>
+<div class="list">
+  <div class="video-item">
+    <a href="/archives/201/">
+      <div class="thumb"><img z-image-loader-url="https://pic.fixture.invalid/201.jpg" alt=""></div>
+      <h3 class="title">正常帖甲</h3>
+    </a>
+  </div>
+  <div hidden class="ssp-placement" aria-label="广告">
+    <template data-ssp-legacy>
+      <a class="cursor-pointer pgx-card" data-card="54779" href="https://ad.fixture.invalid/x">广告卡</a>
+      <div class="video-item"><a href="/archives/201/"><h3 class="title">正常帖甲</h3></a></div>
+    </template>
+  </div>
+  <div class="video-item">
+    <a href="/archives/202/">
+      <div class="thumb"><img z-image-loader-url="https://pic.fixture.invalid/202.jpg" alt=""></div>
+      <h3 class="title">正常帖乙</h3>
+    </a>
+  </div>
+  <div hidden class="ssp-placement" aria-label="广告">
+    <template data-ssp-legacy>
+      <div class="video-item"><a class="cursor-pointer pgx-card" data-card="93469" href="/archives/996/"><h3 class="title">仿卡推广</h3></a></div>
+    </template>
+  </div>
+</div>
+<footer>
+  <div class="links">
+    <a href="/archives/801/">站务一</a>
+    <a href="/archives/802/">站务二</a>
+    <a href="/archives/803/">招募一</a>
+  </div>
+</footer>
+</body></html>

@@ -37,11 +37,14 @@ export function stripTags(html: string): string {
   return decodeEntities(html.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
 }
 
-export interface Anchor { href: string; inner: string; titleAttr: string }
+export interface Anchor { href: string; inner: string; titleAttr: string; rel: string; cls: string }
 
 /* 属性引号双形态（Muse 2026-11-19 fix321-F2）：真站复核发现
  * PornPics /recent/ 的锚点与 img 全用单引号属性，旧正则只认双引号
- * → 条目整体不可见。以下提取一律双/单引号通吃（反向引用钉住配对）。 */
+ * → 条目整体不可见。以下提取一律双/单引号通吃（反向引用钉住配对）。
+ * rel 与 class 一并采集（Muse 2026-11-20 fix333/list-noise）：
+ * rel="sponsored" 与 class 的 pgx-card 都是广告位的显式标记，
+ * 列表层显式排除要用它们定点识别。 */
 export function findAnchors(html: string): Anchor[] {
   const out: Anchor[] = [];
   const re = /<a\b[^>]*\bhref=(["'])([^"']+)\1[^>]*>([\s\S]*?)<\/a>/gi;
@@ -49,8 +52,111 @@ export function findAnchors(html: string): Anchor[] {
   while ((m = re.exec(html)) !== null) {
     const openTag = m[0].slice(0, m[0].indexOf(">") + 1);
     const title = /\btitle=(["'])([^"']*)\1/i.exec(openTag)?.[2] ?? "";
-    out.push({ href: decodeEntities(m[2]), inner: m[3], titleAttr: decodeEntities(title) });
+    const rel = /\brel=(["'])([^"']*)\1/i.exec(openTag)?.[2] ?? "";
+    const cls = /\bclass=(["'])([^"']*)\1/i.exec(openTag)?.[2] ?? "";
+    out.push({ href: decodeEntities(m[2]), inner: m[3], titleAttr: decodeEntities(title), rel: decodeEntities(rel), cls: decodeEntities(cls) });
   }
+  return out;
+}
+
+export interface CardRegion { inner: string; adMarked: boolean; inTemplate: boolean }
+
+function classTokens(openTag: string): string[] {
+  const m = /\bclass=(["'])([^"']*)\1/i.exec(openTag);
+  return m ? m[2].split(/\s+/).filter(Boolean) : [];
+}
+
+/** <template> 占据的字符区间（fix333/list-noise）：模板不渲染，区间
+ * 内的卡片单列（回填遍）。闭合缺失时以下一个 <template> 开标签或
+ * 页尾为界——真站摘录夹具里模板未配平（real-heiliao-home.html），
+ * 按「未闭合即吞掉全页」处理会把摘录里的真卡全吞掉。 */
+function templateSpans(html: string): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
+  const re = /<template\b[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const close = html.indexOf("</template", re.lastIndex);
+    const next = html.indexOf("<template", re.lastIndex);
+    const end = Math.min(close === -1 ? html.length : close, next === -1 ? html.length : next);
+    spans.push({ start: m.index, end });
+  }
+  return spans;
+}
+
+/** 卡片容器区域采集（Muse 2026-11-20 fix333/list-noise）：列表页的
+ * 条目锚点只认卡片容器内的——吃瓜三源真站普查（9 页，证据
+ * fix333/evidence/adpost-census.md）实测：容器外 /archives/ 锚点全是
+ * 页眉导航下拉与页脚站务/招募（003 每页 2 条恒居清单首、004 每页
+ * 12 条占 p1 的 44%），容器内锚点全是帖子卡，零交叉。容器形态按
+ * 主题二选一：article（003/005 主题）或 class 含 video-item 整词的
+ * div（004 主题）。自容器开标签起按同名标签深度扫描找配平闭合
+ * （与 mainContentRegion 同法）；未配平则区域延至页尾（回落语义
+ * 与内容区地标一致）。容器 class 含 ad-item 或 ssp-placement 整词
+ * 的记 adMarked（页面层广告位，由调用方显式排除，不靠 href 模式
+ * 偶然挡住）；容器落在 <template> 区间内的记 inTemplate（模板不
+ * 渲染、内容单列，见 findCardAnchors 的两遍口径）。 */
+export function cardContainerRegions(html: string, container: "article" | "video-item"): CardRegion[] {
+  const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(\/?)>/g;
+  const isContainer = (tag: string, open: string): boolean =>
+    container === "article" ? tag === "article" : tag === "div" && classTokens(open).includes("video-item");
+  const spans = templateSpans(html);
+  const regions: CardRegion[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(html)) !== null) {
+    if (m[1] === "/" || m[3] === "/") continue;
+    const tag = m[2].toLowerCase();
+    if (!isContainer(tag, m[0])) continue;
+    const tokens = classTokens(m[0]);
+    const adMarked = tokens.includes("ad-item") || tokens.includes("ssp-placement");
+    const inTemplate = spans.some((sp) => m!.index >= sp.start && m!.index < sp.end);
+    const innerStart = tagRe.lastIndex;
+    const scan = new RegExp(`<(/?)${tag}\\b[^>]*?(/?)>`, "gi");
+    scan.lastIndex = innerStart;
+    let depth = 1;
+    let end = html.length;
+    let s: RegExpExecArray | null;
+    while ((s = scan.exec(html)) !== null) {
+      if (s[2] === "/") continue;
+      if (s[1] === "/") { depth -= 1; if (depth === 0) { end = s.index; break; } }
+      else depth += 1;
+    }
+    regions.push({ inner: html.slice(innerStart, end), adMarked, inTemplate });
+    tagRe.lastIndex = end;
+  }
+  return regions;
+}
+
+/** 卡片容器内锚点（fix333/list-noise）：只收非广告容器内的锚点。
+ * 显式排除三路（不再靠「外链不含条目模式」的偶然排除）：
+ * ad-item / ssp-placement 容器整块、rel="sponsored" 锚点、
+ * class 含 pgx-card 的锚点（004 广告位假卡的实测标记：ssp 模板
+ * 的首锚点全为 pgx-card＋data-card、无一带条目 href）。
+ * 两遍采集：渲染区容器优先，<template> 区间内的容器回填——004
+ * 的 ssp 模板里除假卡外还塞着真卡克隆（真站 p1 实测：模板内
+ * 卡片 id 14 个全部是渲染区卡片的克隆、零独有），整页时回填集
+ * 与渲染集同 href 被去重吞掉、无差别；但页面摘录/变体里渲染
+ * 副本缺席时只剩模板副本（仓库夹具 real-heiliao-home.html 即
+ * 此形态），回填保住真卡不丢。容器形态与页面不匹配（采集为
+ * 0）时返回空数组，是否回落整页由调用方按「未知不是空」的
+ * 既有口径决定（同 contentImgSrcs 的地标回落先例）。 */
+export function findCardAnchors(html: string, container: "article" | "video-item"): Anchor[] {
+  const out: Anchor[] = [];
+  const seen = new Set<string>();
+  const collect = (regions: CardRegion[]) => {
+    for (const r of regions) {
+      if (r.adMarked) continue;
+      for (const a of findAnchors(r.inner)) {
+        if (a.rel.split(/\s+/).includes("sponsored")) continue;
+        if (a.cls.split(/\s+/).includes("pgx-card")) continue;
+        if (seen.has(a.href)) continue;
+        seen.add(a.href);
+        out.push(a);
+      }
+    }
+  };
+  const regions = cardContainerRegions(html, container);
+  collect(regions.filter((r) => !r.inTemplate));
+  collect(regions.filter((r) => r.inTemplate));
   return out;
 }
 

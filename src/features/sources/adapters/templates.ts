@@ -12,7 +12,7 @@ import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
 import { IWARA_API_ORIGIN, REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
-import { allImgSrcs, contentImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
+import { allImgSrcs, contentImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
 
 export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "hentaihaven-api", "preview-only", "none"] as const;
 type Params = Record<string, unknown>;
@@ -47,11 +47,22 @@ function titleFromHref(href: string): string {
   } catch { return ""; }
 }
 
-/** 锚点列表解析（chigua 与 hls-site 共用）：href 含 itemLinkPattern 的锚点为条目。 */
-function parseAnchorList(html: string, base: string, sourceId: string, itemLinkPattern: string): SourceItem[] {
+/** 锚点列表解析（chigua 与 hls-site 共用）：href 含 itemLinkPattern 的锚点为条目。
+ * 卡片容器限定（Muse 2026-11-20 fix333/list-noise）：源在注册表声明
+ * cardContainer 时只认卡片容器内的锚点——整页扫描会把页眉导航下拉、
+ * 页脚站务/招募组的同形态锚点误收为条目（吃瓜三源普查 9 页实测：
+ * 003 每页 2 条恒居首、004 每页 12 条，容器内外零交叉，证据
+ * fix333/evidence/adpost-census.md）。页面层广告卡（ad-item 类、
+ * rel="sponsored"、ssp-placement＋template 假卡）由 findCardAnchors
+ * 显式排除（此前靠外链不含条目模式偶然挡住）。容器采集为 0＝页面
+ * 形态与声明不匹配，按「未知不是空」回落整页扫描（旧行为），不把
+ * 形态漂移误报成空列表。未声明 cardContainer 的源行为逐字不变。 */
+function parseAnchorList(html: string, base: string, sourceId: string, itemLinkPattern: string, cardContainer = ""): SourceItem[] {
   const seen = new Set<string>();
   const items: SourceItem[] = [];
-  for (const a of findAnchors(html)) {
+  let anchors = cardContainer === "article" || cardContainer === "video-item" ? findCardAnchors(html, cardContainer) : [];
+  if (anchors.length === 0) anchors = findAnchors(html);
+  for (const a of anchors) {
     if (!a.href.includes(itemLinkPattern)) continue;
     const href = absUrl(base, a.href);
     if (seen.has(href)) continue;
@@ -106,12 +117,15 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
   const params = (def.adapter.params ?? {}) as Params;
   const listPath = str(params, "listPath", "/?page={page}");
   const itemLinkPattern = str(params, "itemLinkPattern", "/");
+  /* 卡片容器声明（fix333/list-noise）：按源主题在注册表 params 里
+   * 声明（article / video-item），未声明的源整页扫描、行为不变。 */
+  const cardContainer = str(params, "cardContainer", "");
   return {
     sourceId: def.id,
     async list(page, size) {
       const base = def.baseUrls[0];
       const html = await fetchPage(absUrl(base, fill(listPath, { page })));
-      const all = parseAnchorList(html, base, def.id, itemLinkPattern);
+      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer);
       /* 未知不是空（fix321-F2）：取到页却 0 条目 = 解析失败，显式抛错走列表层错误通道 */
       if (all.length === 0) throw new SourceParseEmptyError(def.id);
       const items = all.slice(0, size);
@@ -131,7 +145,7 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
         ? fill(searchPath, { q: encodeURIComponent(q), page })
         : `/?s=${encodeURIComponent(q)}&paged=${page}`;
       const html = await fetchPage(absUrl(base, path));
-      const all = parseAnchorList(html, base, def.id, itemLinkPattern);
+      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer);
       return { items: all.slice(0, size), pagination: pageOf(all.length, page, size) };
     },
   };
