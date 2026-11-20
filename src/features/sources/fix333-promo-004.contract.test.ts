@@ -6,28 +6,41 @@
  * 覆盖 source-004（feedheiliao）站务型推广帖的详情层异步验杀
  * （promoVerify.ts）：该源列表卡无分类/作者字段、列表层组合信号
  * 不存在（fix333/evidence/promo-filter.md 第三节停工证据），唯一
- * 可分信号在详情层——站务推广三连正文 587–706 字、episodes=0；
- * 内容 1075–1770 字、episodes=1；活动投票帖 1744 字、episodes=1
- * （活动壳＋真内容，用户裁定保留）。用户口径（2026-11-20 两次
- * 亲定）：硬线＝不许伤真正的内容帖与正文；擦边垃圾可伤；004
- * 裁法＝站务型短帖杀、活动壳真内容留。
+ * 可分信号在详情层——站务推广三连正文 587–706 字、episodes=0、
+ * 正文图恒 1；内容帖正文图全部 ≥7；活动投票帖 1744 字、
+ * episodes=1（活动壳＋真内容，用户裁定保留）。用户口径
+ * （2026-11-20 两次亲定）：硬线＝不许伤真正的内容帖与正文；
+ * 擦边垃圾可伤；004 裁法＝站务型短帖杀、活动壳真内容留。
+ *
+ * M8 收紧（fix333/m8-staff-criteria）：promo-004 初版判据只有字
+ * 数∧episodes 两重，短正文无流真帖会被撤。本版加第三重正文图
+ * 片数：165 条已分类帖逐条实跑详情全量量测（证据
+ * fix333/evidence/m8-staff-criteria.md），站务正文 <img>=1 与内
+ * 容 ≥7 零交叉、空带 2–6 取阈值 3；判据版本 v1→v2，旧缓存整
+ * 域失效。
  *
  * 本契约钉六点：
- * (1) 判据 classifyStaffPost：站务档（≤890 字∧无流）判 staff；
- *     内容帖与活动投票帖（1744 字∧有流）判 clean；短正文但有流
- *     靠 episodes 合取存活；正文提取不到（contentHtml 缺失）判
- *     unknown 不杀；阈值边界 890/891 分界。
- * (2) 合成反例（已知尾巴风险，明示）：正文 500 字∧无流的短内容
- *     帖按现行判据判 staff——样本内不存在此形态（内容下限 1075
- *     字且均有流），此断言钉死现状，判据收紧时必须先改此例。
- * (3) 正文量法 bodyTextLength：与 promo-filter 抽查同一量法
- *     （去 script/style/标签、空白折叠）；缺失返回 null。
+ * (1) 判据 classifyStaffPost：站务档（≤890 字∧无流∧正文图 ≤3）
+ *     判 staff；内容帖与活动投票帖（1744 字∧有流）判 clean；
+ *     短正文但有流靠 episodes 合取存活；短正文无流但带图靠图
+ *     片数合取出区；正文提取不到（contentHtml 缺失）判 unknown
+ *     不杀；阈值边界 890/891、图数 3/4 分界。
+ * (2) 合成反例（M8 目标形态）：正文 600 字∧无流∧正文图 8 的
+ *     短内容帖——165 条全量量测中真内容帖的实际形态（最短
+ *     837 字、正文图 ≥7）——按现行判据判 clean、按构造存活。
+ *     残余尾巴（明示）：600 字∧无流∧正文图 1 的纯文字变体仍
+ *     判 staff——它与站务公告在全部已量信号上同形、样本内无
+ *     此形态内容帖；此断言钉死现状，判据再收紧时必须先改此例。
+ * (3) 正文量法 bodyTextLength／bodyImageCount：与 promo-filter
+ *     抽查同一量法（去 script/style 后计数）；缺失返回 null；
+ *     script 内的 <img 字样不计入图片数。
  * (4) 判定缓存：落盘后重绑存储（模拟重启）仍可读；作用域含判
- *     据版本，旧版本作用域在新判定落盘时被清掉（自动失效）。
+ *     据版本与两阈值，旧版本作用域在新判定落盘时被清掉（自动
+ *     失效）。
  * (5) 验杀会话：并发 ≤3；在飞去重；详情失败不判不落缓存（网
  *     络失败≠站务）；unknown 不落缓存；已落盘判定经 enqueue
  *     直接回放、不再抓详情（每帖一生只验一次）。
- * (6) 注册表口径：仅 feedheiliao 声明 staffVerify（阈值 890），
+ * (6) 注册表口径：仅 feedheiliao 声明 staffVerify（890/3），
  *     其余源零外溢；SourcePosts 接线文本断言（hook 真接入）。
  * 夹具为合成形态，不访问真实网络。
  */
@@ -37,6 +50,7 @@ import { getBuiltinRegistry } from "./registry.ts";
 import {
   PROMO_VERIFY_RULE_VERSION,
   bindPromoVerifyStorage,
+  bodyImageCount,
   bodyTextLength,
   classifyStaffPost,
   createPromoVerifySession,
@@ -58,9 +72,10 @@ const cfgOf = (id: string) => {
   assert.ok(cfg, `${id} declares staffVerify`);
   return cfg;
 };
-/** 合成详情：正文为 n 个无空白字符（量法下长度恰为 n），eps 为流数。 */
-const detailOf = (chars: number, eps: number): { contentHtml?: string; episodes: unknown[] } => ({
-  contentHtml: `<div class="editormd-preview"><p>${"x".repeat(chars)}</p></div>`,
+/** 合成详情：正文为 n 个无空白字符（量法下长度恰为 n），eps 为流数，
+ * imgs 为正文 <img> 数（默认 1＝站务公告形态；标签被量法剥离、不扰字数）。 */
+const detailOf = (chars: number, eps: number, imgs = 1): { contentHtml?: string; episodes: unknown[] } => ({
+  contentHtml: `<div class="editormd-preview"><p>${"x".repeat(chars)}</p>${'<img src="i">'.repeat(imgs)}</div>`,
   episodes: Array.from({ length: eps }, (_, i) => ({ label: `ep${i}`, externalId: "e" })),
 });
 const flush = async (rounds = 60) => {
@@ -68,16 +83,16 @@ const flush = async (rounds = 60) => {
   for (let i = 0; i < rounds; i++) await new Promise((r) => setTimeout(r, 2));
 };
 
-/* ── (6) 注册表口径：仅 004 声明、阈值与样本中点一致 ── */
+/* ── (6) 注册表口径：仅 004 声明、阈值与样本分布一致 ── */
 {
-  assert.deepEqual(cfgOf("feedheiliao"), { maxBodyChars: 890 },
-    "feedheiliao 声明 staffVerify.maxBodyChars=890（站务上限 706 与内容下限 1075 的中点）");
+  assert.deepEqual(cfgOf("feedheiliao"), { maxBodyChars: 890, maxBodyImages: 3 },
+    "feedheiliao 声明 staffVerify（字数 890＝站务上限 706 与内容下限 1075 中点；图数 3＝M8 全量量测空带 2–6 中段）");
   for (const id of ["51chigua", "meiridasai", "huangguo", "xiuren", "hanime-tv"]) {
     assert.equal(staffVerifyConfig(def(id)), null, `${id} 未声明 staffVerify（零外溢）`);
   }
   assert.match(promoVerifyScope(def("feedheiliao"), cfgOf("feedheiliao")),
-    new RegExp(`^feedheiliao/staff-verify/v${PROMO_VERIFY_RULE_VERSION}/max890$`),
-    "作用域串含源 id＋判据版本＋阈值");
+    new RegExp(`^feedheiliao/staff-verify/v${PROMO_VERIFY_RULE_VERSION}/max890/img3$`),
+    "作用域串含源 id＋判据版本＋两阈值");
 }
 
 /* ── (3) 正文量法 ── */
@@ -85,28 +100,39 @@ const flush = async (rounds = 60) => {
   assert.equal(bodyTextLength(undefined), null, "contentHtml 缺失 → null（提取不到不等于空）");
   assert.equal(bodyTextLength(`<p>ab</p><script>var x = "长长长";</script><style>.a{}</style><p> cd </p>`), 5,
     "script/style 不计入、标签剥离、空白折叠（结果「ab cd」5 字）");
-  assert.equal(bodyTextLength(detailOf(650, 0).contentHtml), 650, "合成正文长度与构造一致");
+  assert.equal(bodyTextLength(detailOf(650, 0).contentHtml), 650, "合成正文长度与构造一致（img 标签不扰字数）");
+  assert.equal(bodyImageCount(undefined), null, "contentHtml 缺失 → null（与字数量法同口径）");
+  assert.equal(bodyImageCount(`<p>a</p><img src="x"><img><script>var s = "<img src=y>";</script>`), 2,
+    "正文图计数：script 内的 <img 字样不计入");
+  assert.equal(bodyImageCount(detailOf(650, 0, 8).contentHtml), 8, "合成正文图数与构造一致");
 }
 
 /* ── (1)(2) 判据 ── */
 {
   const cfg = cfgOf("feedheiliao");
-  assert.equal(classifyStaffPost(detailOf(587, 0), cfg), "staff", "站务样本下限 587 字∧无流 → staff");
-  assert.equal(classifyStaffPost(detailOf(706, 0), cfg), "staff", "站务样本上限 706 字∧无流 → staff");
-  assert.equal(classifyStaffPost(detailOf(890, 0), cfg), "staff", "阈值边界 890 字∧无流 → staff");
-  assert.equal(classifyStaffPost(detailOf(891, 0), cfg), "clean", "阈值边界 891 字∧无流 → clean（边距外）");
+  assert.equal(classifyStaffPost(detailOf(587, 0), cfg), "staff", "站务样本下限 587 字∧无流∧图 1 → staff");
+  assert.equal(classifyStaffPost(detailOf(706, 0), cfg), "staff", "站务样本上限 706 字∧无流∧图 1 → staff");
+  assert.equal(classifyStaffPost(detailOf(890, 0), cfg), "staff", "字数边界 890∧无流∧图 1 → staff");
+  assert.equal(classifyStaffPost(detailOf(891, 0), cfg), "clean", "字数边界 891∧无流∧图 1 → clean（边距外）");
+  assert.equal(classifyStaffPost(detailOf(650, 0, 3), cfg), "staff", "图数边界 3∧短正文∧无流 → staff");
+  assert.equal(classifyStaffPost(detailOf(650, 0, 4), cfg), "clean", "图数边界 4∧短正文∧无流 → clean（图片数合取出区）");
   assert.equal(classifyStaffPost(detailOf(1075, 1), cfg), "clean", "内容样本下限 1075 字∧有流 → clean");
-  assert.equal(classifyStaffPost(detailOf(1744, 1), cfg), "clean",
-    "活动投票帖反例：1744 字∧有流 → clean（活动壳＋真内容，用户裁定保留）");
+  assert.equal(classifyStaffPost(detailOf(1744, 1, 18), cfg), "clean",
+    "活动投票帖反例：1744 字∧有流∧图 18 → clean（活动壳＋真内容，用户裁定保留）");
   assert.equal(classifyStaffPost(detailOf(500, 1), cfg), "clean",
     "短正文∧有流 → clean（episodes 合取守门：有流不杀）");
   assert.equal(classifyStaffPost({ contentHtml: undefined, episodes: [] }, cfg), "unknown",
     "正文提取不到 → unknown（不判、不杀）");
-  /* (2) 合成反例——已知尾巴风险：短正文∧无流的真实短内容帖会
-   * 被现行判据误杀。样本内内容帖下限 1075 字且均有流、此形态
-   * 未出现；按用户「垃圾可伤」口径接受现状，此断言钉死之。 */
-  assert.equal(classifyStaffPost(detailOf(500, 0), cfg), "staff",
-    "合成反例：500 字∧无流 → staff（已知尾巴风险，见文件头 (2)）");
+  /* (2) 合成反例——M8 目标形态：短正文∧无流的真内容帖。165 条
+   * 全量量测里真内容帖正文图 ≥7（最短 837 字者亦然），故反例按
+   * 真实形态构造为带图短帖：三重判据下按构造存活。 */
+  assert.equal(classifyStaffPost(detailOf(600, 0, 8), cfg), "clean",
+    "合成反例：600 字∧无流∧正文图 8 → clean（真短帖形态，M8 起按构造存活）");
+  /* 残余尾巴（明示）：纯文字变体与站务公告在字数/episodes/正文
+   * 图/链接/段落全部已量信号上同形，165 条样本内无此形态内容
+   * 帖；按用户「垃圾可伤」口径保留 staff 判读，此断言钉死之。 */
+  assert.equal(classifyStaffPost(detailOf(600, 0, 1), cfg), "staff",
+    "残余尾巴：600 字∧无流∧正文图 1 → staff（纯文字变体与站务公告同形，见文件头 (2)）");
 }
 
 /* ── (4) 判定缓存：落盘/重绑/版本失效 ── */

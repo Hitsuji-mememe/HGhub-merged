@@ -390,17 +390,23 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
 - 站务推广帖异步验杀（fix333/promo-004，2026-11-20；Muse）：source-004
   列表卡只有标题/封面，推广帖（站务组）在列表层无可分信号（promo-filter
   线停工证据），故不拦在列表层：`SourcePosts` 先正常渲染，后台经
-  `promoVerify.ts` 对未验过的卡逐条抓详情验真伪——正文字数 ≤890（站务
-  样本 587–706、内容样本 1075–1770，阈值取中点 890）∧ episodes=0 判
-  站务型，就地从列表撤下；活动壳＋真内容的帖（1744 字/episodes=1）按
-  判据存活。判据参数在注册表该源 `params.staffVerify.maxBodyChars`
-  声明，作用域＝源＋适配器＋阈值，判定按帖 id 落盘
+  `promoVerify.ts` 对未验过的卡逐条抓详情验真伪——正文字数 ≤890
+  ∧ episodes=0 ∧ 正文图片数 ≤3 三重合取判站务型，就地从列表撤下；
+  活动壳＋真内容的帖（1744 字/episodes=1）按判据存活。图片数合取
+  为 M8 收紧（fix333/m8-staff-criteria）：165 条已分类帖逐条实跑
+  详情全量量测，站务三连正文 <img> 恒 1、内容帖全部 ≥7（空带
+  2–6 取 3），短正文带图真帖自此按构造存活；图片只数正文容器
+  内的 <img>（`bodyImageCount`），适配器 images 字段含模板图不
+  可用。判据参数在注册表该源 `params.staffVerify` 声明
+  （maxBodyChars/maxBodyImages），作用域＝源＋判据版本＋两阈值，判定按帖 id 落盘
   （`hghubx_promo_verdicts_v1`，先写新键再清旧键；判据变自动失效、
   每帖只验一次）；并发 ≤3、网络失败不撤不缓存（下次挂载再验）。仅
   声明了 staffVerify 的源生效，列表全量与 compact 两形态同口径；
   搜索扇出不含本源（无 GET 搜索段），无搜索面。契约
   `fix333-promo-004.contract.test.ts`＋promo 样本回归
-  （`~/workspace/hghub/fix333/evidence/promo-004/`）。
+  （`~/workspace/hghub/fix333/evidence/promo-004/`）＋M8 全量量测
+  回归（`~/workspace/hghub/fix333/evidence/m8/`，165 条真实量测
+  三元组喂新判据恰撤三连、零误杀）。
 
 ## 验证命令
 
