@@ -1941,7 +1941,7 @@
         "src/features/sources/promoVerify.ts"
       ],
       "id": "fix333-promo004-staff-verify-params",
-      "item": "fix333/promo-004 判据声明与消费：registry feedheiliao params.staffVerify（maxBodyChars=890）＋promoVerify staffVerifyConfig 读取组装作用域",
+      "item": "fix333/promo-004 判据声明与消费：registry feedheiliao params.staffVerify（maxBodyChars=890；M8 起加 maxBodyImages=3 三重合取）＋promoVerify staffVerifyConfig 读取组装作用域",
       "min": 3,
       "symbol": "staffVerify"
     },

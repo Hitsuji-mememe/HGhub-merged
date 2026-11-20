@@ -13,16 +13,23 @@
  * 正文；擦边垃圾可伤；004 裁法＝站务型短帖杀、活动壳真内容留。
  * 故本模块只对在注册表 params 声明 staffVerify 的源生效（当前仅
  * feedheiliao）：列表先正常渲染，后台逐条抓详情验真伪，判站务型
- * 的就地撤下；判据＝正文字数 ≤ 阈值 ∧ episodes=0（合取——有流
- * 的短帖不杀，活动帖以 1744 字＋有流双重落在判据之外）。
+ * 的就地撤下；判据＝正文字数 ≤ 阈值 ∧ episodes=0 ∧ 正文图片数
+ * ≤ 阈值（三重合取——有流的短帖不杀，活动帖以 1744 字＋有流双
+ * 重落在判据之外，带图短帖靠图片数出区）。
  *
- * 阈值：站务样本上限 706、内容样本下限 1075，中点 ≈890，两侧各
- * 留约 180 字边距（见 registry feedheiliao 的 staffVerify 参数）。
+ * 阈值：字数取站务样本上限 706 与内容样本下限 1075 的中点 ≈890
+ * （见 registry feedheiliao 的 staffVerify 参数）。图片数阈值出自
+ * M8 全量量测（fix333/m8-staff-criteria，165 条已分类帖逐条实跑
+ * 详情）：站务三连正文 <img> 恒为 1，158 条内容帖全部 ≥7（擦边
+ * 12–27、活动帖 18），空带 2–6、取中段 3。注意适配器 images 字
+ * 段被模板图污染（站务帖也有 29 张），图片数只认正文容器内的
+ * <img>（bodyImageCount）。
  *
- * 已知尾巴风险（明示）：正文 ≤阈值且无流的真实短内容帖会被误
- * 杀——样本内不存在此形态（内容下限 1075 字且均有流），属未证
- * 实的长尾风险，按用户「垃圾可伤」口径接受；契约里以合成反例
- * 钉死其生死现状，判据收紧时必须先过该例。
+ * 已知尾巴风险（明示，M8 后已收窄）：正文 ≤字数阈值、无流且正
+ * 文图片 ≤3 的真实内容帖仍会被误杀——该形态与站务公告在全部已
+ * 量信号（字数/episodes/正文图数/链接数/段落数）上同形，且 165
+ * 条全量样本内不存在（最短内容帖 837 字、正文图 7 张）；契约里
+ * 以合成反例钉死其生死现状，判据再收紧时必须先过该例。
  *
  * 判定缓存：验过的帖按 externalId 落盘（hghubx_promo_verdicts_v1），
  * 作用域串含源 id＋判据版本＋阈值——判据版本或阈值变化即整域
@@ -34,28 +41,34 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
-/** 判据版本：判据形状或适配器详情口径变化时必须 +1（旧缓存整域失效）。 */
-export const PROMO_VERIFY_RULE_VERSION = 1;
+/** 判据版本：判据形状或适配器详情口径变化时必须 +1（旧缓存整域失效）。v2＝M8 加正文图片数合取。 */
+export const PROMO_VERIFY_RULE_VERSION = 2;
 export const PROMO_VERIFY_STORAGE_KEY = "hghubx_promo_verdicts_v1";
 export const PROMO_VERIFY_CONCURRENCY = 3;
 
 export interface StaffVerifyConfig {
-  /** 正文字数上限（含）：≤ 此值且无流才判站务型。 */
+  /** 正文字数上限（含）：≤ 此值、无流且正文图够少才判站务型。 */
   maxBodyChars: number;
+  /** 正文图片数上限（含）：站务公告为纯文字形态、正文 <img> 恒少；真内容帖必带图组。 */
+  maxBodyImages: number;
 }
 
-/** 源是否声明站务验杀（params.staffVerify）；未声明返回 null、本模块全程旁路。 */
+/** 源是否声明站务验杀（params.staffVerify）；未声明或声明残缺返回 null、本模块全程旁路。 */
 export function staffVerifyConfig(def: SourceDef): StaffVerifyConfig | null {
   const raw = (def.adapter.params ?? {}) as Record<string, unknown>;
   const sv = raw.staffVerify;
   if (typeof sv !== "object" || sv === null) return null;
-  const max = (sv as Record<string, unknown>).maxBodyChars;
-  return typeof max === "number" && Number.isFinite(max) && max > 0 ? { maxBodyChars: max } : null;
+  const rec = sv as Record<string, unknown>;
+  const max = rec.maxBodyChars;
+  const maxImgs = rec.maxBodyImages;
+  if (typeof max !== "number" || !Number.isFinite(max) || max <= 0) return null;
+  if (typeof maxImgs !== "number" || !Number.isFinite(maxImgs) || maxImgs < 0) return null;
+  return { maxBodyChars: max, maxBodyImages: maxImgs };
 }
 
-/** 缓存作用域：源＋判据版本＋阈值三者任一变化即换域，旧域自动失效。 */
+/** 缓存作用域：源＋判据版本＋两阈值任一变化即换域，旧域自动失效。 */
 export function promoVerifyScope(def: SourceDef, cfg: StaffVerifyConfig): string {
-  return `${def.id}/staff-verify/v${PROMO_VERIFY_RULE_VERSION}/max${cfg.maxBodyChars}`;
+  return `${def.id}/staff-verify/v${PROMO_VERIFY_RULE_VERSION}/max${cfg.maxBodyChars}/img${cfg.maxBodyImages}`;
 }
 
 /**
@@ -74,10 +87,25 @@ export function bodyTextLength(contentHtml: string | undefined): number | null {
   return text.length;
 }
 
+/**
+ * 正文图片数：contentHtml 去 script/style 后数 <img 标签。与适配器
+ * images 字段的区别：后者按模板口径采集、含正文外模板图（站务帖
+ * 实测 29 张），不可作判据；本量只认正文容器内的图。contentHtml
+ * 缺失返回 null（与 bodyTextLength 同口径）。
+ */
+export function bodyImageCount(contentHtml: string | undefined): number | null {
+  if (!contentHtml) return null;
+  const body = contentHtml
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ");
+  return (body.match(/<img[\s>]/gi) ?? []).length;
+}
+
 export type StaffClassification = "staff" | "clean" | "unknown";
 
 /**
- * 站务型判据（详情层组合）：正文字数在站务档 ∧ 无流（episodes=0）。
+ * 站务型判据（详情层三重合取）：正文字数在站务档 ∧ 无流
+ * （episodes=0）∧ 正文图片数在公告档。任一条件出档即 clean。
  * 正文提取不到 → unknown（不判、不杀、不落缓存）。
  */
 export function classifyStaffPost(
@@ -86,7 +114,11 @@ export function classifyStaffPost(
 ): StaffClassification {
   const len = bodyTextLength(detail.contentHtml);
   if (len === null) return "unknown";
-  return len <= cfg.maxBodyChars && detail.episodes.length === 0 ? "staff" : "clean";
+  const imgs = bodyImageCount(detail.contentHtml);
+  if (imgs === null) return "unknown";
+  return len <= cfg.maxBodyChars && detail.episodes.length === 0 && imgs <= cfg.maxBodyImages
+    ? "staff"
+    : "clean";
 }
 
 /* ── 判定落盘（hghubx_* 键，不变量 7；形态与 healthCheck 自检落盘同构） ── */
