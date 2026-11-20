@@ -321,20 +321,6 @@ export function sourceHealthBadgeText(
   return base;
 }
 
-/** 健康状态整句（App 内明细用）：与徽标同派生、信息更全。 */
-export function selfCheckStatusText(
-  result: SourceSelfCheckResult | undefined,
-  def: SourceDef | undefined,
-  now: number,
-): string {
-  const core = classifySelfCheckResult(result, def, now);
-  if (core.status === "unchecked") return "未自检";
-  const staleSuffix = core.stale ? "·已过期" : "";
-  if (core.status === "ok") return `可用${staleSuffix}`;
-  if (core.status === "down") return `不可用（${core.segment ?? "列表"}·${core.failure ?? "其他"}）${staleSuffix}`;
-  return `部分可用（${core.segment ?? "深段"}${core.failure ? `·${core.failure}` : ""}）${staleSuffix}`;
-}
-
 /* ── 落盘（hghubx_* 键，不变量 7；进程重启后诊断仍可读） ── */
 
 export interface SelfCheckStorageLike {

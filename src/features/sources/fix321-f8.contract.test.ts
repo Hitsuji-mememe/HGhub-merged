@@ -7,10 +7,12 @@
  * minAppVersion 门；② 应用生效——生效 def 的 adapter.params 被清单
  * 参数覆盖、非 hls-site 源参数被忽略、参数不改 enabled/maturity；
  * ③ 回滚——注入自检接缝：应用后变坏→回滚内置＋rejected 落盘、同
- * 版本不再重复应用；应用后自检通过→保留并记 applied；④ 故障分类
- * 纯函数 classifySourceFault（参数可热修 vs 需发版逐类断言）。
+ * 版本不再重复应用；应用后自检通过→保留并记 applied。
  * 不访问上游网络：清单经 validateManifest/applyManifest 直喂、自检
  * 经注入接缝（runCheck）以假结果隔离。
+ * （原 ④ 故障分类与诊断段文本两节随其两构建器于 fix334 清扫
+ * 修复线按清扫裁定一并删除——两者自 fix334/L4 死面删除后无生
+ * 产消费者、靠本契约自测续命，与 M20 同口径处置。）
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -18,14 +20,11 @@ import { applyManifest, validateManifest } from "./manifest.ts";
 import { getBuiltinRegistry } from "./registry.ts";
 import {
   ADAPTER_PARAMS_STORAGE_KEY,
-  adapterParamsSegmentText,
   bindAdapterParamsStorage,
-  classifySourceFault,
   fingerprintParams,
   getAdapterParamsState,
   validateAdapterParams,
   verifyAppliedAdapterParams,
-  type AdapterParamsState,
 } from "./adapterParams.ts";
 import { selfCheckFingerprintFor, type SourceSelfCheckResult } from "./healthCheck.ts";
 import type { SourceDef } from "./types.ts";
@@ -204,28 +203,13 @@ function checkResult(sourceId: string, over: Partial<SourceSelfCheckResult> = {}
   bindAdapterParamsStorage(null);
 }
 
-/* ── ④ 故障分类纯函数 ── */
-{
-  const hls = hlsDef("a");
-  const fail = (over: Partial<SourceSelfCheckResult>) => checkResult("a", { listOk: false, itemCount: 0, detail: "skipped", ...over });
-  assert.equal(classifySourceFault(hls, fail({ listFailure: "解析为空" })), "参数可热修");
-  assert.equal(classifySourceFault(hls, fail({ listFailure: "HTTP 状态" })), "参数可热修", "列表 404 类");
-  assert.equal(classifySourceFault(hls, fail({ listFailure: "网络类" })), "参数可热修", "baseUrl 不可达");
-  assert.equal(classifySourceFault(hls, fail({ listFailure: "其他" })), "需发版");
-  assert.equal(classifySourceFault(hls, checkResult("a", { detail: "fail", detailFailure: "详情失败" })), "需发版", "详情步失败现行模板无参数可调");
-  assert.equal(classifySourceFault(hlsDef("a", { adapter: { template: "none" } }), fail({ listFailure: "解析为空" })), "需发版", "none 模板");
-  assert.equal(classifySourceFault(hlsDef("a", { adapter: { template: "native-huangguo" } }), fail({ listFailure: "网络类" })), "需发版", "原生通道");
-  assert.equal(classifySourceFault(hls, checkResult("a")), null, "无故障不标注");
-  assert.equal(classifySourceFault(hls, undefined), null, "无自检结果不标注");
-}
-
 /* ── 接线与覆盖面 ── */
 {
   const main = read("../../main.tsx");
   assert.ok(main.includes("verifyAppliedAdapterParams"), "main.tsx 启动装配参数校验回滚");
-  /* 原 registryDiag 明细呈现两断言（adapterParamsSegmentText /
-   * classifySourceFault 的 App 内明细消费）随该死面于 fix334/L4
-   * 删除；两构建器本身的纯函数覆盖在本文件上文不变。 */
+  /* 原 registryDiag 明细呈现两断言随该死面于 fix334/L4 删除；
+   * 两构建器本身已于 fix334 清扫修复线按清扫裁定连同其专属自
+   * 测一并删除（见文件头落账）。 */
   const manifestSrc = read("./manifest.ts");
   // 契约适配（3.3.0 集成，2026-11-19）：原断言写死 "3.2.1"，版本 bump 后
   // 必然假红；保护的行为是「FALLBACK_APP_VERSION 与 package.json 同步」，改为
@@ -249,17 +233,6 @@ function checkResult(sourceId: string, over: Partial<SourceSelfCheckResult> = {}
    * 随之收口，保护行为不变。 */
   for (const id of ["pornpics"]) {    assert.ok(covered.some((s) => s.id === id), `hls-site 覆盖名单应含 ${id}`);
   }
-}
-
-/* ── 诊断段文本 ── */
-{
-  const st: AdapterParamsState = {
-    applied: { a: { sourceId: "a", paramsVersion: 7, params: { listPath: "/x" }, appliedAt: NOW, builtinFingerprint: "fp", status: "applied" } },
-    rejected: { b: [3] },
-  };
-  assert.ok(adapterParamsSegmentText("a", st).includes("清单 v7"), "已应用呈现清单版本号");
-  assert.ok(adapterParamsSegmentText("b", st).includes("已回滚"), "rejected 呈现已回滚");
-  assert.equal(adapterParamsSegmentText("zzz", st), "", "无记录源不呈现");
 }
 
 console.log("fix321-f8 contract: ALL PASS");

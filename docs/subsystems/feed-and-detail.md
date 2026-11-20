@@ -557,7 +557,10 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   的 `selfCheckStatusText` 与 adapterParams 的
   `adapterParamsSegmentText`／`classifySourceFault` 就此失去生产
   消费者（构建器与契约覆盖保留），去留留清扫裁定。集成报告
-  `~/workspace/hghub/fix334/integration-report-334.md`。
+  `~/workspace/hghub/fix334/integration-report-334.md`。（清扫裁
+  定＝删：三构建器已于 fix334 清扫修复线连同其专属契约自测一
+  并删除、诊断导出行为不变，见
+  `~/workspace/hghub/fix334/evidence/sweep-fixes.md`。）
 - **结构批清扫修复：续播到集补实现（fix334，3.3.4）**：独立清扫
   证伪——L3 条目所称「外部历史只恢复到集」此前只有记录与卡面
   显示、无任何回访消费路径，Profile 点开历史恒回第一集（已

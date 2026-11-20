@@ -320,9 +320,9 @@ function mkResult(def: SourceDef, over: Partial<SourceSelfCheckResult> = {}): So
   assert.ok(diag.includes("selfCheckEligible"), "导出路径自检分母按资格过滤（未启用不入未自检分母）");
   assert.ok(diag.includes("templateFetchOrigins"), "诊断取页归属按全部 baseUrls∪模板 origin 认领（C④）");
   /* 原「App 内明细健康状态读同一派生」断言随该死面于 fix334/L4
-   * 删除。如实记账：selfCheckStatusText 就此失去唯一生产消费者，
-   * 仍导出于 healthCheck（其底层派生 classifySelfCheckResult 的
-   * 行为覆盖在本文件 (e) 段不变）；函数去留留 L4 清扫裁定。 */
+   * 删除。如实记账：健康状态整句构建器就此失去唯一生产消费者，
+   * 已于 fix334 清扫修复线按清扫裁定删除（其底层派生
+   * classifySelfCheckResult 的行为覆盖在本文件 (e) 段不变）。 */
 
   const switcher = read("./SourceSwitcher.tsx");
   assert.ok(switcher.includes("sourceHealthBadgeText"), "源切换器徽标读同一派生");
