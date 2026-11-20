@@ -37,6 +37,7 @@ import {
   type CopyAssessment, type CopyRef, type EpisodeStructureSignal, type FanoutFailureSummary, type FanoutHit, type GlobalSearchKind, type MergedHit,
 } from "./multiSourceSearch";
 import { copyCacheKey, loadSearchCopy } from "./copyLoader";
+import { assembleSearchGallery } from "./searchGallery";
 
 /* 全局搜索（Muse 2026-11-19 最终版 D3 线，用户亲点＋定稿）：
  * 提交后三路并发——黄果视频（api.search kind=video，按 is_original
@@ -84,6 +85,12 @@ type ExtReady = {
   streamUrl?: string;
   detail?: SourceDetail;
   images?: string[];
+  /** 单图模型画廊组装（fix337/search-gallery）：组装成立时的入选
+   * 条目集，与 images 一一对应、当前条目随 imgIdx 在集内跟随
+   * （标题/收藏作用于所见条目）；未组装（图集源等）缺省、images
+   * 恒为活副本 detail 图集，行为逐字不变。副本切换时与 epExternalId
+   * 同列显式剔除（见 switchCopy），不许把上一副本的画廊带进新副本。 */
+  galleryItems?: SourceItem[];
   /** 当前在播的集（externalId，fix334/L2 G3）：缺省＝detail 首集
    * （resolve 条目 id 的默认集）；副本切换/重开详情时不带此字段、
    * 自然回落默认集。 */
@@ -484,6 +491,26 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
       detailCache: detailCache.current,
     }, episodeExternalId ? { episodeExternalId } : undefined);
 
+  /* 搜索宿主画廊组装应用点（fix337/search-gallery，008-detail 同
+   * 批横扫）：booru 家族单图模型在搜索面同根未修——副本 detail
+   * 恒 1 图、查看器只喂 detail 即无从前后翻。三落点（openExternal/
+   * manualPick/switchCopy）共用本应用点：组装以当前结果列表
+   * （groups，点开时刻快照）为界、按活副本所属源取载体（判定/
+   * 拼装唯一出处 searchGallery→albumGallery）；成立时以组装图集
+   * 覆写 value.images（查看器仍只读 data.images 单字段——与底栏
+   * 让位条件的同源前提，组装形态不另开数据字段）、带 galleryItems
+   * 供标题/收藏跟随，起始 index＝点开位；不成立（图集源 detail
+   * 多图等）原样返回、index 0，与现行行为逐字一致。判定吃
+   * detail.images 原值：copyLoader 的封面回落图（images 里的
+   * [cover]）不算单图模型签名（与 SourceGallery 同口径）。 */
+  const applySearchGallery = (merged: MergedHit, copy: CopyRef, value: Omit<ExtReady, "merged" | "ordered" | "active">)
+    : { value: Omit<ExtReady, "merged" | "ordered" | "active">; index: number } => {
+    if (merged.kind !== "image") return { value, index: 0 };
+    const asm = assembleSearchGallery(groups[merged.kind], copy, value.detail?.images ?? []);
+    if (!asm) return { value, index: 0 };
+    return { value: { ...value, images: asm.images, galleryItems: asm.items }, index: asm.index };
+  };
+
   const traceCopyFail = (sourceId: string) => {
     const defs = getActiveRegistry().sources;
     const idx = defs.findIndex((s) => s.id === sourceId);
@@ -544,7 +571,10 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
       });
       return;
     }
-    setExtDetail({ phase: "ready", data: { merged, ordered, active: got.copy, ...got.value } });
+    /* 画廊组装以顺延定出的活副本为界（fix337/search-gallery）。 */
+    const g = applySearchGallery(merged, got.copy, got.value);
+    setImgIdx(g.index);
+    setExtDetail({ phase: "ready", data: { merged, ordered, active: got.copy, ...g.value } });
   };
 
   /* 手动选副本（不受身份门限）：错误态与详情态共用。 */
@@ -561,10 +591,11 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     try {
       const value = await loadCopy(merged, copy);
       if (mySeq !== extDetailSeq.current) return;
-      setImgIdx(0);
+      const g = applySearchGallery(merged, copy, value);
+      setImgIdx(g.index);
       setExtDetail({
         phase: "ready",
-        data: { merged, ordered: merged.copies.filter((c) => c.sourceId !== nativeSourceId()), active: copy, ...value },
+        data: { merged, ordered: merged.copies.filter((c) => c.sourceId !== nativeSourceId()), active: copy, ...g.value },
       });
     } catch {
       if (mySeq !== extDetailSeq.current) return;
@@ -613,13 +644,17 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     try {
       const value = await loadCopy(merged, copy);
       if (mySeq !== extDetailSeq.current) return;
-      setImgIdx(0);
+      const g = applySearchGallery(merged, copy, value);
+      setImgIdx(g.index);
       /* 副本切换不带选集状态（ExtReady 类型口径、fix334 清扫已
        * 坏-1）：上一副本的 epExternalId/epError 显式剔除、新副本
        * 回落默认集——带过去会让新副本当前集标注/scopeKey 串集，
        * 且 onPlaying 写历史时 ordinal 对不上新副本 choices、整行
-       * 静默丢失。 */
-      setExtDetail({ phase: "ready", data: { ...current, active: copy, ...value, epExternalId: undefined, epError: undefined } });
+       * 静默丢失。画廊条目集同列（fix337/search-gallery）：组装
+       * 以新副本所属源为界重算，galleryItems 显式钉为本次组装
+       * 结果（未组装即 undefined），不许 {...current} 把上一副本
+       * 的画廊带过来让标题/收藏跟随错位到他源条目。 */
+      setExtDetail({ phase: "ready", data: { ...current, active: copy, ...g.value, epExternalId: undefined, epError: undefined, galleryItems: g.value.galleryItems } });
     } catch {
       /* 切换失败静默保持当前副本（不弹窗、不打断），留痕即可。 */
       const defs = getActiveRegistry().sources;
@@ -818,6 +853,18 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
             if (merged.kind === "image") {
               const images = data.images ?? [];
               const idx = Math.min(imgIdx, Math.max(0, images.length - 1));
+              /* 画廊跟随（fix337/search-gallery）：组装成立时当前
+               * 条目随 idx 在 galleryItems 内跟随——标题取当前条目
+               * 标题、顶栏收藏作用于当前条目（与源内宿主
+               * SourceGallery 同语义，钮形同抄其 headerAction）；
+               * 未组装（图集源）galleryItems 缺省：标题恒合并标题、
+               * 不注入顶栏动作，行为逐字不变。收藏口径与本页页头
+               * 收藏同：kind=image 落 post 桶、桥接哈希定条目。 */
+              const galleryItems = data.galleryItems;
+              const curItem = galleryItems?.[idx] ?? data.active.item;
+              const curHash = externalHashId(curItem);
+              const curFav = isFav(curHash, "post");
+              const curFavPending = actionPending(`collect:post:${curHash}`);
               /* 盖全屏（Muse 2026-11-20 fix336/ui-fixes，用户真机
                * 实报＋18:40 亲口确认）：旧 h-full 内嵌形态把查看器
                * 塞进详情页滚动区——详情页头漏在上方成双标题栏、
@@ -833,10 +880,20 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
                * 的 albumOverlayOpen effect）。 */
               return images.length > 0 ? (
                 <div className="fixed inset-0 z-40 bg-black">
-                  <AlbumViewer title={merged.title} images={images} index={idx}
+                  <AlbumViewer title={galleryItems ? (curItem.title || merged.title) : merged.title} images={images} index={idx}
                     onIndexChange={setImgIdx}
                     onBack={closeExtDetail} backLabel="返回搜索结果"
-                    footerNote={`数据源：${data.active.sourceName}（经适配器实时取数）`} immersive />
+                    footerNote={`数据源：${data.active.sourceName}（经适配器实时取数）`} immersive
+                    headerAction={galleryItems ? (
+                      <Button aria-label={curFav ? "取消收藏" : "收藏"} disabled={curFavPending}
+                        onClick={() => {
+                          void setExternalCollected("image", curItem, !curFav);
+                          toast(curFav ? "已取消收藏" : "已收藏", "star");
+                        }}
+                        className="grid place-items-center w-11 h-11 shrink-0 rounded-full bg-black/40 text-white">
+                        {curFav ? <IStarF size={19} className="text-amber" /> : <IStar size={19} />}
+                      </Button>
+                    ) : undefined} />
                 </div>
               ) : (
                 <p className="px-4 pt-2 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>

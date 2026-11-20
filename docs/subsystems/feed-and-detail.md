@@ -331,8 +331,17 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   大图条目 ≥2∧点开条目在列才成立，点开位以 detail 图为准、无
   大图条目不以 preview 充数），AlbumState 带 galleryItems、当前
   条目随 index 跟随（标题/收藏作用于所见条目）；不成立维持单
-  册形态，图集源行为逐字不变。搜索宿主（copyLoader）同根未改
-  （其「列表」是跨源合并副本、组装语义不同，留主线另排）。
+  册形态，图集源行为逐字不变。搜索宿主同根已由 fix337/search-
+  gallery 同批补齐：其「列表」是跨源合并簇，组装先经
+  `searchGallery.assembleSearchGallery` 按点开副本所属源逐簇提取
+  载体（取该源副本条目、非代表副本；同源同 id 只取首现；跨源
+  条目绝不入集），判定/拼装仍走 `assembleAlbumGallery` 唯一出处；
+  Search 三落点（openExternal/manualPick/switchCopy）共用组装应
+  用点，成立时组装图集覆写 `ExtReady.images`（查看器仍只读
+  data.images 单字段，与底栏让位条件同源）、galleryItems 供标题/
+  收藏随当前条目跟随（源内宿主同语义），副本切换时 galleryItems
+  与选集状态同列显式重算/剔除；不成立维持现行单册形态，图集源
+  从搜索打开行为逐字不变。
   ②自检误报机制修（008 图片频道与 010 视频频道同报，跨频道系
   统性）：落盘失败结论与同路径真实成功长期并存——成因两点：
   (a) 指纹失效缺口：fix336 取页形态变更（Rust 取页链 UA）使探
