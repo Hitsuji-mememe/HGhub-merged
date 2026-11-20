@@ -71,7 +71,11 @@
    base（原生源 CDN 只认本站 Referer，旧行为不变）；仅 HTTP 403（防盗链的拒绝形态）
    才依次换目标自身 origin、不带 Referer——外部图床多为「空/本本站放行、外站 403」，
    无条件发 base Referer 会让受保护图片（source-006 图床 jpg）必然 403、/img 回 502、
-   Img 三次 attempt 全灭。其余错误不换候选，维持既有重试语义。
+   Img 三次 attempt 全灭。其余错误不换候选，维持既有重试语义。防盗链另有第二种拒绝
+   形态（fix336/014-image）：外站 Referer 触发 307 跳到帖子 HTML 页，跟随重定向后是
+   200＋HTML 文档（source-014 图床实证），不是错误状态——响应体经 `is_html_document`
+   判别为 HTML 文档时与 403 同等换候选，末候选仍是 HTML 则报错、不把文档冒充媒体
+   字节（旧形态下详情图字节数像成功、查看器解不出图而空白）。
 6. `media::handle()` 接受 `/img?u=`、`/hls?u=`、`/seg?u=`。`/img` 下载 AES-128-CBC 封面并
    校验图片魔数；`/hls` 拉清单并把 variant、key、init、part、media 等 URI 改写到本地
    `LOCAL_ORIGIN`，移除可派生的 URI 字段；`/seg` 下载分片或 Key，若返回 `#EXTM3U` 则继续改写，

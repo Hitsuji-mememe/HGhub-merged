@@ -404,6 +404,12 @@ pub async fn fetch_bytes_with_url(url: &str) -> Result<(String, Option<String>, 
 /// ②目标自身 origin（模拟本站页面嵌图，满足「只认本站」型防盗链）；
 /// ③不带 Referer（满足「空放行」型）。仅 HTTP 403 触发换候选——403
 /// 正是防盗链的拒绝形态；其余错误维持既有重试语义、不换候选。
+/// 防盗链还有第二种拒绝形态（fix336/014-image，source-014 实证）：
+/// 外站 Referer 触发 307 跳到帖子 HTML 页，跟随重定向后是 200＋
+/// HTML 文档、不是错误状态——只认 403 会把整页 HTML 当媒体字节
+/// 收下（详情图查看器空白、字节数却像成功）。故响应体为 HTML
+/// 文档时与 403 同等对待：换下一候选；末候选仍是 HTML 则如实
+/// 报错，不把文档冒充媒体字节交给调用方。
 pub(super) fn media_referer_candidates(raw: &str) -> Vec<Option<String>> {
     let base_ref = format!("{}/", base());
     let mut out: Vec<Option<String>> = vec![Some(base_ref.clone())];
@@ -415,6 +421,25 @@ pub(super) fn media_referer_candidates(raw: &str) -> Vec<Option<String>> {
     }
     out.push(None);
     out
+}
+
+/// 响应体是否为 HTML 文档：跳过 BOM 与前导空白后以 `<!doctype`
+/// 或 `<html` 开头（不分大小写）。媒体字节（图片魔数、#EXTM3U
+/// 清单、TS 分片 0x47）恒不命中；空体不命中（维持既有语义）。
+pub(super) fn is_html_document(bytes: &[u8]) -> bool {
+    let mut s = bytes;
+    if s.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        s = &s[3..];
+    }
+    while let Some((&b, rest)) = s.split_first() {
+        if matches!(b, b' ' | b'\t' | b'\r' | b'\n') {
+            s = rest;
+        } else {
+            break;
+        }
+    }
+    let head: Vec<u8> = s.iter().take(9).map(|b| b.to_ascii_lowercase()).collect();
+    head.starts_with(b"<!doctype") || head.starts_with(b"<html")
 }
 
 fn is_http_403(error: &str) -> bool {
@@ -430,7 +455,21 @@ async fn fetch_bytes_with_url_cap(url: &str, max_bytes: usize) -> Result<(String
     let last_index = candidates.len() - 1;
     for (i, referer) in candidates.iter().enumerate() {
         match fetch_bytes_with_referer(url, max_bytes, referer.as_deref()).await {
-            Ok(v) => return Ok(v),
+            Ok(v) => {
+                /* 防盗链第二形态（fix336/014-image）：200＋HTML 文档
+                 * 不是媒体字节——与 403 同等换候选，末候选如实报错。 */
+                if is_html_document(&v.2) {
+                    if i == last_index {
+                        return Err("响应为 HTML 文档而非媒体字节（疑似防盗链跳转）".to_string());
+                    }
+                    crate::playback_log::record(
+                        "network.referer_fallback",
+                        json!({"resource": crate::playback_log::resource_id(url), "candidate": i + 1}),
+                    );
+                    continue;
+                }
+                return Ok(v);
+            }
             Err(e) => {
                 if i == last_index || !is_http_403(&e) {
                     return Err(e);
@@ -571,6 +610,27 @@ mod tests {
         assert!(!is_http_403("HTTP 404"));
         assert!(!is_http_403("HTTP 503"));
         assert!(!is_http_403("请求超时"));
+    }
+
+    /* fix336/014-image：HTML 文档判别真值——防盗链 307 跳回的帖子页
+     * （200＋HTML）必须命中并触发候选链换候选；图片魔数、清单、
+     * TS 分片、空体不命中（媒体字节零误伤）。旧码无此判别、HTML
+     * 被当图片字节收下（source-014 详情图空白），此断言在旧码上
+     * 无对应函数即红。 */
+    #[test]
+    fn html_document_detection_matches_media_shapes() {
+        assert!(is_html_document(b"<!DOCTYPE html>\n<html lang=\"en\">"));
+        assert!(is_html_document(b"<!doctype html>"));
+        assert!(is_html_document(b"  \r\n\t<html>"));
+        let mut bom = vec![0xEF, 0xBB, 0xBF];
+        bom.extend_from_slice(b"<!DOCTYPE html>");
+        assert!(is_html_document(&bom));
+        assert!(!is_html_document(&[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]));
+        assert!(!is_html_document(b"\x89PNG\r\n\x1a\n"));
+        assert!(!is_html_document(b"#EXTM3U\n#EXT-X-VERSION:3"));
+        assert!(!is_html_document(&[0x47, 0x40, 0x11, 0x10]));
+        assert!(!is_html_document(b""));
+        assert!(!is_html_document(b"<htm"));
     }
 
     /* 流式上限：恰好 4MB 可过，累计越线立即报错（分块到达也一样）。 */
