@@ -24,9 +24,11 @@
  *   multi/single 两端（012 实产 2 集、hls-site 至多 1 条），且断言
  *   本表显式覆盖每个有适配器的模板——新模板漏登即契约红。
  *   注意与注册表 capabilities.episodes 分层：caps 是品类映射
- *   事实（频道归类用），本表是模板产出事实（选集面用），012
- *   两者现行不一致（caps=false、模板 multi）是已知分层、归
- *   G3（L2）修正 caps，不许在本表迁就 caps 改判。
+ *   事实（短剧频道归类门），本表是模板产出事实（选集面用）。
+ *   012 两者不一致（caps=false、模板 multi）经 fix334/L2 裁定
+ *   保留分层：caps 翻 true 会让里番源进短剧频道切源名单（消费
+ *   面核对见 L2 报告），故不翻；选集面只读本表 multi、不读
+ *   caps，不许在本表迁就 caps 改判、也不许选集面改读 caps。
  */
 import type { SourceDef } from "../types.ts";
 import { templateHasAdapter, templateHasSearch } from "./templateSegments.ts";

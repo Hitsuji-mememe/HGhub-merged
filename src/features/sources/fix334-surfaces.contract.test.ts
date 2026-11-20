@@ -82,11 +82,16 @@ const srcText = (rel: string) => readFileSync(new URL(rel, import.meta.url), "ut
   const ppDetail = await createHlsSiteAdapter(ppDef).detail("fixture-gallery");
   assert.ok(ppDetail.episodes.length <= 1, "hls-site detail episodes 至多单条（single 行为证据）");
   assert.equal(templateCapabilitiesFor(ppDef).episodes, "single", "007 模板 episodes 形态＝single");
-  /* 已知分层（设计 §1.4 注 e／§3.1）：012 注册表 caps.episodes=false 与
-   * 模板实产 multi 的矛盾在此钉住——品类映射（M6）看 caps、选集面看模
-   * 板事实，两处不许混用；caps 修正归 L2（G3 施工时同步改注册表），
-   * 届时本断言须随之改判。 */
-  assert.equal(hhDef.capabilities.episodes, false, "012 caps.episodes 现行 false（与模板 multi 分层，L2 修正）");
+  /* 分层裁定（设计 §1.4 注 e；fix334/L2 已裁）：012 注册表
+   * caps.episodes=false 与模板实产 multi 的分层在此钉住——品类
+   * 映射（M6 短剧频道）看 caps、选集面看模板事实，两处不许混
+   * 用。设计 §3.1 曾要求 L2 翻 caps=true，L2 核对消费面后裁定
+   * 不翻：caps 是 sourcesForChannel(ai-duanju) 的唯一映射门，
+   * 翻 true 会让 012（里番分集、非短剧品类）进短剧频道切源名
+   * 单并使下方 M6「成员仅原生」断言翻红——差异已在 L2 报告
+   * 明报，本断言即裁定后的守门（翻 caps 者先改本断言并给频道
+   * 名单的处置方案）。 */
+  assert.equal(hhDef.capabilities.episodes, false, "012 caps.episodes 维持 false（L2 裁定：与模板 multi 分层、短剧频道映射门）");
 }
 
 /* ══ 1. 三组注册表状态 ══ */

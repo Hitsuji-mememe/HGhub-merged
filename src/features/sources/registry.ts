@@ -126,7 +126,7 @@ export const NAMED_SOURCES: SourceDef[] = [
     id: "hentaihaven", displayName: "HentaiHaven", kind: "video", category: "video",
     adapter: { template: "hentaihaven-api", params: {} }, baseUrls: ["https://hentaihaven.xxx"],
     enabled: true, order: 55, maturity: "probe", capabilities: HLS_CAPS, network: PROBE_NET,
-    note: "fix330 接通批自目录导入毕业为命名源并启用：专用适配器（/api/manga/ 目录与搜索段 JSON、/watch/<slug>/ 详情与分集、集页 ld+json 取 HLS，结构据公开插件 hentaihaven.js 协议事实＋解析夹具实证）；住宅出口两级筛查正常在案（①首页②列表，source-verify-20261119 第二轮 B 组）、③④级住宅未复核；本机机房出口为 CF 403（出口形态、非站点结论）；App 侧未真机验 → probe",
+    note: "fix330 接通批自目录导入毕业为命名源并启用：专用适配器（/api/manga/ 目录与搜索段 JSON、/watch/<slug>/ 详情与分集、集页 ld+json 取 HLS，结构据公开插件 hentaihaven.js 协议事实＋解析夹具实证）；住宅出口两级筛查正常在案（①首页②列表，source-verify-20261119 第二轮 B 组）、③④级住宅未复核；本机机房出口为 CF 403（出口形态、非站点结论）；App 侧未真机验 → probe。2026-11-20 fix334/L2 裁定：capabilities.episodes 维持 false——该字段是短剧频道（ai-duanju）品类映射门（sourcesForChannel 只认它），翻 true 会让本源（里番分集、非短剧品类）进短剧频道切源名单、且与 surfaces 声明 e（no-drama-mapping）冲突；集数产出事实以 templateCapabilities 的 multi 为唯一出处，选集面（episodes.ts）只读模板事实不读 caps，两层分工不许混用",
   },
 ];
 
