@@ -765,8 +765,15 @@ function sha1Hex(text: string): string {
 
 /** Iwara fileUrl 签名盐：站点协议固定常数（公开插件 iwara.js 与
  * 独立用户脚本双证据的协议事实、非用户凭据），X-Version =
- * sha1(<fileUrl 末段>_<expires 参数>_<盐>)。 */
-const IWARA_FILE_VERSION_SALT = "mSvL05GfEmeEmsEYfGCnVpEjYgTJraJN";
+ * sha1(<fileUrl 末段>_<expires 参数>_<盐>)。站点会轮换签名盐
+ * （维护客户端 IwaraTool「verified」API 文档＋gallery-dl 双证据）：
+ * 现行盐在前、旧盐兜底，逐个试——轮换期站方对旧签名回空表/错误，
+ * 单盐一次判读即终局会把全站取流打成 stream_unavailable
+ * （fix337/video-resolve）。 */
+const IWARA_FILE_VERSION_SALTS = [
+  "mSvL05GfEmeEmsEYfGCnVpEjYgTJraJN",
+  "5nFp9kmbNnHdAFhaqMvt",
+] as const;
 
 /** (h) Iwara 公开 API（Muse 2026-11-19 fix330 接通批）：结构据
  * Hentai-Park 公开插件 iwara.js 的协议事实（只借协议/结构、代码
@@ -865,37 +872,64 @@ export function createIwaraAdapter(def: SourceDef): SourceAdapter {
         traceResolveFailure(def.id, "detail", "file_url_unavailable", undefined, 0);
         return { streams: [] };
       }
-      let version = "";
+      /* 签名盐逐个试（fix337/video-resolve）：fileUrl 形态可算签名
+       * 时按 IWARA_FILE_VERSION_SALTS 顺序逐盐取表，任一盐产出候选
+       * 即终局；取数失败/解码失败/非数组/零候选都先换下一盐，全盐
+       * 终局才按旧口径落痕/抛出（留痕只记终局一次、不按盐重复记）。
+       * fileUrl 形态异常算不出签名时退化为单次无签名取数（旧行为）。 */
+      let seg = "";
+      let exp = "";
       try {
         const u = new URL(fileUrl);
-        const seg = u.pathname.split("/").filter(Boolean).pop() ?? "";
-        const exp = u.searchParams.get("expires") ?? "";
-        if (seg && exp) version = sha1Hex(`${seg}_${exp}_${IWARA_FILE_VERSION_SALT}`);
+        seg = u.pathname.split("/").filter(Boolean).pop() ?? "";
+        exp = u.searchParams.get("expires") ?? "";
       } catch { /* fileUrl 形态异常：无签名取数、由响应形态决定成败 */ }
-      let rowsRaw: string;
-      try {
-        rowsRaw = await fetchPage(fileUrl, version ? { "X-Version": version } : undefined);
-      } catch (e) {
-        traceResolveFailure(def.id, "fetch", "stream_fetch_failed", httpStatusOf(e), 0);
-        throw e;
-      }
-      let rows: { name?: string; quality?: string; src?: { view?: string; download?: string }; url?: string }[];
-      try {
-        rows = JSON.parse(rowsRaw) as typeof rows;
-      } catch (e) {
-        traceResolveFailure(def.id, "decode", "stream_decode_failed", undefined, 0);
-        throw e;
-      }
-      if (!Array.isArray(rows)) {
-        traceResolveFailure(def.id, "decode", "stream_table_invalid", undefined, 0);
+      const versions: (string | undefined)[] = seg && exp
+        ? IWARA_FILE_VERSION_SALTS.map((salt) => sha1Hex(`${seg}_${exp}_${salt}`))
+        : [undefined];
+      type IwaraRow = { name?: string; quality?: string; src?: { view?: string; download?: string }; url?: string };
+      for (let attempt = 0; attempt < versions.length; attempt++) {
+        const last = attempt === versions.length - 1;
+        const version = versions[attempt];
+        let rowsRaw: string;
+        try {
+          rowsRaw = await fetchPage(fileUrl, version ? { "X-Version": version } : undefined);
+        } catch (e) {
+          if (!last) continue;
+          traceResolveFailure(def.id, "fetch", "stream_fetch_failed", httpStatusOf(e), 0);
+          throw e;
+        }
+        let rows: IwaraRow[];
+        try {
+          rows = JSON.parse(rowsRaw) as IwaraRow[];
+        } catch (e) {
+          if (!last) continue;
+          traceResolveFailure(def.id, "decode", "stream_decode_failed", undefined, 0);
+          throw e;
+        }
+        if (!Array.isArray(rows)) {
+          if (!last) continue;
+          traceResolveFailure(def.id, "decode", "stream_table_invalid", undefined, 0);
+          return { streams: [] };
+        }
+        /* 候选地址规范化（fix337/video-resolve）：站方流表的
+         * src.view/download 实为**协议相对地址**（//host/...，
+         * IwaraTool 取画质代码＋gallery-dl 双证据，客户端须补
+         * https:）——旧实现只收 ^https:// 把全部候选滤光，真机
+         * 取数/解码都成功却恒 stream_unavailable（3.3.6 三连）。 */
+        const cands = rows
+          .map((r) => {
+            const raw = r.src?.view ?? r.src?.download ?? r.url ?? "";
+            return { url: raw.startsWith("//") ? `https:${raw}` : raw, q: Number(String(r.name ?? r.quality ?? "").match(/\d+/)?.[0] ?? 0) };
+          })
+          .filter((c) => /^https:\/\//i.test(c.url));
+        cands.sort((a, b) => b.q - a.q);
+        if (cands.length) return { streams: [{ url: cands[0].url, kind: "file" as const }] };
+        if (!last) continue;
+        traceResolveFailure(def.id, "decode", "stream_unavailable", undefined, 0);
         return { streams: [] };
       }
-      const cands = rows
-        .map((r) => ({ url: r.src?.view ?? r.src?.download ?? r.url ?? "", q: Number(String(r.name ?? r.quality ?? "").match(/\d+/)?.[0] ?? 0) }))
-        .filter((c) => /^https:\/\//i.test(c.url));
-      cands.sort((a, b) => b.q - a.q);
-      if (!cands.length) traceResolveFailure(def.id, "decode", "stream_unavailable", undefined, 0);
-      return { streams: cands.length ? [{ url: cands[0].url, kind: "file" as const }] : [] };
+      return { streams: [] };
     },
     async search(q, page, size) {
       return listFrom(`${apiBase}/search?type=videos&query=${encodeURIComponent(q.slice(0, 100))}&page=${page - 1}&limit=${size}`, page, size);
@@ -1074,8 +1108,16 @@ export function createHentaihavenAdapter(def: SourceDef): SourceAdapter {
     return [...seen].sort((a, b) => a - b);
   };
   const extractHls = (html: string): string | null => {
+    /* 只认 ld+json contentUrl 这一权威字段（fix337/video-resolve）：
+     * 旧实现回落 extractM3u8 整页首个 .m3u8 字面——现行集页的取流
+     * 走 player-logic iframe＋加密 POST 流程（维护客户端 CloudStream
+     * 同 host 实证、独立实现 60+），页内字面是预告/嵌入残留、非权威
+     * 流：3.3.6 真机取到后主清单能开、子级（变体/分片）全灭。宁可
+     * 诚实回空（decode/stream_unavailable 留痕）也不冒充成功；
+     * player-logic POST 流程需 Rust 定向 POST 通道＋真机验证，
+     * 另批落地。 */
     const m = /"contentUrl"\s*:\s*"(https:[^"]+?\.m3u8[^"]*)"/i.exec(html.replace(/\\\//g, "/"));
-    return m ? m[1] : extractM3u8(html);
+    return m ? m[1] : null;
   };
   return {
     sourceId: def.id,

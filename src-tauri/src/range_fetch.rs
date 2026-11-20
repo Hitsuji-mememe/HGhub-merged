@@ -193,7 +193,7 @@ const RANGE_PARTS: u64 = 4;
 pub(crate) async fn fetch_segment_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String> {
     let started = std::time::Instant::now();
     let log = |v: serde_json::Value| crate::playback_log::record("media.range_fetch", v);
-    match fetch_range_direct(url, 0, RANGE_PROBE_BYTES - 1).await {
+    let result = match fetch_range_direct(url, 0, RANGE_PROBE_BYTES - 1).await {
         Ok(first) if first.status == 200 => {
             // 服务器忽略 Range：探针响应就是全量，直接用。
             log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "no_range", "total_bytes": first.bytes.len()}));
@@ -249,6 +249,21 @@ pub(crate) async fn fetch_segment_bytes(url: &str) -> Result<(Option<String>, Ve
             log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "chunk_fail", "total_bytes": 0}));
             crate::net::fetch_bytes(url).await
         }
+    };
+    /* 内容形态守卫（fix337/video-resolve，3.3.6 真机 source-011
+     * 形态乙）：Range 路径对 200 全量体只看状态码——防盗链/挑战
+     * 页以 200＋HTML 应答时会被当分片「成功」收下（服务器忽略
+     * Range 的全量臂与拼片臂都中招），交给播放器即 level
+     * ParsingError/永不入缓冲。HTML 文档恒不是分片字节：整段
+     * 改走 fetch_bytes 的 Referer 候选链（目标自身 origin/空
+     * Referer 可能正是该 CDN 的放行形态），候选链末路仍是
+     * HTML 时它自会如实报错。 */
+    match result {
+        Ok((_, bytes)) if crate::net::is_html_document(&bytes) => {
+            log(serde_json::json!({"resource": crate::playback_log::resource_id(url), "fallback": "html_document", "total_bytes": bytes.len()}));
+            crate::net::fetch_bytes(url).await
+        }
+        other => other,
     }
 }
 

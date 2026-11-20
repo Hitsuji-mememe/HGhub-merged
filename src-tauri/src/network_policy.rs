@@ -191,6 +191,17 @@ fn sort_ipv6_first(addrs: &mut [SocketAddr]) {
     addrs.sort_unstable_by_key(|addr| (addr.is_ipv4(), *addr));
 }
 
+/// strict 模式下从系统答案里保留被允许的子集（纯函数，
+/// fix337/video-resolve）：整组拒绝的旧语义让一条被污染的记录
+/// （如上游回的 Teredo AAAA——fix335 Hark 实证的污染形态）把
+/// 同组好地址一并否决、目标恒 private_address_denied 且无回退
+/// 命中（3.3.6 真机 source-011 播放时段 ×10）。只保留子集不
+/// 放宽连接面：连接器钉住的地址仍逐个过 allowed_ip、永不连
+/// 被拒地址；子集为空（全被拒）时由调用方按旧语义整组拒绝。
+fn strict_allowed_subset(addrs: &[SocketAddr]) -> Vec<SocketAddr> {
+    addrs.iter().copied().filter(|a| allowed_ip(a.ip())).collect()
+}
+
 pub async fn resolve_target(url: &Url, strict: bool) -> Result<Vec<SocketAddr>, String> {
     let port = url.port_or_known_default().ok_or("目标端口无效")?;
     let mut addrs = match url.host().ok_or("目标缺少主机名")? {
@@ -207,7 +218,16 @@ pub async fn resolve_target(url: &Url, strict: bool) -> Result<Vec<SocketAddr>, 
     };
     sort_ipv6_first(&mut addrs);
     addrs.dedup();
-    check_addresses_with_mode(&addrs, strict)?;
+    if strict {
+        let subset = strict_allowed_subset(&addrs);
+        if subset.is_empty() {
+            // 全被拒（或无答案）：与旧整组拒绝同一错误出口与文本。
+            check_addresses_with_mode(&addrs, strict)?;
+        }
+        addrs = subset;
+    } else {
+        check_addresses_with_mode(&addrs, strict)?;
+    }
     Ok(addrs)
 }
 
@@ -348,6 +368,40 @@ mod tests {
             assert!(parse_target(raw).is_err(), "{raw}");
         }
         assert!(parse_target("http://198.18.0.1/video").is_ok());
+    }
+
+    /* fix337/video-resolve（3.3.6 真机 source-011 播放时段
+     * private_address_denied×10）：strict 解析对混合答案集整组拒绝
+     * 时，一条被污染的记录（如上游给的 Teredo AAAA，fix335 Hark
+     * 实证的污染形态）会把同组的好地址一并否决、目标恒失败且无
+     * 任何回退命中。resolve_target 改为只保留被允许的子集继续
+     * （连接器钉住的地址仍逐个过 allowed_ip、永不连被拒地址）；
+     * 子集为空才整组拒绝（check_addresses 语义不变）。 */
+    #[test]
+    fn strict_subset_keeps_allowed_addresses_of_mixed_answers() {
+        let mixed: Vec<SocketAddr> = ["1.1.1.1:443", "192.168.1.1:443", "[2001::1]:443"]
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect();
+        assert_eq!(
+            strict_allowed_subset(&mixed),
+            vec!["1.1.1.1:443".parse::<SocketAddr>().unwrap()],
+            "公网＋内网＋Teredo 混合集只保留公网"
+        );
+        let fake_mixed: Vec<SocketAddr> = ["198.19.0.1:443", "[2001::1]:443"]
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect();
+        assert_eq!(
+            strict_allowed_subset(&fake_mixed),
+            vec!["198.19.0.1:443".parse::<SocketAddr>().unwrap()],
+            "FakeIP＋Teredo 混合集保留 FakeIP（后续走 fake_trusted 分支）"
+        );
+        let all_bad: Vec<SocketAddr> = ["10.0.0.1:443", "[fe80::1]:443"]
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect();
+        assert!(strict_allowed_subset(&all_bad).is_empty(), "全被拒时子集为空、由调用方整组拒绝");
     }
 
     #[test]

@@ -79,7 +79,7 @@ pub(crate) use client::{
 };
 pub use crate::net_diag::{diagnose, proxy_state, test_proxy};
 pub use edge::{edge, fetch_bytes, fetch_bytes_capped, fetch_bytes_with_url, fetch_page_post, fetch_page_text, fetch_page_text_with_headers};
-pub(crate) use edge::{edge_redirect_target, CappedBody};
+pub(crate) use edge::{edge_redirect_target, is_html_document, CappedBody};
 pub use line::{
     base, bind_base, is_custom_line, normalize_base, set_base, set_custom_base,
     trusted_auth_origin,
