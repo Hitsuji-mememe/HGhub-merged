@@ -261,7 +261,12 @@ function expectedClass(surface: SurfaceId, def: SourceDef, active: SourceDef[]):
       return templateCapabilitiesFor(def).detailPlay ? "applicable" : "na";
     }
     case "library":
-      return nativeOf(def) ? "applicable" : "na";
+      /* G4 接通后（fix334/L3）：原生＋已启用∧有适配器的外部源适用；
+       * 未启用不适用（与 deeplink 的「寻址即提示」分工不同——资料
+       * 库是成员面、不是寻址面）。 */
+      if (nativeOf(def)) return "applicable";
+      if (!def.enabled) return "na";
+      return templateHasAdapter(def.adapter.template) ? "applicable" : "na";
   }
 }
 
@@ -324,9 +329,13 @@ for (const [si, state] of STATES.entries()) {
   assert.deepEqual(routeForSurface("channel-drama", byId("hanime-tv"), ctx),
     { kind: "not-applicable", declaration: "no-drama-mapping" }, "002×M6 声明 e");
   assert.deepEqual(sourcesForSurface("channel-drama", R1).map((d) => d.id), ["huangguo"], "M6 成员仅原生");
-  /* 资料库：外部源 G4 在途声明，不许静默。 */
+  /* 资料库：G4 已接通（fix334/L3 extRefs 快照侧表）——断言适配：
+   * 原「g4-pending 在途声明」随 L3 落地转正，覆盖不减（转正＋未启
+   * 用仍不适用两面都钉）。 */
   assert.deepEqual(routeForSurface("library", byId("hanime-tv"), ctx),
-    { kind: "not-applicable", declaration: "g4-pending" }, "002×M17 G4 在途声明");
+    { kind: "browse", component: "ProfileLibrary" }, "002×M17 G4 已接通");
+  assert.deepEqual(routeForSurface("library", byId("yandere"), ctx),
+    { kind: "not-applicable", declaration: "not-enabled" }, "015×M17 未启用不适用");
   /* 陈旧 id（def 缺失）在可寻址面落 gone 提示。 */
   assert.deepEqual(routeForSurface("deeplink-image", undefined, ctx), { kind: "notice", reason: "gone" }, "缺失源×M8＝gone");
   assert.deepEqual(routeForSurface("posts-page", undefined, ctx), { kind: "notice", reason: "gone" }, "缺失源×M10＝gone");
@@ -367,6 +376,11 @@ for (const [si, state] of STATES.entries()) {
    * R3 口径把 M11 列入 015 适用面与能力事实矛盾，见报告设计订正。 */
   assert.deepEqual(routeForSurface("search-fanout", yd, ctx),
     { kind: "not-applicable", declaration: "no-search-segment" }, "R3 015×M11 无搜索段出局（订正设计 R3 口径）");
+  /* R3×M17（fix334/L3）：停用 012 退出资料库成员、启用 015 自动进。 */
+  assert.deepEqual(routeForSurface("library", hh, ctx),
+    { kind: "not-applicable", declaration: "not-enabled" }, "R3 012×M17 停用退出");
+  assert.deepEqual(routeForSurface("library", yd, ctx),
+    { kind: "browse", component: "ProfileLibrary" }, "R3 015×M17 启用自动接通");
 }
 
 console.log("fix334-surfaces.contract: all assertions passed");

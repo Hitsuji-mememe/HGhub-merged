@@ -12,9 +12,11 @@ import { Loader } from "../../shared/ui/ios/effects";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MediaCard } from "../../shared/ui/cards";
 import { Empty } from "../../shared/ui/ui";
-import { IBack, IGrid } from "../../shared/ui/icons";
+import { IBack, IGrid, IStar, IStarF } from "../../shared/ui/icons";
 import { AlbumViewer } from "./AlbumViewer.tsx";
 import { registerOverlayBack } from "../../shared/lib/back";
+import { useStore } from "../../shared/model/store";
+import { externalHashId } from "../../shared/model/localLibrary";
 import { setImageTraceSurface } from "../../shared/lib/feedTrace";
 import { createAdapter } from "./adapters/index.ts";
 import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
@@ -25,9 +27,15 @@ type AlbumState =
   | { phase: "ready"; item: SourceItem; images: string[]; index: number }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourceGallery({ def }: { def: SourceDef }) {
+export default function SourceGallery({ def, openExternalId }: {
+  def: SourceDef;
+  /** G4 回访直达（fix334/L3）：同 SourceBrowse 口径——已加载列表
+   * 含目标相册才自动打开、消费一次，不在列表不强求。 */
+  openExternalId?: string;
+}) {
   /* 进入浏览面补探（fix331/source-reliability）：同 SourceBrowse 口径。 */
   useSourceSelfCheckOnView(def);
+  const { isFav, setExternalCollected, actionPending, toast } = useStore();
   const [items, setItems] = useState<SourceItem[]>([]);
   const [page, setPage] = useState(0);
   const [pages, setPages] = useState(1);
@@ -75,9 +83,11 @@ export default function SourceGallery({ def }: { def: SourceDef }) {
     return () => io.disconnect();
   }, [loading, err, page, pages, items.length, load]);
 
+  const openExternalConsumed = useRef<string | null>(null);
   useEffect(() => {
     seq.current++;
     busy.current = false;
+    openExternalConsumed.current = null;
     setItems([]); setPage(0); setPages(1); setAlbum(null);
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -116,17 +126,41 @@ export default function SourceGallery({ def }: { def: SourceDef }) {
     }
   }, [def]);
 
+  /* 回访直达消费（G4）：目标相册在已加载列表中才打开，消费一次。 */
+  useEffect(() => {
+    if (!openExternalId || openExternalConsumed.current === openExternalId) return;
+    const target = items.find((x) => x.externalId === openExternalId);
+    if (!target) return;
+    openExternalConsumed.current = openExternalId;
+    void openAlbum(target);
+  }, [openExternalId, items, openAlbum]);
+
   if (album) {
     /* 查看态（Muse 2026-11-19 3.2.1修复F6线）：ready 走全屏查看器
      * AlbumViewer（fixed 覆满视口，壳顶栏/频道页顶栏不再与查看器
      * 顶栏叠层挤压图片）；loading/error 维持既有页内形态与文案不变。 */
     if (album.phase === "ready") {
+      /* G4 收藏（fix334/L3）：kind=image 落 postFavs、快照同写，
+       * 钮经 AlbumViewer 顶栏动作槽注入（随 chrome 淡出）。 */
+      const itemHash = externalHashId(album.item);
+      const fav = isFav(itemHash, "post");
+      const favPending = actionPending(`collect:post:${itemHash}`);
       return (
         <div className="fixed inset-0 z-40 bg-black">
           <AlbumViewer title={album.item.title} images={album.images} index={album.index}
             onIndexChange={(i) => setAlbum({ ...album, index: i })}
             onBack={() => setAlbum(null)} backLabel="返回相册列表"
-            onClose={() => setAlbum(null)} immersive />
+            onClose={() => setAlbum(null)} immersive
+            headerAction={(
+              <Button aria-label={fav ? "取消收藏" : "收藏"} disabled={favPending}
+                onClick={() => {
+                  void setExternalCollected("image", album.item, !fav);
+                  toast(fav ? "已取消收藏" : "已收藏", "star");
+                }}
+                className="grid place-items-center w-11 h-11 shrink-0 rounded-full bg-black/40 text-white">
+                {fav ? <IStarF size={19} className="text-amber" /> : <IStar size={19} />}
+              </Button>
+            )} />
         </div>
       );
     }

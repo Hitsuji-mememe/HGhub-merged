@@ -2138,6 +2138,59 @@
       "item": "结构批 L2／G3：SourceBrowse openItem 并发取 detail 供选集（失败降级不阻断取流）",
       "min": 1,
       "symbol": "adapter.detail(item.externalId)"
+    },
+    {
+      "files": [
+        "src/shared/model/localLibrary.ts",
+        "src/shared/model/store.tsx",
+        "src/features/account/Profile.tsx"
+      ],
+      "id": "fix334-g4-extrefs-side-table",
+      "item": "结构批 L3／G4：extRefs 快照侧表（localLibrary 定义＋store 暴露＋Profile 消费）",
+      "min": 3,
+      "symbol": "extRefs"
+    },
+    {
+      "files": [
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourcePosts.tsx",
+        "src/features/sources/SourceGallery.tsx",
+        "src/features/search/Search.tsx"
+      ],
+      "id": "fix334-g4-collect-wiring",
+      "item": "结构批 L3／G4：四写入面收藏钮接 setExternalCollected（哈希＋快照同写）",
+      "min": 4,
+      "symbol": "setExternalCollected"
+    },
+    {
+      "files": [
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/search/Search.tsx"
+      ],
+      "id": "fix334-g4-history-wiring",
+      "item": "结构批 L3／G4：两播放面 onPlaying 首帧写外部历史 addExternalHistory",
+      "min": 2,
+      "symbol": "addExternalHistory"
+    },
+    {
+      "files": [
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourcePosts.tsx",
+        "src/features/sources/SourceGallery.tsx"
+      ],
+      "id": "fix334-g4-open-external",
+      "item": "结构批 L3／G4：三浏览组件消费回访直达 openExternalId（首屏命中才开、消费一次）",
+      "min": 3,
+      "symbol": "openExternalId"
+    },
+    {
+      "files": [
+        "src/features/account/Profile.tsx"
+      ],
+      "id": "fix334-g4-profile-revisit",
+      "item": "结构批 L3／G4：Profile 回访路由经 surfaces 派生消费（routeForSurface），不本地另判",
+      "min": 1,
+      "symbol": "routeForSurface"
     }
   ]
 }

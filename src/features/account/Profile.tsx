@@ -4,8 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { api, APP_VERSION, fmt, fmtTime, isMobile, platform } from "../../shared/api/api";
 import type { Detail, Post } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
+import type { ExternalRef } from "../../shared/model/localLibrary";
 import { Avatar, Empty, Modal } from "../../shared/ui/ui";
 import { MediaCard } from "../../shared/ui/cards";
+import { routeForSurface } from "../sources/surfaces.ts";
+import { getActiveRegistry } from "../sources/manifest";
+import { getBuiltinRegistry } from "../sources/registry";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { IBack, IChevR, IClock, IHeart, ISettings, IStar, IUser } from "../../shared/ui/icons";
 
@@ -18,7 +22,7 @@ export default function Profile({ wide, active = true }: { wide: boolean; active
 
 function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
   const { blockReason } = useContentPreferences();
-  const { history, favs, postFavs, setCollected, toast, clearHistory, push, setTab: setMainTab } = useStore();
+  const { history, favs, postFavs, setCollected, toast, clearHistory, push, setTab: setMainTab, extRefs } = useStore();
   const [tab, setTab] = useState<"fav" | "history">("fav");
   const [favKind, setFavKind] = useState<"video" | "post">("video");
   const [videoCache, setVideoCache] = useState<Record<number, Detail>>({});
@@ -46,20 +50,57 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
   const limitKey = tab === "history" ? "history" : showingPosts ? "favPost" : "favVideo";
   const ids = tab === "history" ? history.map((h) => h.id) : showingPosts ? postFavs : favs;
   const visibleIds = ids.slice(0, limits[limitKey]);
-  const videoCards = !showingPosts ? visibleIds.map(id => videoCache[id]).filter((card): card is Detail => !!card) : [];
-  const postCards = showingPosts ? visibleIds.map(id => postCache[id]).filter((card): card is Post => !!card) : [];
-  const cardsCount = showingPosts ? postCards.length : videoCards.length;
+  /* 出卡双通道（fix334/L3 G4）：命中 extRefs 快照的外部条目直接以
+   * 快照出卡（不调原生 api——桥接哈希对原生 api 必失败，那正是
+   * G4 前外部收藏/历史回不来的根因）；未命中的原生条目仍走既有
+   * api 回查＋缓存。两通道按 ids 原序合并，计数/分页口径不变。 */
+  type VideoEntry = { id: number; detail?: Detail; ref?: ExternalRef };
+  type PostEntry = { id: number; post?: Post; ref?: ExternalRef };
+  const videoEntries: VideoEntry[] = !showingPosts
+    ? visibleIds.flatMap<VideoEntry>(id => extRefs[id] ? [{ id, ref: extRefs[id] }] : videoCache[id] ? [{ id, detail: videoCache[id] }] : [])
+    : [];
+  const postEntries: PostEntry[] = showingPosts
+    ? visibleIds.flatMap<PostEntry>(id => extRefs[id] ? [{ id, ref: extRefs[id] }] : postCache[id] ? [{ id, post: postCache[id] }] : [])
+    : [];
+  const cardsCount = showingPosts ? postEntries.length : videoEntries.length;
   const failed = failedIds.filter(id => visibleIds.includes(id));
   const idsKey = visibleIds.join(",");
   /** 观看记录里这条的进度（收藏页没有） */
   const progressOf = (id: number) => (tab === "history" ? history.find((h) => h.id === id) : undefined);
 
+  /** 外部快照的来源显示名：注册表查名（active 优先、内置兜底），
+   * 源已下线查无时回落 sourceId 本身——只作卡面注记，不冒充现状。 */
+  const sourceNameOf = (sourceId: string) =>
+    getActiveRegistry().sources.find((d) => d.id === sourceId)?.displayName
+    ?? getBuiltinRegistry().find((d) => d.id === sourceId)?.displayName
+    ?? sourceId;
+
+  /** 外部条目回访（G4）：落点面由 kind 定（video→deeplink-video、
+   * image→deeplink-image、post→posts-page），可达性经 surfaces
+   * 派生消费、不在本地另判——browse/notice 都推既有深链页（页内
+   * 同一派生落浏览组件或 P2 三态诚实提示：停用/下线/blocked 不
+   * 白屏、不假装能播）；not-applicable（源已从注册表消失到无从
+   * 落点）才在本面诚实告知。 */
+  const openExternal = (ref: ExternalRef) => {
+    const surface = ref.kind === "video" ? "deeplink-video" : ref.kind === "image" ? "deeplink-image" : "posts-page";
+    const active = getActiveRegistry().sources;
+    const builtin = getBuiltinRegistry();
+    const def = active.find((d) => d.id === ref.sourceId) ?? builtin.find((d) => d.id === ref.sourceId);
+    const route = routeForSurface(surface, def, { active, builtin });
+    if (route.kind === "not-applicable") { toast("该来源已不可用", "info"); return; }
+    if (ref.kind === "post") {
+      push({ kind: "posts", sourceId: ref.sourceId, openExternalId: ref.externalId });
+    } else {
+      push({ kind: "channel", cate: `${ref.kind}:${ref.sourceId}`, name: sourceNameOf(ref.sourceId), openExternalId: ref.externalId });
+    }
+  };
+
   useEffect(() => {
     if (!active) return;
     let alive = true;
     const missing = showingPosts
-      ? visibleIds.filter(id => !postCacheRef.current[id])
-      : visibleIds.filter(id => !videoCacheRef.current[id]);
+      ? visibleIds.filter(id => !extRefs[id] && !postCacheRef.current[id])
+      : visibleIds.filter(id => !extRefs[id] && !videoCacheRef.current[id]);
     setFailedIds([]);
     if (!missing.length) { setLoading(false); return; }
     setLoading(true);
@@ -153,9 +194,16 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
         <div className="mt-3" aria-busy={loading}>
           {loading && !cardsCount ? (
             <div className="flex justify-center py-8"><Loader className="w-7 h-7 spinner" /></div>
-          ) : showingPosts && postCards.length ? (
+          ) : showingPosts && postEntries.length ? (
             <div className={`ios-media-grid ${wide ? "is-wide" : ""}`}>
-              {postCards.map((p) => {
+              {postEntries.map((entry) => {
+                if (entry.ref) {
+                  const ref = entry.ref;
+                  return <MediaCard key={entry.id} title={ref.title} cover={ref.cover}
+                    subtitle={sourceNameOf(ref.sourceId)}
+                    onOpen={() => openExternal(ref)} />;
+                }
+                const p = entry.post!;
                 const reason = blockReason(p.tags);
                 return <MediaCard key={p.id} blockedReason={reason} title={p.title} cover={p.cover}
                   subtitle={p.tags?.slice(0, 2).join(" · ") || `${fmt(p.hot)} 次浏览`}
@@ -165,9 +213,19 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
                   }} />;
               })}
             </div>
-          ) : !showingPosts && videoCards.length ? (
+          ) : !showingPosts && videoEntries.length ? (
             <div className={`ios-media-grid ${wide ? "is-wide" : ""}`}>
-              {videoCards.map((c) => {
+              {videoEntries.map((entry) => {
+                if (entry.ref) {
+                  const ref = entry.ref;
+                  const progress = progressOf(entry.id);
+                  return <MediaCard key={entry.id} title={ref.title} cover={ref.cover}
+                    badge={ref.epCount ? `${ref.epCount} 集` : undefined}
+                    subtitle={sourceNameOf(ref.sourceId)}
+                    progress={progress ? (progress.t >= 1 ? `第 ${progress.ep} 集 · ${fmtTime(progress.t)}` : `第 ${progress.ep} 集`) : undefined}
+                    onOpen={() => openExternal(ref)} />;
+                }
+                const c = entry.detail!;
                 const progress = progressOf(c.id);
                 const reason = blockReason(c.tags);
                 return <MediaCard key={c.id} blockedReason={reason} title={c.title} cover={c.cover} score={c.score}

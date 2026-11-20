@@ -39,7 +39,7 @@
  *   距）才挂 Img 且 eager 取图，挂载即取图、时钟同点起算；窗外
  *   只占位、不挂 Img、不发请求、不起时钟，滚动到哪加载到哪。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { GESTURE_EDGE_PX } from "../../shared/lib/gestureGate";
 import { Button } from "../../shared/ui/ios/controls";
 import { Img } from "../../shared/ui/ui";
@@ -47,7 +47,7 @@ import { IBack, IClose } from "../../shared/ui/icons";
 
 export const ALBUM_CHROME_IDLE_MS = 3000;
 
-export function AlbumViewer({ title, images, index, onIndexChange, onBack, backLabel, onClose, closeLabel = "关闭大图", footerNote, immersive = false }: {
+export function AlbumViewer({ title, images, index, onIndexChange, onBack, backLabel, onClose, closeLabel = "关闭大图", footerNote, immersive = false, headerAction }: {
   title: string;
   images: string[];
   index: number;
@@ -57,6 +57,10 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
   onClose?: () => void;
   closeLabel?: string;
   footerNote?: string;
+  /** 顶栏动作槽（fix334/L3）：宿主可选注入（如图集收藏钮），渲染
+   * 在计数与关闭之间、随 chrome 一同淡出；不传则顶栏与旧形态逐字
+   * 一致（Search 图片详情不传、不受影响）。 */
+  headerAction?: ReactNode;
   /* immersive：宿主为 fixed 覆满视口的全屏形态时为 true，chrome
    * 按安全区变量让位（见文件头注）；页内嵌形态保持 false。 */
   immersive?: boolean;
@@ -200,6 +204,7 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
             className="grid place-items-center w-11 h-11 shrink-0 rounded-full bg-black/40 text-white"><IBack size={20} /></Button>
           <h2 className="flex-1 min-w-0 truncate text-[15px] font-bold text-white">{title}</h2>
           <span data-ui="album-viewer-count" className="shrink-0 text-[12px] text-white/85">{idx + 1} / {images.length}</span>
+          {headerAction}
           {onClose && (
             <Button aria-label={closeLabel} onClick={onClose}
               className="grid place-items-center w-11 h-11 shrink-0 rounded-full bg-black/40 text-white"><IClose size={18} /></Button>

@@ -5,6 +5,7 @@ import { isStrictSecurity, setStrictSecurity as setHtmlStrictSecurity } from "..
 import { readStorage, STORAGE_KEYS } from "../storage/storage";
 import {
   absorbLegacyAccounts, clearAbsorbedLegacyAccounts, pickLibraryData, useLocalLibrary, type LibraryData,
+  type ExternalItemRef, type ExternalKind, type ExternalRef,
 } from "./localLibrary";
 
 export type Platform = "android" | "ios" | "windows" | "macos" | "linux";
@@ -34,10 +35,10 @@ export type FeedContext = {
 
 export type Page =
   | FeedContext
-  | { kind: "channel"; key: string; cate: string; name: string }
+  | { kind: "channel"; key: string; cate: string; name: string; openExternalId?: string }
   | { kind: "ranks"; key: string }
   | { kind: "settings"; key: string; section?: "内容偏好" }
-  | { kind: "posts"; key: string }
+  | { kind: "posts"; key: string; sourceId?: string; openExternalId?: string }
   | { kind: "post"; key: string; id: number }
   | { kind: "topics"; key: string }
   | { kind: "topic"; key: string; slug: string; name: string }
@@ -47,10 +48,10 @@ export type Page =
 
 export type PageInput =
   | { kind: "feed"; videoIds: number[]; index: number; title: string; source?: string; feedKind?: "video" | "post"; startEp?: number; startTime?: number }
-  | { kind: "channel"; cate: string; name: string }
+  | { kind: "channel"; cate: string; name: string; openExternalId?: string }
   | { kind: "ranks" }
   | { kind: "settings"; section?: "内容偏好" }
-  | { kind: "posts" }
+  | { kind: "posts"; sourceId?: string; openExternalId?: string }
   | { kind: "post"; id: number }
   | { kind: "topics" }
   | { kind: "topic"; slug: string; name: string }
@@ -211,6 +212,12 @@ type Store = {
   isFav: (id: number, kind?: "video" | "post") => boolean;
   /** 记一条观看记录；`ep/t/dur` 省略时保留原进度，`ep` 变了就把进度归零 */
   addHistory: (id: number, ep?: number, t?: number, dur?: number) => void;
+  /** G4 外部源快照侧表（fix334/L3）：外部收藏/历史的回访事实来源。 */
+  extRefs: Record<number, ExternalRef>;
+  /** 外部条目收藏：哈希＋快照与收藏同写（video→favs、post/image→postFavs）。 */
+  setExternalCollected: (kind: ExternalKind, item: ExternalItemRef, on: boolean, epCount?: number) => Promise<void>;
+  /** 外部条目历史：行 t=0/dur=0，续播只恢复到集（epOrdinal）。 */
+  addExternalHistory: (item: ExternalItemRef, epOrdinal?: number, epCount?: number) => void;
   clearHistory: () => Promise<void>;
   fs: boolean; setFs: (v: boolean | ((p: boolean) => boolean)) => void;
   /** 移动端「净屏」：只留画面，UI 全隐 */
@@ -496,6 +503,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isFav: library.isFav,
     setCollected: library.setCollected, actionPending: library.actionPending,
     addHistory: library.addHistory, clearHistory: library.clearHistory,
+    extRefs: library.extRefs,
+    setExternalCollected: library.setExternalCollected, addExternalHistory: library.addExternalHistory,
     muted: p.muted, setMuted, volume: p.volume, setVolume, rate: p.rate, setRate, fs, setFs, clean, setClean,
     muteOnStartup: p.muteOnStartup, setMuteOnStartup,
     swipeEp: p.swipeEp, setSwipeEp,

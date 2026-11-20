@@ -25,6 +25,11 @@
  * 选集以所选 externalId 重新 resolve 换流、Player scopeKey 随当
  * 前集变更防串集缓存；切集失败留当前集继续播＋错误行明示，不
  * 静默回落第一集冒充成功。Search 外部详情是第二条同治路径。
+ *
+ * 收藏/历史（2026-11-20 fix334/L3 G4）：详情头收藏钮经 store 的
+ * setExternalCollected 写桥接哈希＋extRefs 快照；Player onPlaying
+ * 首帧经 addExternalHistory 记历史（集数＝当前集 ordinal）。回访
+ * 经 openExternalId prop 直达（资料库/Profile 发起）。
  */
 import { Button } from "../../shared/ui/ios/controls";
 import { Loader } from "../../shared/ui/ios/effects";
@@ -32,12 +37,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cover } from "../../shared/api/api";
 import { MediaCard } from "../../shared/ui/cards";
 import { Empty } from "../../shared/ui/ui";
-import { IBack, IFilm } from "../../shared/ui/icons";
+import { IBack, IFilm, IStar, IStarF } from "../../shared/ui/icons";
 import { Player } from "../playback";
 import { registerOverlayBack } from "../../shared/lib/back";
+import { useStore } from "../../shared/model/store";
+import { externalHashId } from "../../shared/model/localLibrary";
 import { createAdapter } from "./adapters/index.ts";
 import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
-import { episodeChoicesForSurface, type EpisodeChoice } from "./episodes.ts";
+import { episodeChoicesForSurface, episodeOrdinal, type EpisodeChoice } from "./episodes.ts";
 import { EpisodePicker } from "./EpisodePicker";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
@@ -52,7 +59,7 @@ type DetailState =
     }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourceBrowse({ def, onDetailOpenChange }: {
+export default function SourceBrowse({ def, onDetailOpenChange, openExternalId }: {
   def: SourceDef;
   /** 详情开合回报（Muse 2026-11-20 fix331/covers-header，3.3.1 真机
    * 首验问题②）：本组件挂在 ChannelPage 内，详情自带一层页头（返回
@@ -60,7 +67,12 @@ export default function SourceBrowse({ def, onDetailOpenChange }: {
    * 栏＋两枚返回键同屏（真机图 1 实锤）。宿主据此隐藏外层页头，
    * 详情关闭自动恢复。 */
   onDetailOpenChange?: (open: boolean) => void;
+  /** G4 回访直达（fix334/L3）：资料库点开外部收藏/历史时带入目标
+   * 条目 externalId——首屏列表含该条目才自动打开（消费一次），不
+   * 在首屏不强求翻页寻找（设计 D-3）。 */
+  openExternalId?: string;
 }) {
+  const { isFav, setExternalCollected, addExternalHistory, actionPending, toast } = useStore();
   /* 进入浏览面补探（fix331/source-reliability）：自检结果缺失/
    * 过期时后台单源补探，徽标探完即刷新，不阻塞本面取数。 */
   useSourceSelfCheckOnView(def);
@@ -118,9 +130,15 @@ export default function SourceBrowse({ def, onDetailOpenChange }: {
     return () => io.disconnect();
   }, [loading, err, page, pages, items.length, load]);
 
+  const openExternalConsumed = useRef<string | null>(null);
+  /* 历史写入去重键（条目:当前集）：同集反复 playing（暂停续播/寻址）
+   * 不重复记，换集才以新 ordinal 再记一行。 */
+  const historyKeyRef = useRef("");
   useEffect(() => {
     seq.current++;
     busy.current = false;
+    openExternalConsumed.current = null;
+    historyKeyRef.current = "";
     setItems([]); setPage(0); setPages(1); setDetail(null);
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -137,6 +155,7 @@ export default function SourceBrowse({ def, onDetailOpenChange }: {
   }, [detailOpen]);
 
   const openItem = useCallback(async (item: SourceItem) => {
+    historyKeyRef.current = "";
     const adapter = createAdapter(def);
     if (!adapter) { setDetail({ phase: "error", item, message: "该源未注册可用适配器" }); return; }
     setDetail({ phase: "loading", item });
@@ -160,6 +179,16 @@ export default function SourceBrowse({ def, onDetailOpenChange }: {
       currentEpExternalId: choices[0]?.externalId ?? item.externalId,
     });
   }, [def]);
+
+  /* 回访直达消费（G4）：目标条目出现在已加载列表中才打开，消费
+   * 一次；不在列表（含未加载完）不做任何强求动作。 */
+  useEffect(() => {
+    if (!openExternalId || openExternalConsumed.current === openExternalId) return;
+    const target = items.find((x) => x.externalId === openExternalId);
+    if (!target) return;
+    openExternalConsumed.current = openExternalId;
+    void openItem(target);
+  }, [openExternalId, items, openItem]);
 
   /* 切集：以所选集 externalId 重新 resolve 换流。竞态以 epSeq 只
    * 认最后一次点选；失败（含无流）不换流、不回落第一集——留在
@@ -191,6 +220,11 @@ export default function SourceBrowse({ def, onDetailOpenChange }: {
     const currentChoice = detail.phase === "ready"
       ? choices.find((c) => c.externalId === detail.currentEpExternalId)
       : undefined;
+    /* G4 收藏态（fix334/L3）：以桥接哈希查既有收藏集合——与 Profile
+     * 出卡、原生收藏钮同一事实源。 */
+    const itemHash = externalHashId(detail.item);
+    const fav = isFav(itemHash, "video");
+    const favPending = actionPending(`collect:video:${itemHash}`);
     return (
       <div className="flex flex-col">
         <div className="flex items-center gap-2 px-4 pt-2 pb-3">
@@ -199,6 +233,14 @@ export default function SourceBrowse({ def, onDetailOpenChange }: {
           {choices.length > 1 && currentChoice && (
             <span className="shrink-0 text-[12px] text-mut">{currentChoice.label}</span>
           )}
+          <Button aria-label={fav ? "取消收藏" : "收藏"} disabled={favPending}
+            onClick={() => {
+              void setExternalCollected("video", detail.item, !fav, choices.length || undefined);
+              toast(fav ? "已取消收藏" : "已收藏", "star");
+            }}
+            className="grid place-items-center w-9 h-9 shrink-0 rounded-full bg-s2">
+            {fav ? <IStarF size={17} className="text-amber" /> : <IStar size={17} />}
+          </Button>
         </div>
         {detail.phase === "loading" && (
           <div className="flex justify-center py-16"><Loader className="w-8 h-8 spinner" /></div>
@@ -210,6 +252,17 @@ export default function SourceBrowse({ def, onDetailOpenChange }: {
           <div className="px-4">
             <Player src={detail.streamUrl} poster={cover(detail.item.cover)} autoPlay active controls
               scopeKey={`${def.id}:${detail.currentEpExternalId}`}
+              onPlaying={() => {
+                /* G4 历史写入（fix334/L3）：真起播首帧才记，集数＝
+                 * 当前集 ordinal；同集重复 playing 不重复记（去重
+                 * 键含当前集，换集自动再记）。 */
+                const key = `${detail.item.externalId}:${detail.currentEpExternalId}`;
+                if (historyKeyRef.current === key) return;
+                historyKeyRef.current = key;
+                addExternalHistory(detail.item,
+                  detail.detail ? episodeOrdinal(detail.detail, detail.currentEpExternalId) : 1,
+                  choices.length || undefined);
+              }}
               diagnosticContext={{ view: "source_browse", source_id: def.id }}
               className="w-full aspect-video" />
             <p className="mt-3 text-[12px] text-mut">数据源：{def.displayName}（经适配器实时取数，非黄果数据）</p>

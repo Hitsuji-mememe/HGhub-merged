@@ -4,13 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, cover, fmt, isMobile } from "../../shared/api/api";
 import type { HotSearchVideo, Post, RankItem, VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
-import { LOCAL_SCOPE } from "../../shared/model/localLibrary";
+import { LOCAL_SCOPE, externalHashId } from "../../shared/model/localLibrary";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { MediaCard, RankRow } from "../../shared/ui/cards";
 import { FilteredContent } from "../../shared/ui/FilteredContent";
 import { Empty, Img } from "../../shared/ui/ui";
 import { SearchTags } from "./SearchTags";
-import { IBack, IChevR, IClose, IFilm, IFireF, IPlayF, IRefresh, ISearch, ITrophy } from "../../shared/ui/icons";
+import { IBack, IChevR, IClose, IFilm, IFireF, IPlayF, IRefresh, ISearch, IStar, IStarF, ITrophy } from "../../shared/ui/icons";
 import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import { registerOverlayBack } from "../../shared/lib/back";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
@@ -23,7 +23,7 @@ import { createAdapter } from "../sources/adapters/index.ts";
 import { sourceStableId } from "../sources/registryDiag";
 import type { SourceDef, SourceDetail, SourceItem } from "../sources/types";
 import { useTitleFallback } from "../sources/titleFallback.ts";
-import { episodeChoicesForSurface, type EpisodeChoice } from "../sources/episodes.ts";
+import { episodeChoicesForSurface, episodeOrdinal, type EpisodeChoice } from "../sources/episodes.ts";
 import { EpisodePicker } from "../sources/EpisodePicker";
 import { Player } from "../playback";
 import { fetchHealthSnapshot } from "../sources/adapters/fetchHealth.ts";
@@ -122,7 +122,11 @@ function ExtTitleFallbackPump({ def, items, onOverrides }: {
 const EMPTY_EXT_TITLE_OVERRIDES: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map();
 
 export default function Search({ active, wide }: { active: boolean; wide: boolean }) {
-  const { push, searchHist, addSearch, clearSearchHist, lineEpoch, setTab: setMainTab } = useStore();
+  const { push, searchHist, addSearch, clearSearchHist, lineEpoch, setTab: setMainTab,
+    isFav, setExternalCollected, addExternalHistory, actionPending, toast } = useStore();
+  /* G4 历史写入去重键（源:条目:当前集）：同集重复 playing 不重复
+   * 记、换集/换条目自动再记（fix334/L3，与 SourceBrowse 同口径）。 */
+  const extHistoryKeyRef = useRef("");
   const { preferences } = useContentPreferences();
   const filtering = !preferences.paused && (preferences.blockedTags.length > 0 || preferences.hideUntagged);
   const [q, setQ] = useState("");
@@ -651,6 +655,29 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
           <div className="ios-subpage-bar">
             <Button aria-label="返回搜索结果" onClick={() => setExtDetail(null)} className="ios-nav-btn"><IBack size={20} /></Button>
             <h2 className="flex-1 min-w-0 truncate text-[15px] font-bold text-on">{merged.title}</h2>
+            {extDetail.phase === "ready" && (() => {
+              /* G4 收藏（fix334/L3）：作用于当前活副本条目，kind 按
+               * 合并条目品类映射（video/drama→video、post→post、
+               * image→image）；快照标题取合并标题（代表副本口径，
+               * 与卡面一致），集数取 detail 事实。 */
+              const data = extDetail.data;
+              const kind = merged.kind === "post" ? "post" : merged.kind === "image" ? "image" : "video";
+              const itemHash = externalHashId(data.active.item);
+              const fav = isFav(itemHash, kind === "video" ? "video" : "post");
+              const favPending = actionPending(`collect:${kind === "video" ? "video" : "post"}:${itemHash}`);
+              return (
+                <Button aria-label={fav ? "取消收藏" : "收藏"} disabled={favPending}
+                  onClick={() => {
+                    void setExternalCollected(kind,
+                      { ...data.active.item, title: merged.title || data.active.item.title },
+                      !fav, kind === "video" ? (data.detail?.episodes.length || undefined) : undefined);
+                    toast(fav ? "已取消收藏" : "已收藏", "star");
+                  }}
+                  className="grid place-items-center w-9 h-9 shrink-0 rounded-full bg-s2">
+                  {fav ? <IStarF size={17} className="text-amber" /> : <IStar size={17} />}
+                </Button>
+              );
+            })()}
           </div>
           {merged.copies.length > 1 && extDetail.phase !== "loading" && (
             <div className="pb-3 flex flex-wrap items-center gap-2" role="group" aria-label="来源副本切换">
@@ -689,6 +716,18 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
                   {data.streamUrl ? (
                     <Player src={data.streamUrl} poster={cover(data.active.item.cover)} autoPlay active controls
                       scopeKey={`search:${data.active.sourceId}:${currentEpId}`}
+                      onPlaying={() => {
+                        /* G4 历史写入（fix334/L3）：真起播首帧才记，
+                         * 集数＝当前集 ordinal（无 detail 时以选集序
+                         * 位兜底）；去重键含当前集，换集再记。 */
+                        const key = `${data.active.sourceId}:${data.active.item.externalId}:${currentEpId}`;
+                        if (extHistoryKeyRef.current === key) return;
+                        extHistoryKeyRef.current = key;
+                        addExternalHistory({ ...data.active.item, title: merged.title || data.active.item.title },
+                          data.detail ? episodeOrdinal(data.detail, currentEpId)
+                            : Math.max(1, choices.findIndex((c) => c.externalId === currentEpId) + 1),
+                          choices.length || undefined);
+                      }}
                       diagnosticContext={{ view: "search_external", source_id: data.active.sourceId }}
                       className="w-full aspect-video" />
                   ) : (
