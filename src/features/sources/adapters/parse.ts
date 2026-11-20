@@ -33,8 +33,22 @@ export function decodeEntities(s: string): string {
   });
 }
 
+/* 脚本族元素（fix335/b-purify 根治）：script/style/noscript/template
+ * 的内容是标签之间的文本、不是标签本身——旧 stripTags 只删标签，
+ * 元素内容被压平成文本存活：004 列表卡内封面脚本 loadBannerDirect
+ * 在卡标题回退链落到 stripTags 时整段漏成标题、端上详情页头栏
+ * （真机实报＋夹具删 h2 变体复现，见 fix335/audit-004-leaks.md）。
+ * 正文路径走 DOM＋SKIP_TAGS 天然免疫，漏口只在正则文本路径这一
+ * 个单点，故在此整棵剔除元素内容、全消费者（标题链/headingText/
+ * wp-rest 标题/详情标题等）一处受益；脚本族内容在任何形态下都不
+ * 是合法标题/正文文本，无内容误伤面。未闭合的开标签按吞到串尾
+ * 处理（截断 HTML 里其后不可能是合法文本）。 */
+const SCRIPTY_ELEMENT_RE = /<(script|style|noscript|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+const SCRIPTY_UNCLOSED_RE = /<(script|style|noscript|template)\b[^>]*>[\s\S]*$/gi;
+
 export function stripTags(html: string): string {
-  return decodeEntities(html.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
+  const cleaned = html.replace(SCRIPTY_ELEMENT_RE, " ").replace(SCRIPTY_UNCLOSED_RE, " ");
+  return decodeEntities(cleaned.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
 }
 
 export interface Anchor { href: string; inner: string; titleAttr: string; rel: string; cls: string }
