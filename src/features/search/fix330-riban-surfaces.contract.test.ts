@@ -38,7 +38,8 @@ import { setFetchPost, type FetchPostResult } from "../sources/adapters/fetchPos
 import { createHanimeApiAdapter, sealEnvelope } from "../sources/adapters/hanimeApi.ts";
 import { createHanime1Adapter, createHentaihavenAdapter, createIwaraAdapter } from "../sources/adapters/templates.ts";
 import { loadSearchCopy, copyCacheKey, type CopyLoaderDeps } from "./copyLoader.ts";
-import type { CopyRef } from "./multiSourceSearch.ts";
+import { assembleSearchGallery } from "./searchGallery.ts";
+import type { CopyRef, MergedHit } from "./multiSourceSearch.ts";
 
 const fx = (name: string) => readFileSync(new URL(`../sources/adapters/fixtures/${name}`, import.meta.url), "utf8");
 const def = (id: string): SourceDef => {
@@ -192,6 +193,86 @@ async function runOpenScenario(
   for (const [tpl, fn] of [["hanime-api", "createHanimeApiAdapter"], ["iwara-api", "createIwaraAdapter"], ["hanime1", "createHanime1Adapter"], ["hentaihaven-api", "createHentaihavenAdapter"]] as const) {
     assert.ok(factory.includes(`case "${tpl}": return ${fn}(def)`), `工厂分发 ${tpl} → ${fn}`);
   }
+}
+
+/* ── 搜索宿主画廊组装（fix337/search-gallery；008-detail 同批横扫）──
+ * 同根剩余面：booru 家族在源内宿主（SourceGallery）已以已加载列表
+ * 组装画廊，但从搜索结果点开走 copyLoader 副本路径、只喂 detail
+ * 单图——同帖在搜索面仍只有一张图、无从前后翻。搜索面的「列表」
+ * 是跨源合并簇（MergedHit.copies），组装须以点开副本所属源为界：
+ * 逐簇取该源副本的条目（非代表副本条目）、按结果列表序、同源条目
+ * 去重，跨源条目绝不入画廊；判定与拼装仍走 albumGallery 唯一出处
+ * （detail 恰 1 图∧自带大图 ≥2∧点开在列），不另起一套。
+ * 基线（@20c219d）红形态：searchGallery 模块不存在、导入即
+ * ERR_MODULE_NOT_FOUND（纯函数先行的既定证伪形态）。 */
+{
+  const mkItem = (sourceId: string, id: string, largeImage?: string): SourceItem => ({
+    sourceId, externalId: id, title: `${sourceId}-${id}`, cover: `https://cdn.example.com/${sourceId}-p${id}.jpg`,
+    href: "", tags: [], ...(largeImage ? { largeImage } : {}),
+  });
+  const mkCopy = (item: SourceItem, seq: number): CopyRef => ({
+    sourceId: item.sourceId, sourceName: item.sourceId, weight: 40, hot: 0, seq, item,
+  });
+  const mkHit = (copies: CopyRef[]): MergedHit => {
+    const rep = copies[0];
+    return {
+      kind: "image", title: rep.item.title, cover: rep.item.cover, tags: [],
+      sourceId: rep.sourceId, sourceName: rep.sourceName, item: rep.item,
+      hot: 0, seq: rep.seq, copies, alsoOn: [], identityConfirmed: true, mergeConfidence: 1,
+    };
+  };
+  const X = "src-x";
+  const Y = "src-y";
+  const x1 = mkItem(X, "1", "https://cdn.example.com/x-l1.jpg");
+  const x2 = mkItem(X, "2", "https://cdn.example.com/x-l2.jpg");
+  const x3 = mkItem(X, "3", "https://cdn.example.com/x-l3.jpg");
+  const y1 = mkItem(Y, "1", "https://cdn.example.com/y-l1.jpg");
+  const y2 = mkItem(Y, "2", "https://cdn.example.com/y-l2.jpg");
+
+  /* 跨源交错列表：只收点开副本所属源、保持列表序。 */
+  const hits = [mkHit([mkCopy(x1, 1)]), mkHit([mkCopy(y1, 2)]), mkHit([mkCopy(x2, 3)]), mkHit([mkCopy(y2, 4)]), mkHit([mkCopy(x3, 5)])];
+  const asm = assembleSearchGallery(hits, mkCopy(x2, 3), ["https://cdn.example.com/x-detail2.jpg"]);
+  assert.ok(asm, "同源邻帖自带大图 ≥2＋点开在列 → 组装成立");
+  assert.deepEqual(asm.items.map((i) => `${i.sourceId}:${i.externalId}`), [`${X}:1`, `${X}:2`, `${X}:3`],
+    "画廊只含点开副本所属源条目（跨源条目绝不混入）、按结果列表序");
+  assert.deepEqual(asm.images, ["https://cdn.example.com/x-l1.jpg", "https://cdn.example.com/x-detail2.jpg", "https://cdn.example.com/x-l3.jpg"],
+    "点开位以 detail 图为准、邻帖以自带大图");
+  assert.equal(asm.index, 1, "起始 index＝点开条目在同源入选集中的位置");
+
+  /* 多副本簇：载体取该源副本条目，不取代表副本条目。 */
+  const shared = mkHit([mkCopy(y1, 1), mkCopy(x1, 1)]);
+  const asmShared = assembleSearchGallery([shared, mkHit([mkCopy(x2, 2)]), mkHit([mkCopy(x3, 3)])], mkCopy(x1, 1), ["d"]);
+  assert.ok(asmShared, "簇内含点开副本所属源副本 → 该副本条目入画廊");
+  assert.deepEqual(asmShared.items.map((i) => i.externalId), ["1", "2", "3"], "多副本簇以所属源副本条目为载体（非代表副本）");
+  assert.equal(asmShared.items[0].sourceId, X, "载体条目属点开副本的源");
+
+  /* 图集源形态：detail 多图 → 不组装（宿主维持 detail 图集逐字不变）。 */
+  assert.equal(assembleSearchGallery(hits, mkCopy(x2, 3), ["a", "b", "c"]), null, "detail 多图（图集源）→ 不组装");
+  /* 同源自带大图不足 2 → 不组装（无可翻之邻）。 */
+  const sparse = [mkHit([mkCopy(mkItem(X, "1"), 1)]), mkHit([mkCopy(x2, 2)]), mkHit([mkCopy(y1, 3)])];
+  assert.equal(assembleSearchGallery(sparse, mkCopy(x2, 2), ["d"]), null, "同源自带大图条目不足 2 → 不组装、无大图条目不以 preview 充数");
+  /* 点开条目不在结果列表的同源副本中 → 不组装、不猜邻帖。 */
+  assert.equal(assembleSearchGallery(hits, mkCopy(mkItem(X, "99", "https://cdn.example.com/x-l99.jpg"), 9), ["d"]), null,
+    "点开条目不在已加载结果列表 → 不组装");
+  /* 同源同条目在两簇重复到达（合并漏网形态）→ 去重、首现位置为准。 */
+  const dup = [mkHit([mkCopy(x1, 1)]), mkHit([mkCopy(x2, 2)]), mkHit([mkCopy(x1, 3)]), mkHit([mkCopy(x3, 4)])];
+  const asmDup = assembleSearchGallery(dup, mkCopy(x2, 2), ["d"]);
+  assert.ok(asmDup, "重复到达不妨碍组装");
+  assert.deepEqual(asmDup.items.map((i) => i.externalId), ["1", "2", "3"], "同源同 externalId 只入画廊一次（首现序位）");
+
+  /* 生产接线（调用/渲染形态断言，非符号存在性）：三落点经同一
+   * 组装应用点、组装判定吃 detail 原始图集、查看器仍只读
+   * data.images 单字段（与 album-chrome 让位条件的同源前提）、
+   * 组装成立时标题/收藏随当前条目跟随。 */
+  const searchSrc = readFileSync(new URL("./Search.tsx", import.meta.url), "utf8");
+  assert.ok(searchSrc.includes("assembleSearchGallery(groups[merged.kind], copy, value.detail?.images ?? [])"),
+    "Search 组装判定以当前结果列表（按 kind 分组）为界、吃 detail.images 原值（封面回落不算单图签名）");
+  assert.ok(searchSrc.includes("applySearchGallery(merged, got.copy, got.value)"), "openExternal 落点经组装应用点（顺延定出的活副本为界）");
+  assert.ok(searchSrc.includes("applySearchGallery(merged, copy, value)"), "manualPick/switchCopy 落点经同一组装应用点");
+  assert.ok(searchSrc.includes("galleryItems?: SourceItem[]"), "ExtReady 带画廊条目集字段（组装成立时与 images 一一对应）");
+  assert.ok(searchSrc.includes("const images = data.images ?? [];"), "查看器图集仍只读 data.images 单字段（组装图集经同字段交付、让位条件同源覆盖）");
+  assert.ok(searchSrc.includes("curItem.title || merged.title"), "组装成立时查看器标题随当前条目跟随（源内宿主同语义）");
+  assert.ok(searchSrc.includes("headerAction={galleryItems ? ("), "组装成立时查看器顶栏收藏作用于当前条目；未组装（图集源）不注入、行为逐字不变");
 }
 
 console.log("fix330-riban-surfaces (search) contract: ok");

@@ -2337,6 +2337,16 @@
       ],
       "symbol": "assembleAlbumGallery",
       "min": 3
+    },
+    {
+      "id": "fix337-search-album-gallery",
+      "item": "fix337/search-gallery 搜索宿主画廊组装：assembleSearchGallery（searchGallery.ts 定义＋Search.tsx 组装应用点消费；跨源合并簇以点开副本所属源为界提取载体、判定拼装走 albumGallery 唯一出处，摘掉应用点或任一落点搜索面回到 detail 单图）",
+      "files": [
+        "src/features/search/searchGallery.ts",
+        "src/features/search/Search.tsx"
+      ],
+      "symbol": "assembleSearchGallery",
+      "min": 3
     }
   ]
 }
