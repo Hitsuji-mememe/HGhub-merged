@@ -51,7 +51,7 @@ import { useScrollKeeper } from "../../shared/lib/useScrollKeeper";
 import { useStore } from "../../shared/model/store";
 import { externalHashId } from "../../shared/model/localLibrary";
 import { createAdapter } from "./adapters/index.ts";
-import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
+import { noteSourceListSuccess, useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import { episodeChoicesForSurface, episodeOrdinal, type EpisodeChoice } from "./episodes.ts";
 import { EpisodePicker } from "./EpisodePicker";
 import DiscoveryBar from "./DiscoveryBar";
@@ -153,6 +153,8 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
         ? next
         : (res.pagination?.pages ?? (res.items.length ? Math.max(reset ? 1 : pages, next) : next)));
       setErr(null);
+      /* 自检成功推翻（fix337/008-detail）：同 SourceGallery 口径。 */
+      noteSourceListSuccess(def);
     } catch (e) {
       if (mySeq === seq.current) { failAt.current = Date.now(); setErr((e as Error).message || "加载失败"); }
     } finally {

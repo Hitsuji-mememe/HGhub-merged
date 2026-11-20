@@ -39,7 +39,7 @@ import { extractArticleBlocks } from "./articleBlocks.ts";
 import { createAdapter } from "./adapters/index.ts";
 import { useStaffPromoVerify } from "./promoVerify.ts";
 import { useTitleFallback } from "./titleFallback.ts";
-import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
+import { noteSourceListSuccess, useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import DiscoveryBar from "./DiscoveryBar";
 import { discFingerprint, EMPTY_LIST_DISCOVERY, type ListDiscovery } from "./types.ts";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
@@ -157,6 +157,8 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
         ? next
         : (res.pagination?.pages ?? (res.items.length ? Math.max(reset ? 1 : pages, next) : next)));
       setErr(null);
+      /* 自检成功推翻（fix337/008-detail）：同 SourceGallery 口径。 */
+      noteSourceListSuccess(def);
     } catch (e) {
       if (mySeq === seq.current) { failAt.current = Date.now(); setErr((e as Error).message || "加载失败"); }
     } finally {

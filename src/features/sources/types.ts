@@ -55,6 +55,11 @@ export interface SourceItem {
    * 体系给出的归属，与 tags（真标签）分开——分类进 cats、真标签才
    * 进 tags，互不冒充。 */
   cats?: string[];
+  /* 条目自带大图地址（Muse 2026-11-20 fix337/008-detail）：单帖单图
+   * 模型源（booru 家族）的列表载荷逐帖自带大图（与 detail 的唯一图
+   * 同口径），与 cover（预览图）分开——宿主据此以已加载列表组装
+   * 画廊（albumGallery.ts）；图集型源不填（其画廊在 detail 内）。 */
+  largeImage?: string;
   hot?: number;
   duration?: string;
   previewOnly?: boolean;

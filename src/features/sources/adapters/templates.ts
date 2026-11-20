@@ -508,6 +508,11 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
     sourceId: def.id, externalId: String(p.id), title: tagsOf(p).slice(0, 4).join(" ") || `post ${p.id}`,
     cover: (p[previewField] as string | undefined) ?? "", href: `${def.baseUrls[0]}${postPath.replace("{id}", String(p.id))}`,
     tags: tagsOf(p).slice(0, 8),
+    /* 单帖单图模型（fix337/008-detail）：列表载荷逐帖自带大图（与
+     * detail 同口径：largeField 优先、file_url 回落），旧实现只留
+     * preview 作 cover、大图被丢弃——宿主无从以列表组装画廊，点开
+     * 恒只见 detail 的 1 张（3.3.6 真机实报，家族三源同病）。 */
+    largeImage: (p[largeField] as string | undefined) ?? p.file_url ?? undefined,
   });
   const fetchPost = async (id: string): Promise<DbPost> => {
     const raw = JSON.parse(await fetchPage(detailPath
