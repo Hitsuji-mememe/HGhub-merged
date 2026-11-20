@@ -120,8 +120,11 @@ export const SELF_CHECK_PROTOCOL_VERSION = 2;
  * 纯 UI/文案/展示变更不许 bump——那正是本维度要放行的更新。
  * v2（2026-11-20 fix335/a-pagination）：分页信号派生改版（真信号
  * 优先＋满页推断、HTML 整页消费删 slice、WP 越界 400 收尾）——
- * 列表段条目数口径随之变化，旧纪元自检结果按过期补探。 */
-export const SELF_CHECK_ADAPTER_EPOCH = 2;
+ * 列表段条目数口径随之变化，旧纪元自检结果按过期补探。
+ * v3（2026-11-20 fix337/chigua-surface）：htmlListAdapter 取页行为
+ * 变更——disc.period 榜单归档路径新增、无 searchPath 源的 search
+ * 假回退拆除（改显式抛错）；旧纪元结果按过期补探。 */
+export const SELF_CHECK_ADAPTER_EPOCH = 3;
 /** 最近打开记录落盘键（hghubx_*，不变量 7）：源 id → 最近一次
  * 进入其浏览面的时刻；只记 id/时刻（不变量 10），供批量补探
  * 排序（M7）。 */

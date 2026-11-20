@@ -136,11 +136,14 @@ const d004 = def("feedheiliao");
     `搜索路径只许三张真卡，实际：${h003.join(",")}`);
   assert.ok(!h003.some((h) => h.includes("/archives/901/") || h.includes("/archives/902/") || h.includes("/archives/905/") || h.includes("/archives/904/")),
     "搜索页页眉导航/页脚站务/sponsored 锚点必须被容器判据杀掉（与列表同口径）");
-  const h004 = await searchHrefs(d004, fx("heiliao-list-footer-ssp.html"));
-  assert.ok(h004.length === 2 && h004.some((h) => h.includes("/archives/201/")) && h004.some((h) => h.includes("/archives/202/")),
-    `搜索路径只许两张真卡，实际：${h004.join(",")}`);
-  assert.ok(!h004.some((h) => h.includes("/archives/801/") || h.includes("/archives/802/") || h.includes("/archives/803/") || h.includes("/archives/996/")),
-    "搜索页页脚组与 ssp 仿卡必须被杀掉（与列表同口径）");
+  /* 契约适配（fix337/chigua-surface）：005 已无搜索段——适配器
+   * search 显式抛错（模板默认形假回退拆除、无 GET 搜索段属实），
+   * 其搜索路径容器判据腿自此无对象；判据本身（与列表同排除集）
+   * 由上方 003 搜索腿与 005 列表路径契约继续承重，本腿改钉抛错
+   * 语义：抛错前不发请求、不拿缺省流冒充搜索结果。 */
+  setFetchPage(async () => fx("heiliao-list-footer-ssp.html"));
+  await assert.rejects(() => createChiguaAdapter(d004).search!("词", 1, 60), /无搜索段/,
+    "005 search 显式抛无搜索段（fix337 拆假回退）");
 }
 
 console.log("fix333-m4-search contract: all assertions passed");

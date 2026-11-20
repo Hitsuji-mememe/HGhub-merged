@@ -217,19 +217,30 @@ async function htmlResolve(def: SourceDef, externalId: string): Promise<{ stream
 
 /* 栏目表读取（Muse 2026-11-20 fix335/f-discovery）：注册表 params
  * 的 discoveryCategories（slug↔栏目名）是栏目全集的唯一出处，
- * htmlListAdapter 的路径校验与 DiscoverySpec 的 chips 同读本函数，
- * 不许两处各抄一份。形态不符的条目剔除。 */
-export interface DiscoveryCategoryParam { slug: string; name: string }
+ * htmlListAdapter 的路径校验与 DiscoverySpec 同读本函数，不许两处
+ * 各抄一份。形态不符的条目剔除。rank＝该栏目是站方榜单（fix337/
+ * chigua-surface：发现面只登记榜单子集、栏目全集降为 categoryPath
+ * 路径校验出处，见 readDiscoveryRanks）。 */
+export interface DiscoveryCategoryParam { slug: string; name: string; rank?: boolean }
 export function readDiscoveryCategories(def: SourceDef): DiscoveryCategoryParam[] {
   const params = (def.adapter.params ?? {}) as Record<string, unknown>;
   const raw = params.discoveryCategories;
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((x) => {
-    const o = x as { slug?: unknown; name?: unknown };
+    const o = x as { slug?: unknown; name?: unknown; rank?: unknown };
     return typeof o?.slug === "string" && o.slug && typeof o?.name === "string" && o.name
-      ? [{ slug: o.slug, name: o.name }]
+      ? [{ slug: o.slug, name: o.name, ...(o?.rank === true ? { rank: true } : {}) }]
       : [];
   });
+}
+
+/* 榜单子集（Muse 2026-11-20 fix337/chigua-surface）：栏目表中标
+ * rank 的条目、按表内序——吃瓜面发现维度的唯一登记出处。榜单不
+ * 是新维度：disc 的 period 字段承载榜单 slug（discFingerprint 已
+ * 含 period、指纹与滚动恢复 key 天然隔离）、取页复用 categoryPath
+ * 归档机制，见 htmlListAdapter.list。 */
+export function readDiscoveryRanks(def: SourceDef): DiscoveryCategoryParam[] {
+  return readDiscoveryCategories(def).filter((c) => c.rank === true);
 }
 
 /* 栏目归档路径（Muse 2026-11-20 fix335/f-discovery）：categoryPath
@@ -243,7 +254,7 @@ function categoryPagePath(template: string, slug: string, page: number): string 
   return filled.replace(/page\/\{page\}\/?/, "").replace(/\{page\}\/?/, "");
 }
 
-function htmlListAdapter(def: SourceDef, opts?: { retainCats?: boolean }): SourceAdapter {
+function htmlListAdapter(def: SourceDef, opts?: { retainCats?: boolean; searchRequiresPath?: boolean }): SourceAdapter {
   const params = (def.adapter.params ?? {}) as Params;
   const listPath = str(params, "listPath", "/?page={page}");
   const itemLinkPattern = str(params, "itemLinkPattern", "/");
@@ -265,9 +276,15 @@ function htmlListAdapter(def: SourceDef, opts?: { retainCats?: boolean }): Sourc
    * categoryPath 模板＋discoveryCategories 栏目表（slug↔名，注册表
    * 为唯一出处、DiscoverySpec 同读此处）才启用；disc.category 必须
    * 命中栏目表才拼路径，未命中/未声明一律走现行 listPath 缺省路径
-   * 逐字不变。 */
+   * 逐字不变。榜单（fix337/chigua-surface）：disc.period 命中
+   * readDiscoveryRanks 子集时以同一机制拼归档路径（period 字段本
+   * 为「周期榜」语义、指纹天然隔离）；category 优先于 period（两
+   * 者同为归档 slug、UI 不会同时下发）；未标 rank 的栏目与未知值
+   * 不入 period、回落缺省路径。011 的 period（monthly/all）走其
+   * 专用适配器、不经本分支。 */
   const categoryPath = str(params, "categoryPath", "");
   const discoveryCategories = readDiscoveryCategories(def);
+  const discoveryRanks = readDiscoveryRanks(def);
   return {
     sourceId: def.id,
     async list(page, size, disc) {
@@ -275,8 +292,12 @@ function htmlListAdapter(def: SourceDef, opts?: { retainCats?: boolean }): Sourc
       const cat = disc?.category && categoryPath && discoveryCategories.some((c) => c.slug === disc.category)
         ? disc.category
         : "";
-      const pathTemplate = cat ? categoryPath.replace("{slug}", cat) : listPath;
-      const path = cat ? categoryPagePath(categoryPath, cat, page) : fill(listPath, { page });
+      const rank = !cat && disc?.period && categoryPath && discoveryRanks.some((c) => c.slug === disc.period)
+        ? disc.period
+        : "";
+      const slug = cat || rank;
+      const pathTemplate = slug ? categoryPath.replace("{slug}", slug) : listPath;
+      const path = slug ? categoryPagePath(categoryPath, slug, page) : fill(listPath, { page });
       const html = await fetchPage(absUrl(base, path));
       const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo, opts?.retainCats ?? false);
       if (all.length === 0) {
@@ -303,9 +324,20 @@ function htmlListAdapter(def: SourceDef, opts?: { retainCats?: boolean }): Sourc
       /* 搜索路径按源校准（Muse 2026-11-19 3.3.0 接通批·吃瓜线）：
        * params.searchPath 存在时按真站形态拼（{q} 已编码、{page} 页码；
        * 51吃瓜/每日大赛实证为 Typecho 形态 /search/{q}/{page}/——站点
-       * 对 /?s= 的重写会吞掉 paged 参数、恒回第一页，故不走默认形）；
-       * 未声明的源维持 WordPress 式默认形 /?s=&paged= 不变。 */
+       * 对 /?s= 的重写会吞掉 paged 参数、恒回第一页，故不走默认形）。
+       * 假回退拆除（Muse 2026-11-20 fix337/chigua-surface，范围＝
+       * chigua 模板）：未声明 searchPath 时旧实现回退 WordPress 式
+       * 默认形 /?s=&paged=——对无 GET 搜索段的源（005 实拉证伪：
+       * 原样回首页流）等于把缺省流冒充搜索结果，违反「未知不是
+       * 空」。chigua 家族改为显式抛错（opts.searchRequiresPath）：
+       * 无搜索段就是无搜索段，caps 扇出本就不会对 caps.search=
+       * false 的源调 search。hls-site 模板不在拆除范围：无在册
+       * def、其默认形行为由既有契约钉住（Shorties 裁定走资格出
+       * 局、不走适配器抛错），维持旧形态。 */
       const searchPath = str(params, "searchPath", "");
+      if (!searchPath && opts?.searchRequiresPath) {
+        throw new Error(`该源无搜索段（未声明 searchPath）：${def.id}`);
+      }
       const path = searchPath
         ? fill(searchPath, { q: encodeURIComponent(q), page })
         : `/?s=${encodeURIComponent(q)}&paged=${page}`;
@@ -328,8 +360,10 @@ function htmlListAdapter(def: SourceDef, opts?: { retainCats?: boolean }): Sourc
 /** (a) 吃瓜模板：与 hls-site 共用锚点骨架，差异在详情带正文 HTML。 */
 export function createChiguaAdapter(def: SourceDef): SourceAdapter {
   /* retainCats（fix335/f-discovery）：吃瓜卡片带站方分类词元，进
-   * cats 字段；hls-site 不开（无分类登记）。 */
-  const base0 = htmlListAdapter(def, { retainCats: true });
+   * cats 字段；hls-site 不开（无分类登记）。searchRequiresPath
+   * （fix337/chigua-surface）：chigua 家族无 searchPath 即无搜索
+   * 段、search 显式抛错，不许模板默认形冒充（见 search 内注释）。 */
+  const base0 = htmlListAdapter(def, { retainCats: true, searchRequiresPath: true });
   return {
     ...base0,
     async detail(id) {
