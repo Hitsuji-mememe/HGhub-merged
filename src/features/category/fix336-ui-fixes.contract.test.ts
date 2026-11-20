@@ -12,6 +12,14 @@
  * 吃瓜/图片四频道行、源不外露、删「视频源」分组、图片进频道
  * 页 chips 切源；④视频频道原生空壳 chip 退场（调查任务二定
  * 案：上游确认端点 410 下线、频道恒空），默认落外部源。
+ * ⑤（fix337/album-chrome 续记，本线任务书即维护者对新增断言
+ * 的授权）：3.3.6 真机复报——搜索宿主打开图集，底部缩略图条
+ * 被壳底栏胶囊压住下半截。定案：底栏 .ios-mobile-nav 为 z-50
+ * 根层同级；查看器覆层嵌在搜索详情层（absolute z-30）的层叠
+ * 上下文内，覆层自身 z-40 只在上下文内有效、提层级出不去
+ * （3.3.6 只盖住了同上下文内的详情页头）；源内宿主只活在栈
+ * 页（底栏不渲染）故从不暴露。修法与 fs/clean 同口径：查看
+ * 器在场期间宿主持有 store 底栏让位标记、整栏不渲染。
  *
  * 覆盖：
  * (A) defaultSourceId 落点真值表（记忆优先/无记忆首源/记忆源
@@ -24,7 +32,10 @@
  * (D) 生产接线文本断言：两宿主相册同形态（fixed 覆盖＋
  *     immersive）、DiscoveryBar 收敛接线（去重消费/展开开关/
  *     单行横滑与展开平铺两形态）、总览四行派生与计数、图片频
- *     道分支与视频频道恒走外部源分支。
+ *     道分支与视频频道恒走外部源分支；
+ * (E) 底栏让位接线（fix337）：store 持有标记＋App 渲染条件
+ *     含标记＋bottomInset 不掺入（被盖页布局不移位）、两宿主
+ *     持有/释放成对、搜索宿主持有条件与覆层渲染条件同源。
  * 旧码（@17f6bca）上：defaultSourceId/dedupeTagOptions/
  * channel-image 均不存在（导入即红），总览/宿主/频道文本断言
  * 亦全红——修复回归钉的既定证伪形态。
@@ -131,6 +142,25 @@ const ctx = { active: R1, builtin: R1 };
   /* 深链保留（资料库回访生产者 Profile 仍在用）。 */
   assert.ok(category.includes('cate.startsWith("image:")') && category.includes('cate.startsWith("video:")'),
     "image:<id>/video:<id> 深链分支保留");
+}
+
+/* ── (E) 图集在场时底栏让位（fix337/album-chrome） ── */
+{
+  const store = read("../../shared/model/store.tsx");
+  assert.ok(store.includes("tabBarHeld: boolean"), "store 暴露底栏让位标记（类型在册）");
+  assert.ok(store.includes("setTabBarHeld"), "store 暴露底栏让位 setter");
+  const app = read("../../app/App.tsx");
+  assert.ok(app.includes('{!fs && !clean && !tabBarHeld && stack.length === 0 && tab !== "home" && <TabBar />}'),
+    "TabBar 渲染条件含让位标记（与 fs/clean 同列：持有即整栏不渲染，其余条件逐字不变）");
+  assert.ok(app.includes('const bottomInset = fs || clean || tab === "home" ? 0 : 74'),
+    "bottomInset 派生不掺让位标记（被盖页布局不移位、关图集后底栏回原位）");
+  const search = read("../search/Search.tsx");
+  assert.ok(search.includes('extDetail.data.merged.kind === "image"'), "搜索宿主持有条件含 ready∧图片（与覆层渲染条件同源）");
+  assert.ok(search.includes("setTabBarHeld(true)") && search.includes("setTabBarHeld(false)"),
+    "搜索宿主持有/释放成对（effect cleanup 释放）");
+  const gallery = read("../sources/SourceGallery.tsx");
+  assert.ok(gallery.includes("setTabBarHeld(true)") && gallery.includes("setTabBarHeld(false)"),
+    "源内宿主同一持有/释放不变量（栈页上底栏本不渲染、持有为空转无害）");
 }
 
 console.log("fix336-ui-fixes.contract: all assertions passed");

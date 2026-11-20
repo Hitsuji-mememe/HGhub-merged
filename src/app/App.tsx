@@ -112,7 +112,7 @@ function MainTabs({ wide, pageActive, covered, bottomInset }: { wide: boolean; p
 }
 
 function AppBody() {
-  const { platform, tab, setTab, stack, pop, push, fs, setFs, clean, setClean } = useStore();
+  const { platform, tab, setTab, stack, pop, push, fs, setFs, clean, setClean, tabBarHeld } = useStore();
   const mainRef = useRef<HTMLDivElement>(null);
   /* 链式手势 pop 冷却（fix2.1 批四#12）：手势连发/触摸抖动时 300ms
    * 内只许退一层，防一次滑退两页。用 ref 而非手势 effect 内变量——
@@ -355,7 +355,11 @@ function AppBody() {
           </div>
         ))}
 
-        {!fs && !clean && stack.length === 0 && tab !== "home" && <TabBar />}
+        {/* tabBarHeld（fix337/album-chrome）：全屏图集查看器在场
+            时整栏让位——覆层嵌在宿主页层叠上下文内提不了层级，
+            底栏（z-50 根层）只能离场，与 fs/clean 同口径；
+            bottomInset 不掺此标记，被盖页布局不移位。 */}
+        {!fs && !clean && !tabBarHeld && stack.length === 0 && tab !== "home" && <TabBar />}
       </div>
     </div>
   );

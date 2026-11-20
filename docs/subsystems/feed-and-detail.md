@@ -306,6 +306,20 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   surfaces/fix330-riban-surfaces/fix321-f4/fix322-kind/
   fix321-accept-f4 五契约同步适配（退场断言在基线可红、活面
   覆盖不减）；证据 `~/workspace/hghub/fix336/evidence/ui-fixes.md`。
+  fix337/album-chrome（2026-11-20，3.3.6 真机复报）：⑤的「盖
+  全屏」对壳底栏不成立——底栏 `.ios-mobile-nav` 为 z-50 根层
+  同级，搜索宿主的覆层嵌在详情层（absolute z-30）层叠上下文
+  内、z-40 出不了上下文，底栏胶囊恒压缩略图条下半截；源内宿
+  主只活在栈页（底栏不渲染）故不暴露，两宿主差异不在
+  immersive 而在底栏在场性。现行口径：查看器在场期间宿主
+  持有 store `tabBarHeld`（Search 条件与覆层渲染条件同源：
+  ready∧图片∧有图；SourceGallery 为 album ready），App 渲
+  染 TabBar 的条件与 fs/clean 同列加 `!tabBarHeld`、整栏不
+  渲染；`bottomInset` 派生不掺此标记（被盖页布局不移位）。
+  持有/释放归宿主 effect 生命周期（cleanup 释放），导航状态
+  不碰。宿主义务已写入 AlbumViewer 文件头（覆层形态＋底栏
+  让位缺一不可）。契约 `fix336-ui-fixes.contract.test.ts`
+  (E) 段；证据 `~/workspace/hghub/fix337/evidence/album-chrome.md`。
 - 封面状态机（同批）：`ImageLoad` 状态 loading→decoded→displayed 或
   failed(reason)（http/timeout/decode 分因），每 attempt 20s 超时，
   src 变化自动重试；失败计数与分页证据同节进诊断报告。fix2.1 修正

@@ -41,7 +41,7 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
 }) {
   /* 进入浏览面补探（fix331/source-reliability）：同 SourceBrowse 口径。 */
   useSourceSelfCheckOnView(def);
-  const { isFav, setExternalCollected, actionPending, toast } = useStore();
+  const { isFav, setExternalCollected, actionPending, toast, setTabBarHeld } = useStore();
   const [items, setItems] = useState<SourceItem[]>([]);
   const [page, setPage] = useState(0);
   const [pages, setPages] = useState(1);
@@ -70,6 +70,18 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
    * 高度塌缩、scrollTop 被钳 0——打开相册前 capture、回列表且数据
    * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
   const { captureScroll } = useScrollKeeper(`gallery:${def.id}${discFp ? `:${discFp}` : ""}`, scrollerRef, album === null && items.length > 0);
+
+  /* 底栏让位（fix337/album-chrome）：与搜索宿主同一不变量——
+   * AlbumViewer 全屏在场 ⇒ 壳底栏不在场（store.tabBarHeld）。
+   * 本宿主只活在栈页内、底栏本就不渲染，持有为空转无害；两宿
+   * 主同口径防将来宿主迁到页签页时遮挡复发。loading/error 的
+   * 页内形态不持有（无覆层、底栏遮挡不成立）。 */
+  const albumReady = album?.phase === "ready";
+  useEffect(() => {
+    if (!albumReady) return undefined;
+    setTabBarHeld(true);
+    return () => { setTabBarHeld(false); };
+  }, [albumReady, setTabBarHeld]);
 
   const load = useCallback(async (reset: boolean) => {
     if (busy.current) return;
