@@ -19,10 +19,13 @@ import { TEMPLATE_IDS } from "./adapters/templates.ts";
  * 断言适配（fix330 接通批，2026-11-19）：HentaiHaven 自目录导入
  * 毕业为命名源，命名源 12→13、CORE_IDS 随之加 hentaihaven。
  * 断言适配（fix330/ui-fixes，2026-11-19）：用户 21:51 裁定 Rule34Video
- * 摘除，命名源 13→12、CORE_IDS 移除 rule34video 并入负向名单。 */
+ * 摘除，命名源 13→12、CORE_IDS 移除 rule34video 并入负向名单。
+ * 断言适配（fix335/g-sources，2026-11-20）：用户裁定 PornPics 退役
+ * 摘除，命名源 12→11、CORE_IDS 移除 pornpics 并入负向名单；目录源
+ * yandere moebooru 校准启用、新增 konachan 启用，目录分支随之适配。 */
 const CORE_IDS = [
   "huangguo", "hanime-tv", "51chigua", "feedheiliao", "meiridasai",
-  "xiuren", "pornpics", "cosplaytele", "danbooru", "hanime1", "iwara", "hentaihaven",
+  "xiuren", "cosplaytele", "danbooru", "hanime1", "iwara", "hentaihaven",
 ];
 
 /* ── 注册表完整性 ── */
@@ -30,10 +33,10 @@ const CORE_IDS = [
   const ids = new Set(BUILTIN_SOURCES.map((s) => s.id));
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
   for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
-  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 12（fix330 含毕业的 hentaihaven、已摘 rule34video）");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 11（fix330 含毕业的 hentaihaven、已摘 rule34video；fix335/g-sources 已摘 pornpics）");
   /* 瘦身负向不变量：被删源不得回流注册表（App 内不得出现）。 */
   for (const goneId of ["rouvideo", "91video", "pornhub", "xvideos", "swag", "fyptt", "redgifs", "fc2",
-    "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91", "rule34video"]) {
+    "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91", "rule34video", "pornpics"]) {
     assert.ok(!ids.has(goneId), `瘦身删除源 ${goneId} 不在册`);
   }
   assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
@@ -48,6 +51,9 @@ const CORE_IDS = [
     } else if (s.id === "pixibb" || s.id === "nudecosplay") {
       assert.equal(s.enabled, true, `目录源 ${s.id} fix330 实证启用（本机四级全通）`);
       assert.ok(s.note?.includes("fix330 图片线定级"), `目录源 ${s.id} 注记已按实证更新`);
+    } else if (s.id === "yandere" || s.id === "konachan") {
+      assert.equal(s.enabled, true, `目录源 ${s.id} fix335/g-sources moebooru 校准启用（本机实证）`);
+      assert.ok(s.note?.includes("fix335/g-sources"), `目录源 ${s.id} 注记已记 g-sources 结论`);
     } else {
       assert.equal(s.enabled, false, `目录源 ${s.id} fix330 定级维持未启用`);
       assert.ok(s.note?.includes("fix330 图片线定级"), `目录源 ${s.id} 注记已记定级结论`);

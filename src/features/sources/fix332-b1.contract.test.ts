@@ -15,14 +15,22 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { getBuiltinRegistry } from "./registry.ts";
 import { setFetchPage } from "./adapters/fetchPage.ts";
 import { createHlsSiteAdapter } from "./adapters/templates.ts";
 import { allImgSrcs } from "./adapters/parse.ts";
+import type { SourceDef } from "./types.ts";
 
 const fx = (name: string) => readFileSync(new URL(`./adapters/fixtures/${name}`, import.meta.url), "utf8");
-const def = getBuiltinRegistry().find((s) => s.id === "pornpics");
-assert.ok(def, "registry has pornpics");
+/* 断言适配（fix335/g-sources）：pornpics 已退役摘除注册表，改用与删除
+ * 前注册表条目功能字段一致的内联 def 守 hls-site 详情采集覆盖，断言
+ * 内容不变（模板代码留仓）。 */
+const def: SourceDef = {
+  id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
+  adapter: { template: "hls-site", params: { listPath: "/recent/", itemLinkPattern: "/galleries/", detailPath: "/galleries/{id}/" } },
+  baseUrls: ["https://www.pornpics.com"], enabled: true, order: 41, maturity: "probe",
+  capabilities: { search: false, episodes: false, hevc: false, comments: false },
+  network: { mode: "probe-required" },
+};
 
 const LIST_HTML = `<a href='https://www.pornpics.com/galleries/fixture-album-1001/'><h2>Fixture Album</h2></a>`;
 

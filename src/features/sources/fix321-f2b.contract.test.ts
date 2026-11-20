@@ -204,12 +204,10 @@ const def = (id: string) => {
   assert.ok(d.note?.includes("四级验收全通"), "Iwara note 据实更新住宅验收结论");
 }
 
-/* ── PornPics：解析不动（F2 已校准），note 追加住宅出口 DNS
- * 不可达事实、maturity 维持 probe。 ── */
+/* ── PornPics：fix335/g-sources 已按用户裁定退役摘除注册表（hls-site
+ * 适配器代码留仓）；原 note/maturity 断言随源退役改为不在册断言。 ── */
 {
-  const d = def("pornpics");
-  assert.equal(d.maturity, "probe", "PornPics 维持 probe");
-  assert.ok(d.note?.includes("DNS"), "PornPics note 追加住宅出口 DNS 不可达事实");
+  assert.ok(!getBuiltinRegistry().some((s) => s.id === "pornpics"), "PornPics 已摘除注册表（fix335/g-sources）");
 }
 
 console.log("fix321-f2b.contract: all assertions passed");

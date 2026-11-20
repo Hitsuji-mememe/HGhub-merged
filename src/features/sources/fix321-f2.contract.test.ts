@@ -103,10 +103,19 @@ const def = (id: string) => {
 }
 
 /* ── (c) PornPics：真站 /recent/ 图集 tile（单引号属性、
- * /galleries/<slug>-<id>/、img alt 为空靠 slug 还原标题） ── */
+ * /galleries/<slug>-<id>/、img alt 为空靠 slug 还原标题）。
+ * 断言适配（fix335/g-sources）：pornpics 已退役摘除注册表，改用与
+ * 删除前注册表条目功能字段一致的内联 def 守模板解析覆盖（同 (b)
+ * historicalDef 先例），断言内容不变。 ── */
 {
   setFetchPage(async () => fx("real-pornpics-recent.html"));
-  const a = createHlsSiteAdapter(def("pornpics"));
+  const retiredDef = {
+    ...def("xiuren"),
+    id: "pornpics", displayName: "PornPics",
+    adapter: { template: "hls-site", params: { listPath: "/recent/", itemLinkPattern: "/galleries/", detailPath: "/galleries/{id}/" } },
+    baseUrls: ["https://www.pornpics.com"],
+  } as ReturnType<typeof def>;
+  const a = createHlsSiteAdapter(retiredDef);
   const list = await a.list(1, 20);
   assert.ok(list.items.length >= 2, `PornPics 真站结构解析出图集（实得 ${list.items.length}）`);
   assert.ok(list.items[0].href.includes("/galleries/"), "PornPics 条目 href 为 /galleries/ 形态");

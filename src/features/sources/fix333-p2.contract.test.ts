@@ -45,15 +45,16 @@ const builtinImages = sourcesForCategory("image", getBuiltinRegistry());
   assert.ok(!r.label.includes("51chigua"), "label 不含内部 id");
 }
 
-/* ── disabled：内置即未启用（yandere 等目录源，enabled=false）──
+/* ── disabled：内置即未启用（gelbooru 等目录源，enabled=false）──
  * 此例曾在旧签名下跑出 gone：调用方传的 builtin 表经
  * sourcesForCategory 已按 enabled 过滤，内置未启用源根本进不了查表。
- * 修法：内置查表收进函数内、对全量内置注册表做（见 selectedSource.ts）。 */
+ * 修法：内置查表收进函数内、对全量内置注册表做（见 selectedSource.ts）。
+ * 适配（fix335/g-sources）：原例 yandere 已启用，改挂仍未启用的 gelbooru。 */
 {
   const activeImages = builtinImages.filter((s) => s.enabled);
-  const r = resolveSelectedSource("yandere", activeImages);
+  const r = resolveSelectedSource("gelbooru", activeImages);
   assert.equal(r.kind, "disabled", "内置未启用判 disabled");
-  assert.equal(r.label, "yande.re", "disabled 显示内置显示名");
+  assert.equal(r.label, "Gelbooru", "disabled 显示内置显示名");
 }
 
 /* ── gone：代码已删源（rule34video 已自注册表摘除） ── */

@@ -47,7 +47,7 @@ export const GLOBAL_SEARCH_TABS: readonly { kind: GlobalSearchKind; label: strin
 
 /* ── 来源权重（分层总表落搜索层；总表未覆盖者中性 40） ── */
 const PRIMARY_WEIGHTS: Record<string, number> = {
-  huangguo: 100, "51chigua": 100, pornpics: 100,
+  huangguo: 100, "51chigua": 100,
 };
 const SUPPLEMENT_WEIGHTS: Record<string, number> = {
   feedheiliao: 60,

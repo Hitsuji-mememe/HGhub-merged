@@ -184,12 +184,14 @@ assert.equal(typeof lib.applyExternalHistory, "function", "L3 须暴露 applyExt
   assert.deepEqual(routeForSurface("library", byId("hanime-tv"), ctx),
     { kind: "browse", component: "ProfileLibrary" }, "002×M17 G4 已接通（extRefs 回访）");
   assert.deepEqual(routeForSurface("library", byId("huangguo"), ctx), { kind: "native" }, "001×M17 原生不变");
-  assert.deepEqual(routeForSurface("library", byId("yandere"), ctx),
+  assert.deepEqual(routeForSurface("library", byId("gelbooru"), ctx),
     { kind: "not-applicable", declaration: "not-enabled" }, "未启用源×M17 仍显式不适用");
   const members = sourcesForSurface("library", R1).map((d) => d.id);
   assert.ok(members.includes("hanime-tv") && members.includes("51chigua") && members.includes("xiuren"),
     "M17 成员含已启用外部源（帖/视频/图集）");
-  assert.ok(!members.includes("yandere") && !members.includes("pixiv"), "M17 成员不含未启用源");
+  /* 适配（fix335/g-sources）：yandere/konachan 已启用进成员；未启用例改挂 gelbooru/pixiv。 */
+  assert.ok(members.includes("yandere") && members.includes("konachan"), "M17 成员含新启用图片源（fix335/g-sources）");
+  assert.ok(!members.includes("gelbooru") && !members.includes("pixiv"), "M17 成员不含未启用源");
 }
 
 /* ══ 7. 逐面接线文本断言 ══ */

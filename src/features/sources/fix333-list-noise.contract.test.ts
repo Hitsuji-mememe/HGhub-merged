@@ -51,7 +51,7 @@ const listHrefs = async (id: string, html: string): Promise<{ href: string; titl
   assert.equal(params("51chigua").cardContainer, "article", "source-003 主题容器=article");
   assert.equal(params("feedheiliao").cardContainer, "video-item", "source-004 主题容器=video-item");
   assert.equal(params("meiridasai").cardContainer, "article", "source-005 主题容器=article");
-  assert.equal(params("pornpics").cardContainer, undefined, "未普查源不许声明容器限定");
+  assert.equal(params("danbooru").cardContainer, undefined, "未普查源不许声明容器限定（适配 fix335/g-sources：原例 pornpics 已退役、改挂 danbooru）");
 }
 
 /* ── (1)+(2)+(3) article 主题：导航/页脚/sponsored 全灭，正常卡与
