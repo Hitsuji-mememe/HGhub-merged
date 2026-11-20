@@ -90,15 +90,16 @@ const ctx = { active: R1, builtin: R1 };
 /* ── (C) 频道名单派生定点 ── */
 {
   assert.deepEqual(sourcesForSurface("channel-image", R1).map((d) => d.id),
-    ["xiuren", "cosplaytele", "pixibb", "nudecosplay", "yandere",
+    ["xiuren", "cosplaytele", "pixibb", "nudecosplay",
       /* 断言适配（fix338 集成对账）：registry-cut 摘 008/016 后 5 源，
        * realphoto-add 真人图片新源 everia/xsnvshen 启用入册、按注册
-       * 表序居末（order 122/123）。 */
+       * 表序居末（order 122/123）。断言适配（fix339/registry-cut-2）：
+       * yandere 摘除，名单 7→6 源。 */
       "everia", "xsnvshen"],
-    "图片频道名单＝已启用图片源（注册表序；fix338 集成后 7 源）");
+    "图片频道名单＝已启用图片源（注册表序；fix339 后 6 源）");
   assert.deepEqual(sourcesForSurface("channel-video", R1).map((d) => d.id),
-    ["hanime-tv", "hanime1", "iwara"],
-    "视频频道名单＝已启用外部视频源（原生不在名单；fix338 后 3 源）");
+    ["hanime-tv"],
+    "视频频道名单＝已启用外部视频源（原生不在名单；fix339 后单源 002）");
   const native = R1.find((s) => s.id === "huangguo")!;
   assert.deepEqual(routeForSurface("channel-video", native, ctx),
     { kind: "not-applicable", declaration: "native-not-in-video-channel" },
@@ -181,10 +182,13 @@ const ctx = { active: R1, builtin: R1 };
  * 「detail 恰 1 图 ∧ 已加载条目自带大图（largeImage）≥2 ∧ 点开
  * 条目在列」时成立，点开条目本位以 detail 图为准（权威），其余
  * 以列表自带大图；任一条件不满足回 null、宿主维持现行单册形态
- * （图集源 detail 多图永不触发、行为逐字不变）。 */
+ * （图集源 detail 多图永不触发、行为逐字不变）。
+ * 断言适配（fix339/registry-cut-2）：008/014 已摘除，组装机制由
+ * 同模板在册源 gelbooru 承接保留（承接者以模板在册计），样本
+ * sourceId 改挂 gelbooru，组装行为断言不变。 */
 {
   const item = (id: string, largeImage?: string): SourceItem => ({
-    sourceId: "yandere", externalId: id, title: `t-${id}`, cover: `https://cdn.example.com/p${id}.jpg`,
+    sourceId: "gelbooru", externalId: id, title: `t-${id}`, cover: `https://cdn.example.com/p${id}.jpg`,
     href: "", tags: [], ...(largeImage ? { largeImage } : {}),
   });
   const a = item("1", "https://cdn.example.com/l1.jpg");

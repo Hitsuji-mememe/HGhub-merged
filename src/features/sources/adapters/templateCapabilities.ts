@@ -37,8 +37,6 @@
 import type { SourceDef } from "../types.ts";
 import { templateHasAdapter, templateHasSearch } from "./templateSegments.ts";
 import {
-  HANIME1_SORT_VALUES,
-  IWARA_SORT_OPTIONS,
   readDiscoveryRanks,
 } from "./templates.ts";
 
@@ -63,8 +61,6 @@ export const EPISODES_FORM_BY_TEMPLATE: Record<string, EpisodesForm> = {
   "swag-api": "none", // detail episodes: []
   "redgifs-api": "single", // detail 单条「正片」
   "hanime-api": "single", // hanimeApi detail 单条「正片」
-  "iwara-api": "single", // detail 单条「正片」
-  hanime1: "single", // detail 有源时单条「正片」
   "preview-only": "none", // 预览桩 detail episodes: []
 };
 
@@ -90,8 +86,8 @@ export function templateCapabilitiesFor(def: SourceDef): TemplateCapabilities {
  * weekly 被站方拒绝，都是「猜参数会静默错位」的实证教训）。
  * 证据统一出处：fix335/evidence/f-probes.md（机房探针）＋
  * fix335/evidence/f-residential-verify.md（住宅终验），2026-11-20。
- * 协议值表（008 预设/009 九值/010 三值/011 两值）在 templates.ts
- * 与适配器同文件定义、本表引用同一常量，不另抄。 */
+ * 协议值表在 templates.ts 与适配器同文件定义、本表引用同一
+ * 常量，不另抄（009 九值/010 三值表已于 fix339 随源摘除同删）。 */
 
 export interface DiscoveryOption {
   value: string;
@@ -212,20 +208,6 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
         ],
         sortDefault: "",
         evidence: `目录行 brand/tags/views 字段与客户端重排经探针实证（${F_EVIDENCE}）`,
-      };
-    case "hanime1":
-      /* 九值逐字繁体原值（HANIME1_SORT_VALUES），label 即原值；
-       * 简体拼法被站方静默回落默认序——实现红线。 */
-      return {
-        sorts: HANIME1_SORT_VALUES.map((v) => ({ value: v, label: v })),
-        sortDefault: "最新上市",
-        evidence: `九个 sort 繁体原值逐值实证（${F_EVIDENCE}）`,
-      };
-    case "iwara-api":
-      return {
-        sorts: IWARA_SORT_OPTIONS,
-        sortDefault: "views",
-        evidence: `sort=views/likes/date 三值返回集各异经探针实证（${F_EVIDENCE}）`,
       };
     default:
       /* hls-site/swag/redgifs/preview/native 及未实证模板：一律

@@ -39,19 +39,22 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8"
   assert.deepEqual(Object.keys(noStatus).sort(), ["attempt", "code", "segment", "source"], "无状态时 status 键整缺、键集合封闭");
 }
 
-/* ── (1) P5：两源段调用点齐全（源码断言，仿既有契约先例；
+/* ── (1) P5：段调用点齐全（源码断言，仿既有契约先例；
  * 断言适配 fix338/registry-cut：011 已摘除，其 episode 段留痕随
- * 适配器同删、改验负向；留痕规模 13→10 点） ── */
+ * 适配器同删、改验负向；留痕规模 13→10 点。
+ * 断言适配 fix339/registry-cut-2：009/010 已摘除，templates.ts 内
+ * 留痕调用点随两适配器删码全数退役；生产调用方收敛为 002
+ * （hanimeApi.ts，csrf/handshake/decode 三段 6 点），本节改钉
+ * hanimeApi 在位＋templates 负向，设施覆盖不降） ── */
 {
   const tpl = read("../../features/sources/adapters/templates.ts");
-  for (const seg of ["detail", "fetch", "decode"]) {
-    assert.ok(tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `010 iwara 段留痕在位：${seg}`);
+  const api = read("../../features/sources/adapters/hanimeApi.ts");
+  for (const seg of ["csrf", "handshake", "decode"]) {
+    assert.ok(api.includes(`traceResolveFailure(def.id, "${seg}"`), `002 hanimeApi 段留痕在位：${seg}`);
   }
-  for (const seg of ["watch", "download"]) {
-    assert.ok(tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `009 hanime1 详情页段留痕在位：${seg}`);
-  }
+  assert.ok((api.match(/traceResolveFailure\(/g) ?? []).length >= 6, "002 留痕调用点成规模（非点缀；其一为跨行调用、按调用符计）");
+  assert.ok(!tpl.includes("traceResolveFailure(def.id"), "009/010 段留痕已随适配器删除退役（fix339）");
   assert.ok(!tpl.includes('traceResolveFailure(def.id, "episode"'), "011 集页段留痕已随适配器删除退役（fix338）");
-  assert.ok((tpl.match(/traceResolveFailure\(def\.id/g) ?? []).length >= 10, "两源留痕调用点成规模（非点缀）");
 }
 
 /* ── (1) P5：结构化留痕节行为 ── */

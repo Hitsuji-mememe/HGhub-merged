@@ -135,13 +135,15 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
  * 008/011/016、名单 14→11 源、三源改入下方「不在册」负向断言组；
  * realphoto-add 真人图片新源 everia（wp-rest、caps.search 据实
  * true）进扇出，名单 11→12 源；xsnvshen 搜索未验、caps.search=
- * false 维持出局（判定口径不变）。 */
+ * false 维持出局（判定口径不变）。
+ * 契约适配（fix339/registry-cut-2，2026-11-21）：摘除 009/010/014、
+ * 名单 12→9 源、三源改入下方「不在册」负向断言组（判定口径不变）。 */
 {
   const included = getBuiltinRegistry().filter((d) => searchPolicyFor(d).include).map((d) => d.id);
   assert.deepEqual(
     included,
-    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "hanime1", "iwara", "pixibb", "nudecosplay", "yandere", "everia"],
-    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix338 集成后 12 源）",
+    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "pixibb", "nudecosplay", "everia"],
+    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix339 后 9 源）",
   );
   assert.ok(!getBuiltinRegistry().some((d) => d.id === "rule34video"), "rule34video 已摘除注册表（用户裁定），不进扇出也不在册");
   assert.ok(!getBuiltinRegistry().some((d) => d.id === "pornpics"), "pornpics 已退役摘除注册表（fix335/g-sources），不进扇出也不在册");
@@ -164,12 +166,16 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
   for (const id of ["gelbooru", "pixiv"]) {    assert.equal(searchPolicyFor(def(id)).include, false, `目录源 ${id} 未启用出局`);
   }
   /* 出局源注册保留（不删源）：仍在注册表里、频道浏览不受扇出门影响 */
-  for (const id of [...Object.keys(excludedSearch), "pixibb", "nudecosplay", "yandere", "gelbooru", "pixiv"]) {
+  for (const id of [...Object.keys(excludedSearch), "pixibb", "nudecosplay", "gelbooru", "pixiv"]) {
     assert.ok(def(id), `${id} 注册保留`);
   }
   /* 已摘除源不在册（fix338）：不进扇出也不在注册表。 */
   for (const id of ["danbooru", "hentaihaven", "konachan"]) {
     assert.ok(!getBuiltinRegistry().some((d) => d.id === id), `${id} 已摘除、不在册（fix338）`);
+  }
+  /* 已摘除源不在册（fix339）：同口径。 */
+  for (const id of ["hanime1", "iwara", "yandere"]) {
+    assert.ok(!getBuiltinRegistry().some((d) => d.id === id), `${id} 已摘除、不在册（fix339）`);
   }
 }
 

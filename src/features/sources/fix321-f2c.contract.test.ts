@@ -168,12 +168,17 @@ assert.deepEqual(templateFetchOrigins("none"), [], "none 模板无取页 origin"
    * 断言适配（fix338/registry-cut）：danbooru 已摘除，其 origin 改
    * 验负向——不在册源不派生任何 origin（同批 konachan 同口径）。 */
   assert.ok(allow.has("https://sexy.pixibb.com"), "已启用目录源（pixibb）origin 在白名单内");
-  assert.ok(allow.has("https://hanime1.me"), "已启用源（hanime1）origin 在白名单内");
   assert.ok(allow.has("https://www.mrds66.com"), "meiridasai 已解 blocked：mrds66 origin 入白名单");
   assert.ok(allow.has("https://xiuren.biz"), "xiuren 已解 blocked：xiuren.biz origin 入白名单");
   assert.ok(!allow.has("https://danbooru.donmai.us"), "danbooru 已摘除：origin 不入白名单（fix338）");
   assert.ok(!allow.has("https://konachan.com"), "konachan 已摘除：origin 不入白名单（fix338）");
   assert.ok(!allow.has("https://hentaihaven.xxx"), "hentaihaven 已摘除：origin 不入白名单（fix338）");
+  /* 断言适配（fix339/registry-cut-2）：hanime1/iwara/yandere 已摘除，
+   * 其 origin 同口径改验负向（原 hanime1 正向断言随源退役）。 */
+  assert.ok(!allow.has("https://hanime1.me"), "hanime1 已摘除：origin 不入白名单（fix339）");
+  assert.ok(!allow.has("https://www.iwara.tv"), "iwara 已摘除：origin 不入白名单（fix339）");
+  assert.ok(!allow.has("https://api.iwara.tv"), "iwara 已摘除：API origin 不入白名单（fix339）");
+  assert.ok(!allow.has("https://yande.re"), "yandere 已摘除：origin 不入白名单（fix339）");
   /* 清单远程下线 swag（enabled=false）→ 其根域与 API origin 一并退出白名单 */  const off = validateManifest({
     manifestVersion: 9, minAppVersion: "3.0.0",
     sources: [{ id: "swag", enabled: false, baseUrls: ["https://swag.live"] }],

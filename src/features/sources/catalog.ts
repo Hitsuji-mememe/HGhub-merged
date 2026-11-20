@@ -22,7 +22,12 @@
  * 2026-11-20 fix338/registry-cut（本注记后补说明）：konachan 摘
  * 除（CF JS 验证拦非浏览器客户端、无解，用户定案删除）；本表
  * 6→5 源。danbooru-api 模板为共享模板（yandere/gelbooru 在用），
- * 只摘注册不删码（盘点 fix338/evidence/registry-cut.md）。 */
+ * 只摘注册不删码（盘点 fix338/evidence/registry-cut.md）。
+ * 2026-11-21 fix339/registry-cut-2（本注记后补说明）：yandere 摘
+ * 除（用户确认与 Danbooru 同为单图帖模型、同标准删）；本表
+ * 5→4 源。danbooru-api 模板与组装画廊保留（gelbooru 同模板在
+ * 册承接，只摘 yandere 注册；盘点 fix339/evidence/
+ * registry-cut-2.md）。 */
 import type { SourceDef } from "./types.ts";
 
 const NO_CAPS = { search: false, episodes: false, hevc: false, comments: false };
@@ -48,13 +53,6 @@ export const CATALOG_SOURCES: SourceDef[] = [
     baseUrls: ["https://nudecosplay.biz"],
     enabled: true, order: 102, maturity: "probe",
     capabilities: { search: true, episodes: false, hevc: false, comments: false }, network: PROBE_NET, note: "fix330 图片线定级（2026-11-19）：本机出口四级实证全通（/wp-json/wp/v2/posts 200 真条目、详情 200、图集、出图 206）＋搜索端点 200 有结果；住宅出口两级筛查正常在案（source-verify-20261119 第二轮 B 组）；wp-rest 参数按实抓校准无变更；App 侧未真机验 → 启用、probe（证据 fix330/evidence/images.md）",
-  },
-  {
-    id: "yandere", displayName: "yande.re", kind: "image", category: "image",
-    adapter: { template: "danbooru-api", params: {"listPath": "/post.json", "detailPath": "/post.json?tags=id:{id}", "postPath": "/post/show/{id}", "tagsField": "tags", "previewField": "preview_url", "largeField": "jpeg_url"} },
-    baseUrls: ["https://yande.re"],
-    enabled: true, order: 103, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false }, network: PROBE_NET, note: "fix335/g-sources（2026-11-20）：启用 probe——可达性门复测本机 VM 出口 /post.json 200 真条目、详情 /post.json?tags=id:{id} 单元素数组、标签搜索段实证，danbooru 模板 moebooru 校准落码；fix330 存档事实保留：2026-11-19 住宅出口 DNS 失效在案（source-verify-20261119 第二轮 B 组）、旧模板路径 /posts.json 404 已由校准解决；住宅出口复测未做成、App 侧未真机验（证据 fix335/evidence/g-sources.md）",
   },
   {
     id: "gelbooru", displayName: "Gelbooru", kind: "image", category: "image",

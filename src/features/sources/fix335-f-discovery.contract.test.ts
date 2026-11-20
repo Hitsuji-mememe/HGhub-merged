@@ -6,8 +6,8 @@
  * 覆盖（证据：fix335/evidence/f-probes.md 探针＋f-residential-
  * verify.md 住宅终验，2026-11-20）：
  * (A) DiscoverySpec 登记表：逐源断言登记全集与排除项——未实证不
- *     登记（007/未启用的 gelbooru/yandere 恒空）；009 九值逐字
- *     繁体。
+ *     登记（007/未启用的 gelbooru 恒空）；009 九值逐字繁体（该
+ *     断言已随 fix339/registry-cut-2 源摘除退役，见 (A) 内注记）。
  *     断言适配（fix338/registry-cut）：008/011 已摘除、其发现登记
  *     （danbooru-api 三预设、hentaihaven-api monthly/all）随源退
  *     役——(A) 改钉「danbooru-api 家族（014/015）无发现登记」、
@@ -46,8 +46,7 @@ import { readFileSync } from "node:fs";
 import { getBuiltinRegistry } from "./registry.ts";
 import { discoverySpecFor, hasDiscovery } from "./adapters/templateCapabilities.ts";
 import {
-  createChiguaAdapter, createDanbooruAdapter, createHanime1Adapter,
-  createIwaraAdapter, createWpRestAdapter,
+  createChiguaAdapter, createDanbooruAdapter, createWpRestAdapter,
   readDiscoveryCategories, readDiscoveryRanks,
 } from "./adapters/templates.ts";
 import { createHanimeApiAdapter } from "./adapters/hanimeApi.ts";
@@ -72,8 +71,7 @@ const recorder = (body: string | ((url: string) => string)) => {
   const expectDiscovery: Record<string, boolean> = {
     huangguo: true, "hanime-tv": true, "51chigua": true, meiridasai: true,
     feedheiliao: true, xiuren: true, pornpics: false, cosplaytele: true,
-    hanime1: true, iwara: true,
-    pixibb: true, nudecosplay: true, yandere: false, gelbooru: false,
+    pixibb: true, nudecosplay: true, gelbooru: false,
   };
   for (const d of getBuiltinRegistry()) {
     if (!(d.id in expectDiscovery)) continue;
@@ -129,18 +127,16 @@ const recorder = (body: string | ((url: string) => string)) => {
   assert.deepEqual(s001.sorts?.map((o) => o.value), ["", "hot"], "001 登记最新/最热（上游 sort=hot 实证）");
   assert.equal(s001.sortDefault, "");
 
-  const s009 = discoverySpecFor(def("hanime1"));
-  assert.deepEqual(s009.sorts?.map((o) => o.value),
-    ["最新上市", "最新上傳", "本日排行", "本週排行", "本月排行", "觀看次數", "讚好比例", "時長最長", "他們在看"],
-    "009 九值逐字繁体原值");
-  assert.equal(s009.sortDefault, "最新上市");
+  /* 009 九值登记断言随 fix339/registry-cut-2 源摘除退役（登记表条目
+   * 已随 templateCapabilities 删码）；010 三值登记断言同批退役。 */
 
-  /* fix338：danbooru-api 家族发现登记退役——014 在册源与合成
+  /* fix338：danbooru-api 家族发现登记退役——在册源与合成
    * danbooru-api def 均无登记（008 三预设随源摘除、家族无其他消
-   * 费者）；011 登记随源退役（def 不存在、map 已摘）。 */
-  const s014 = discoverySpecFor(def("yandere"));
-  assert.equal(hasDiscovery(s014), false, "014 无发现登记（danbooru-api 家族登记退役、fix338）");
-  assert.equal(s014.sorts, undefined, "014 无 sorts 登记（008 预设不许以家族名义残留）");
+   * 费者）；fix339 适配：014 已摘除，家族在册承接者为 015
+   * gelbooru，本断言改钉 gelbooru def。 */
+  const s015 = discoverySpecFor(def("gelbooru"));
+  assert.equal(hasDiscovery(s015), false, "015 无发现登记（danbooru-api 家族登记退役、fix338）");
+  assert.equal(s015.sorts, undefined, "015 无 sorts 登记（008 预设不许以家族名义残留）");
 
   for (const id of ["xiuren", "cosplaytele", "pixibb", "nudecosplay"]) {
     const s = discoverySpecFor(def(id));
@@ -152,9 +148,6 @@ const recorder = (body: string | ((url: string) => string)) => {
   assert.equal(s002.categories?.source, "taxonomy", "002 分类走目录聚合");
   assert.equal(s002.tagFilter, true);
   assert.deepEqual(s002.sorts?.map((o) => o.value), ["", "views"], "002 排序两值");
-  const s010 = discoverySpecFor(def("iwara"));
-  assert.deepEqual(s010.sorts?.map((o) => o.value), ["views", "date", "likes"], "010 三值");
-  assert.equal(s010.sortDefault, "views");
 }
 
 /* ── (B) 适配器行为 ── */
@@ -258,28 +251,6 @@ const recorder = (body: string | ((url: string) => string)) => {
   assert.equal(urls[1], urls[0], "预设拼参已退役：order:score 不再入参、回落缺省形态（fix338）");
   await a.list(1, 20, { sort: "order:bogus" });
   assert.equal(urls[2], urls[0], "未登记值回落缺省");
-}
-{ // 010 排序
-  const urls = recorder(fx("iwara-list.json"));
-  const a = createIwaraAdapter(def("iwara"));
-  await a.list(1, 20);
-  assert.equal(urls[0], "https://api.iwara.tv/videos?sort=views&page=0&limit=20", "011 缺省 sort=views 逐字不变");
-  await a.list(1, 20, { sort: "date" });
-  assert.equal(urls[1], "https://api.iwara.tv/videos?sort=date&page=0&limit=20", "011 最新");
-  await a.list(1, 20, { sort: "bogus" });
-  assert.equal(urls[2], urls[0], "010 非法值回落 views");
-}
-{ // 009 繁体原值（红线）
-  const urls = recorder(fx("hanime1-search.html"));
-  const a = createHanime1Adapter(def("hanime1"));
-  await a.list(1, 20);
-  assert.equal(urls[0], `https://hanime1.me/search?sort=${encodeURIComponent("最新上市")}`, "010 缺省最新上市逐字不变");
-  for (const v of ["最新上傳", "本日排行", "本週排行", "本月排行", "觀看次數", "讚好比例", "時長最長", "他們在看"]) {
-    await a.list(1, 20, { sort: v });
-    assert.equal(urls[urls.length - 1], `https://hanime1.me/search?sort=${encodeURIComponent(v)}`, `010 sort=${v} 逐字入参`);
-  }
-  await a.list(1, 20, { sort: "观看次数" });
-  assert.equal(urls[urls.length - 1], urls[0], "009 简体拼法不入参、回落默认序（红线）");
 }
 { // 002 客户端重排（构造目录：views 序与最新序故意不同）
   const catalog = JSON.stringify({ data: [

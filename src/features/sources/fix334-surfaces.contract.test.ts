@@ -95,7 +95,9 @@ const R1 = getBuiltinRegistry();
  * minAppVersion 3.1.0、17 源 enabled/baseUrls），不读网络不读仓外文件。
  * 注（fix338）：夹具内 pornpics/danbooru/hentaihaven 三条目已不在
  * 内置注册表——applyManifest 只覆盖内置条目、三条目惰性忽略（与
- * 线上旧清单对新版 App 的真实形态一致），R2 遍历口径不变。 */
+ * 线上旧清单对新版 App 的真实形态一致），R2 遍历口径不变。
+ * 注（fix339）：hanime1/iwara/yandere 三条目同理已成陈旧条目（线
+ * 上 v5 清单在 v6 部署前亦含此三条），惰性忽略口径不变。 */
 const V3_FIXTURE = {
   manifestVersion: 3, minAppVersion: "3.1.0",
   sources: [
@@ -125,11 +127,13 @@ const R2 = applyManifest(R1, v3);
  * 适配（fix338/registry-cut）：原变体挂 011（已摘除、清单条目惰
  * 性）＋014（已在内置启用、启用成同值重申），改挂 010（iwara，
  * 启用视频源）停用＋015（gelbooru，未启用图片源）启用，变体语义
- * （清单覆盖改变成员资格）不变。 */
+ * （清单覆盖改变成员资格）不变。
+ * 适配（fix339/registry-cut-2）：010 已摘除，停用样本改挂唯一保留
+ * 启用视频源 002（hanime-tv），变体语义不变。 */
 const vR3 = validateManifest({
   manifestVersion: 4, minAppVersion: "3.1.0",
   sources: [
-    { id: "iwara", enabled: false },
+    { id: "hanime-tv", enabled: false },
     { id: "gelbooru", enabled: true },
   ],
 });
@@ -150,8 +154,9 @@ const ghost: SourceDef = {
   network: { mode: "probe-required" },
 };
 const blockedFx: SourceDef = {
-  /* 适配（fix338）：原基底 danbooru 已摘除，改基同模板的 yandere。 */
-  ...R1.find((s) => s.id === "yandere")!, id: "blocked-fixture", maturity: "blocked",
+  /* 适配（fix338）：原基底 danbooru 已摘除，改基同模板的 yandere。
+   * 适配（fix339）：yandere 已摘除，改基同模板在册的 gelbooru。 */
+  ...R1.find((s) => s.id === "gelbooru")!, id: "blocked-fixture", maturity: "blocked",
 };
 const SYNTHETIC_STATE: SourceDef[] = [ghost, blockedFx, hlsSiteFx];
 
@@ -320,12 +325,13 @@ for (const [si, state] of STATES.entries()) {
    * 成员集合随注册表现状（fix338 集成后图片 7 源/视频 3 源），视频名
    * 单另摘原生（空壳退场、声明出局见下条）。 */
   assert.deepEqual(sourcesForSurface("channel-image", R1).map((d) => d.id),
-    ["xiuren", "cosplaytele", "pixibb", "nudecosplay", "yandere",
+    ["xiuren", "cosplaytele", "pixibb", "nudecosplay",
       /* 断言适配（fix338 集成对账）：registry-cut 摘 008/016 后 5 源，
-       * realphoto-add 新增 everia/xsnvshen 启用入册、按注册表序居末。 */
-      "everia", "xsnvshen"], "channel-image 成员＝已启用图片源（fix338 集成后 7 源）");
+       * realphoto-add 新增 everia/xsnvshen 启用入册、按注册表序居末。
+       * 断言适配（fix339）：yandere 摘除，名单 7→6 源。 */
+      "everia", "xsnvshen"], "channel-image 成员＝已启用图片源（fix339 后 6 源）");
   assert.deepEqual(sourcesForSurface("channel-video", R1).map((d) => d.id),
-    ["hanime-tv", "hanime1", "iwara"], "channel-video 成员＝已启用外部视频源（原生不在名单；fix338 后 3 源）");
+    ["hanime-tv"], "channel-video 成员＝已启用外部视频源（原生不在名单；fix339 后单源 002）");
   assert.deepEqual(routeForSurface("channel-video", byId("huangguo"), ctx),
     { kind: "not-applicable", declaration: "native-not-in-video-channel" }, "原生×视频频道＝空壳退场声明出局");
   /* 搜索扇出成员：005（App 编号，feedheiliao）以声明 g 出局、001 以
@@ -336,8 +342,8 @@ for (const [si, state] of STATES.entries()) {
    * xsnvshen 为内置 hls-site 源且 caps.search=false、以声明 h 出局
    * （合成 hlsSiteFx 的触发与之同口径并存）。 */
   assert.deepEqual(sourcesForSurface("search-fanout", R1).map((d) => d.id),
-    ["hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "hanime1", "iwara", "pixibb", "nudecosplay", "yandere", "everia"],
-    "M11 成员＝已启用∧有搜索段的外部源（fix338 集成后 11 源）");
+    ["hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "pixibb", "nudecosplay", "everia"],
+    "M11 成员＝已启用∧有搜索段的外部源（fix339 后 8 源：摘 009/010/014）");
   assert.deepEqual(routeForSurface("search-fanout", byId("huangguo"), ctx),
     { kind: "not-applicable", declaration: "native-dual-path" }, "001×M11 声明 b");
   assert.deepEqual(routeForSurface("search-fanout", byId("feedheiliao"), ctx),
@@ -349,7 +355,7 @@ for (const [si, state] of STATES.entries()) {
    * （fix338 集成对账：registry-cut 摘除出集 15→12、realphoto-add
    * everia/xsnvshen 启用且自检合格进集 12→14）。 */
   assert.deepEqual(routeForSurface("selfcheck", byId("huangguo"), ctx), { kind: "listed" }, "001×M21 在册（订正设计声明 c）");
-  assert.equal(sourcesForSurface("selfcheck", R1).length, 14, "M21 R1 合格集＝14 源");
+  assert.equal(sourcesForSurface("selfcheck", R1).length, 11, "M21 R1 合格集＝11 源（fix339：摘三源后与已启用集同数）");
   /* 短剧频道：外部 video 源以声明 e 出局（caps 映射属实为空）。 */
   assert.deepEqual(routeForSurface("channel-drama", byId("hanime-tv"), ctx),
     { kind: "not-applicable", declaration: "no-drama-mapping" }, "002×M6 声明 e");
@@ -403,15 +409,15 @@ for (const [si, state] of STATES.entries()) {
   }
 }
 
-/* ── R3 变体定点：停用 010 全面转提示/退出、015 启用态在各适用面成立 ── */
+/* ── R3 变体定点：停用 002 全面转提示/退出、015 启用态在各适用面成立 ── */
 {
   const ctx = ctxOf(R3);
   const byId = (id: string) => R3.find((s) => s.id === id)!;
-  const iw = byId("iwara");
-  assert.deepEqual(routeForSurface("deeplink-video", iw, ctx), { kind: "notice", reason: "disabled" }, "R3 010×M9＝停用提示");
+  const iw = byId("hanime-tv");
+  assert.deepEqual(routeForSurface("deeplink-video", iw, ctx), { kind: "notice", reason: "disabled" }, "R3 002×M9＝停用提示");
   assert.deepEqual(routeForSurface("search-fanout", iw, ctx),
-    { kind: "not-applicable", declaration: "not-enabled" }, "R3 010×M11 退出扇出");
-  assert.ok(!sourcesForSurface("channel-video", R3).some((d) => d.id === "iwara"), "R3 010 退出视频频道名单（原 M5 行、fix336 迁面）");
+    { kind: "not-applicable", declaration: "not-enabled" }, "R3 002×M11 退出扇出");
+  assert.ok(!sourcesForSurface("channel-video", R3).some((d) => d.id === "hanime-tv"), "R3 002 退出视频频道名单（原 M5 行、fix336 迁面）");
   const gb = byId("gelbooru");
   assert.deepEqual(routeForSurface("detail-gallery", gb, ctx), { kind: "browse", component: "SourceGallery" }, "R3 015×M15 自动接通");
   assert.ok(sourcesForSurface("channel-image", R3).some((d) => d.id === "gelbooru"), "R3 015 进入图片频道名单（原 M4 行、fix336 迁面）");
@@ -422,9 +428,9 @@ for (const [si, state] of STATES.entries()) {
    * 照，频道浏览不受此限）。 */
   assert.deepEqual(routeForSurface("search-fanout", gb, ctx),
     { kind: "not-applicable", declaration: "no-search-segment" }, "R3 015×M11 注册表未声明搜索、声明出局");
-  /* R3×M17（fix334/L3）：停用 010 退出资料库成员、启用 015 自动进。 */
+  /* R3×M17（fix334/L3）：停用 002 退出资料库成员、启用 015 自动进。 */
   assert.deepEqual(routeForSurface("library", iw, ctx),
-    { kind: "not-applicable", declaration: "not-enabled" }, "R3 010×M17 停用退出");
+    { kind: "not-applicable", declaration: "not-enabled" }, "R3 002×M17 停用退出");
   assert.deepEqual(routeForSurface("library", gb, ctx),
     { kind: "browse", component: "ProfileLibrary" }, "R3 015×M17 启用自动接通");
 }

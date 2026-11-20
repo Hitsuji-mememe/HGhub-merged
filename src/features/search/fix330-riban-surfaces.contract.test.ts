@@ -28,6 +28,10 @@
  * loadSearchCopy("video", …) → 断言：detail 段被调用、detail
  * 入结果与缓存、resolve 产出可播放流（形态逐源断言）。不访问
  * 真实网络（fetchPage/fetchPost 均经接缝注入既有夹具）。
+ *
+ * 断言适配（fix339/registry-cut-2，2026-11-21）：009/010 两源摘除
+ * ＋适配器删码，其两条场景随功能同删退役；覆盖收口为 source-002
+ * 单场景＋生产调用点断言，加载核（copyLoader）行为覆盖不变。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -36,7 +40,6 @@ import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../sour
 import { setFetchPage } from "../sources/adapters/fetchPage.ts";
 import { setFetchPost, type FetchPostResult } from "../sources/adapters/fetchPost.ts";
 import { createHanimeApiAdapter, sealEnvelope } from "../sources/adapters/hanimeApi.ts";
-import { createHanime1Adapter, createIwaraAdapter } from "../sources/adapters/templates.ts";
 import { loadSearchCopy, copyCacheKey, type CopyLoaderDeps } from "./copyLoader.ts";
 import { assembleSearchGallery } from "./searchGallery.ts";
 import type { CopyRef, MergedHit } from "./multiSourceSearch.ts";
@@ -54,8 +57,6 @@ const def = (id: string): SourceDef => {
 function makeAdapterDirect(d: SourceDef): SourceAdapter {
   switch (d.adapter.template) {
     case "hanime-api": return createHanimeApiAdapter(d);
-    case "iwara-api": return createIwaraAdapter(d);
-    case "hanime1": return createHanime1Adapter(d);
     default: throw new Error(`unexpected template ${d.adapter.template}`);
   }
 }
@@ -126,53 +127,20 @@ async function runOpenScenario(
   assert.ok(postCalls >= 1, "source-002 resolve 真走 fetchPost 定向接缝（握手已达）");
 }
 
-/* ── source-011（iwara-api）：API 搜索 → detail → X-Version
- * 签名取流 ── */
-{
-  setFetchPage(async (url) => {
-    if (url.includes("files.iwara.tv")) return fx("iwara-sources.json");
-    if (url.includes("/video/")) return fx("iwara-video.json");
-    if (url.includes("/videos?") || url.includes("/search?")) return fx("iwara-list.json");
-    throw new Error(`unexpected fetch ${url}`);
-  });
-  const r = await runOpenScenario("iwara", async (a) => {
-    const hit = await a.search!("夹具", 1, 20);
-    assert.ok(hit.items.length >= 1, "source-011 搜索出条目");
-    return hit.items[0];
-  });
-  assert.equal(r.item.externalId, "Ab12Cd34Ef56", "source-011 条目 id 为 API 视频 id");
-  assert.ok(r.streamUrl?.endsWith("-720.mp4"), "source-011 取流产出最高档 mp4");
-  assert.equal(r.detail?.title, "夹具条目一", "source-011 detail 经 /video/<id> 取数");
-}
-
-/* ── source-010（hanime1）：/search 卡片 → /watch detail →
- * watch 页多档取流 ── */
-{
-  setFetchPage(async (url) => {
-    if (url.includes("/watch?v=")) return fx("hanime1-watch.html");
-    if (url.includes("/search")) return fx("hanime1-search.html");
-    throw new Error(`unexpected fetch ${url}`);
-  });
-  const r = await runOpenScenario("hanime1", async (a) => {
-    const hit = await a.search!("夹具", 1, 20);
-    assert.ok(hit.items.length >= 1, "source-010 搜索出条目");
-    return hit.items[0];
-  });
-  assert.equal(r.item.externalId, "100001", "source-010 条目 id 为 watch?v= 数字 id");
-  assert.ok(r.streamUrl?.includes("-1080p.mp4"), "source-010 取流产出 watch 页最高档 mp4");
-  assert.equal(r.detail?.title, "夹具条目一", "source-010 detail 经 watch 页取数");
-}
-
+/* source-010（hanime1）与 source-011（iwara-api）两条完整场景已随
+ * fix339/registry-cut-2 两源摘除＋适配器删码同删退役；加载核本身的
+ * 覆盖由上方 source-002 场景与下方生产调用点断言承接、不降。 */
 
 /* ── 生产调用点（源码文本断言）：Search 消费加载核、工厂分发
- * 三模板齐全 ── */
+ * 齐全 ── */
 {
   const searchSrc = readFileSync(new URL("./Search.tsx", import.meta.url), "utf8");
   assert.ok(searchSrc.includes("loadSearchCopy("), "Search 副本加载走生产加载核 copyLoader（生产调用点）");
   assert.ok(searchSrc.includes('from "./copyLoader"'), "Search 导入 copyLoader 单一出处");
   const factory = readFileSync(new URL("../sources/adapters/index.ts", import.meta.url), "utf8");
-  /* 适配（fix338）：hentaihaven-api 已删码，分发断言收口三模板。 */
-  for (const [tpl, fn] of [["hanime-api", "createHanimeApiAdapter"], ["iwara-api", "createIwaraAdapter"], ["hanime1", "createHanime1Adapter"]] as const) {
+  /* 适配（fix338）：hentaihaven-api 已删码，分发断言收口三模板。
+   * 适配（fix339）：iwara-api/hanime1 已删码，分发断言收口 hanime-api。 */
+  for (const [tpl, fn] of [["hanime-api", "createHanimeApiAdapter"]] as const) {
     assert.ok(factory.includes(`case "${tpl}": return ${fn}(def)`), `工厂分发 ${tpl} → ${fn}`);
   }
 }

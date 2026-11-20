@@ -37,12 +37,14 @@ const def = (id: string) => {
   }
   /* 断言适配（3.2.2 瘦身）：名单收口到保留集——保留的 video 源
    * （里番）同样无分集能力、不进短剧列表，且仍在「视频」频道。
-   * 断言适配（fix330/ui-fixes）：rule34video 已摘除，样本改 iwara。 */
-  for (const id of ["hanime-tv", "iwara"]) {
+   * 断言适配（fix330/ui-fixes）：rule34video 已摘除，样本改 iwara。
+   * 断言适配（fix339/registry-cut-2）：iwara 已摘除，样本收口为
+   * 唯一保留 video 源 hanime-tv。 */
+  for (const id of ["hanime-tv"]) {
     assert.ok(!drama.some((s) => s.id === id), `${id} 无短剧品类映射、不进短剧频道切源列表`);
   }
   const original = sourcesForChannel("original", getBuiltinRegistry());
-  for (const id of ["hanime-tv", "iwara"]) {
+  for (const id of ["hanime-tv"]) {
     assert.ok(original.some((s) => s.id === id), `${id} 仍在「视频」频道切源列表（其他频道不受影响）`);
   }
   const category = read("../category/Category.tsx");

@@ -40,17 +40,20 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { getBuiltinRegistry, sourcesForCategory, sourcesForChannel } from "../sources/registry.ts";
 
-/* 适配（fix338/registry-cut）：011 已摘除，里番列示集合四源→三源。 */
-const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara"];
+/* 适配（fix338/registry-cut）：011 已摘除，里番列示集合四源→三源。
+ * 适配（fix339/registry-cut-2）：009/010 已摘除，列示集合三源→单源
+ * （002 保留、视频频道保留，用户 2026-11-21 改判）；单源频道呈现
+ * 维持现状、不做单源简化。 */
+const RIBAN_IDS = ["hanime-tv"];
 
-/* ── 列示选择器口径：三源齐列、全员 probe ── */
+/* ── 列示选择器口径：单源在列、全员 probe ── */
 {
   const builtin = getBuiltinRegistry();
   const listed = sourcesForCategory("video", builtin);
   assert.deepEqual(
     listed.map((s) => s.id).sort(),
     [...RIBAN_IDS].sort(),
-    "视频源列示集合 = active 注册表 category=video 已启用源，恰为里番三源（fix338 后）",
+    "视频源列示集合 = active 注册表 category=video 已启用源，恰为里番单源（fix339 后）",
   );
   for (const s of listed) {
     assert.equal(s.enabled, true, `${s.id} 已启用才入列示`);
@@ -59,18 +62,18 @@ const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara"];
   }
   /* active 口径：清单覆盖把某源置 enabled=false → 立即退出列示
    * （v2 清单下 010/012 的真机形态即此路径）。 */
-  const overlaid = builtin.map((s) => (s.id === "iwara" ? { ...s, enabled: false } : s));
+  const overlaid = builtin.map((s) => (s.id === "hanime-tv" ? { ...s, enabled: false } : s));
   assert.deepEqual(
     sourcesForCategory("video", overlaid).map((s) => s.id).sort(),
-    ["hanime-tv", "hanime1"].sort(),
-    "enabled=false 的源不入列示（active 注册表口径）",
+    [],
+    "enabled=false 的源不入列示（active 注册表口径；单源被熔断则列示为空、不冒充）",
   );
   /* 两条到达路径同集合：频道页切源片（sourcesForChannel）与
    * 列示不得分叉。 */
   assert.deepEqual(
     sourcesForChannel("original", builtin).map((s) => s.id).sort(),
     [...RIBAN_IDS].sort(),
-    "频道页切源片与列示集合为同一三源集合（fix338 后）",
+    "频道页切源片与列示集合为同一单源集合（fix339 后）",
   );
 }
 
