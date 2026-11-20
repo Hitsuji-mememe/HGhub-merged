@@ -25,6 +25,9 @@
  *     照样落缓存（免重复抓）；已落盘标题经 enqueue 直接回
  *     放、不再抓 detail（每帖只补一次、缓存命中零重复抓取）。
  * (5) SourcePosts 接线文本断言（hook 真接入、与验杀叠加）。
+ * (6) 搜索面接线文本断言（集成轮定夺补入：ExtTitleFallbackPump
+ *     逐源调同一 hook、覆盖集在聚合前叠加、随 extHits 同步清
+ *     空）——M1 残余「搜索面未覆盖」的收口断言。
  * 夹具为合成形态，不访问真实网络。
  */
 import assert from "node:assert/strict";
@@ -198,6 +201,22 @@ const flush = async (rounds = 60) => {
   assert.ok(src.includes("titleOverrides"), "SourcePosts 呈现按回填后的标题叠加 visibleItems");
   assert.ok(src.includes("useStaffPromoVerify(def, items, fetchDetailForVerify)"),
     "验杀接线未被本线改动（两 hook 共存）");
+}
+
+/* ── (6) 搜索面接线文本断言（集成轮补入，收口 M1 残余） ── */
+{
+  const src = readFileSync(new URL("../search/Search.tsx", import.meta.url), "utf8");
+  assert.ok(src.includes("useTitleFallback") && src.includes("ExtTitleFallbackPump"),
+    "Search 接入标题兜底泵（与 SourcePosts 同一 hook）");
+  assert.ok(src.includes("useTitleFallback(def, items, fetchDetail)"),
+    "泵内以 (def, items, fetchDetail) 同形态调 hook");
+  assert.ok(src.includes("return adapter.detail(id);"),
+    "泵的 detail 接缝与 SourcePosts 同构造（createAdapter(def).detail）");
+  assert.ok(src.includes("extTitleOverrides.get(h.sourceId)?.get(h.item.externalId)"),
+    "覆盖集在聚合前按 (sourceId, externalId) 叠加到扇出条目");
+  assert.ok(src.includes("extTitleOverrides])"), "聚合 memo 依赖覆盖集（到达即重排呈现）");
+  assert.ok(src.split("setExtTitleOverrides(EMPTY_EXT_TITLE_OVERRIDES)").length - 1 >= 3,
+    "覆盖集随 extHits 在 submit 与两条清空路径同步重置（不跨搜索残留）");
 }
 
 console.log("fix333-m1-title-fallback contract: OK");

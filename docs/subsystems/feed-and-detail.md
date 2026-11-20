@@ -469,6 +469,13 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   全量与 compact 两形态同口径。契约
   `fix333-m1-title-fallback.contract.test.ts`＋003 样本回归
   （`~/workspace/hghub/fix333/evidence/m1-title-fallback/`）。
+  **搜索面接入（3.3.3 集成轮定夺，收口 M1 残余）**：搜索结果经
+  `fanoutSearch` 扇出、不经 SourcePosts，原未覆盖；现 `Search.tsx`
+  每源挂一个 `ExtTitleFallbackPump`（不渲染）调同一 hook（detail
+  接缝同构造），覆盖集在 `aggregateHits` 聚合前按
+  (sourceId, externalId) 叠加到扇出条目——MergedHit 展示标题取
+  代表副本 item.title、合并标题信号同受益；覆盖集随 extHits 在
+  submit 与两条清空路径同步重置。接线断言入 M1 契约 (6)。
 
 ## 验证命令
 

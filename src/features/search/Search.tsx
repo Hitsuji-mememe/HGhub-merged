@@ -1,6 +1,6 @@
 import { Button, Form, Input, SegmentedControl, Surface } from "../../shared/ui/ios/controls";
 import { Loader } from "../../shared/ui/ios/effects";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, cover, fmt, isMobile } from "../../shared/api/api";
 import type { HotSearchVideo, Post, RankItem, VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
@@ -21,7 +21,8 @@ import { AlbumViewer } from "../sources/AlbumViewer";
 import { getActiveRegistry } from "../sources/manifest";
 import { createAdapter } from "../sources/adapters/index.ts";
 import { sourceStableId } from "../sources/registryDiag";
-import type { SourceDetail } from "../sources/types";
+import type { SourceDef, SourceDetail, SourceItem } from "../sources/types";
+import { useTitleFallback } from "../sources/titleFallback.ts";
 import { Player } from "../playback";
 import { fetchHealthSnapshot } from "../sources/adapters/fetchHealth.ts";
 import {
@@ -82,6 +83,32 @@ type ExtDetailState =
 /** 扇出排除（3.2.1 F1）：已由原生通道完整覆盖、不进 fanoutSearch 的源。 */
 const FANOUT_EXCLUDE_NATIVE = new Set(["huangguo"]);
 
+/* ── 搜索面空壳卡标题兜底（fix333/m1-title-fallback 残余，集成轮定夺接入）──
+ * M1 的 useTitleFallback 只接了 SourcePosts：搜索结果经 fanoutSearch
+ * 扇出呈现、不经 SourcePosts，裸 id 标题卡在搜索面无覆盖。本泵每源
+ * 一个实例、调同一 hook（识别/缓存/泵口径全同），覆盖集回报父组件
+ * 在聚合前叠加到条目上——MergedHit 展示标题取代表副本 item.title、
+ * 合并标题信号也同受益。fetchDetail 与 SourcePosts 的
+ * fetchDetailForVerify 同构造（createAdapter(def).detail 注入接缝）。
+ * 接缝实测：扇出条目即 SourceItem、按 sourceId 分组后与 hook 的
+ * (def, items, fetchDetail) 形态严丝合缝，无需改 hook 与扇出。 */
+function ExtTitleFallbackPump({ def, items, onOverrides }: {
+  def: SourceDef;
+  items: SourceItem[];
+  onOverrides: (sourceId: string, map: ReadonlyMap<string, string>) => void;
+}) {
+  const fetchDetail = useCallback((id: string) => {
+    const adapter = createAdapter(def);
+    if (!adapter) return Promise.reject(new Error("该源未注册可用适配器"));
+    return adapter.detail(id);
+  }, [def]);
+  const overrides = useTitleFallback(def, items, fetchDetail);
+  useEffect(() => { onOverrides(def.id, overrides); }, [def.id, overrides, onOverrides]);
+  return null;
+}
+
+const EMPTY_EXT_TITLE_OVERRIDES: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map();
+
 export default function Search({ active, wide }: { active: boolean; wide: boolean }) {
   const { push, searchHist, addSearch, clearSearchHist, lineEpoch, setTab: setMainTab } = useStore();
   const { preferences } = useContentPreferences();
@@ -99,6 +126,28 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   /* 扇出失败呈现汇总（fix333/m4-search）：扇出落定后由
    * summarizeFanoutFailures 生成；null＝未落定/无失败呈现。 */
   const [extSummary, setExtSummary] = useState<FanoutFailureSummary | null>(null);
+  /* 搜索面标题兜底覆盖集（源 id → externalId → 真标题）：由
+   * ExtTitleFallbackPump 逐源回报，聚合前叠加到 extHits 条目上；
+   * 随 extHits 同步清空（submit/清空两路径），不跨搜索残留。 */
+  const [extTitleOverrides, setExtTitleOverrides] = useState<ReadonlyMap<string, ReadonlyMap<string, string>>>(EMPTY_EXT_TITLE_OVERRIDES);
+  const onExtTitleOverrides = useCallback((sourceId: string, map: ReadonlyMap<string, string>) => {
+    setExtTitleOverrides((prev) => (prev.get(sourceId) === map ? prev : new Map(prev).set(sourceId, map)));
+  }, []);
+  /* 扇出条目按源分组（泵的挂载名单）：def 以 active 注册表为准，
+   * 找不到 def 的组不挂泵（无从构造 detail 接缝）。 */
+  const extTitleGroups = useMemo(() => {
+    const by = new Map<string, { def: SourceDef; items: SourceItem[] }>();
+    if (!extHits.length) return by;
+    const sources = getActiveRegistry().sources;
+    for (const h of extHits) {
+      const def = sources.find((s) => s.id === h.sourceId);
+      if (!def) continue;
+      let g = by.get(h.sourceId);
+      if (!g) { g = { def, items: [] }; by.set(h.sourceId, g); }
+      g.items.push(h.item);
+    }
+    return by;
+  }, [extHits]);
   const [hgLoading, setHgLoading] = useState(false);
   const [moreLoading, setMoreLoading] = useState(false);
   const [extLoading, setExtLoading] = useState(false);
@@ -212,6 +261,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     setHgPost(null);
     setExtHits([]);
     setExtSummary(null);
+    setExtTitleOverrides(EMPTY_EXT_TITLE_OVERRIDES);
     setExtDetail(null);
     setHgLoading(true);
     setExtLoading(true);
@@ -350,9 +400,15 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
         weight: 100, hot: p.hot ?? 0, seq: seq++, publishedAt: parseTs(p.publish_time ?? p.created_at),
       });
     }
-    const ext = extHits.map((h) => ({ ...h, seq: 100_000 + h.seq }));
+    const ext = extHits.map((h) => {
+      /* 标题兜底覆盖在聚合前叠加：MergedHit 展示字段取代表副本
+       * item.title，裸 id 卡回填真标题后卡面与合并信号同受益。 */
+      const t = extTitleOverrides.get(h.sourceId)?.get(h.item.externalId);
+      const item = t && t !== h.item.title ? { ...h.item, title: t } : h.item;
+      return { ...h, item, seq: 100_000 + h.seq };
+    });
     return aggregateHits([...nativeHits, ...ext]);
-  }, [hgVideo, hgPost, extHits, hgCanonicalSignals, envKey]);
+  }, [hgVideo, hgPost, extHits, hgCanonicalSignals, envKey, extTitleOverrides]);
 
   const openNativeCopy = (merged: MergedHit, copy: CopyRef) => {
     if (merged.kind === "post") {
@@ -646,6 +702,11 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
 
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
+      {/* 标题兜底泵（不渲染）：逐源后台补裸 id 卡真标题，覆盖集经
+          extTitleOverrides 在聚合前叠加。 */}
+      {[...extTitleGroups.values()].map((g) => (
+        <ExtTitleFallbackPump key={g.def.id} def={g.def} items={g.items} onOverrides={onExtTitleOverrides} />
+      ))}
       <div className="ios-page-heading shrink-0 flex items-center gap-2.5 px-4">
         {/* 出入口同位（2026-11-18 第9项裁定）：左上返回回播放器 */}
         {!wide && (
@@ -664,11 +725,11 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
             onChange={(e) => {
               const next = e.target.value;
               setQ(next);
-              if (!next && submitted) { setSubmitted(""); seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setExtSummary(null); setHgError(null); setExtDetail(null); }
+              if (!next && submitted) { setSubmitted(""); seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setExtSummary(null); setExtTitleOverrides(EMPTY_EXT_TITLE_OVERRIDES); setHgError(null); setExtDetail(null); }
             }}
             placeholder="搜索视频、短剧、帖子、图片…"
             className="flex-1 min-w-0 bg-transparent text-[14px] text-on placeholder-dim outline-none" />
-          {(q || submitted) && <Button aria-label="清空搜索" type="button" onClick={() => { seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setExtSummary(null); setHgError(null); setExtDetail(null); setQ(""); setSubmitted(""); inputRef.current?.focus(); }} className="ios-icon-button ios-search-clear"><IClose size={16} /></Button>}
+          {(q || submitted) && <Button aria-label="清空搜索" type="button" onClick={() => { seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setExtSummary(null); setExtTitleOverrides(EMPTY_EXT_TITLE_OVERRIDES); setHgError(null); setExtDetail(null); setQ(""); setSubmitted(""); inputRef.current?.focus(); }} className="ios-icon-button ios-search-clear"><IClose size={16} /></Button>}
         </Form>
         <Button onClick={() => push({ kind: "ranks" })} aria-label="排行榜"
           variant="primary" className="ios-icon-button ios-search-shortcut">
