@@ -93,18 +93,21 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8"
 
 /* ── (3) O2：自检呈现口径标注 ── */
 {
+  /* 夹具指纹字段随 M7 三维指纹形状（3.3.3 集成轮对账修订：M7 改型
+   * 后本契约旧形状 manifestVersion/appVersion 与 selfCheckDiagLines
+   * 五参调用只在类型层过期，O2 断言内容不变）。 */
   const fixture: SourceSelfCheckResult = {
     sourceId: "fixture", at: 1_700_000_000_000, listOk: true, itemCount: 7,
     listFailure: null, detail: "ok", detailFailure: null,
     tail: "ok", tailKind: "stream", tailFailure: null,
-    manifestVersion: 3, appVersion: "3.3.3", requests: 3,
+    protocolVersion: 1, adapterEpoch: 1, sourceScope: "fixture-scope", requests: 3,
   };
   const seg = selfCheckSegmentText(fixture);
   assert.ok(seg.includes("请求 3 次（适配器调用口径）"), "单源段恒带请求数＋口径标注");
   const lines = selfCheckDiagLines(
     [{ id: "fixture", stableId: "source-099" }],
     { fixture },
-    1_700_000_000_000, 3, "3.3.3",
+    1_700_000_000_000,
   );
   assert.ok(lines[0].includes("请求数＝适配器调用口径"), "汇总行带口径定义");
   assert.ok(lines[0].includes("一次调用内可含多次 HTTP"), "汇总行定义含 HTTP 关系说明");
