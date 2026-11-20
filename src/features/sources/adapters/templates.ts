@@ -12,8 +12,8 @@ import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
 import { IWARA_API_ORIGIN, REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
-import { httpStatusOf, traceResolveFailure } from "./resolveTrace.ts";
-import { allImgSrcs, cardCategoryTokens, contentImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
+import { httpStatusOf, traceListItemSkips, traceResolveFailure } from "./resolveTrace.ts";
+import { allImgSrcs, cardCategoryTokens, contentImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, lastPageInNav, metaContent, pageOf, stripTags } from "./parse.ts";
 
 export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "hentaihaven-api", "preview-only", "none"] as const;
 type Params = Record<string, unknown>;
@@ -25,6 +25,53 @@ function fill(template: string, vars: Record<string, string | number>): string {
 
 function absUrl(base: string, href: string): string {
   try { return new URL(href, base).href; } catch { return href; }
+}
+
+/* ── 分页信号（Muse 2026-11-20 fix335/a-pagination 根治）──
+ * 旧口径之病：除 002（全目录本地切片、总数真实）外，每个适配器都把
+ * 「本次取回条数」喂给 pageOf 冒充总量——满页型 pages 恒 1、HTML 型
+ * 恒 2，三套 UI 以 page>=pages 停拉，各源在 20–40 条见底，与站方
+ * 万级库存脱钩（审计 fix335/audit-007-inventory.md §1，live 旧红
+ * harness 实证）。新口径：pages 只许来自下列信号，按优先级——
+ * ① 服务端真信号：API 总数字段（iwara count）、HTML 分页导航末页
+ *    （parse.ts lastPageInNav）、响应自带总页数（redgifs pages）；
+ * ② 「下一页」链接实存（HTML 列表模板，nextPageLinkPresent）；
+ * ③ 满页推断：本页取回数达到请求页容量（服务端页式 API 的满页是
+ *    精确的 size、HTML 站方页卡数 ≥ size）→ 暂报 page+1（只声称
+ *    「至少还有一页可探」），不满页即尾页。推断的终止由后续空页
+ *    （apiSignal 对 fetched=0 报 page-1）与 UI 侧零新增终止兜底，
+ *    不会无限续拉。total 无真信号时只报「已取回条数下限」
+ *    （(page-1)*size+fetched，均匀页 API 口径）或本页条数（HTML
+ *    口径，与旧 pageOf 的 total 语义一致），不冒充站方总量。 */
+interface PageSignal { pages: number; total: number }
+
+function apiSignal(fetched: number, page: number, size: number): PageSignal {
+  if (fetched <= 0) return { pages: Math.max(1, page - 1), total: Math.max(0, (page - 1) * size) };
+  return fetched >= size
+    ? { pages: page + 1, total: page * size }
+    : { pages: page, total: (page - 1) * size + fetched };
+}
+
+/** 「下一页」链接实存判读（HTML 模板信号②）：路径模板填入 page+1
+ * 后与页内任一锚点 href 精确对上（相对/绝对形态都认尾段一致）。
+ * 模板除 {page} 外还有别的占位（搜索 {q} 的编码形态与站方 href
+ * 不可比）时不判，留给导航末页信号。 */
+function nextPageLinkPresent(html: string, pathTemplate: string, page: number): boolean {
+  if (pathTemplate.replace("{page}", "").includes("{")) return false;
+  const next = fill(pathTemplate, { page: page + 1 });
+  return findAnchors(html).some((a) => a.href === next || a.href.endsWith(next));
+}
+
+/** HTML 列表模板的分页信号：模板无 {page} = 站方面无分页形态
+ * （007 /recent/ 橱窗实证：站方不认页码、恒回同一组），pages 恒为
+ * 当前页——满页推断对它不适用，防它被误判出无限下一页。 */
+function htmlSignal(html: string, pathTemplate: string, fetched: number, page: number, size: number): PageSignal {
+  if (!pathTemplate.includes("{page}")) return { pages: page, total: fetched };
+  const nav = lastPageInNav(html, pathTemplate);
+  if (nav !== null) return { pages: Math.max(page, nav), total: fetched };
+  if (nextPageLinkPresent(html, pathTemplate, page)) return { pages: page + 1, total: fetched };
+  if (fetched >= size) return { pages: page + 1, total: fetched };
+  return { pages: page, total: fetched };
 }
 
 /** 解析为空错误（Muse 2026-11-19 fix321-F2）：取页成功但锚点解析
@@ -185,10 +232,22 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
       const base = def.baseUrls[0];
       const html = await fetchPage(absUrl(base, fill(listPath, { page })));
       const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo);
-      /* 未知不是空（fix321-F2）：取到页却 0 条目 = 解析失败，显式抛错走列表层错误通道 */
-      if (all.length === 0) throw new SourceParseEmptyError(def.id);
-      const items = all.slice(0, size);
-      return { items, pagination: pageOf(all.length, page, size) };
+      if (all.length === 0) {
+        /* 未知不是空（fix321-F2）：第一页 0 条目 = 解析失败，显式抛错
+         * 走列表层错误通道，口径不变。第二页起 0 条目按分页信号判读：
+         * 导航仍覆盖本页（nav>=page）→ 返回空页让 UI 继续前进（站方
+         * 整页被推广判据滤空等形态不许冒充到底）；导航不及本页 →
+         * 已过末页，报尾页收尾。 */
+        if (page <= 1) throw new SourceParseEmptyError(def.id);
+        const nav = lastPageInNav(html, listPath);
+        return { items: [], pagination: { page, pages: nav !== null && nav >= page ? nav : page - 1, size, total: 0 } };
+      }
+      /* 整页消费（fix335/a-pagination）：UI 页与站方页 1:1——旧
+       * slice(0, size) 把站方页第 21–30 卡在每一页恒定跳过（005 每
+       * 页漏 10/30、live 实证），且 UI 页与站方页错位后无对齐点可
+       * 补。现整页返回（22–30 条/页，UI 网格按实收条数渲染、口径
+       * 与过滤后变长页一致），分页信号走 htmlSignal。 */
+      return { items: all, pagination: { page, size, ...htmlSignal(html, listPath, all.length, page, size) } };
     },
     detail: (id) => htmlDetail(def, id),
     resolve: (id) => htmlResolve(def, id),
@@ -205,7 +264,16 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
         : `/?s=${encodeURIComponent(q)}&paged=${page}`;
       const html = await fetchPage(absUrl(base, path));
       const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo);
-      return { items: all.slice(0, size), pagination: pageOf(all.length, page, size) };
+      /* 搜索同列表口径（fix335/a-pagination）：整页消费＋htmlSignal
+       * （信号模板用未填的 searchPath 形状、无声明时用默认形，两者
+       * 的 {page} 段都是导航末页的提取形状）。搜索真空合法：0 条目
+       * 返回空页、pages 止于当前页，不抛解析为空。 */
+      const signalTemplate = searchPath || "/?s={q}&paged={page}";
+      if (all.length === 0 && page > 1) {
+        const nav = lastPageInNav(html, signalTemplate);
+        return { items: all, pagination: { page, pages: nav !== null && nav >= page ? nav : page - 1, size, total: 0 } };
+      }
+      return { items: all, pagination: { page, size, ...htmlSignal(html, signalTemplate, all.length, page, size) } };
     },
   };
 }
@@ -252,12 +320,32 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
     title: stripTags(p.title?.rendered ?? ""), cover: firstImgSrc(p.excerpt?.rendered ?? "") || firstImgSrc(p.content?.rendered ?? ""),
     href: p.link, tags: [],
   });
+  /* 分页取页（fix335/a-pagination）：WP 的总量在 X-WP-Total 响应头里，
+   * 而取页通道（Rust source_fetch）只回正文、不回头（契约见
+   * fetchPage.ts）——总量在前端不可达，信号走满页推断（apiSignal）。
+   * 越界收尾：WP 对 page 超过总页数恒回 400 rest_post_invalid_page_
+   * number（2026-11-20 对 006/008 live 实证，两站同码同文）——满页
+   * 推断探出的尾页恰会撞它。请求参数全由本适配器构造（page/
+   * per_page/search 均为受控值），page>1 的 400 在此上下文只可能
+   * 是越界，故按「已到尾页」收尾返回空页；page=1 的 400 仍如实
+   * 抛错（配置/权限类错误不许冒充空列表）。残余风险：他因 400
+   * （如 WAF 拦截）会被误判到底，代价是少看尾页而非误报故障，
+   * 与「未知不是空」的权衡记录在此。 */
+  const fetchPosts = async (query: string, page: number, size: number): Promise<WpPost[] | null> => {
+    try {
+      return parseJsonArray<WpPost>(await fetchPage(`${apiUrl(listPath)}?${query}`), def.id);
+    } catch (e) {
+      if (page > 1 && httpStatusOf(e) === 400) return null;
+      throw e;
+    }
+  };
+  const paged = (posts: WpPost[] | null, page: number, size: number): Paged<SourceItem> => posts === null
+    ? { items: [], pagination: { page, pages: Math.max(1, page - 1), size, total: Math.max(0, (page - 1) * size) } }
+    : { items: posts.map(toItem), pagination: { page, size, ...apiSignal(posts.length, page, size) } };
   return {
     sourceId: def.id,
     async list(page, size) {
-      const raw = await fetchPage(`${apiUrl(listPath)}?page=${page}&per_page=${size}`);
-      const posts = parseJsonArray<WpPost>(raw, def.id);
-      return { items: posts.map(toItem), pagination: pageOf(posts.length, page, size) };
+      return paged(await fetchPosts(`page=${page}&per_page=${size}`, page, size), page, size);
     },
     async detail(id) {
       const p = JSON.parse(await fetchPage(`${apiUrl(listPath)}/${id}`)) as WpPost;
@@ -286,9 +374,7 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
       return { streams: first ? [{ url: first, kind: "file" as const }] : [] };
     },
     async search(q, page, size) {
-      const raw = await fetchPage(`${apiUrl(listPath)}?search=${encodeURIComponent(q)}&page=${page}&per_page=${size}`);
-      const posts = parseJsonArray<WpPost>(raw, def.id);
-      return { items: posts.map(toItem), pagination: pageOf(posts.length, page, size) };
+      return paged(await fetchPosts(`search=${encodeURIComponent(q)}&page=${page}&per_page=${size}`, page, size), page, size);
     },
   };
 }
@@ -307,7 +393,10 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
     sourceId: def.id,
     async list(page, size) {
       const posts = parseJsonArray<DbPost>(await fetchPage(`${def.baseUrls[0]}${listPath}?page=${page}&limit=${size}`), def.id);
-      return { items: posts.map(toItem), pagination: pageOf(posts.length, page, size) };
+      /* 分页信号（fix335/a-pagination）：服务端 limit 页式、无总量
+       * 字段，走满页推断；越界页站方回 []（真空即尾页，apiSignal
+       * 对 0 条报 page-1 收尾）。 */
+      return { items: posts.map(toItem), pagination: { page, size, ...apiSignal(posts.length, page, size) } };
     },
     async detail(id) {
       const p = JSON.parse(await fetchPage(`${def.baseUrls[0]}/posts/${id}.json`)) as DbPost;
@@ -321,7 +410,7 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
     },
     async search(q, page, size) {
       const posts = parseJsonArray<DbPost>(await fetchPage(`${def.baseUrls[0]}${listPath}?tags=${encodeURIComponent(q)}&page=${page}&limit=${size}`), def.id);
-      return { items: posts.map(toItem), pagination: pageOf(posts.length, page, size) };
+      return { items: posts.map(toItem), pagination: { page, size, ...apiSignal(posts.length, page, size) } };
     },
   };
 }
@@ -371,6 +460,7 @@ export function createSwagAdapter(def: SourceDef): SourceAdapter {
       const rows = JSON.parse(raw) as SwagMessage[];
       if (!Array.isArray(rows)) throw new Error("SWAG 列表数据无效");
       const items: SourceItem[] = [];
+      let fetchFailed = 0;
       for (const row of rows) {
         const id = String(row?.id ?? "");
         if (!/^[a-f0-9]{24}$/i.test(id)) continue;
@@ -379,8 +469,14 @@ export function createSwagAdapter(def: SourceDef): SourceAdapter {
           if (!isFreeShort(m)) continue;
           const item = toItem(m);
           if (item) items.push(item);
-        } catch { /* 单条取数失败跳过该条，不拖垮整页（插件同口径） */ }
+        } catch { fetchFailed += 1; /* 单条取数失败跳过该条，不拖垮整页（插件同口径）；计数后统一留痕（见循环后） */ }
       }
+      /* 逐条取数失败留痕（fix335/a-pagination 收敛审计）：旧实现静默
+       * 跳过——失败与免费/短视频判据过滤在结果里不可分、诊断导出查
+       * 无此失败。现整页结算后落一条 source.list_skip（计数口径，
+       * 通道见 resolveTrace.traceListItemSkips）；成功路径逐字不变
+       * （过滤判读、条目集、抛错点均不受影响）。 */
+      if (fetchFailed > 0) traceListItemSkips(def.id, fetchFailed);
       if (items.length === 0) throw new SourceParseEmptyError(def.id);
       return { items, pagination: pageOf(rows.length, page, size) };
     },
@@ -435,10 +531,16 @@ export function createRedgifsAdapter(def: SourceDef): SourceAdapter {
   return {
     sourceId: def.id,
     async list(page, size) {
-      const d = await api<{ gifs?: RgGif[]; pages?: number }>(`/v2/gifs/search?search_text=&order=trending&count=${size}&page=${page}`);
+      const d = await api<{ gifs?: RgGif[]; pages?: number; total?: number }>(`/v2/gifs/search?search_text=&order=trending&count=${size}&page=${page}`);
       const items = (d.gifs ?? []).map(toItem).filter((x): x is SourceItem => x !== null);
       if (items.length === 0) throw new SourceParseEmptyError(def.id);
-      return { items, pagination: pageOf(items.length, page, size) };
+      /* 分页信号（fix335/a-pagination）：响应自带 pages 总页数（旧
+       * 实现已声明该字段却未消费、拿本页条数冒充）——有则真信号、
+       * total 同理；缺失回落满页推断。 */
+      const pagination = typeof d.pages === "number" && Number.isFinite(d.pages) && d.pages >= 1
+        ? { page, pages: d.pages, size, total: typeof d.total === "number" && Number.isFinite(d.total) ? d.total : (page - 1) * size + items.length }
+        : { page, size, ...apiSignal(items.length, page, size) };
+      return { items, pagination };
     },
     async detail(id) {
       const d = await api<{ gif?: RgGif }>(`/v2/gifs/${id}`);
@@ -529,16 +631,25 @@ export function createIwaraAdapter(def: SourceDef): SourceAdapter {
   const getJson = async <T>(url: string, headers?: Record<string, string>): Promise<T> =>
     JSON.parse(await fetchPage(url, headers)) as T;
   const listFrom = async (url: string, page: number, size: number) => {
-    const d = await getJson<{ results?: IwaraVideo[] }>(url);
+    const d = await getJson<{ results?: IwaraVideo[]; count?: number }>(url);
     const rows = Array.isArray(d?.results) ? d.results : [];
     const items = rows.map(toItem).filter((x): x is SourceItem => x !== null);
-    return { items, pagination: pageOf(rows.length, page, size) };
+    /* 分页信号（fix335/a-pagination）：响应自带 count 总数字段
+     * （站方 API 协议事实，旧实现未消费、拿本页行数冒充总量）——
+     * 有 count 走真信号 pageOf；缺失/形态异常回落满页推断，满页
+     * 判读用过滤前行数（toItem 剔除的无效行不代表站方页未满）。 */
+    const pagination = typeof d?.count === "number" && Number.isFinite(d.count) && d.count >= 0
+      ? pageOf(d.count, page, size)
+      : { page, size, ...apiSignal(rows.length, page, size) };
+    return { items, pagination };
   };
   return {
     sourceId: def.id,
     async list(page, size) {
       const r = await listFrom(`${apiBase}/videos?sort=views&page=${page - 1}&limit=${size}`, page, size);
-      if (r.items.length === 0) throw new SourceParseEmptyError(def.id);
+      /* 第一页空 = 解析为空抛错（旧口径不变）；第二页起空是满页
+       * 推断探出的尾页，按 listFrom 的信号收尾返回、不冒充故障。 */
+      if (r.items.length === 0 && page <= 1) throw new SourceParseEmptyError(def.id);
       return r;
     },
     async detail(id) {
@@ -626,12 +737,19 @@ export function createHanime1Adapter(def: SourceDef): SourceAdapter {
       ?? /class="[^"]*\btitle\b[^"]*"[^>]*>([\s\S]*?)<\//i.exec(inner);
     return m ? stripTags(m[1]) : "";
   };
-  const parseCards = (html: string): SourceItem[] => {
+  /* matched（fix335/a-pagination）：命中 watch?v= 形态的去重卡数
+   * （标题/封面校验前）——分页满页判读的口径。校验会剔除缺标题/
+   * 封面的卡，若以实收条数判满页，站方满页也会因剔除跌破阈值被
+   * 误判尾页（吃瓜 005 第一页实收 15<20 的同型教训）。 */
+  const parseCards = (html: string): { items: SourceItem[]; matched: number } => {
     const seen = new Set<string>();
+    const matchedIds = new Set<string>();
     const items: SourceItem[] = [];
     for (const a of findAnchors(html)) {
       const m = /watch\?v=(\d{1,8})/.exec(a.href);
-      if (!m || seen.has(m[1])) continue;
+      if (!m) continue;
+      matchedIds.add(m[1]);
+      if (seen.has(m[1])) continue;
       const title = cardTitle(a.inner) || imgAlt(a.inner);
       const cover = firstImgSrc(a.inner);
       if (!title || !cover) continue;
@@ -639,7 +757,7 @@ export function createHanime1Adapter(def: SourceDef): SourceAdapter {
       const dur = /class="[^"]*(?:card-mobile-duration|duration)[^"]*"[^>]*>\s*([\d]+:[\d:]+)/i.exec(a.inner)?.[1];
       items.push({ sourceId: def.id, externalId: m[1], title, cover: absUrl(base, cover), href: `${base}/watch?v=${m[1]}`, tags: [], duration: dur });
     }
-    return items;
+    return { items, matched: matchedIds.size };
   };
   const parseSources = (html: string): { url: string; q: number }[] => {
     const byQuality = new Map<number, string>();
@@ -663,9 +781,13 @@ export function createHanime1Adapter(def: SourceDef): SourceAdapter {
     sourceId: def.id,
     async list(page, size) {
       const html = await fetchPage(`${base}/search?sort=${encodeURIComponent("最新上市")}${pageParam(page)}`);
-      const all = parseCards(html);
-      if (all.length === 0) throw new SourceParseEmptyError(def.id);
-      return { items: all.slice(0, size), pagination: pageOf(all.length, page, size) };
+      const { items, matched } = parseCards(html);
+      /* 分页信号（fix335/a-pagination）：整页消费（旧 slice 同 HTML
+       * 模板尾损问题）；无导航末页可读（本机出口 CF 403、形态未实
+       * 测），走满页推断、满页口径取 matched。第一页无有效卡仍抛
+       * 解析为空；第二页起无卡按尾页收尾。 */
+      if (items.length === 0 && page <= 1) throw new SourceParseEmptyError(def.id);
+      return { items, pagination: { page, size, ...apiSignal(matched, page, size) } };
     },
     async detail(id) {
       const html = await fetchPage(`${base}/watch?v=${id}`);
@@ -704,8 +826,8 @@ export function createHanime1Adapter(def: SourceDef): SourceAdapter {
     },
     async search(q, page, size) {
       const html = await fetchPage(`${base}/search?query=${encodeURIComponent(q)}${pageParam(page)}`);
-      const all = parseCards(html);
-      return { items: all.slice(0, size), pagination: pageOf(all.length, page, size) };
+      const { items, matched } = parseCards(html);
+      return { items, pagination: { page, size, ...apiSignal(matched, page, size) } };
     },
   };
 }
@@ -734,10 +856,11 @@ export function createHentaihavenAdapter(def: SourceDef): SourceAdapter {
       href: `${base}/watch/${slug}/`, tags: [],
     };
   };
-  const apiList = async (params: string, page: number, size: number): Promise<SourceItem[]> => {
+  const apiList = async (params: string, page: number, size: number): Promise<{ items: SourceItem[]; fetched: number }> => {
     const d = JSON.parse(await fetchPage(`${base}/api/manga/?${params}&per_page=${size}&page=${page}`)) as { data?: HhRow[] };
     const rows = Array.isArray(d?.data) ? d.data : [];
-    return rows.map(toItem).filter((x): x is SourceItem => x !== null);
+    /* fetched = 过滤前行数（分页满页判读口径，见 iwara 同注）。 */
+    return { items: rows.map(toItem).filter((x): x is SourceItem => x !== null), fetched: rows.length };
   };
   const episodeNums = (html: string, slug: string): number[] => {
     const seen = new Set<number>();
@@ -753,9 +876,12 @@ export function createHentaihavenAdapter(def: SourceDef): SourceAdapter {
   return {
     sourceId: def.id,
     async list(page, size) {
-      const items = await apiList("trending_period=monthly", page, size);
-      if (items.length === 0) throw new SourceParseEmptyError(def.id);
-      return { items, pagination: pageOf(items.length, page, size) };
+      const { items, fetched } = await apiList("trending_period=monthly", page, size);
+      /* 分页信号（fix335/a-pagination）：响应只有 data 数组、无总量
+       * 字段（协议事实见文件头），走满页推断；第一页空仍抛解析为
+       * 空、第二页起空按尾页收尾（与 iwara 同口径）。 */
+      if (items.length === 0 && page <= 1) throw new SourceParseEmptyError(def.id);
+      return { items, pagination: { page, size, ...apiSignal(fetched, page, size) } };
     },
     async detail(id) {
       const slug = id.split("/episode-")[0];
@@ -800,8 +926,8 @@ export function createHentaihavenAdapter(def: SourceDef): SourceAdapter {
       return { streams: url ? [{ url, kind: "hls" as const }] : [] };
     },
     async search(q, page, size) {
-      const items = await apiList(`search=${encodeURIComponent(q.slice(0, 100))}`, page, size);
-      return { items, pagination: pageOf(items.length, page, size) };
+      const { items, fetched } = await apiList(`search=${encodeURIComponent(q.slice(0, 100))}`, page, size);
+      return { items, pagination: { page, size, ...apiSignal(fetched, page, size) } };
     },
   };
 }

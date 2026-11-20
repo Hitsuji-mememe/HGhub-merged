@@ -328,3 +328,30 @@ export function extractIframeSrc(html: string): string | null {
 export function pageOf(total: number, page: number, size: number): { page: number; pages: number; size: number; total: number } {
   return { page, pages: size > 0 ? Math.max(1, Math.ceil(total / size)) : 1, size, total };
 }
+
+/** 分页导航末页提取（Muse 2026-11-20 fix335/a-pagination）：HTML
+ * 列表页的站方分页导航自带末页链接（吃瓜三源 2026-11-20 live 实测：
+ * 003 导航含 /page/3230/、005 含 /page/2312/、004 含 /page/2045/，
+ * 与站方自报总页数一致）——这是 HTML 模板唯一的总页数真信号，
+ * 优先于任何条数推断。按列表/搜索路径模板的形状扫全部 href：
+ * {page} 段收数字、其余占位（如 {q}）收单段，取命中页码最大值。
+ * 导航只给窗口页码不给末页时，最大值是窗口尾——消费方到达该页后
+ * 该页导航会给出更大的窗口尾，信号自校正，不会提前封顶。模板无
+ * {page}（单页橱窗面）或无命中时返回 null，消费方回落推断口径。 */
+export function lastPageInNav(html: string, pathTemplate: string): number | null {
+  if (!pathTemplate.includes("{page}")) return null;
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = pathTemplate.split(/(\{\w+\})/).map((seg) =>
+    seg === "{page}" ? "(\\d+)" : seg.startsWith("{") ? "[^/\"'\\s]+" : esc(seg)).join("");
+  const re = new RegExp(pattern);
+  let max: number | null = null;
+  const hrefRe = /href=(["'])([^"']+)\1/g;
+  let m: RegExpExecArray | null;
+  while ((m = hrefRe.exec(html)) !== null) {
+    const hit = re.exec(m[2]);
+    if (!hit) continue;
+    const n = Number(hit[1]);
+    if (Number.isFinite(n) && n >= 1 && (max === null || n > max)) max = n;
+  }
+  return max;
+}

@@ -2164,6 +2164,16 @@
       "item": "结构批 L3／G4：Profile 回访路由经 surfaces 派生消费（routeForSurface），不本地另判",
       "min": 1,
       "symbol": "routeForSurface"
+    },
+    {
+      "files": [
+        "src/features/sources/adapters/resolveTrace.ts",
+        "src/features/sources/adapters/templates.ts"
+      ],
+      "id": "fix335-a-list-skip-trace",
+      "item": "fix335/a-pagination 收敛审计 SWAG 逐条取数失败留痕：resolveTrace 定义 traceListItemSkips（与 traceResolveFailure 同共享发射通道）＋templates SWAG list 失败计数消费，落 source.list_skip 进诊断导出账本",
+      "min": 2,
+      "symbol": "traceListItemSkips"
     }
   ]
 }
