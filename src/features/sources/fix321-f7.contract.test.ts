@@ -107,7 +107,9 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
    * missav 已摘除注册表），资格口径不变。 */
   /* 断言适配（fix330/ui-fixes）：rule34video 已摘除注册表，样本移除
    * （其余已启用源样本与下组 fix330 新启用源断言不变，覆盖不降）。 */
-  for (const id of ["huangguo", "hanime-tv", "pornpics"]) {
+  /* 断言适配（fix335/g-sources）：pornpics 已退役摘除，样本由新启用
+   * 的 yandere 接替、并加 konachan，覆盖不降。 */
+  for (const id of ["huangguo", "hanime-tv", "yandere", "konachan"]) {
     assert.ok(ids.includes(id), `已启用源 ${id} 在自检名单`);
   }
   /* 断言适配（fix330 接通批）：hanime1/iwara 已启用 → 按资格通则

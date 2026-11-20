@@ -491,12 +491,32 @@ export const DANBOORU_ORDER_PRESETS: { value: string; label: string }[] = [
 export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
   const params = (def.adapter.params ?? {}) as Params;
   const listPath = str(params, "listPath", "/posts.json");
-  interface DbPost { id: number; tag_string?: string; preview_file_url?: string; large_file_url?: string; file_url?: string }
+  /* moebooru 校准（fix335/g-sources，2026-11-20）：同族站点（yande.re／
+   * konachan.com，站点形态本机实测见证据 g-sources.md）经 params 覆写
+   * 端点与字段——detailPath（{id} 占位、响应可为对象或单元素数组、
+   * 归一化取首元素）、postPath（条目页地址形态）、tagsField／
+   * previewField／largeField（moebooru：tags／preview_url／jpeg_url）。
+   * 未声明的源（danbooru 本体）逐字走默认形态、行为不变。 */
+  const detailPath = str(params, "detailPath", "");
+  const postPath = str(params, "postPath", "/posts/{id}");
+  const tagsField = str(params, "tagsField", "tag_string");
+  const previewField = str(params, "previewField", "preview_file_url");
+  const largeField = str(params, "largeField", "large_file_url");
+  interface DbPost { id: number; file_url?: string; [k: string]: unknown }
+  const tagsOf = (p: DbPost) => String(p[tagsField] ?? "").split(" ").filter(Boolean);
   const toItem = (p: DbPost): SourceItem => ({
-    sourceId: def.id, externalId: String(p.id), title: (p.tag_string ?? "").split(" ").slice(0, 4).join(" ") || `post ${p.id}`,
-    cover: p.preview_file_url ?? "", href: `${def.baseUrls[0]}/posts/${p.id}`,
-    tags: (p.tag_string ?? "").split(" ").filter(Boolean).slice(0, 8),
+    sourceId: def.id, externalId: String(p.id), title: tagsOf(p).slice(0, 4).join(" ") || `post ${p.id}`,
+    cover: (p[previewField] as string | undefined) ?? "", href: `${def.baseUrls[0]}${postPath.replace("{id}", String(p.id))}`,
+    tags: tagsOf(p).slice(0, 8),
   });
+  const fetchPost = async (id: string): Promise<DbPost> => {
+    const raw = JSON.parse(await fetchPage(detailPath
+      ? `${def.baseUrls[0]}${detailPath.replace("{id}", encodeURIComponent(id))}`
+      : `${def.baseUrls[0]}/posts/${id}.json`)) as DbPost | DbPost[];
+    const p = Array.isArray(raw) ? raw[0] : raw;
+    if (!p || typeof p.id !== "number") throw new SourceParseEmptyError(def.id);
+    return p;
+  };
   return {
     sourceId: def.id,
     async list(page, size, disc) {
@@ -510,13 +530,13 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
       return { items: posts.map(toItem), pagination: { page, size, ...apiSignal(posts.length, page, size) } };
     },
     async detail(id) {
-      const p = JSON.parse(await fetchPage(`${def.baseUrls[0]}/posts/${id}.json`)) as DbPost;
+      const p = await fetchPost(id);
       const item = toItem(p);
-      return { ...item, images: [p.large_file_url ?? p.file_url ?? ""].filter(Boolean), episodes: [] };
+      return { ...item, images: [(p[largeField] as string | undefined) ?? p.file_url ?? ""].filter(Boolean), episodes: [] };
     },
     async resolve(id) {
-      const p = JSON.parse(await fetchPage(`${def.baseUrls[0]}/posts/${id}.json`)) as DbPost;
-      const url = p.file_url ?? p.large_file_url;
+      const p = await fetchPost(id);
+      const url = p.file_url ?? (p[largeField] as string | undefined);
       return { streams: url ? [{ url, kind: "file" as const }] : [] };
     },
     async search(q, page, size) {

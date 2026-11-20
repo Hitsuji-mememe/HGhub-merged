@@ -66,6 +66,13 @@ const FIXTURE_DEFS: Record<string, unknown> = {
     adapter: { template: "hls-site", params: { listPath: "/ranking/article/weekly?page={page}", itemLinkPattern: "/article_search.php?id=", detailPath: "/article/{id}/" } },
     baseUrls: ["https://adult.contents.fc2.com"], enabled: true, order: 29, maturity: "probe",
     capabilities: { search: true, episodes: false, hevc: false, comments: false }, note: "历史注册表条目" },
+  /* 断言适配（fix335/g-sources）：pornpics 已退役摘除注册表，按删除前
+   * 注册表条目功能字段入夹具表（同上方四源先例），守合成停用源与
+   * 搜索属实 false 两处覆盖，断言内容不变。 */
+  pornpics: { id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
+    adapter: { template: "hls-site", params: { listPath: "/recent/", itemLinkPattern: "/galleries/", detailPath: "/galleries/{id}/" } },
+    baseUrls: ["https://www.pornpics.com"], enabled: true, order: 41, maturity: "probe",
+    capabilities: { search: false, episodes: false, hevc: false, comments: false }, note: "历史注册表条目" },
 };
 const def = (id: string) => {
   const d = reg.find((s) => s.id === id) ?? FIXTURE_DEFS[id];
@@ -102,7 +109,8 @@ const def = (id: string) => {
 {
   const disabledIds = reg.filter((s) => !s.enabled).map((s) => s.id);
   /* 断言适配（3.3.0 集成）：hanime1/iwara 已启用，停用源由 5 减为 3（yandere/gelbooru/pixiv），枚举下限随之改 3，逐源排除断言不变。 */
-  assert.ok(disabledIds.length >= 3, `注册表确有停用源可枚举（实得 ${disabledIds.length}）`);
+  /* 断言适配（fix335/g-sources）：yandere 已启用，停用源减为 2（gelbooru/pixiv），枚举下限随之改 2，逐源排除断言不变。 */
+  assert.ok(disabledIds.length >= 2, `注册表确有停用源可枚举（实得 ${disabledIds.length}）`);
   for (const cate of ["posts", "video", "image", "preview"] as const) {
     const listed = sourcesForCategory(cate, reg);
     assert.ok(listed.every((s) => s.enabled), `${cate} 分类输入只含已启用源`);
@@ -166,10 +174,15 @@ const def = (id: string) => {
    * 用、capabilities.search 属实改 false → 无搜索段出局；pixibb/
    * nudecosplay 实证启用且搜索属实 true → 新进扇出。纳入集 7→8 源，
    * 结构门口径不变（与 fix321-f5 契约同口径）。 */
-  assert.equal(searchPolicyFor(def("pornpics")).include, false, "pornpics 搜索属实 false、无搜索段出局（fix330）");
+  assert.equal(searchPolicyFor(def("pornpics")).include, false, "pornpics 搜索属实 false、无搜索段出局（fix330；fix335/g-sources 后 def 走历史夹具表）");
+  /* 断言适配（fix335/g-sources）：yandere/konachan 启用且搜索属实进
+   * 扇出，纳入集 12→14 源。 */
+  for (const id of ["yandere", "konachan"]) {
+    assert.equal(searchPolicyFor(def(id)).include, true, `${id} moebooru 校准有搜索段、进扇出（fix335/g-sources）`);
+  }
   const included = reg.filter((s) => searchPolicyFor(s).include).map((s) => s.id).sort();
-  assert.deepEqual(included, ["51chigua", "cosplaytele", "danbooru", "hanime-tv", "hanime1", "hentaihaven", "huangguo", "iwara", "meiridasai", "nudecosplay", "pixibb", "xiuren"],
-    "扇出纳入集＝保留集内具备搜索段的 12 源（20:48 裁定口径＋3.3.0 集成；fix330/ui-fixes 摘 rule34video 后 13→12）");
+  assert.deepEqual(included, ["51chigua", "cosplaytele", "danbooru", "hanime-tv", "hanime1", "hentaihaven", "huangguo", "iwara", "konachan", "meiridasai", "nudecosplay", "pixibb", "xiuren", "yandere"],
+    "扇出纳入集＝保留集内具备搜索段的 14 源（20:48 裁定口径＋3.3.0 集成；fix335/g-sources 加 yandere/konachan 后 12→14）");
 }
 /* ── (F) 51吃瓜解 blocked＋黑料网毕业：内置面三面一致 ── */
 {

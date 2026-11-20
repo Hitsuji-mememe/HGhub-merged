@@ -20,6 +20,7 @@ import { REMOTE_MANIFEST_URL } from "./manifest.ts";
 import { getBuiltinRegistry, sourcesForCategory } from "./registry.ts";
 import { createHlsSiteAdapter, createWpRestAdapter } from "./adapters/templates.ts";
 import { setFetchPage } from "./adapters/fetchPage.ts";
+import type { SourceDef } from "./types.ts";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const fx = (name: string) => readFileSync(new URL(`./adapters/fixtures/${name}`, import.meta.url), "utf8");
@@ -60,16 +61,18 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
   assert.ok(category.includes("<SourceGallery def={imageSource}"), "图集页在 ChannelPage 挂载");
   const imageSources = sourcesForCategory("image", getBuiltinRegistry());
   const ids = imageSources.map((s) => s.id);
-  for (const id of ["xiuren", "pornpics", "cosplaytele", "danbooru"]) {
+  for (const id of ["xiuren", "cosplaytele", "danbooru", "yandere", "konachan"]) {
     assert.ok(ids.includes(id), `active 图片源含 ${id}`);
   }
+  assert.ok(!ids.includes("pornpics"), "PornPics 已退役摘除、不在 active 图片源（fix335/g-sources）");
   /* 断言适配（fix330 图片线，2026-11-19）：xiuren 改走 xiuren.biz 本机
    * 四级全通解 blocked、danbooru 住宅四级全通翻案（旧 blocked 系机房
    * CF 假象），两源均改判 probe（App 未真机验），证据 fix330/evidence/images.md。 */
   assert.equal(imageSources.find((s) => s.id === "xiuren")!.maturity, "probe", "秀人网 fix330 解 blocked 为 probe");
   assert.equal(imageSources.find((s) => s.id === "danbooru")!.maturity, "probe", "Danbooru fix330 翻案为 probe");
   assert.equal(imageSources.find((s) => s.id === "cosplaytele")!.maturity, "stable", "CosplayTele 如实 stable");
-  assert.equal(imageSources.find((s) => s.id === "pornpics")!.maturity, "probe", "PornPics 如实 probe");
+  assert.equal(imageSources.find((s) => s.id === "yandere")!.maturity, "probe", "yandere moebooru 校准启用如实 probe（fix335/g-sources）");
+  assert.equal(imageSources.find((s) => s.id === "konachan")!.maturity, "probe", "Konachan 新增启用如实 probe（fix335/g-sources）");
 }
 
 /* ── 外部源接通：createAdapter 生产调用者 >0（接线断言） ── */
@@ -141,7 +144,15 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
  * 不静默回落） ── */
 {
   setFetchPage(async () => { throw new Error("fixture net down"); });
-  const def = getBuiltinRegistry().find((s) => s.id === "pornpics")!; // 断言适配（3.2.2 瘦身）：pornhub 已摘除，同模板保留源接替；再适配（fix330/ui-fixes）：rule34video 已摘除，hls-site 保留源仅剩 pornpics 接替
+  /* 断言适配（fix335/g-sources）：pornpics 已退役摘除、内置再无 hls-site
+   * 源，失败态载体改内联合成 def（原注册表条目形态、模板代码留仓）。 */
+  const def: SourceDef = {
+    id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
+    adapter: { template: "hls-site", params: { listPath: "/recent/", itemLinkPattern: "/galleries/", detailPath: "/galleries/{id}/" } },
+    baseUrls: ["https://www.pornpics.com"], enabled: true, order: 41, maturity: "probe",
+    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    network: { mode: "probe-required" },
+  };
   const adapter = createHlsSiteAdapter(def);
   await assert.rejects(() => adapter.list(1, 20), /fixture net down/, "取数失败如实抛错");
 }

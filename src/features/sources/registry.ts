@@ -2,8 +2,9 @@
  * 内置源注册表（Muse 2026-11-19 根治包·多源线 条目2；2026-11-19
  * 用户新口径修订：保留＋全目录导入）。
  *
- * 构成：命名源 13＋目录导入源 5（catalog.ts；fix330 接通批
- * HentaiHaven 自目录毕业、Hanime1/Iwara 接通启用）。
+ * 构成：命名源 11＋目录导入源 6（catalog.ts；fix330 接通批
+ * HentaiHaven 自目录毕业、Hanime1/Iwara 接通启用；fix335/g-sources
+ * 摘 PornPics、目录加 Konachan 并启用 yandere，总数仍 17）。
  * 2026-11-19 20:22 用户产品瘦身定版（3.2.2 集成批执行）：定位收窄为
  * 短剧为主、吃瓜其次、图片顺带、视频只留里番——普通视频源全部、
  * myfans 预览专区与其余停用杂源已自注册表摘除（App 内不得出现；
@@ -15,6 +16,10 @@
  * （fix330/ui-fixes 线执行；清单 v3 同步已摘、applyManifest 只覆盖
  * 内置条目不新增，远程清单残留同 id 条目不会把已删源加回来；
  * hls-site 适配器模板留仓不删，与既有瘦身口径一致）。
+ * 2026-11-20 fix335/g-sources 追加摘除：PornPics 自注册表删除
+ * （用户裁定退役：站方无分页、库存恒 20 册且单册最薄，审计
+ * fix335/audit-007-inventory.md；清单 v4 同步已摘；hls-site 适配
+ * 器模板留仓不删，与既有瘦身口径一致）。
  *
  * 成熟度口径（诚实标注，2026-11-19 真站实测后更新）：
  * - 黄果 stable：仓内既有 native 通道、现行生产源；
@@ -83,13 +88,6 @@ export const NAMED_SOURCES: SourceDef[] = [
     enabled: true, order: 40, maturity: "probe",
     capabilities: { search: true, episodes: false, hevc: false, comments: false },
     network: PROBE_NET, note: "fix330 图片线解 blocked＋校准（2026-11-19）：生效域名改 xiuren.biz 在前（远程清单 v3 同口径）——xiuren.com 住宅三轮＋本机均 DNS 不可达（source-verify-20261119 第一至三轮）；xiuren.biz 本机出口四级实证全通（首页 200、/wp-json/wp/v2/posts 200 真条目、详情 200、图集出图 206）＋搜索端点 200 有结果（证据 fix330/evidence/images.md）；wp-rest 适配器按 .biz 实抓校准（参数不变、形态与模板一致）；App 侧未真机验 → probe（非 blocked 呈现）",
-  },
-  {
-    id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
-    adapter: { template: "hls-site", params: { listPath: "/recent/", itemLinkPattern: "/galleries/", detailPath: "/galleries/{id}/" } },
-    baseUrls: ["https://www.pornpics.com"],
-    enabled: true, order: 41, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "真站复核（2026-11-19 fix321-F2，本机出口参考）：旧判有误——首页确为分类索引无图集，但 /recent/ SSR 有图集 tile：单引号属性锚点 /galleries/<slug>-<id>/（img alt 为空、标题靠 slug 还原）；旧模板三处不符（列表路径 /、图案 /gallery/、解析只认双引号）已全修，解析层支持单引号属性与 slug 标题兜底、真站结构夹具解析出图集；图集详情页本机可达（17 图）未逐图验 → 仍 probe。fix321-F2b 追加（解析不动）：住宅出口验收 www/裸域/刷新三次均 DNS 层不可达（source-verify-20261119）——站点死亡还是住宅 DNS 过滤未定，与本机出口可达结论并存记录；maturity 维持 probe。fix330 图片线复核（2026-11-19）：本机出口四级实证全通（/recent/ 200 真条目、详情 200、图集、出图 206）；住宅出口失败在协议层（ERR_HTTP2_PROTOCOL_ERROR、非 DNS，第三轮复核）——两出口不一致、维持 probe 不标 stable（证据 fix330/evidence/images.md）。搜索属实改 false：模板搜索 /?s= 跳首页无条目、站方 /search/?q= 实抓 404，无可用搜索段",
   },
   {
     id: "cosplaytele", displayName: "CosplayTele", kind: "image", category: "image",

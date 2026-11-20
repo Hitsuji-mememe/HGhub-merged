@@ -127,20 +127,23 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
  * 契约适配（fix330/ui-fixes，2026-11-19）：用户 21:51 裁定 Rule34Video
  * 摘除注册表，名单 13→12 源；本断言即「扇出名单由规则派生」的全量
  * 遍历证据——名单不写死在搜索层，对注册表逐源跑 searchPolicyFor
- * 的结果恰等于规则预期（enabled∧模板有 search∧caps.search）。 */
+ * 的结果恰等于规则预期（enabled∧模板有 search∧caps.search）。
+ * 契约适配（fix335/g-sources，2026-11-20）：pornpics 退役摘除（本就
+ * 出局、名单不变），yandere/konachan moebooru 校准有搜索段进扇出，
+ * 名单 12→14 源。 */
 {
   const included = getBuiltinRegistry().filter((d) => searchPolicyFor(d).include).map((d) => d.id);
   assert.deepEqual(
     included,
-    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "danbooru", "hanime1", "iwara", "hentaihaven", "pixibb", "nudecosplay"],
-    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix330/ui-fixes 摘 rule34video 后）",
+    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "danbooru", "hanime1", "iwara", "hentaihaven", "pixibb", "nudecosplay", "yandere", "konachan"],
+    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix335/g-sources 后 14 源）",
   );
   assert.ok(!getBuiltinRegistry().some((d) => d.id === "rule34video"), "rule34video 已摘除注册表（用户裁定），不进扇出也不在册");
+  assert.ok(!getBuiltinRegistry().some((d) => d.id === "pornpics"), "pornpics 已退役摘除注册表（fix335/g-sources），不进扇出也不在册");
 
   /* 出局的保留源逐源断言：无搜索段（caps 未声明/属实 false）或未启用 */
   const excludedSearch: Record<string, SearchSegment[]> = {
     feedheiliao: ["search"],      // caps.search 未声明（无 GET 搜索段，3.3.0 实证）
-    pornpics: ["search"],         // 模板搜索实证不可用、search 属实 false（3.3.0 图片线）
   };
   for (const [id, segs] of Object.entries(excludedSearch)) {
     const p = searchPolicyFor(def(id));
@@ -152,7 +155,9 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
   /* 断言适配（3.3.0 集成）：pixibb/nudecosplay 已启用且具备搜索段、进
    * 扇出（见上方名单断言）；hentaihaven 已毕业为命名源并进扇出；
    * 本组只剩未启用目录源。 */
-  for (const id of ["yandere", "gelbooru", "pixiv"]) {    assert.equal(searchPolicyFor(def(id)).include, false, `目录源 ${id} 未启用出局`);
+  /* 适配（fix335/g-sources）：yandere 已启用且有搜索段进扇出（见上方
+   * 名单断言），未启用出局例只剩 gelbooru/pixiv。 */
+  for (const id of ["gelbooru", "pixiv"]) {    assert.equal(searchPolicyFor(def(id)).include, false, `目录源 ${id} 未启用出局`);
   }
   /* 出局源注册保留（不删源）：仍在注册表里、频道浏览不受扇出门影响 */
   for (const id of [...Object.keys(excludedSearch), "pixibb", "nudecosplay", "yandere", "gelbooru", "hentaihaven", "pixiv"]) {

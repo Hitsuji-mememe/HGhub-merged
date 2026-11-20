@@ -15,6 +15,9 @@
  *     probe（住宅四级全通、本机 CF）、pixibb/nudecosplay 启用 probe
  *     （本机四级全通＋搜索实证）、pornpics 维持 probe 且 search 改 false
  *     （模板搜索两形态均不成立）、gelbooru/yandere/pixiv 维持未启用。
+ *     断言适配（fix335/g-sources，2026-11-20）：pornpics 已退役摘除、
+ *     yandere moebooru 校准启用、konachan 新增启用——(3) 随之改判，
+ *     证据 fix335/evidence/g-sources.md。
  * 不访问真实网络：适配器经 setFetchPage 注入夹具。
  */
 import assert from "node:assert/strict";
@@ -91,9 +94,9 @@ const def = (id: string): SourceDef => {
   assert.equal(db.enabled, true, "danbooru 保持启用");
   assert.equal(db.capabilities.search, true, "danbooru tags 搜索与列表同端点、住宅实证在案、search 属实 true");
 
-  const pp = def("pornpics");
-  assert.equal(pp.maturity, "probe", "pornpics 维持 probe（本机四级全通/住宅协议层失败，两出口不一致不标 stable）");
-  assert.equal(pp.capabilities.search, false, "pornpics 模板搜索实证不可用（/?s= 跳首页、/search/?q= 404）、search 属实 false");
+  /* 断言适配（fix335/g-sources）：pornpics 已按用户裁定退役摘除注册
+   * 表，原定级断言（维持 probe/search 属实 false）改为不在册断言。 */
+  assert.ok(!getBuiltinRegistry().some((s) => s.id === "pornpics"), "pornpics 已摘除注册表（fix335/g-sources）");
 
   for (const id of ["pixibb", "nudecosplay"]) {
     const s = def(id);
@@ -102,7 +105,17 @@ const def = (id: string): SourceDef => {
     assert.equal(s.capabilities.search, true, `${id} wp-rest 搜索端点实证可用、search 属实 true`);
     assert.ok(!s.note?.includes("未实测"), `${id} note 已按实证更新、不再写未实测`);
   }
-  for (const id of ["gelbooru", "yandere", "pixiv"]) {
+  /* 新增定级（fix335/g-sources）：yandere/konachan moebooru 校准启用
+   * ——本机实证（列表/详情/搜索段）＋danbooru 模板参数校准，住宅复测
+   * 未做成、App 未真机验 → probe。 */
+  for (const id of ["yandere", "konachan"]) {
+    const s = def(id);
+    assert.equal(s.enabled, true, `${id} moebooru 校准 → 启用（fix335/g-sources）`);
+    assert.equal(s.maturity, "probe", `${id} 定级 probe（App 未真机验）`);
+    assert.equal(s.capabilities.search, true, `${id} 标签搜索段本机实证可用、search 属实 true`);
+    assert.equal(s.adapter.params?.listPath, "/post.json", `${id} listPath 按 moebooru 真实端点校准`);
+  }
+  for (const id of ["gelbooru", "pixiv"]) {
     const s = def(id);
     assert.equal(s.enabled, false, `${id} 无模板级真列表证据/按排除口径 → 维持未启用`);
   }

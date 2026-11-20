@@ -228,14 +228,11 @@ function checkResult(sourceId: string, over: Partial<SourceSelfCheckResult> = {}
    * 摘除注册表后，保留集 hls-site 全集只剩 pornpics 一源——下限改
    * 非空（>=1）、实名断言收口到 pornpics；保护行为（覆盖名单＝注册
    * 表 hls-site 全集、由上方 filter 枚举本身保证）不变。 */
-  assert.ok(covered.length >= 1, `hls-site 覆盖源应为保留集全集（非空），实际 ${covered.length}`);
-  /* 断言适配（3.3.0 接通批集成，2026-11-19）：hanime-tv 已换 hanime-api
-   * 模板、hentaihaven 已毕业 hentaihaven-api 专用模板——两者均不再属
-   * hls-site 参数下发覆盖面（F8 口径本就只覆盖 hls-site）；保留集
-   * hls-site 全集现为 pornpics 一源（rule34video 已摘除），实名断言
-   * 随之收口，保护行为不变。 */
-  for (const id of ["pornpics"]) {    assert.ok(covered.some((s) => s.id === id), `hls-site 覆盖名单应含 ${id}`);
-  }
+  /* 断言适配（fix335/g-sources，2026-11-20）：pornpics 退役摘除后，
+   * 内置注册表再无 hls-site 源——覆盖名单＝注册表 hls-site 全集＝
+   * 空集，如实断言；参数下发机制本身由上方合成 hls-site def 的
+   * applyManifest 用例证明仍活，保护行为不变。 */
+  assert.equal(covered.length, 0, "fix335/g-sources 后注册表无 hls-site 源、覆盖名单为空集");
 }
 
 console.log("fix321-f8 contract: ALL PASS");

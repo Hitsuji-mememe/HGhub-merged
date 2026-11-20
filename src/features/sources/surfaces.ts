@@ -141,8 +141,8 @@ export const SURFACE_DECLARATIONS: Record<string, { reason: string }> = {
   "no-search-segment-feedheiliao": {
     reason: "005（feedheiliao）×搜索面：无可用 GET 搜索段——三种 GET 搜索形态实证均返回关键词不变页，注册表 capabilities.search=false（设计声明 g）",
   },
-  "search-unusable-pornpics": {
-    reason: "007（pornpics）×搜索面：模板搜索不可用——/?s= 跳首页无条目、站方搜索 404，注册表 capabilities.search=false（设计声明 h）",
+  "search-unusable-hls-site": {
+    reason: "hls-site 模板×搜索面：模板搜索不可用——实证（已退役的 pornpics，fix335/g-sources 前为内置唯一 hls-site 源）：/?s= 跳首页无条目、站方搜索 404，capabilities.search=false（设计声明 h）",
   },
   "not-enabled": {
     reason: "未启用（内置未启用或清单停用）：注册保留、启用即自动进入全部适用面（设计声明 i）",
@@ -271,7 +271,7 @@ export function routeForSurface(
         return browse(surface === "search-fanout" ? "SearchFanout" : "SearchExternalDetail");
       }
       if (def.adapter.template === "chigua") return na("no-search-segment-feedheiliao");
-      if (def.adapter.template === "hls-site") return na("search-unusable-pornpics");
+      if (def.adapter.template === "hls-site") return na("search-unusable-hls-site");
       return na("no-search-segment");
     }
 
