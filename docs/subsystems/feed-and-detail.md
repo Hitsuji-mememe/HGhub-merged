@@ -148,6 +148,24 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   `fix331-covers.contract.test.ts`＋真站形态夹具
   `fixtures/chigua-list-banner-script.html`；f5 契约里钉旧产物形态
   的一处断言已按新口径改写（断链裁定不变）。
+- 卡内推广帖列表层过滤（Muse 2026-11-20 fix333/promo-filter）：
+  混在帖子卡里的官方公告/活动征集/软文帖，单信号无区分力（普查
+  `~/workspace/hghub/fix333/evidence/adpost-census.md`），改用站方
+  分类学组合信号：卡片分类词元（`parse.ts` 的 `cardCategoryTokens`
+  取 post-card-info 区裸 span 的分类清单、逐词元精确比对）命中源
+  声明的公告类分类（params.announcementCats），或「分类＝大赛栏目
+  （contestCat）∧ 标题为栏目公告框式（contestTitlePrefix 开头）」
+  组合（栏目分类本身也装参赛内容帖、须叠框式才判）。
+  `templates.ts` 的 `parseAnchorList` 可选 promo 参数由
+  `htmlListAdapter` 从 params 组装、列表与搜索同口径；未声明的源
+  零影响。已声明：51吃瓜（往期活动＋每日大赛框式）、每日大赛
+  （主题大赛）；黑料网列表卡无分类字段、组合信号不存在，不实现
+  （证据见 `~/workspace/hghub/fix333/evidence/promo-filter.md`）。
+  主题变体坑：分类 span 的地标只认两形态公共祖先 post-card-info
+  ——005 无 post-card-meta 包裹层，只认包裹层时判据恒不触发（真站
+  同字节复测实证）。契约 `fix333-promo-filter.contract.test.ts`＋
+  两源真站形态夹具；判定样本 495 卡内容误杀 0、真站 9 页同字节
+  复测推广全杀（003 6/6、005 2/2）、内容误杀 0。
 - 图片失败留痕段位（同批）：`Img` 可选 `surface` 段位（source-posts/
   source-browse/posts-native 等调用面自报），`feedTrace` 聚合按段位
   分桶（displayed/failed/byReason），逐图事件带包装前地址指纹

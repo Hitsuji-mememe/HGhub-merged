@@ -54,6 +54,32 @@ export function findAnchors(html: string): Anchor[] {
   return out;
 }
 
+/** 卡片分类词元（Muse 2026-11-20 fix333/promo-filter）：Mirages 系
+ * post-card 的分类只以纯文本躺在 post-card-info 区的无属性 <span>
+ * 里（逗号分隔的分类名清单，如「今日吃瓜, 往期活动」；作者/日期
+ * span 都带 itemprop 属性、不在此列）。主题变体两形态：003 有
+ * post-card-meta 包裹层、005 无包裹层分类 span 直挂 post-card-info
+ * ——故地标取 post-card-info（两形态的公共祖先），不许只认包裹层
+ * （005 真站复测实证：只认 post-card-meta 时 005 判据恒不触发）。
+ * 提取裸 span 文本并按中英文逗号/顿号切分为词元（逐词元精确比
+ * 对，子串不算命中——「往期活动」与「往期活动回顾」是两个词元）。
+ * 无 post-card-info 或无裸 span 时返回空集（调用方据此不判，不猜）。 */
+export function cardCategoryTokens(inner: string): string[] {
+  const metaAt = inner.indexOf("post-card-info");
+  if (metaAt < 0) return [];
+  const region = inner.slice(metaAt, metaAt + 1200);
+  const out: string[] = [];
+  const re = /<span>([^<]+)<\/span>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(region)) !== null) {
+    for (const t of m[1].split(/[,，、]/)) {
+      const v = t.trim();
+      if (v) out.push(v);
+    }
+  }
+  return out;
+}
+
 export function firstImgSrc(fragment: string): string {
   const m = /<img\b[^>]*\b(?:data-src|data-original|src)=(["'])([^"']+)\1/i.exec(fragment);
   return m ? decodeEntities(m[2]) : "";
