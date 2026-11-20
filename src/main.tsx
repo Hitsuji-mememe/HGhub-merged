@@ -18,6 +18,7 @@ import { FALLBACK_APP_VERSION, getActiveRegistry, getRegistryInfo, resolveRegist
 import { sourceFetchAllowlistOrigins } from "./features/sources/allowlist";
 import { verifyAppliedAdapterParams } from "./features/sources/adapterParams";
 import { getSelfCheckResults, runSourceSelfCheck, saveSelfCheckResult } from "./features/sources/healthCheck";
+import { probeStreamManifestViaPlayback } from "./features/sources/manifestProbe";
 import { getVersion } from "@tauri-apps/api/app";
 import { sourceHealthLines, sourceFetchErrorLines } from "./features/sources/registryDiag";
 import { registerSourceRegistryProvider, registerSourceHealthProvider, registerSourceFetchErrorProvider } from "./shared/diagnostics/sourceRegistry";
@@ -75,7 +76,7 @@ async function bootstrapRegistry(): Promise<void> {
   void verifyAppliedAdapterParams({
     getSources: () => getActiveRegistry().sources,
     runCheck: async (def) => {
-      const result = await runSourceSelfCheck(def, { createAdapterFor: (d) => createAdapter(d), now: () => Date.now() });
+      const result = await runSourceSelfCheck(def, { createAdapterFor: (d) => createAdapter(d), probeManifest: probeStreamManifestViaPlayback, now: () => Date.now() });
       saveSelfCheckResult(result);
       return result;
     },
@@ -121,7 +122,7 @@ registerSourceFetchErrorProvider(() => sourceFetchErrorLines());
  * 诊断与源明细、无任何用户可见打扰；纯旁路——注册与自检异常都不
  * 影响启动与正常使用（healthCheck 内已吞异常，此处再兜一层）。 */
 try {
-  startSourceSelfCheckScheduler({ createAdapterFor: (def) => createAdapter(def) });
+  startSourceSelfCheckScheduler({ createAdapterFor: (def) => createAdapter(def), probeManifest: probeStreamManifestViaPlayback });
 } catch { /* 自检调度注册失败不影响启动 */ }
 
 /* 运行期错误统一落到 debug.log，便于自查 */
