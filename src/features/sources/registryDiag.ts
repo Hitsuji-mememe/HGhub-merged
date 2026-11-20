@@ -153,3 +153,28 @@ export function sourceHealthLines(): string[] {
   ));
   return lines;
 }
+
+/** 逐源最近取页错误原文（Muse 2026-11-20 fix336-a）：经 provider
+ * 钩子被诊断报告「取页观测」节消费。归属口径与 sourceHealthLines
+ * 完全同源（每源全部 host 集合认领、取最近一条记录）；只列有失败
+ * 原文的源，稳定编号、零域名（原文落盘前已经 sanitizeFetchError
+ * 清洗、自有 host 已脱敏）。当前仍失败的带类别与时刻；其后已恢复
+ * 的明示「其后已恢复」，不许拿旧原文冒充当前状态。 */
+export function sourceFetchErrorLines(): string[] {
+  const info = getRegistryInfo();
+  const defs = getActiveRegistry().sources;
+  const byHost = new Map(fetchHealthSnapshot().map(h => [h.host, h]));
+  const lines: string[] = [];
+  info.sources.forEach((s, i) => {
+    const def = defs[i];
+    if (!def) return;
+    const h = latestFetchRecord(sourceHostSet(def), byHost);
+    if (!h || !h.error) return;
+    if (h.ok) {
+      lines.push(`取页错误[${sourceStableId(i)}]：${h.error}（最近一次失败原文，其后已恢复）`);
+    } else {
+      lines.push(`取页错误[${sourceStableId(i)}]：${h.category ?? "其他"} · ${h.error} · ${timeText(h.at)}`);
+    }
+  });
+  return lines;
+}

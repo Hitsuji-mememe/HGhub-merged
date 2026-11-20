@@ -35,3 +35,21 @@ export function sourceHealthLines(): string[] {
     return [];
   }
 }
+
+/* 逐源最近取页错误原文 provider（Muse 2026-11-20 fix336-a）：
+ * 与健康行同模式——数据本体（fetchHealth 记录＋注册表归属）在
+ * features/sources，报告只消费字符串行。未注册返回 null（报告如实
+ * 标注未接），已注册无错误返回空数组，两态不许混。 */
+let fetchErrorProvider: (() => string[]) | null = null;
+
+export function registerSourceFetchErrorProvider(fn: () => string[]): void {
+  fetchErrorProvider = fn;
+}
+
+export function sourceFetchErrorLines(): string[] | null {
+  try {
+    return fetchErrorProvider?.() ?? null;
+  } catch {
+    return null;
+  }
+}
