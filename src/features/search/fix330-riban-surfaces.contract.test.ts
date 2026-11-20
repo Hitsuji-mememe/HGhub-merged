@@ -163,7 +163,7 @@ async function runOpenScenario(
   assert.equal(r.detail?.title, "夹具条目一", "source-010 detail 经 watch 页取数");
 }
 
-/* ── source-012（hentaihaven-api）：目录 API 搜索 → watch
+/* ── source-011（hentaihaven-api）：目录 API 搜索 → watch
  * detail（分集）→ 集页 ld+json 取 HLS ── */
 {
   setFetchPage(async (url) => {

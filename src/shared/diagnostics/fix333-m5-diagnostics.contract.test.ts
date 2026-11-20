@@ -46,9 +46,9 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8"
     assert.ok(tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `011 iwara 段留痕在位：${seg}`);
   }
   for (const seg of ["watch", "download"]) {
-    assert.ok(tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `010/012 详情页段留痕在位：${seg}`);
+    assert.ok(tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `009/011 详情页段留痕在位：${seg}`);
   }
-  assert.ok(tpl.includes('traceResolveFailure(def.id, "episode"'), "012 hentaihaven 集页段留痕在位");
+  assert.ok(tpl.includes('traceResolveFailure(def.id, "episode"'), "011 hentaihaven 集页段留痕在位");
   assert.ok((tpl.match(/traceResolveFailure\(def\.id/g) ?? []).length >= 10, "三源留痕调用点成规模（非点缀）");
 }
 

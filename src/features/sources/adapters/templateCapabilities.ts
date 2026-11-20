@@ -21,11 +21,11 @@
  *   无法靠构造探针得出——须取页才知）：multi 只有 hentaihaven-api
  *   （detail 扫 episode-<n> 链接产多集，其余模板至多单条「正片」
  *   或空数组）。声明在此一处登记，完备性契约以行为夹具钉住
- *   multi/single 两端（012 实产 2 集、hls-site 至多 1 条），且断言
+ *   multi/single 两端（011 hentaihaven 实产 2 集、hls-site 至多 1 条），且断言
  *   本表显式覆盖每个有适配器的模板——新模板漏登即契约红。
  *   注意与注册表 capabilities.episodes 分层：caps 是品类映射
  *   事实（短剧频道归类门），本表是模板产出事实（选集面用）。
- *   012 两者不一致（caps=false、模板 multi）经 fix334/L2 裁定
+ *   011 两者不一致（caps=false、模板 multi）经 fix334/L2 裁定
  *   保留分层：caps 翻 true 会让里番源进短剧频道切源名单（消费
  *   面核对见 L2 报告），故不翻；选集面只读本表 multi、不读
  *   caps，不许在本表迁就 caps 改判、也不许选集面改读 caps。
@@ -88,11 +88,11 @@ export function templateCapabilitiesFor(def: SourceDef): TemplateCapabilities {
 /* ── 发现维度登记（Muse 2026-11-20 fix335/f-discovery）──
  * 各源列表可切换的分类/排序/榜单维度只在此一处登记（DiscoverySpec），
  * DiscoveryBar 与契约只读这里；未实证不登记——没有实测证据的维度
- * 宁可不出现，也不许拿推测拼参数（010 的 sort 须繁体原值、012 的
+ * 宁可不出现，也不许拿推测拼参数（009 hanime1 的 sort 须繁体原值、011 的
  * weekly 被站方拒绝，都是「猜参数会静默错位」的实证教训）。
  * 证据统一出处：fix335/evidence/f-probes.md（机房探针）＋
  * fix335/evidence/f-residential-verify.md（住宅终验），2026-11-20。
- * 协议值表（009 预设/010 九值/011 三值/012 两值）在 templates.ts
+ * 协议值表（008 预设/009 九值/010 三值/011 两值）在 templates.ts
  * 与适配器同文件定义、本表引用同一常量，不另抄。 */
 
 export interface DiscoveryOption {
@@ -163,7 +163,7 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
       };
     case "hanime-api":
       /* 002 客户端维度：目录全量在本地缓存，brand 过滤/tag 过滤/
-       * views 重排全在内存（服务端无对应参数）。009 的 tagFilter
+       * views 重排全在内存（服务端无对应参数）。008 的 tagFilter
        * 不在此列——danbooru 无选项来源、标签走既有搜索段。 */
       return {
         categories: { source: "taxonomy", options: [] },
@@ -176,7 +176,7 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
         evidence: `目录行 brand/tags/views 字段与客户端重排经探针实证（${F_EVIDENCE}）`,
       };
     case "danbooru-api":
-      /* 只登记 009 本尊：三预设只在 danbooru 站实证，同模板的
+      /* 只登记 008 本尊（danbooru）：三预设只在 danbooru 站实证，同模板的
        * gelbooru/yandere 未验——未实证不登记（yandere 随启用批
        * 另行复测，见 G 线登记）。 */
       if (def.id !== "danbooru") return EMPTY_DISCOVERY_SPEC;

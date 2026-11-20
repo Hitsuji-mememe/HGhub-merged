@@ -2,7 +2,7 @@
  * 外部源选集纯函数（Muse 2026-11-20 fix334 结构批 L2／G3，设计
  * ~/workspace/hghub/fix334/design-g3g4-surfaces.md §3）。
  *
- * 背景（结构审计 G3）：全仓只有 source-012 的 detail 产多集
+ * 背景（结构审计 G3）：全仓只有 source-011（hentaihaven）的 detail 产多集
  * episodes、resolve 已支持按集取流，但详情消费者为 0——用户打开
  * 多集条目只能播第一集。本模块把「集数归一」与「选集面适用性」
  * 收敛为纯函数，供 SourceBrowse（宿主面 play-external）与 Search

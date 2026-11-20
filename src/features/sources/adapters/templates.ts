@@ -348,7 +348,7 @@ export function createChiguaAdapter(def: SourceDef): SourceAdapter {
 
 /** (c) 通用 HLS 站骨架。详情图片限定内容区（Muse 2026-11-20
  * fix332-B1）：整页采集把页眉/页脚的站点样式图形混进图集
- * （source-007 真站实锤：每册恒定 5 张样式 SVG），hls-site 的
+ * （pornpics 真站实锤：每册恒定 5 张样式 SVG），hls-site 的
  * detail.images 是相册本体、须纯；限定只挂本模板的 detail 路径
  * ——chigua 的 detail 不经此处（其正文图由 contentHtml 提取链
  * 负责），wp-rest/danbooru 的 images 本就来自内容载荷，均不外溢。 */

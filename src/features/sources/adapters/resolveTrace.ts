@@ -10,9 +10,9 @@
  * 状态（有才带）与尝试序——结构上没有能放令牌/签名/正文的位置
  * （不变量 10）。段名按各适配器真实管线取词：
  * - 002 hanime-api：csrf / handshake / decode
- * - 010 hanime1：watch / download / decode
- * - 011 iwara-api：detail / fetch / decode
- * - 012 hentaihaven-api：watch / episode / decode
+ * - 009 hanime1：watch / download / decode
+ * - 010 iwara-api：detail / fetch / decode
+ * - 011 hentaihaven-api：watch / episode / decode
  * 诊断导出由 diagnosticReport 的「取流失败留痕」节结构化消费，
  * 不再只躺播放日志尾段原文。动态 import 与 manifest.ts 的解析埋点
  * 同模式（避免 adapters → diagnostics/manifest 的静态环）；纯旁路，

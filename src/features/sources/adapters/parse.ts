@@ -282,7 +282,7 @@ function mainContentRegion(html: string): string | null {
 }
 
 /** 内容区图片采集（fix332-B1）：整页采集会把页眉/页脚/登录区的
- * 站点样式图形（logo、合规徽标等界面资源）混进图集——source-007
+ * 站点样式图形（logo、合规徽标等界面资源）混进图集——pornpics
  * 真站详情页实测每册恒定混入 5 张、全在内容区地标之外，地标内
  * 43/43 张为内容图（含列表内 banner tile 的头像）。页面有内容区
  * 地标时只在地标内采集（顺序与重复保留、与 allImgSrcs 同口径）；

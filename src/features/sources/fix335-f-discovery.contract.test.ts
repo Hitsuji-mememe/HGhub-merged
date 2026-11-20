@@ -9,12 +9,12 @@
  *     登记（007/native/未启用的 gelbooru/yandere 恒空）；003 栏目
  *     26（公告存档 51hd 与大赛征集栏目 mrds 被推广过滤全覆盖、
  *     不登记）、004 栏目 19（公告存档 ztds 不登记）、005 栏目 30；
- *     010 九值逐字繁体；012 只 monthly/all（weekly/daily 不得出现
- *     在登记任何位置）；009 无 tagFilter（无选项来源）。
+ *     009 九值逐字繁体；011 只 monthly/all（weekly/daily 不得出现
+ *     在登记任何位置）；008 无 tagFilter（无选项来源）。
  * (B) 适配器行为（setFetchPage 录制 URL＋夹具）：逐源断言 disc
  *     切换后请求形态与返回集变化合登记口径，且缺省路径 URL 与条
  *     件逐字不变（对照 @ea0d431 现行写死值）；未登记/非法 disc 值
- *     一律回落缺省（010 简体 sort 回落＝实现红线、012 weekly 回
+ *     一律回落缺省（009 简体 sort 回落＝实现红线、011 weekly 回
  *     落、003 未登记 slug 回落）；吃瓜 cats 来自真实卡词元、WP
  *     cats/tags 由 taxonomy 名映射、002 brand 进 cats。
  * (C) discFingerprint 规范化：空 disc 空串、字段定序、值编码——
@@ -79,21 +79,21 @@ const recorder = (body: string | ((url: string) => string)) => {
   assert.equal(c005?.options.length, 30, "005 登记 30 栏目（导航全集）");
   assert.ok(c005?.options.some((o) => o.value === "ysdj" && o.label === "成人短剧"), "005 ysdj 在登记");
 
-  const s010 = discoverySpecFor(def("hanime1"));
-  assert.deepEqual(s010.sorts?.map((o) => o.value),
+  const s009 = discoverySpecFor(def("hanime1"));
+  assert.deepEqual(s009.sorts?.map((o) => o.value),
     ["最新上市", "最新上傳", "本日排行", "本週排行", "本月排行", "觀看次數", "讚好比例", "時長最長", "他們在看"],
-    "010 九值逐字繁体原值");
-  assert.equal(s010.sortDefault, "最新上市");
+    "009 九值逐字繁体原值");
+  assert.equal(s009.sortDefault, "最新上市");
 
-  const s012 = discoverySpecFor(def("hentaihaven"));
-  assert.deepEqual(s012.rankPeriods?.map((o) => o.value), ["monthly", "all"], "012 只登记 monthly/all");
-  const s012Values = [...(s012.rankPeriods ?? []), ...(s012.sorts ?? []), ...(s012.categories?.options ?? [])].map((o) => o.value);
+  const s011 = discoverySpecFor(def("hentaihaven"));
+  assert.deepEqual(s011.rankPeriods?.map((o) => o.value), ["monthly", "all"], "011 只登记 monthly/all");
+  const s012Values = [...(s011.rankPeriods ?? []), ...(s011.sorts ?? []), ...(s011.categories?.options ?? [])].map((o) => o.value);
   assert.ok(!s012Values.some((v) => ["weekly", "daily", "week", "day"].includes(v)),
-    "012 任何维度选项值不得出现 weekly/daily/week/day（evidence 文案提及拒绝原因不在此列）");
+    "011 任何维度选项值不得出现 weekly/daily/week/day（evidence 文案提及拒绝原因不在此列）");
 
-  const s009 = discoverySpecFor(def("danbooru"));
-  assert.deepEqual(s009.sorts?.map((o) => o.value), ["", "order:rank", "order:score", "order:favcount"], "009 三预设");
-  assert.equal(s009.tagFilter, undefined, "009 无 tagFilter（标签走搜索段）");
+  const s008 = discoverySpecFor(def("danbooru"));
+  assert.deepEqual(s008.sorts?.map((o) => o.value), ["", "order:rank", "order:score", "order:favcount"], "008 三预设");
+  assert.equal(s008.tagFilter, undefined, "008 无 tagFilter（标签走搜索段）");
 
   for (const id of ["xiuren", "cosplaytele", "pixibb", "nudecosplay"]) {
     const s = discoverySpecFor(def(id));
@@ -105,9 +105,9 @@ const recorder = (body: string | ((url: string) => string)) => {
   assert.equal(s002.categories?.source, "taxonomy", "002 分类走目录聚合");
   assert.equal(s002.tagFilter, true);
   assert.deepEqual(s002.sorts?.map((o) => o.value), ["", "views"], "002 排序两值");
-  const s011 = discoverySpecFor(def("iwara"));
-  assert.deepEqual(s011.sorts?.map((o) => o.value), ["views", "date", "likes"], "011 三值");
-  assert.equal(s011.sortDefault, "views");
+  const s010 = discoverySpecFor(def("iwara"));
+  assert.deepEqual(s010.sorts?.map((o) => o.value), ["views", "date", "likes"], "010 三值");
+  assert.equal(s010.sortDefault, "views");
 }
 
 /* ── (B) 适配器行为 ── */
@@ -166,17 +166,17 @@ const recorder = (body: string | ((url: string) => string)) => {
   await a.list(1, 20, { category: "abc" });
   assert.equal(urls[urls.length - 1], "https://xiuren.biz/wp-json/wp/v2/posts?page=1&per_page=20", "WP 非数字分类 id 不拼坏参数、回落缺省");
 }
-{ // 009 预设
+{ // 008 预设
   const urls = recorder(fx("danbooru-list.json"));
   const a = createDanbooruAdapter(def("danbooru"));
   await a.list(1, 20);
-  assert.equal(urls[0], "https://danbooru.donmai.us/posts.json?page=1&limit=20", "009 缺省 URL 逐字不变（无 tags 参数）");
+  assert.equal(urls[0], "https://danbooru.donmai.us/posts.json?page=1&limit=20", "008 缺省 URL 逐字不变（无 tags 参数）");
   await a.list(1, 20, { sort: "order:score" });
-  assert.equal(urls[1], "https://danbooru.donmai.us/posts.json?page=1&limit=20&tags=order%3Ascore", "009 高分预设拼 tags 参数");
+  assert.equal(urls[1], "https://danbooru.donmai.us/posts.json?page=1&limit=20&tags=order%3Ascore", "008 高分预设拼 tags 参数");
   await a.list(1, 20, { sort: "order:bogus" });
-  assert.equal(urls[2], urls[0], "009 未登记预设回落缺省");
+  assert.equal(urls[2], urls[0], "008 未登记预设回落缺省");
 }
-{ // 011 排序
+{ // 010 排序
   const urls = recorder(fx("iwara-list.json"));
   const a = createIwaraAdapter(def("iwara"));
   await a.list(1, 20);
@@ -184,9 +184,9 @@ const recorder = (body: string | ((url: string) => string)) => {
   await a.list(1, 20, { sort: "date" });
   assert.equal(urls[1], "https://api.iwara.tv/videos?sort=date&page=0&limit=20", "011 最新");
   await a.list(1, 20, { sort: "bogus" });
-  assert.equal(urls[2], urls[0], "011 非法值回落 views");
+  assert.equal(urls[2], urls[0], "010 非法值回落 views");
 }
-{ // 010 繁体原值（红线）
+{ // 009 繁体原值（红线）
   const urls = recorder(fx("hanime1-search.html"));
   const a = createHanime1Adapter(def("hanime1"));
   await a.list(1, 20);
@@ -196,17 +196,17 @@ const recorder = (body: string | ((url: string) => string)) => {
     assert.equal(urls[urls.length - 1], `https://hanime1.me/search?sort=${encodeURIComponent(v)}`, `010 sort=${v} 逐字入参`);
   }
   await a.list(1, 20, { sort: "观看次数" });
-  assert.equal(urls[urls.length - 1], urls[0], "010 简体拼法不入参、回落默认序（红线）");
+  assert.equal(urls[urls.length - 1], urls[0], "009 简体拼法不入参、回落默认序（红线）");
 }
-{ // 012 周期（只两值）
+{ // 011 周期（只两值）
   const urls = recorder(fx("hentaihaven-list.json"));
   const a = createHentaihavenAdapter(def("hentaihaven"));
   await a.list(1, 20);
-  assert.equal(urls[0], "https://hentaihaven.xxx/api/manga/?trending_period=monthly&per_page=20&page=1", "012 缺省 monthly 逐字不变");
+  assert.equal(urls[0], "https://hentaihaven.xxx/api/manga/?trending_period=monthly&per_page=20&page=1", "011 缺省 monthly 逐字不变");
   await a.list(1, 20, { period: "all" });
-  assert.equal(urls[1], "https://hentaihaven.xxx/api/manga/?trending_period=all&per_page=20&page=1", "012 全部");
+  assert.equal(urls[1], "https://hentaihaven.xxx/api/manga/?trending_period=all&per_page=20&page=1", "011 全部");
   await a.list(1, 20, { period: "weekly" });
-  assert.equal(urls[2], urls[0], "012 weekly 不得入参（站方拒绝）、回落 monthly");
+  assert.equal(urls[2], urls[0], "011 weekly 不得入参（站方拒绝）、回落 monthly");
 }
 { // 002 客户端重排（构造目录：views 序与最新序故意不同）
   const catalog = JSON.stringify({ data: [

@@ -217,10 +217,10 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   全覆盖、登记只会恒解析为空，不登记）；WP 四源 taxonomy
   （categories/tags 端点＋orderby/过滤参数，chips 只取 Top-24）；
   002 客户端重排（目录缓存内 brand 过滤/tag 过滤/views 排序）；
-  009 三预设 order:rank/score/favcount（只登记 danbooru 本尊，
-  同模板 gelbooru/yandere 未验不登记）；010 九个 sort 繁体原值
-  （简体被站方静默回落默认序，适配器只认逐字命中）；011
-  sort=views/likes/date；012 只 monthly/all（weekly/daily 被站
+  008 三预设 order:rank/score/favcount（只登记 danbooru 本尊，
+  同模板 gelbooru/yandere 未验不登记）；009 九个 sort 繁体原值
+  （简体被站方静默回落默认序，适配器只认逐字命中）；010
+  sort=views/likes/date；011 只 monthly/all（weekly/daily 被站
   方应用层拒绝、不登记、入参回落 monthly）。滚动恢复 key 扩为
   「面:源:disc 指纹」（`discFingerprint`，空 disc 时与 d-scroll
   逐字一致）：切换维度走重置 effect 重拉并置顶，位置只在同指
@@ -651,7 +651,7 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   `~/workspace/hghub/fix334/evidence/l1-surfaces.md`。
 - **结构批 L2：G3 多集选集消费者接线（fix334，未出包）**：外部源
   detail 的多集 episodes（字符串 externalId 形态）此前无消费者——
-  全仓只有 App 012 的 detail 产多集、resolve 已支持按集取流，用
+  全仓只有 App 011（hentaihaven）的 detail 产多集、resolve 已支持按集取流，用
   户打开多集条目却只能播第一集。本线补齐：纯函数模块
   `src/features/sources/episodes.ts`（`episodeChoices` 归一＋
   `episodeChoicesForSurface` 适用性派生：宿主面经 L1

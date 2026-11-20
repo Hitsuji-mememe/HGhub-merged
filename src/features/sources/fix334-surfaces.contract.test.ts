@@ -135,8 +135,8 @@ const V3_FIXTURE = {
 const v3 = validateManifest(V3_FIXTURE);
 assert.ok(v3, "v3 同形夹具须过 schema 校验");
 const R2 = applyManifest(R1, v3);
-/* R3：合成变体——清单停用 012（hentaihaven）、启用 015（yandere）。
- * 适配（fix335/g-sources）：015 已在内置 R1 启用，本变体对 015 的
+/* R3：合成变体——清单停用 011（hentaihaven）、启用 014（yandere）。
+ * 适配（fix335/g-sources）：014 已在内置 R1 启用，本变体对 014 的
  * 「启用」自此为同值重申（形态不变、断言口径随新事实更新见 §5）。 */
 const vR3 = validateManifest({
   manifestVersion: 4, minAppVersion: "3.1.0",
@@ -396,10 +396,10 @@ for (const [si, state] of STATES.entries()) {
   const hh = byId("hentaihaven");
   assert.deepEqual(routeForSurface("deeplink-video", hh, ctx), { kind: "notice", reason: "disabled" }, "R3 012×M9＝停用提示");
   assert.deepEqual(routeForSurface("search-fanout", hh, ctx),
-    { kind: "not-applicable", declaration: "not-enabled" }, "R3 012×M11 退出扇出");
-  assert.ok(!sourcesForSurface("overview-video-rows", R3).some((d) => d.id === "hentaihaven"), "R3 012 退出 M5 行");
+    { kind: "not-applicable", declaration: "not-enabled" }, "R3 011×M11 退出扇出");
+  assert.ok(!sourcesForSurface("overview-video-rows", R3).some((d) => d.id === "hentaihaven"), "R3 011 退出 M5 行");
   const yd = byId("yandere");
-  assert.deepEqual(routeForSurface("detail-gallery", yd, ctx), { kind: "browse", component: "SourceGallery" }, "R3 015×M15 自动接通");
+  assert.deepEqual(routeForSurface("detail-gallery", yd, ctx), { kind: "browse", component: "SourceGallery" }, "R3 014×M15 自动接通");
   assert.ok(sourcesForSurface("overview-image-rows", R3).some((d) => d.id === "yandere"), "R3 015 进入 M4 行");
   assert.ok(sourcesForSurface("selfcheck", R3).some((d) => d.id === "yandere"), "R3 015 进入 M21 合格集");
   /* 015 进 M11（适配 fix335/g-sources）：moebooru 校准后 caps.search

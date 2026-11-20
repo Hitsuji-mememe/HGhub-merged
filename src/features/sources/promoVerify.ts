@@ -2,7 +2,7 @@
  * 站务型推广帖异步验杀（Muse 2026-11-20 fix333/promo-004）。
  *
  * 背景：吃瓜列表卡内推广帖在 promo-filter 线以站方分类学判据处理
- * （003/005 已杀）；source-004（feedheiliao）列表卡只有标题/封面/
+ * （003/005 已杀）；source-005（feedheiliao）列表卡只有标题/封面/
  * 装饰标、无分类与作者字段，列表层组合信号不存在（证据
  * fix333/evidence/promo-filter.md 第三节），唯一可分信号在详情层：
  * 站务推广三连正文 587–706 字、episodes=0；内容帖 1075–1770 字、
@@ -276,7 +276,7 @@ const EMPTY_SET: ReadonlySet<string> = new Set();
  * 判站务型的立即入隐藏集，新判站务型的到达即入集（调用方据此
  * 就地撤下）。未声明 staffVerify 的源直接返回空集、零请求零状态。
  * 列表与搜索同口径：任一呈现 SourceItem[] 的面接入本 hook 即同
- * 判据同缓存（source-004 当前无搜索段，实际接线面为 SourcePosts
+ * 判据同缓存（source-005 当前无搜索段，实际接线面为 SourcePosts
  * 全量＋compact 两形态）。
  */
 export function useStaffPromoVerify(
