@@ -88,8 +88,22 @@ export function SourceSwitcher({ options, value, onChange, ariaLabel }: {
  * 浏览页尚未接通时暂不展示内容（视频/图片分类已于 2026-11-19
  * 最终版 D 线接通 SourceBrowse/SourceGallery、吃瓜帖分类已于
  * 3.3.0 接通批接通 SourcePosts，三分类均不再走本提示；
- * 本提示现行只用于 blocked 全部）。 */
-export function SourcePendingNotice({ displayName, maturity, note }: { displayName: string; maturity?: SourceMaturity; note?: string }) {
+ * 本提示现行只用于 blocked 全部）。
+ * disabled（fix333-P2，结构审计 G5）：选中源不在 active 注册表
+ * （已被清单停用或下线）——优先于 maturity 分支，文案写停用原
+ * 因、不再谎称「尚未接通」；displayName 由调用方经
+ * resolveSelectedSource 给显示名或通用名，内部 id 永不进本组件。 */
+export function SourcePendingNotice({ displayName, maturity, note, disabled }: { displayName: string; maturity?: SourceMaturity; note?: string; disabled?: boolean }) {
+  if (disabled) {
+    return (
+      <div role="status" className="mx-4 mt-6 rounded-[18px] bg-s2 px-4 py-5 text-center">
+        <div className="text-[14px] font-semibold text-on">{displayName}（已停用）</div>
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-mut">
+          该源已被清单停用，不在当前可用列表中，暂不展示内容。请切换到其他源继续浏览。
+        </p>
+      </div>
+    );
+  }
   if (maturity === "blocked") {
     return (
       <div role="status" className="mx-4 mt-6 rounded-[18px] bg-s2 px-4 py-5 text-center">
