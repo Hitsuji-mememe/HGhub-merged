@@ -19,9 +19,11 @@
  *   取流请求详情数据里的 fileUrl（files/filesq.iwara.tv，内容
  *   派生 host 但集合由公开协议证据钉死为两 host）——三 origin
  *   全靠声明入白名单（清单覆盖 baseUrls 削不掉）。
- * - hanime1/hentaihaven-api（fix330 接通批）：全部取页都在注册表
- *   baseUrls origin 内（hanime1.me／hentaihaven.xxx），声明为空；
- *   封面/流的 CDN host 只拼 URL、不经 source_fetch，不入。 * - chigua/wp-rest/hls-site/danbooru-api：全部取页都以
+ * - hanime1（fix330 接通批）：全部取页都在注册表 baseUrls origin
+ *   内（hanime1.me），声明为空；封面/流的 CDN host 只拼 URL、不经
+ *   source_fetch，不入。（同批的 hentaihaven-api 已于
+ *   fix338/registry-cut 随源摘除同删，声明行一并退役。）
+ * - chigua/wp-rest/hls-site/danbooru-api：全部取页都以
  *   baseUrls[0] 为基址拼相对路径，无额外 origin，声明为空。
  *   （wp-rest resolve 跟进正文 iframe 的绝对地址属内容派生、非
  *   模板常数，不在此声明——与修前口径一致，不放宽。）
@@ -65,7 +67,7 @@ export const TEMPLATE_FETCH_ORIGINS: Readonly<Record<string, readonly string[]>>
   "hanime-api": [HANIME_GUEST_ORIGIN, HANIME_CT_ORIGIN, HANIME_AUTH_ORIGIN],
   "iwara-api": [IWARA_API_ORIGIN, IWARA_FILES_ORIGIN, IWARA_FILESQ_ORIGIN],
   "hanime1": [],
-  "hentaihaven-api": [],  "preview-only": [],
+  "preview-only": [],
   "none": [],
 };
 
@@ -74,7 +76,7 @@ export const TEMPLATE_FETCH_ORIGINS: Readonly<Record<string, readonly string[]>>
  * 其 baseUrls 不进 source_fetch 白名单。 */
 export const FETCH_PAGE_TEMPLATES: readonly string[] = [
   "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api",
-  "iwara-api", "hanime1", "hentaihaven-api",];
+  "iwara-api", "hanime1",];
 
 export function templateFetchOrigins(template: string): string[] {
   return [...(TEMPLATE_FETCH_ORIGINS[template] ?? [])];

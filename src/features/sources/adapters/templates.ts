@@ -15,7 +15,7 @@ import { IWARA_API_ORIGIN, REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOr
 import { httpStatusOf, traceListItemSkips, traceResolveFailure } from "./resolveTrace.ts";
 import { allImgSrcs, cardCategoryTokens, contentImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, lastPageInNav, metaContent, pageOf, stripTags } from "./parse.ts";
 
-export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "hentaihaven-api", "preview-only", "none"] as const;
+export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "preview-only", "none"] as const;
 type Params = Record<string, unknown>;
 const str = (p: Params, k: string, d = "") => (typeof p[k] === "string" ? (p[k] as string) : d);
 
@@ -511,16 +511,6 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
   };
 }
 
-/* Danbooru 排序预设（Muse 2026-11-20 fix335/f-discovery）：tags
- * 参数的 order: 预设，住宅终验三值均严格降序（rank 日榜/score
- * 高分/favcount 收藏）；缺省（无 tags 参数）＝id 降序最新。
- * DiscoverySpec 同读本表（templateCapabilities 派生）。 */
-export const DANBOORU_ORDER_PRESETS: { value: string; label: string }[] = [
-  { value: "order:rank", label: "日榜" },
-  { value: "order:score", label: "高分" },
-  { value: "order:favcount", label: "收藏" },
-];
-
 /** (d) Danbooru 公开 API。 */
 export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
   const params = (def.adapter.params ?? {}) as Params;
@@ -558,11 +548,12 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
   };
   return {
     sourceId: def.id,
-    async list(page, size, disc) {
-      /* 排序预设（fix335/f-discovery）：disc.sort 命中预设表才拼
-       * tags= 参数；缺省 URL 与旧实现逐字一致。 */
-      const preset = disc?.sort && DANBOORU_ORDER_PRESETS.some((o) => o.value === disc.sort) ? disc.sort : "";
-      const posts = parseJsonArray<DbPost>(await fetchPage(`${def.baseUrls[0]}${listPath}?page=${page}&limit=${size}${preset ? `&tags=${encodeURIComponent(preset)}` : ""}`), def.id);
+    async list(page, size) {
+      /* 排序预设已随 008 摘除退役（fix338/registry-cut）：order:
+       * 三预设只在 danbooru 本尊实证、发现登记只对该源开放，源删
+       * 后本模板无源可达该参数——机制同删，现行 URL 恒为缺省形态
+       * （与旧实现缺省分支逐字一致，yandere/gelbooru 行为不变）。 */
+      const posts = parseJsonArray<DbPost>(await fetchPage(`${def.baseUrls[0]}${listPath}?page=${page}&limit=${size}`), def.id);
       /* 分页信号（fix335/a-pagination）：服务端 limit 页式、无总量
        * 字段，走满页推断；越界页站方回 []（真空即尾页，apiSignal
        * 对 0 条报 page-1 收尾）。 */
@@ -1057,126 +1048,6 @@ export function createHanime1Adapter(def: SourceDef): SourceAdapter {
       const html = await fetchPage(`${base}/search?query=${encodeURIComponent(q)}${pageParam(page)}`);
       const { items, matched } = parseCards(html);
       return { items, pagination: { page, size, ...apiSignal(matched, page, size) } };
-    },
-  };
-}
-
-/** (j) HentaiHaven 目录 API＋集页取流（Muse 2026-11-19 fix330
- * 接通批）：结构据 Hentai-Park 公开插件 hentaihaven.js 的协议事实
- * （只借协议/结构、代码原创）：列表 GET /api/manga/?trending_
- * period=monthly&per_page&page → {data:[{slug,title:{rendered},
- * meta:{vraven_remote_thumbnail}}]}，搜索同端点 search 参数；
- * 封面拼 img.hentaihaven.xxx/<meta 路径>；详情 GET /watch/<slug>/
- * （h1/og:image＋episode-<n> 分集链接）；取流取集页（无分集时
- * watch 页）ld+json VideoObject 的 contentUrl（.m3u8）。 */
-/* HentaiHaven 榜单周期（Muse 2026-11-20 fix335/f-discovery）：
- * trending_period 只登记 monthly（现行写死默认）与 all（全部）两
- * 值——weekly/daily/week/day 被站方应用层拒绝（Unsupported
- * trending period），不得登记（探针实证）。DiscoverySpec 同读本表。 */
-export const HENTAIHAVEN_PERIOD_OPTIONS: { value: string; label: string }[] = [
-  { value: "monthly", label: "月榜" },
-  { value: "all", label: "全部" },
-];
-
-export function createHentaihavenAdapter(def: SourceDef): SourceAdapter {
-  const base = def.baseUrls[0].replace(/\/$/, "");
-  interface HhRow { slug?: string; title?: { rendered?: string } | string; meta?: { vraven_remote_thumbnail?: string } }
-  const toItem = (r: HhRow): SourceItem | null => {
-    const slug = String(r?.slug ?? "");
-    if (!/^[a-z0-9-]{1,240}$/.test(slug)) return null;
-    const rawTitle = typeof r.title === "object" ? r.title?.rendered : r.title;
-    const title = stripTags(String(rawTitle ?? "")).trim();
-    if (!title) return null;
-    const thumb = String(r.meta?.vraven_remote_thumbnail ?? "").replace(/^\/+/, "");
-    return {
-      sourceId: def.id, externalId: slug, title,
-      cover: thumb ? `https://img.hentaihaven.xxx/${thumb}` : "",
-      href: `${base}/watch/${slug}/`, tags: [],
-    };
-  };
-  const apiList = async (params: string, page: number, size: number): Promise<{ items: SourceItem[]; fetched: number }> => {
-    const d = JSON.parse(await fetchPage(`${base}/api/manga/?${params}&per_page=${size}&page=${page}`)) as { data?: HhRow[] };
-    const rows = Array.isArray(d?.data) ? d.data : [];
-    /* fetched = 过滤前行数（分页满页判读口径，见 iwara 同注）。 */
-    return { items: rows.map(toItem).filter((x): x is SourceItem => x !== null), fetched: rows.length };
-  };
-  const episodeNums = (html: string, slug: string): number[] => {
-    const seen = new Set<number>();
-    const re = new RegExp(`/watch/${slug}/episode-(\\d+)`, "gi");
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(html)) !== null) seen.add(Number(m[1]));
-    return [...seen].sort((a, b) => a - b);
-  };
-  const extractHls = (html: string): string | null => {
-    /* 只认 ld+json contentUrl 这一权威字段（fix337/video-resolve）：
-     * 旧实现回落 extractM3u8 整页首个 .m3u8 字面——现行集页的取流
-     * 走 player-logic iframe＋加密 POST 流程（维护客户端 CloudStream
-     * 同 host 实证、独立实现 60+），页内字面是预告/嵌入残留、非权威
-     * 流：3.3.6 真机取到后主清单能开、子级（变体/分片）全灭。宁可
-     * 诚实回空（decode/stream_unavailable 留痕）也不冒充成功；
-     * player-logic POST 流程需 Rust 定向 POST 通道＋真机验证，
-     * 另批落地。 */
-    const m = /"contentUrl"\s*:\s*"(https:[^"]+?\.m3u8[^"]*)"/i.exec(html.replace(/\\\//g, "/"));
-    return m ? m[1] : null;
-  };
-  return {
-    sourceId: def.id,
-    async list(page, size, disc) {
-      /* 榜单周期（fix335/f-discovery）：disc.period 命中登记两值
-       * 才切换，未命中/缺省＝monthly（现行写死值，URL 逐字不变）。 */
-      const period = disc?.period && HENTAIHAVEN_PERIOD_OPTIONS.some((o) => o.value === disc.period) ? disc.period : "monthly";
-      const { items, fetched } = await apiList(`trending_period=${period}`, page, size);
-      /* 分页信号（fix335/a-pagination）：响应只有 data 数组、无总量
-       * 字段（协议事实见文件头），走满页推断；第一页空仍抛解析为
-       * 空、第二页起空按尾页收尾（与 iwara 同口径）。 */
-      if (items.length === 0 && page <= 1) throw new SourceParseEmptyError(def.id);
-      return { items, pagination: { page, size, ...apiSignal(fetched, page, size) } };
-    },
-    async detail(id) {
-      const slug = id.split("/episode-")[0];
-      const html = await fetchPage(`${base}/watch/${slug}/`);
-      const title = stripTags(/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1] ?? "") || metaContent(html, "og:title") || slug;
-      const eps = episodeNums(html, slug);
-      return {
-        sourceId: def.id, externalId: slug, title, cover: metaContent(html, "og:image"),
-        href: `${base}/watch/${slug}/`, tags: [], description: metaContent(html, "description"),
-        images: [],
-        episodes: eps.length ? eps.map((n) => ({ label: `第 ${n} 集`, externalId: `${slug}/episode-${n}` })) : [{ label: "正片", externalId: slug }],
-      };
-    },
-    async resolve(id) {
-      /* 取流分段留痕（fix333-m5 P5，与 002 同口径）：watch（详情页
-       * 取数）/episode（集页取数）/decode（ld+json 流提取判读）
-       * 三段；任一段取数失败或终局无流落 source.resolve_fail，
-       * 抛出点与原实现一致。 */
-      const [slug, epPart] = id.split("/episode-");
-      let watchHtml: string;
-      try {
-        watchHtml = await fetchPage(`${base}/watch/${slug}/`);
-      } catch (e) {
-        traceResolveFailure(def.id, "watch", "watch_fetch_failed", httpStatusOf(e), 0);
-        throw e;
-      }
-      const eps = episodeNums(watchHtml, slug);
-      const want = epPart ? Number(epPart) : eps[0];
-      let url: string | null = null;
-      if (want !== undefined && eps.includes(want)) {
-        let epHtml: string;
-        try {
-          epHtml = await fetchPage(`${base}/watch/${slug}/episode-${want}/`);
-        } catch (e) {
-          traceResolveFailure(def.id, "episode", "episode_fetch_failed", httpStatusOf(e), 0);
-          throw e;
-        }
-        url = extractHls(epHtml);
-      }
-      url ??= extractHls(watchHtml);
-      if (!url) traceResolveFailure(def.id, "decode", "stream_unavailable", undefined, 0);
-      return { streams: url ? [{ url, kind: "hls" as const }] : [] };
-    },
-    async search(q, page, size) {
-      const { items, fetched } = await apiList(`search=${encodeURIComponent(q.slice(0, 100))}`, page, size);
-      return { items, pagination: { page, size, ...apiSignal(fetched, page, size) } };
     },
   };
 }

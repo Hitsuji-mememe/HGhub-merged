@@ -22,10 +22,16 @@ import { TEMPLATE_IDS } from "./adapters/templates.ts";
  * 摘除，命名源 13→12、CORE_IDS 移除 rule34video 并入负向名单。
  * 断言适配（fix335/g-sources，2026-11-20）：用户裁定 PornPics 退役
  * 摘除，命名源 12→11、CORE_IDS 移除 pornpics 并入负向名单；目录源
- * yandere moebooru 校准启用、新增 konachan 启用，目录分支随之适配。 */
+ * yandere moebooru 校准启用、新增 konachan 启用，目录分支随之适配。
+ * 断言适配（fix338/registry-cut，2026-11-20）：用户定案摘除三源——
+ * danbooru（单图帖不算资源）、hentaihaven（真播放不可达、调查裁
+ * 定不修）、konachan（CF JS 验证无解），命名源 11→9、目录源 6→5、
+ * CORE_IDS 移除 danbooru/hentaihaven、三源并入负向名单；danbooru
+ * 解封事实断言随源退役（模板由 yandere/gelbooru 共用、其行为覆
+ * 盖由 adapters/f-discovery 契约以保留源承接）。 */
 const CORE_IDS = [
   "huangguo", "hanime-tv", "51chigua", "feedheiliao", "meiridasai",
-  "xiuren", "cosplaytele", "danbooru", "hanime1", "iwara", "hentaihaven",
+  "xiuren", "cosplaytele", "hanime1", "iwara",
 ];
 
 /* ── 注册表完整性 ── */
@@ -33,10 +39,11 @@ const CORE_IDS = [
   const ids = new Set(BUILTIN_SOURCES.map((s) => s.id));
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
   for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
-  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 11（fix330 含毕业的 hentaihaven、已摘 rule34video；fix335/g-sources 已摘 pornpics）");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 9（fix338 已摘 danbooru/hentaihaven，此前已摘 rule34video/pornpics）");
   /* 瘦身负向不变量：被删源不得回流注册表（App 内不得出现）。 */
   for (const goneId of ["rouvideo", "91video", "pornhub", "xvideos", "swag", "fyptt", "redgifs", "fc2",
-    "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91", "rule34video", "pornpics"]) {
+    "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91", "rule34video", "pornpics",
+    "danbooru", "hentaihaven", "konachan"]) {
     assert.ok(!ids.has(goneId), `瘦身删除源 ${goneId} 不在册`);
   }
   assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
@@ -45,13 +52,10 @@ const CORE_IDS = [
    * 不降：每个目录源恰落一组）；HentaiHaven 属里番线未动、维持原口径。 */
   for (const s of CATALOG_SOURCES) {
     assert.equal(s.maturity, "probe", `目录源 ${s.id} 一律 probe`);
-    if (s.id === "hentaihaven") {
-      assert.equal(s.enabled, false, "目录源 hentaihaven 默认未启用（远程清单可按 id 启用）");
-      assert.ok(s.note?.includes("目录导入·未实测"), "目录源 hentaihaven 注记诚实标注未实测");
-    } else if (s.id === "pixibb" || s.id === "nudecosplay") {
+    if (s.id === "pixibb" || s.id === "nudecosplay") {
       assert.equal(s.enabled, true, `目录源 ${s.id} fix330 实证启用（本机四级全通）`);
       assert.ok(s.note?.includes("fix330 图片线定级"), `目录源 ${s.id} 注记已按实证更新`);
-    } else if (s.id === "yandere" || s.id === "konachan") {
+    } else if (s.id === "yandere") {
       assert.equal(s.enabled, true, `目录源 ${s.id} fix335/g-sources moebooru 校准启用（本机实证）`);
       assert.ok(s.note?.includes("fix335/g-sources"), `目录源 ${s.id} 注记已记 g-sources 结论`);
     } else {
@@ -61,9 +65,10 @@ const CORE_IDS = [
   }
   /* fix321-F2b：51chigua 换域名 51cg1.com 后解 blocked（契约变化适配）。
    * 3.3.0 接通批集成适配（2026-11-19）：吃瓜线解 meiridasai（mrds66）、
-   * 图片线解 xiuren（xiuren.biz）/danbooru（住宅翻案）后，保留集已无
-   * blocked 源——blocked 保留口径改由派生断言承接（注册表内任一
-   * blocked 源自动受检、现集为空集），三源改验解封后新事实。 */
+   * 图片线解 xiuren（xiuren.biz）后，保留集已无 blocked 源——blocked
+   * 保留口径改由派生断言承接（注册表内任一 blocked 源自动受检、现
+   * 集为空集），保留源改验解封后新事实。（danbooru 的同批解封断言
+   * 已随 fix338 摘除退役。） */
   for (const s of BUILTIN_SOURCES.filter((x) => x.maturity === "blocked")) {
     assert.equal(s.enabled, true, `${s.id} blocked 保留口径：列表可见、点开诚实提示`);
   }
@@ -71,9 +76,6 @@ const CORE_IDS = [
     const x = BUILTIN_SOURCES.find((v) => v.id === "xiuren")!;
     assert.equal(x.maturity, "probe", "xiuren 已解 blocked（3.3.0 图片线）");
     assert.equal(x.baseUrls[0], "https://xiuren.biz", "xiuren 主域为 xiuren.biz（与清单 v3 一致）");
-    const d = BUILTIN_SOURCES.find((v) => v.id === "danbooru")!;
-    assert.equal(d.maturity, "probe", "danbooru 已翻案解 blocked（3.3.0 图片线）");
-    assert.equal(d.enabled, true, "danbooru enabled");
   }  {
     const s = BUILTIN_SOURCES.find((x) => x.id === "meiridasai")!;
     assert.equal(s.maturity, "probe", "meiridasai 已解 blocked（3.3.0 接通批）");
@@ -92,8 +94,8 @@ const CORE_IDS = [
   }
   /* 断言适配（fix330 接通批）：hanime1/iwara 已写专用适配器并启用，
    * 原「探测未过 enabled=false」事实被接通批取代；maturity 仍 probe
-   * （App 未真机验不上调）。hentaihaven 同批自目录毕业启用。 */
-  for (const probeId of ["hanime1", "iwara", "hentaihaven"]) {
+   * （App 未真机验不上调）。（同批毕业的 hentaihaven 已于 fix338 摘除。） */
+  for (const probeId of ["hanime1", "iwara"]) {
     const s = BUILTIN_SOURCES.find((x) => x.id === probeId)!;
     assert.equal(s.enabled, true, `${probeId} fix330 接通批已启用`);
     assert.notEqual(s.adapter.template, "none", `${probeId} 已有专用适配器`);

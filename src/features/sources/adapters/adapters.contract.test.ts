@@ -44,15 +44,17 @@ const def = (id: string) => {
  * 的目录源 hentaihaven def，断言内容不变。
  * 再适配（fix330 接通批）：hentaihaven 已改专用模板 hentaihaven-api，
  * 通用骨架覆盖改用与原目录条目功能字段逐字一致的内联合成 def，
- * 断言内容不变；专用模板覆盖见 fix330-new-adapters 契约。 */
+ * 断言内容不变；专用模板覆盖见 fix330-new-adapters 契约。
+ * 再适配（fix338/registry-cut）：hentaihaven 源与专用模板已同批删
+ * 除，合成 def 的 id/域名改中性占位（参数形态不变、断言不变）。 */
 {
   setFetchPage(async (url) => (url.includes("/video/") && !url.endsWith("?page=1") && url.includes("aaa") ? fx("hls-detail.html") : url.includes("/video/aaa-1") ? fx("hls-detail.html") : fx("hls-list.html")));
   const a = createHlsSiteAdapter({
-    id: "hentaihaven", displayName: "HentaiHaven", kind: "video", category: "video",
+    id: "hls-synthetic", displayName: "HLS 合成源", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
-    baseUrls: ["https://hentaihaven.xxx/"], enabled: false, order: 105, maturity: "probe",
+    baseUrls: ["https://hls.example.com/"], enabled: false, order: 105, maturity: "probe",
     capabilities: { search: false, episodes: false, hevc: false, comments: false },
-    network: { mode: "probe-required" }, note: "历史目录条目参数（fix330 适配合成 def）",
+    network: { mode: "probe-required" }, note: "历史目录条目参数（fix330 适配合成 def、fix338 改中性 id）",
   } as Parameters<typeof createHlsSiteAdapter>[0]);
   const list = await a.list(1, 20);
   assert.equal(list.items.length, 2, "hls list 2 条");
@@ -79,12 +81,20 @@ const def = (id: string) => {
   assert.deepEqual(detail.images, ["https://img.example.com/x501a.jpg"], "wp detail 图片集");
 }
 
-/* ── Danbooru API（danbooru def） ── */
+/* ── Danbooru API（本尊默认形态；断言适配 fix338/registry-cut：
+ * danbooru 源已摘除，模板为共享模板（yandere/gelbooru 在用）——
+ * 默认形态覆盖移交参数逐字一致的内联合成 def，断言内容不变） ── */
 {
   setFetchPage(async (url) => (url.includes("/posts/9001.json")
     ? JSON.stringify({ id: 9001, tag_string: "landscape sky", preview_file_url: "https://cdn.example.com/p9001.jpg", large_file_url: "https://cdn.example.com/l9001.jpg", file_url: "https://cdn.example.com/f9001.jpg" })
     : fx("danbooru-list.json")));
-  const a = createDanbooruAdapter(def("danbooru"));
+  const a = createDanbooruAdapter({
+    id: "danbooru-synthetic", displayName: "Danbooru 合成源", kind: "image", category: "image",
+    adapter: { template: "danbooru-api", params: { listPath: "/posts.json" } },
+    baseUrls: ["https://danbooru.example.com"], enabled: false, order: 998, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    network: { mode: "probe-required" }, note: "模板默认形态覆盖（fix338 适配合成 def）",
+  } as Parameters<typeof createDanbooruAdapter>[0]);
   const list = await a.list(1, 20);
   assert.equal(list.items.length, 2, "danbooru list 2 条");
   assert.ok(list.items[0].cover.endsWith("p9001.jpg"), "danbooru cover=preview");
@@ -100,8 +110,7 @@ const def = (id: string) => {
   assert.ok(res.streams[0].url.endsWith("f9001.jpg"), "danbooru resolve=file_url");
 }
 
-/* ── Danbooru 模板 moebooru 校准形态（yandere def；同族 konachan
- * 参数逐字同构、共用本块口径）fix337/008-detail ── */
+/* ── Danbooru 模板 moebooru 校准形态（yandere def）fix337/008-detail ── */
 {
   const post = { id: 7001, tags: "landscape sky", preview_url: "https://cdn.example.com/p7001.jpg", jpeg_url: "https://cdn.example.com/j7001.jpg", file_url: "https://cdn.example.com/f7001.jpg" };
   setFetchPage(async (url) => (url.includes("tags=id:7001") ? JSON.stringify([post]) : JSON.stringify([post, { ...post, id: 7002 }])));

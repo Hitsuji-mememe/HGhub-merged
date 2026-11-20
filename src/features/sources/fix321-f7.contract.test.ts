@@ -108,17 +108,22 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   /* 断言适配（fix330/ui-fixes）：rule34video 已摘除注册表，样本移除
    * （其余已启用源样本与下组 fix330 新启用源断言不变，覆盖不降）。 */
   /* 断言适配（fix335/g-sources）：pornpics 已退役摘除，样本由新启用
-   * 的 yandere 接替、并加 konachan，覆盖不降。 */
-  for (const id of ["huangguo", "hanime-tv", "yandere", "konachan"]) {
+   * 的 yandere 接替，覆盖不降。
+   * 断言适配（fix338/registry-cut）：konachan 已摘除，样本移除并改
+   * 验负向（不在册即不在名单）。 */
+  for (const id of ["huangguo", "hanime-tv", "yandere"]) {
     assert.ok(ids.includes(id), `已启用源 ${id} 在自检名单`);
+  }
+  for (const id of ["danbooru", "hentaihaven", "konachan"]) {
+    assert.ok(!ids.includes(id), `已摘除源 ${id} 不在自检名单（fix338）`);
   }
   /* 断言适配（fix330 接通批）：hanime1/iwara 已启用 → 按资格通则
    * 进自检名单；「未启用不进名单」的保护由合成 def 断言接棒
    * （selfCheckEligible 对 enabled=false 恒 false，见 healthCheck）。 */
-  for (const id of ["hanime1", "iwara", "hentaihaven"]) {
+  for (const id of ["hanime1", "iwara"]) {
     assert.ok(ids.includes(id), `fix330 已启用源 ${id} 在自检名单`);
   }
-  /* 集成适配（3.3.0 接通批）：xiuren/danbooru/meiridasai 均已解 blocked
+  /* 集成适配（3.3.0 接通批）：xiuren/meiridasai 均已解 blocked
    * 改判 probe 进自检名单（见下方 fix330 定级源断言），「blocked 不进
    * 名单」改由合成 blocked def 承接（口径不变、覆盖不降）。 */
   {
@@ -127,10 +132,11 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
     assert.ok(!blockedPlan.some((s) => s.id === "huangguo"), "blocked 源不进自检名单（blocked 本就不拉数据）");
     assert.ok(ids.includes("meiridasai"), "meiridasai 已解 blocked 进自检名单（3.3.0 吃瓜线）");
   }  /* 断言适配（fix330 图片线，2026-11-19）：xiuren（xiuren.biz 四级
-   * 全通）与 danbooru（住宅四级全通翻案）已解 blocked 改判 probe，
-   * pixibb/nudecosplay 已实证启用——四源按资格口径进自检名单；
-   * 「blocked 不探测」由 meiridasai 接棒（同 51chigua 先例）。 */
-  for (const id of ["xiuren", "danbooru", "pixibb", "nudecosplay"]) {
+   * 全通）已解 blocked 改判 probe，pixibb/nudecosplay 已实证启
+   * 用——三源按资格口径进自检名单；「blocked 不探测」由 meiridasai
+   * 接棒（同 51chigua 先例）。（danbooru 同批解封断言已随 fix338
+   * 摘除退役，负向断言见上。） */
+  for (const id of ["xiuren", "pixibb", "nudecosplay"]) {
     assert.ok(ids.includes(id), `fix330 定级源 ${id} 进自检名单`);
   }
   // 契约适配（基础设施批集成，2026-11-19）：51chigua 已被 fix321-F2b 解 blocked

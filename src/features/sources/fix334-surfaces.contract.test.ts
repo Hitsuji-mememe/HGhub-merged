@@ -28,7 +28,7 @@ import { searchPolicyFor } from "../search/multiSourceSearch.ts";
 import { selfCheckEligible } from "./healthCheck.ts";
 import { templateHasAdapter, templateHasSearch } from "./adapters/templateSegments.ts";
 import { TEMPLATE_IDS } from "./adapters/templates.ts";
-import { createHentaihavenAdapter, createHlsSiteAdapter } from "./adapters/templates.ts";
+import { createHlsSiteAdapter } from "./adapters/templates.ts";
 import { setFetchPage } from "./adapters/fetchPage.ts";
 import {
   EPISODES_FORM_BY_TEMPLATE, episodesFormOf, templateCapabilitiesFor,
@@ -76,40 +76,26 @@ const hlsSiteFx: SourceDef = {
   }
   assert.equal(episodesFormOf("none"), "none");
   assert.equal(episodesFormOf("unknown-template"), "none");
-  /* 行为钉（multi）：012 模板 detail 经既有夹具实产 2 集——形态表写
-   * multi 必须有行为证据，不许只凭声明。 */
-  setFetchPage(async (url) => {
-    if (url.includes("/api/manga/")) return fx("hentaihaven-list.json");
-    if (url.includes("/episode-")) return fx("hentaihaven-episode.html");
-    if (url.includes("/watch/")) return fx("hentaihaven-watch.html");
-    throw new Error(`unexpected fetch ${url}`);
-  });
-  const hhDef = getBuiltinRegistry().find((s) => s.id === "hentaihaven")!;
-  const hhDetail = await createHentaihavenAdapter(hhDef).detail("fixture-slug-001");
-  assert.equal(hhDetail.episodes.length, 2, "012 模板 detail 实产 2 集（multi 行为证据）");
-  assert.equal(templateCapabilitiesFor(hhDef).episodes, "multi", "012 模板 episodes 形态＝multi");
-  /* 行为钉（single）：hls-site detail 的 episodes 至多单条「正片」。 */
-  setFetchPage(async () => fx("hls-detail.html"));
-  const ppDef = hlsSiteFx;
-  const ppDetail = await createHlsSiteAdapter(ppDef).detail("fixture-gallery");
-  assert.ok(ppDetail.episodes.length <= 1, "hls-site detail episodes 至多单条（single 行为证据）");
-  assert.equal(templateCapabilitiesFor(ppDef).episodes, "single", "hls-site 模板 episodes 形态＝single");
-  /* 分层裁定（设计 §1.4 注 e；fix334/L2 已裁）：012 注册表
-   * caps.episodes=false 与模板实产 multi 的分层在此钉住——品类
-   * 映射（M6 短剧频道）看 caps、选集面看模板事实，两处不许混
-   * 用。设计 §3.1 曾要求 L2 翻 caps=true，L2 核对消费面后裁定
-   * 不翻：caps 是 sourcesForChannel(ai-duanju) 的唯一映射门，
-   * 翻 true 会让 012（里番分集、非短剧品类）进短剧频道切源名
-   * 单并使下方 M6「成员仅原生」断言翻红——差异已在 L2 报告
-   * 明报，本断言即裁定后的守门（翻 caps 者先改本断言并给频道
-   * 名单的处置方案）。 */
-  assert.equal(hhDef.capabilities.episodes, false, "012 caps.episodes 维持 false（L2 裁定：与模板 multi 分层、短剧频道映射门）");
+  /* multi 现状钉（断言适配 fix338/registry-cut）：唯一 multi 模板
+   * （hentaihaven-api）已随 011 摘除删码——形态表再无 multi 登记、
+   * 未知模板回落 none、全注册表无源产 multi；选集 machinery 休眠
+   * 待新 multi 模板登记（登记时须带行为证据恢复本钉，见设计
+   * §1.4 与 L2 分层裁定的原意：caps 是短剧频道映射门、选集面看
+   * 模板事实，两处不许混用）。 */
+  assert.ok(!Object.values(EPISODES_FORM_BY_TEMPLATE).includes("multi"), "形态表现行无 multi 登记（fix338 后）");
+  assert.equal(episodesFormOf("hentaihaven-api"), "none", "已删模板回落 none（不许靠登记残留冒充 multi）");
+  for (const def of getBuiltinRegistry()) {
+    assert.notEqual(templateCapabilitiesFor(def).episodes, "multi", `${def.id} 模板事实非 multi（现行无 multi 登记）`);
+  }
 }
 
 /* ══ 1. 三组注册表状态 ══ */
 const R1 = getBuiltinRegistry();
 /* R2：与 remote-manifest v3 同形的内存对象（manifestVersion 3、
- * minAppVersion 3.1.0、17 源 enabled/baseUrls），不读网络不读仓外文件。 */
+ * minAppVersion 3.1.0、17 源 enabled/baseUrls），不读网络不读仓外文件。
+ * 注（fix338）：夹具内 pornpics/danbooru/hentaihaven 三条目已不在
+ * 内置注册表——applyManifest 只覆盖内置条目、三条目惰性忽略（与
+ * 线上旧清单对新版 App 的真实形态一致），R2 遍历口径不变。 */
 const V3_FIXTURE = {
   manifestVersion: 3, minAppVersion: "3.1.0",
   sources: [
@@ -135,14 +121,16 @@ const V3_FIXTURE = {
 const v3 = validateManifest(V3_FIXTURE);
 assert.ok(v3, "v3 同形夹具须过 schema 校验");
 const R2 = applyManifest(R1, v3);
-/* R3：合成变体——清单停用 011（hentaihaven）、启用 014（yandere）。
- * 适配（fix335/g-sources）：014 已在内置 R1 启用，本变体对 014 的
- * 「启用」自此为同值重申（形态不变、断言口径随新事实更新见 §5）。 */
+/* R3：合成变体——清单停用一启用源、启用一停用源。
+ * 适配（fix338/registry-cut）：原变体挂 011（已摘除、清单条目惰
+ * 性）＋014（已在内置启用、启用成同值重申），改挂 010（iwara，
+ * 启用视频源）停用＋015（gelbooru，未启用图片源）启用，变体语义
+ * （清单覆盖改变成员资格）不变。 */
 const vR3 = validateManifest({
   manifestVersion: 4, minAppVersion: "3.1.0",
   sources: [
-    { id: "hentaihaven", enabled: false },
-    { id: "yandere", enabled: true },
+    { id: "iwara", enabled: false },
+    { id: "gelbooru", enabled: true },
   ],
 });
 assert.ok(vR3, "R3 变体夹具须过 schema 校验");
@@ -162,7 +150,8 @@ const ghost: SourceDef = {
   network: { mode: "probe-required" },
 };
 const blockedFx: SourceDef = {
-  ...R1.find((s) => s.id === "danbooru")!, id: "blocked-fixture", maturity: "blocked",
+  /* 适配（fix338）：原基底 danbooru 已摘除，改基同模板的 yandere。 */
+  ...R1.find((s) => s.id === "yandere")!, id: "blocked-fixture", maturity: "blocked",
 };
 const SYNTHETIC_STATE: SourceDef[] = [ghost, blockedFx, hlsSiteFx];
 
@@ -328,22 +317,21 @@ for (const [si, state] of STATES.entries()) {
     "原生谓词认模板不认 id（反向）");
   /* 频道切源名单成员（适配 fix336/ui-fixes：总览源行两面删除，
    * 名单迁频道面——图片走 channel-image、视频走 channel-video；
-   * 成员集合与原总览行逐字一致（007 退役、015/Konachan 启用进
-   * 集，承 fix335/g-sources 口径），视频名单另摘原生（空壳退
-   * 场、声明出局见下条）。 */
+   * 成员集合随注册表现状（fix338 后图片 5 源/视频 3 源），视频名
+   * 单另摘原生（空壳退场、声明出局见下条）。 */
   assert.deepEqual(sourcesForSurface("channel-image", R1).map((d) => d.id),
-    ["xiuren", "cosplaytele", "danbooru", "pixibb", "nudecosplay", "yandere", "konachan"], "channel-image 成员＝已启用图片源");
+    ["xiuren", "cosplaytele", "pixibb", "nudecosplay", "yandere"], "channel-image 成员＝已启用图片源（fix338 后 5 源）");
   assert.deepEqual(sourcesForSurface("channel-video", R1).map((d) => d.id),
-    ["hanime-tv", "hanime1", "iwara", "hentaihaven"], "channel-video 成员＝已启用外部视频源（原生不在名单）");
+    ["hanime-tv", "hanime1", "iwara"], "channel-video 成员＝已启用外部视频源（原生不在名单；fix338 后 3 源）");
   assert.deepEqual(routeForSurface("channel-video", byId("huangguo"), ctx),
     { kind: "not-applicable", declaration: "native-not-in-video-channel" }, "原生×视频频道＝空壳退场声明出局");
   /* 搜索扇出成员：005（App 编号，feedheiliao）以声明 g 出局、001 以
    * 声明 b 出局；声明 h（hls-site 模板搜索不可用）的触发改由合成
    * hlsSiteFx 承接（适配 fix335/g-sources：007 退役、内置无 hls-site
-   * 源）；015/Konachan 启用且有搜索段、新进成员（11→13 源）。 */
+   * 源）；fix338 后成员 10 源（008/011/016 摘除出集）。 */
   assert.deepEqual(sourcesForSurface("search-fanout", R1).map((d) => d.id),
-    ["hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "danbooru", "hanime1", "iwara", "hentaihaven", "pixibb", "nudecosplay", "yandere", "konachan"],
-    "M11 成员＝已启用∧有搜索段的外部源（13 源）");
+    ["hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "hanime1", "iwara", "pixibb", "nudecosplay", "yandere"],
+    "M11 成员＝已启用∧有搜索段的外部源（fix338 后 10 源）");
   assert.deepEqual(routeForSurface("search-fanout", byId("huangguo"), ctx),
     { kind: "not-applicable", declaration: "native-dual-path" }, "001×M11 声明 b");
   assert.deepEqual(routeForSurface("search-fanout", byId("feedheiliao"), ctx),
@@ -351,10 +339,10 @@ for (const [si, state] of STATES.entries()) {
   assert.deepEqual(routeForSurface("search-fanout", hlsSiteFx, ctx),
     { kind: "not-applicable", declaration: "search-unusable-hls-site" }, "hls-site 合成源×M11 声明 h");
   /* 自检：001 在册（设计声明 c 与码上事实矛盾——selfCheckEligible(001)
-   * 为真、引擎经 native 适配器实探，见报告设计订正）；R1 合格 15 源
-   * （适配 fix335/g-sources：007 退役出集、015/Konachan 启用进集，14→15）。 */
+   * 为真、引擎经 native 适配器实探，见报告设计订正）；R1 合格 12 源
+   * （适配 fix338/registry-cut：008/011/016 摘除出集，15→12）。 */
   assert.deepEqual(routeForSurface("selfcheck", byId("huangguo"), ctx), { kind: "listed" }, "001×M21 在册（订正设计声明 c）");
-  assert.equal(sourcesForSurface("selfcheck", R1).length, 15, "M21 R1 合格集＝15 源");
+  assert.equal(sourcesForSurface("selfcheck", R1).length, 12, "M21 R1 合格集＝12 源");
   /* 短剧频道：外部 video 源以声明 e 出局（caps 映射属实为空）。 */
   assert.deepEqual(routeForSurface("channel-drama", byId("hanime-tv"), ctx),
     { kind: "not-applicable", declaration: "no-drama-mapping" }, "002×M6 声明 e");
@@ -408,27 +396,29 @@ for (const [si, state] of STATES.entries()) {
   }
 }
 
-/* ── R3 变体定点：停用 012 全面转提示/退出、015 启用态在各适用面成立 ── */
+/* ── R3 变体定点：停用 010 全面转提示/退出、015 启用态在各适用面成立 ── */
 {
   const ctx = ctxOf(R3);
   const byId = (id: string) => R3.find((s) => s.id === id)!;
-  const hh = byId("hentaihaven");
-  assert.deepEqual(routeForSurface("deeplink-video", hh, ctx), { kind: "notice", reason: "disabled" }, "R3 012×M9＝停用提示");
-  assert.deepEqual(routeForSurface("search-fanout", hh, ctx),
-    { kind: "not-applicable", declaration: "not-enabled" }, "R3 011×M11 退出扇出");
-  assert.ok(!sourcesForSurface("channel-video", R3).some((d) => d.id === "hentaihaven"), "R3 011 退出视频频道名单（原 M5 行、fix336 迁面）");
-  const yd = byId("yandere");
-  assert.deepEqual(routeForSurface("detail-gallery", yd, ctx), { kind: "browse", component: "SourceGallery" }, "R3 014×M15 自动接通");
-  assert.ok(sourcesForSurface("channel-image", R3).some((d) => d.id === "yandere"), "R3 015 进入图片频道名单（原 M4 行、fix336 迁面）");
-  assert.ok(sourcesForSurface("selfcheck", R3).some((d) => d.id === "yandere"), "R3 015 进入 M21 合格集");
-  /* 015 进 M11（适配 fix335/g-sources）：moebooru 校准后 caps.search
-   * 据实为 true、有搜索段——原「无搜索段出局」断言随事实翻转。 */
-  assert.deepEqual(routeForSurface("search-fanout", yd, ctx),
-    { kind: "browse", component: "SearchFanout" }, "R3 015×M11 有搜索段进扇出");
-  /* R3×M17（fix334/L3）：停用 012 退出资料库成员、启用 015 自动进。 */
-  assert.deepEqual(routeForSurface("library", hh, ctx),
-    { kind: "not-applicable", declaration: "not-enabled" }, "R3 012×M17 停用退出");
-  assert.deepEqual(routeForSurface("library", yd, ctx),
+  const iw = byId("iwara");
+  assert.deepEqual(routeForSurface("deeplink-video", iw, ctx), { kind: "notice", reason: "disabled" }, "R3 010×M9＝停用提示");
+  assert.deepEqual(routeForSurface("search-fanout", iw, ctx),
+    { kind: "not-applicable", declaration: "not-enabled" }, "R3 010×M11 退出扇出");
+  assert.ok(!sourcesForSurface("channel-video", R3).some((d) => d.id === "iwara"), "R3 010 退出视频频道名单（原 M5 行、fix336 迁面）");
+  const gb = byId("gelbooru");
+  assert.deepEqual(routeForSurface("detail-gallery", gb, ctx), { kind: "browse", component: "SourceGallery" }, "R3 015×M15 自动接通");
+  assert.ok(sourcesForSurface("channel-image", R3).some((d) => d.id === "gelbooru"), "R3 015 进入图片频道名单（原 M4 行、fix336 迁面）");
+  assert.ok(sourcesForSurface("selfcheck", R3).some((d) => d.id === "gelbooru"), "R3 015 进入 M21 合格集");
+  /* 015×M11：danbooru-api 家族模板有 search 实现，但 015 注册表
+   * caps.search 未声明（false）——启用也不进扇出、声明出局（搜
+   * 索事实＝探针∧注册表声明，缺一不可；与 014 的已声明形态对
+   * 照，频道浏览不受此限）。 */
+  assert.deepEqual(routeForSurface("search-fanout", gb, ctx),
+    { kind: "not-applicable", declaration: "no-search-segment" }, "R3 015×M11 注册表未声明搜索、声明出局");
+  /* R3×M17（fix334/L3）：停用 010 退出资料库成员、启用 015 自动进。 */
+  assert.deepEqual(routeForSurface("library", iw, ctx),
+    { kind: "not-applicable", declaration: "not-enabled" }, "R3 010×M17 停用退出");
+  assert.deepEqual(routeForSurface("library", gb, ctx),
     { kind: "browse", component: "ProfileLibrary" }, "R3 015×M17 启用自动接通");
 }
 

@@ -18,17 +18,18 @@
  *   可达性另由 surfaces 的品类/启用规则与 missingSearchSegments
  *   的 preview-only 分叉表达，不许只读本字段判可播。
  * - episodes＝逐模板代码事实声明（detail 的 episodes 产出形态，
- *   无法靠构造探针得出——须取页才知）：multi 只有 hentaihaven-api
- *   （detail 扫 episode-<n> 链接产多集，其余模板至多单条「正片」
- *   或空数组）。声明在此一处登记，完备性契约以行为夹具钉住
- *   multi/single 两端（011 hentaihaven 实产 2 集、hls-site 至多 1 条），且断言
- *   本表显式覆盖每个有适配器的模板——新模板漏登即契约红。
+ *   无法靠构造探针得出——须取页才知）：现行无 multi 登记——唯一
+ *   multi 模板 hentaihaven-api（detail 扫 episode-<n> 链接产多
+ *   集）已于 fix338/registry-cut 随 011 摘除同删，其余模板至多
+ *   单条「正片」或空数组。声明在此一处登记，完备性契约以行为
+ *   夹具钉住 single 端（hls-site 至多 1 条），且断言本表显式覆
+ *   盖每个有适配器的模板——新模板漏登即契约红。选集面
+ *   （episodes.ts）machinery 保留：现行无源触发、未来新 multi
+ *   模板在此登记即复活，不另起接线。
  *   注意与注册表 capabilities.episodes 分层：caps 是品类映射
- *   事实（短剧频道归类门），本表是模板产出事实（选集面用）。
- *   011 两者不一致（caps=false、模板 multi）经 fix334/L2 裁定
- *   保留分层：caps 翻 true 会让里番源进短剧频道切源名单（消费
- *   面核对见 L2 报告），故不翻；选集面只读本表 multi、不读
- *   caps，不许在本表迁就 caps 改判、也不许选集面改读 caps。
+ *   事实（短剧频道归类门），本表是模板产出事实（选集面用）；
+ *   选集面只读本表 multi、不读 caps，不许在本表迁就 caps 改
+ *   判、也不许选集面改读 caps（fix334/L2 裁定）。
  * - 发现维度（fix335/f-discovery）：discoverySpecFor 在本文件尾
  *   段登记各源可切换的分类/排序/榜单维度，口径同上——只许在此
  *   一处声明、未实证不登记，证据与日期随登记同行。
@@ -36,9 +37,7 @@
 import type { SourceDef } from "../types.ts";
 import { templateHasAdapter, templateHasSearch } from "./templateSegments.ts";
 import {
-  DANBOORU_ORDER_PRESETS,
   HANIME1_SORT_VALUES,
-  HENTAIHAVEN_PERIOD_OPTIONS,
   IWARA_SORT_OPTIONS,
   readDiscoveryRanks,
 } from "./templates.ts";
@@ -66,7 +65,6 @@ export const EPISODES_FORM_BY_TEMPLATE: Record<string, EpisodesForm> = {
   "hanime-api": "single", // hanimeApi detail 单条「正片」
   "iwara-api": "single", // detail 单条「正片」
   hanime1: "single", // detail 有源时单条「正片」
-  "hentaihaven-api": "multi", // detail 扫 episode-<n> 链接产多集（全仓唯一 multi）
   "preview-only": "none", // 预览桩 detail episodes: []
 };
 
@@ -190,8 +188,8 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
       };
     case "hanime-api":
       /* 002 客户端维度：目录全量在本地缓存，brand 过滤/tag 过滤/
-       * views 重排全在内存（服务端无对应参数）。008 的 tagFilter
-       * 不在此列——danbooru 无选项来源、标签走既有搜索段。 */
+       * views 重排全在内存（服务端无对应参数）。danbooru-api 模
+       * 板不在此列——无选项来源、标签走既有搜索段。 */
       return {
         categories: { source: "taxonomy", options: [] },
         tagFilter: true,
@@ -201,16 +199,6 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
         ],
         sortDefault: "",
         evidence: `目录行 brand/tags/views 字段与客户端重排经探针实证（${F_EVIDENCE}）`,
-      };
-    case "danbooru-api":
-      /* 只登记 008 本尊（danbooru）：三预设只在 danbooru 站实证，同模板的
-       * gelbooru/yandere 未验——未实证不登记（yandere 随启用批
-       * 另行复测，见 G 线登记）。 */
-      if (def.id !== "danbooru") return EMPTY_DISCOVERY_SPEC;
-      return {
-        sorts: [{ value: "", label: "最新" }, ...DANBOORU_ORDER_PRESETS],
-        sortDefault: "",
-        evidence: `order:rank/score/favcount 三预设经住宅终验严格降序（${F_EVIDENCE}）`,
       };
     case "hanime1":
       /* 九值逐字繁体原值（HANIME1_SORT_VALUES），label 即原值；
@@ -225,14 +213,6 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
         sorts: IWARA_SORT_OPTIONS,
         sortDefault: "views",
         evidence: `sort=views/likes/date 三值返回集各异经探针实证（${F_EVIDENCE}）`,
-      };
-    case "hentaihaven-api":
-      /* 只登记 monthly/all：weekly/daily 被站方应用层拒绝
-       * （Unsupported trending period），不得登记。 */
-      return {
-        rankPeriods: HENTAIHAVEN_PERIOD_OPTIONS,
-        periodDefault: "monthly",
-        evidence: `trending_period 两值可用、weekly/daily 被应用层拒绝经探针实证（${F_EVIDENCE}）`,
       };
     default:
       /* hls-site/swag/redgifs/preview/native 及未实证模板：一律

@@ -39,17 +39,19 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8"
   assert.deepEqual(Object.keys(noStatus).sort(), ["attempt", "code", "segment", "source"], "无状态时 status 键整缺、键集合封闭");
 }
 
-/* ── (1) P5：三源段调用点齐全（源码断言，仿既有契约先例） ── */
+/* ── (1) P5：两源段调用点齐全（源码断言，仿既有契约先例；
+ * 断言适配 fix338/registry-cut：011 已摘除，其 episode 段留痕随
+ * 适配器同删、改验负向；留痕规模 13→10 点） ── */
 {
   const tpl = read("../../features/sources/adapters/templates.ts");
   for (const seg of ["detail", "fetch", "decode"]) {
-    assert.ok(tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `011 iwara 段留痕在位：${seg}`);
+    assert.ok(tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `010 iwara 段留痕在位：${seg}`);
   }
   for (const seg of ["watch", "download"]) {
-    assert.ok(tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `009/011 详情页段留痕在位：${seg}`);
+    assert.ok(tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `009 hanime1 详情页段留痕在位：${seg}`);
   }
-  assert.ok(tpl.includes('traceResolveFailure(def.id, "episode"'), "011 hentaihaven 集页段留痕在位");
-  assert.ok((tpl.match(/traceResolveFailure\(def\.id/g) ?? []).length >= 10, "三源留痕调用点成规模（非点缀）");
+  assert.ok(!tpl.includes('traceResolveFailure(def.id, "episode"'), "011 集页段留痕已随适配器删除退役（fix338）");
+  assert.ok((tpl.match(/traceResolveFailure\(def\.id/g) ?? []).length >= 10, "两源留痕调用点成规模（非点缀）");
 }
 
 /* ── (1) P5：结构化留痕节行为 ── */

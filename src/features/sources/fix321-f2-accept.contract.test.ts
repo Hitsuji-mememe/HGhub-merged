@@ -157,7 +157,9 @@ const def = (id: string) => {
  * 3.3.0 接通批集成续适配（2026-11-19）：吃瓜线 51chigua/meiridasai 接线
  * 搜索段、图片线 pixibb/nudecosplay 启用且搜索属实、pornpics 搜索属实
  * 改 false 出局、新适配器线 hanime1/iwara/hentaihaven 带 search 段启用
- * ——纳入集 7→13 源；feedheiliao 经实证无 GET 搜索段，维持出局。 ── */
+ * ——纳入集 7→13 源；feedheiliao 经实证无 GET 搜索段，维持出局。
+ * 断言适配（fix338/registry-cut）：danbooru/hentaihaven/konachan 三源
+ * 已摘除，纳入集 14→11 源，逐源断言同步收口。 ── */
 {
   {
     const p = searchPolicyFor(def("feedheiliao"));
@@ -166,7 +168,7 @@ const def = (id: string) => {
     const p = searchPolicyFor(def(id));
     assert.equal(p.include, true, `吃瓜源 ${id} 搜索段已接线（3.3.0）、进扇出`);
   }
-  for (const id of ["hanime-tv", "xiuren", "danbooru"]) {
+  for (const id of ["hanime-tv", "xiuren"]) {
     const p = searchPolicyFor(def(id));
     assert.equal(p.include, true, `保留源 ${id} 具备搜索段即进扇出（成熟度 ${def(id).maturity} 不再预扣）`);
   }
@@ -175,14 +177,13 @@ const def = (id: string) => {
    * nudecosplay 实证启用且搜索属实 true → 新进扇出。纳入集 7→8 源，
    * 结构门口径不变（与 fix321-f5 契约同口径）。 */
   assert.equal(searchPolicyFor(def("pornpics")).include, false, "pornpics 搜索属实 false、无搜索段出局（fix330；fix335/g-sources 后 def 走历史夹具表）");
-  /* 断言适配（fix335/g-sources）：yandere/konachan 启用且搜索属实进
-   * 扇出，纳入集 12→14 源。 */
-  for (const id of ["yandere", "konachan"]) {
+  /* 断言适配（fix335/g-sources）：yandere 启用且搜索属实进扇出。 */
+  for (const id of ["yandere"]) {
     assert.equal(searchPolicyFor(def(id)).include, true, `${id} moebooru 校准有搜索段、进扇出（fix335/g-sources）`);
   }
   const included = reg.filter((s) => searchPolicyFor(s).include).map((s) => s.id).sort();
-  assert.deepEqual(included, ["51chigua", "cosplaytele", "danbooru", "hanime-tv", "hanime1", "hentaihaven", "huangguo", "iwara", "konachan", "meiridasai", "nudecosplay", "pixibb", "xiuren", "yandere"],
-    "扇出纳入集＝保留集内具备搜索段的 14 源（20:48 裁定口径＋3.3.0 集成；fix335/g-sources 加 yandere/konachan 后 12→14）");
+  assert.deepEqual(included, ["51chigua", "cosplaytele", "hanime-tv", "hanime1", "huangguo", "iwara", "meiridasai", "nudecosplay", "pixibb", "xiuren", "yandere"],
+    "扇出纳入集＝保留集内具备搜索段的 11 源（20:48 裁定口径＋3.3.0 集成；fix338 摘三源后 14→11）");
 }
 /* ── (F) 51吃瓜解 blocked＋黑料网毕业：内置面三面一致 ── */
 {

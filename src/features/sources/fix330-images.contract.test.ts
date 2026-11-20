@@ -89,10 +89,11 @@ const def = (id: string): SourceDef => {
   assert.equal(xr.enabled, true, "xiuren 保持启用");
   assert.equal(xr.capabilities.search, true, "xiuren wp-rest 搜索端点实证可用、search 属实 true");
 
-  const db = def("danbooru");
-  assert.equal(db.maturity, "probe", "danbooru 翻案 probe（住宅四级全通、旧 blocked 系机房 CF 假象）");
-  assert.equal(db.enabled, true, "danbooru 保持启用");
-  assert.equal(db.capabilities.search, true, "danbooru tags 搜索与列表同端点、住宅实证在案、search 属实 true");
+  /* 断言适配（fix338/registry-cut）：danbooru 已按用户裁定摘除注册
+   * 表（单图帖不算资源），原翻案定级断言改为不在册断言；同批
+   * konachan（CF JS 验证无解）同口径。 */
+  assert.ok(!getBuiltinRegistry().some((s) => s.id === "danbooru"), "danbooru 已摘除注册表（fix338）");
+  assert.ok(!getBuiltinRegistry().some((s) => s.id === "konachan"), "konachan 已摘除注册表（fix338）");
 
   /* 断言适配（fix335/g-sources）：pornpics 已按用户裁定退役摘除注册
    * 表，原定级断言（维持 probe/search 属实 false）改为不在册断言。 */
@@ -105,10 +106,10 @@ const def = (id: string): SourceDef => {
     assert.equal(s.capabilities.search, true, `${id} wp-rest 搜索端点实证可用、search 属实 true`);
     assert.ok(!s.note?.includes("未实测"), `${id} note 已按实证更新、不再写未实测`);
   }
-  /* 新增定级（fix335/g-sources）：yandere/konachan moebooru 校准启用
+  /* 新增定级（fix335/g-sources）：yandere moebooru 校准启用
    * ——本机实证（列表/详情/搜索段）＋danbooru 模板参数校准，住宅复测
-   * 未做成、App 未真机验 → probe。 */
-  for (const id of ["yandere", "konachan"]) {
+   * 未做成、App 未真机验 → probe。（同批的 konachan 已于 fix338 摘除。） */
+  for (const id of ["yandere"]) {
     const s = def(id);
     assert.equal(s.enabled, true, `${id} moebooru 校准 → 启用（fix335/g-sources）`);
     assert.equal(s.maturity, "probe", `${id} 定级 probe（App 未真机验）`);
