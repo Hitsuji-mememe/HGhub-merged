@@ -30,8 +30,12 @@ const byId = (id: string): SourceDef => {
 {
   const everia = byId("everia");
   const xsnvshen = byId("xsnvshen");
-  assert.equal(registry.indexOf(everia), 17, "everia 为注册表第 18 位（编号 018）");
-  assert.equal(registry.indexOf(xsnvshen), 18, "xsnvshen 为注册表第 19 位（编号 019）");
+  /* 断言适配（fix338 集成对账，2026-11-20）：registry-cut 摘除
+   * 008/011/016 后注册表 17→16 源，everia/xsnvshen 仍居注册表末
+   * 两位（位置 15/16）；编号 018/019 为顺延分配号、不复用已删编
+   * 号（主线裁定），与位置号脱钩。 */
+  assert.equal(registry.indexOf(everia), 14, "everia 为注册表第 15 位（编号 018、居末两位）");
+  assert.equal(registry.indexOf(xsnvshen), 15, "xsnvshen 为注册表第 16 位（编号 019、居末）");
   assert.equal(everia.adapter.template, "wp-rest", "everia 走 wp-rest 模板实例化");
   assert.equal(everia.kind, "image");
   assert.equal(everia.enabled, true);

@@ -79,7 +79,9 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
   for (const id of ["danbooru", "konachan"]) {
     assert.ok(!ids.includes(id), `${id} 已摘除、不在 active 图片源（fix338）`);
   }
-  assert.deepEqual([...ids].sort(), ["cosplaytele", "nudecosplay", "pixibb", "xiuren", "yandere"], "active 图片源全集恰为保留 5 源");
+  /* 断言适配（fix338 集成对账，2026-11-20）：realphoto-add 新增
+   * everia/xsnvshen 两源启用入册，全集 5→7 源（恰集断言不降）。 */
+  assert.deepEqual([...ids].sort(), ["cosplaytele", "everia", "nudecosplay", "pixibb", "xiuren", "xsnvshen", "yandere"], "active 图片源全集恰为保留 7 源");
   /* 断言适配（fix330 图片线，2026-11-19）：xiuren 改走 xiuren.biz 本机
    * 四级全通解 blocked（旧 blocked 系机房 CF 假象），改判 probe
    * （App 未真机验），证据 fix330/evidence/images.md。 */
