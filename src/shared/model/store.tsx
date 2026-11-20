@@ -222,6 +222,12 @@ type Store = {
   fs: boolean; setFs: (v: boolean | ((p: boolean) => boolean)) => void;
   /** 移动端「净屏」：只留画面，UI 全隐 */
   clean: boolean; setClean: (v: boolean | ((p: boolean) => boolean)) => void;
+  /** 底栏让位（fix337/album-chrome）：全屏图集查看器在场期间为
+   * true，App 整栏不渲染 TabBar（与 fs/clean 同口径）。查看器覆
+   * 层嵌在宿主页的层叠上下文内（搜索详情 z-30）、提层级压不过
+   * 根层 z-50 的底栏，只能让底栏离场；持有/释放归宿主 effect
+   * 的生命周期，导航状态不碰此标记。 */
+  tabBarHeld: boolean; setTabBarHeld: (v: boolean | ((p: boolean) => boolean)) => void;
   /** 锁屏状态：锁屏期间隐藏移动端底栏 */
   muted: boolean; setMuted: (v: boolean | ((p: boolean) => boolean)) => void;
   muteOnStartup: boolean; setMuteOnStartup: (on: boolean) => void;
@@ -280,6 +286,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lineEpoch, setLineEpoch] = useState(0);
   const [fs, setFsState] = useState(false);
   const [clean, setCleanState] = useState(false);
+  const [tabBarHeld, setTabBarHeldState] = useState(false);
   const lastVolumeRef = useRef(p.volume > 0 ? p.volume : 0.7);
   const [strictSecurity, setStrictSecurityState] = useState<boolean>(isStrictSecurity);
   const [cliRelaxed, setCliRelaxed] = useState(false);
@@ -452,6 +459,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCleanState((prev) => (typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v));
   }, []);
 
+  const setTabBarHeld = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
+    setTabBarHeldState((prev) => (typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v));
+  }, []);
+
   const setMuted = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setP((s) => {
       const nextMuted = typeof v === "function" ? v(s.muted) : v;
@@ -505,7 +516,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addHistory: library.addHistory, clearHistory: library.clearHistory,
     extRefs: library.extRefs,
     setExternalCollected: library.setExternalCollected, addExternalHistory: library.addExternalHistory,
-    muted: p.muted, setMuted, volume: p.volume, setVolume, rate: p.rate, setRate, fs, setFs, clean, setClean,
+    muted: p.muted, setMuted, volume: p.volume, setVolume, rate: p.rate, setRate, fs, setFs, clean, setClean, tabBarHeld, setTabBarHeld,
     muteOnStartup: p.muteOnStartup, setMuteOnStartup,
     swipeEp: p.swipeEp, setSwipeEp,
     preferHevc: p.preferHevc, setPreferHevc,
@@ -518,7 +529,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }), [theme, themePreference, tab, setTab, stack, push, openRootPage, pop,
     p, library,
     setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setSrMode, cycleSrMode, setSrPref, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
-    toast, lineEpoch, fs, setFs, clean, setClean]);
+    toast, lineEpoch, fs, setFs, clean, setClean, tabBarHeld, setTabBarHeld]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

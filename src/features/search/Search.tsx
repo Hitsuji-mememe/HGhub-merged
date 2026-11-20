@@ -127,7 +127,7 @@ const EMPTY_EXT_TITLE_OVERRIDES: ReadonlyMap<string, ReadonlyMap<string, string>
 
 export default function Search({ active, wide }: { active: boolean; wide: boolean }) {
   const { push, searchHist, addSearch, clearSearchHist, lineEpoch, setTab: setMainTab,
-    isFav, setExternalCollected, addExternalHistory, actionPending, toast } = useStore();
+    isFav, setExternalCollected, addExternalHistory, actionPending, toast, setTabBarHeld } = useStore();
   /* G4 历史写入去重键（源:条目:当前集）：同集重复 playing 不重复
    * 记、换集/换条目自动再记（fix334/L3，与 SourceBrowse 同口径）。 */
   const extHistoryKeyRef = useRef("");
@@ -203,6 +203,20 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     if (!extDetailOpen) return undefined;
     return registerOverlayBack(() => { closeExtDetail(); return true; });
   }, [extDetailOpen, closeExtDetail]);
+  /* 底栏让位（fix337/album-chrome，3.3.6 真机复报）：图片详情的
+   * 全屏查看器覆层嵌在本详情层（absolute z-30）的层叠上下文
+   * 内，覆层 z-40 只在上下文内有效，压不过根层 z-50 的壳底栏
+   * ——3.3.6 盖住了同上下文的详情页头，底栏仍漏出压住缩略图
+   * 条下半截。与 fs/clean 同口径：查看器在场期间持有让位标
+   * 记、整栏不渲染。持有条件与图片分支覆层的渲染条件逐字同
+   * 源（ready∧图片∧有图才有覆层），关闭/切副本/卸载由
+   * cleanup 释放。 */
+  const albumOverlayOpen = extDetail?.phase === "ready" && extDetail.data.merged.kind === "image" && (extDetail.data.images?.length ?? 0) > 0;
+  useEffect(() => {
+    if (!albumOverlayOpen) return undefined;
+    setTabBarHeld(true);
+    return () => { setTabBarHeld(false); };
+  }, [albumOverlayOpen, setTabBarHeld]);
   const seqRef = useRef(0);
   const moreSentinelRef = useRef<HTMLDivElement>(null);
   const detailCache = useRef(new Map<string, SourceDetail>());
@@ -810,9 +824,13 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
                * 壳底部导航漏出。改与 SourceGallery 源内宿主逐字
                * 同形态：fixed inset-0 z-40 顶层覆盖＋immersive
                * 安全区让位，单一标题栏（查看器自带 chrome）、底层
-               * 页面与导航全盖住；返回落点（closeExtDetail）与
+               * 页面全盖住；返回落点（closeExtDetail）与
                * 数据源注记（悬浮层底部）不变。无图时仍走页内
-               * 注记行（无查看器可盖）。 */
+               * 注记行（无查看器可盖）。订正（fix337/album-
+               * chrome）：「导航全盖住」对壳底栏不成立——底栏
+               * z-50 在根层、覆层被本详情层 z-30 上下文困住，
+               * 改走持有让位标记整栏离场（见 extDetailOpen 旁
+               * 的 albumOverlayOpen effect）。 */
               return images.length > 0 ? (
                 <div className="fixed inset-0 z-40 bg-black">
                   <AlbumViewer title={merged.title} images={images} index={idx}
