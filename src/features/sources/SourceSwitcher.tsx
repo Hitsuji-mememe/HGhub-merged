@@ -15,7 +15,7 @@
 import { Button } from "../../shared/ui/ios/controls";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 import { sourcesForCategory, sourcesForChannel } from "./registry.ts";
-import { getActiveRegistry, getRegistryInfo } from "./manifest.ts";
+import { getActiveRegistry } from "./manifest.ts";
 import { getSelfCheckResults, sourceHealthBadgeText } from "./healthCheck.ts";
 import { useSourceHealthResults, useSourceSelfCheckOnShow } from "./sourceHealth.ts";
 import type { SelectedSourceKind } from "./selectedSource.ts";
@@ -26,7 +26,7 @@ export interface SourceOption { id: string; label: string; badge?: string }
 const toOption = (s: SourceDef): SourceOption => ({
   id: s.id,
   label: s.displayName,
-  badge: sourceHealthBadgeText(s, getSelfCheckResults()[s.id], Date.now(), getActiveRegistry().manifestVersion, getRegistryInfo().appVersion),
+  badge: sourceHealthBadgeText(s, getSelfCheckResults()[s.id], Date.now()),
 });
 
 /* UI 消费口径（Muse 2026-11-19 整改 D2）：一律读 active 注册表
@@ -58,12 +58,14 @@ export function SourceSwitcher({ options, value, onChange, ariaLabel }: {
   const optionDefs = options
     .map((o) => getActiveRegistry().sources.find((s) => s.id === o.id))
     .filter((d): d is SourceDef => !!d);
-  useSourceSelfCheckOnShow(optionDefs);
+  /* 批量补探排序（fix333/m7-selfcheck M7）：本切换器当前选中源
+   * （value）最先探，其余按最近打开/注册表序。 */
+  useSourceSelfCheckOnShow(optionDefs, value);
   if (options.length <= 1) return null;
   const badgeFor = (o: SourceOption): string | undefined => {
     const def = getActiveRegistry().sources.find((s) => s.id === o.id);
     return def
-      ? sourceHealthBadgeText(def, healthResults[o.id], Date.now(), getActiveRegistry().manifestVersion, getRegistryInfo().appVersion)
+      ? sourceHealthBadgeText(def, healthResults[o.id], Date.now())
       : o.badge;
   };
   /* 源切换事件（Muse 2026-11-19 整改 D5，diag-audit #8）：只带稳定

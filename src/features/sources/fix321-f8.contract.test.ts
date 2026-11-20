@@ -27,7 +27,7 @@ import {
   verifyAppliedAdapterParams,
   type AdapterParamsState,
 } from "./adapterParams.ts";
-import type { SourceSelfCheckResult } from "./healthCheck.ts";
+import { selfCheckFingerprintFor, type SourceSelfCheckResult } from "./healthCheck.ts";
 import type { SourceDef } from "./types.ts";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -59,8 +59,10 @@ function checkResult(sourceId: string, over: Partial<SourceSelfCheckResult> = {}
     sourceId, at: NOW, listOk: true, itemCount: 5, listFailure: null,
     detail: "ok", detailFailure: null, requests: 2,
     /* fix331/source-reliability 断言适配：结果格式新增末段三字段＋
-     * 清单版本指纹，夹具补齐（口径不变、覆盖不降）。 */
-    tail: "ok", tailKind: "stream", tailFailure: null, manifestVersion: 1, appVersion: "test", ...over,
+     * 清单版本指纹，夹具补齐（口径不变、覆盖不降）。
+     * fix333/m7-selfcheck 断言适配：指纹改三维（协议版本/适配器
+     * 纪元/源切片），夹具按同形 def 盖指纹（口径不变、覆盖不降）。 */
+    tail: "ok", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(hlsDef(sourceId)), ...over,
   };
 }
 

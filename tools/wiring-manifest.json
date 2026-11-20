@@ -2031,6 +2031,36 @@
       "item": "fix333/M1 标题缓存作用域：titleFallbackScope（源 id＋兜底版本＋适配器模板）组装、会话与 hook 共用、落盘时清旧版本作用域",
       "min": 3,
       "symbol": "titleFallbackScope"
+    },
+    {
+      "files": [
+        "src/features/sources/healthCheck.ts",
+        "src/features/sources/sourceHealth.ts",
+        "src/features/sources/SourceSwitcher.tsx"
+      ],
+      "id": "fix333-m7-topup-order",
+      "item": "fix333/m7-selfcheck M7 批量补探排序：orderTopUpCandidates（healthCheck 定义＋ensureSourcesSelfCheck 消费，选中源>最近打开>注册表序）；选中信号经 sourceHealth 钩子透传、SourceSwitcher 以 value 接线",
+      "min": 3,
+      "symbol": "orderTopUpCandidates"
+    },
+    {
+      "files": [
+        "src/features/sources/healthCheck.ts",
+        "src/features/sources/sourceHealth.ts"
+      ],
+      "id": "fix333-m7-source-view-record",
+      "item": "fix333/m7-selfcheck M7 最近打开记录：recordSourceView（healthCheck 定义落盘 hghubx_source_last_view_v1＋sourceHealth 浏览面钩子进入时记录），供批量补探排序跨重启成立",
+      "min": 3,
+      "symbol": "recordSourceView"
+    },
+    {
+      "files": [
+        "src/features/sources/healthCheck.ts"
+      ],
+      "id": "fix333-m9-fingerprint",
+      "item": "fix333/m7-selfcheck M9 自检指纹分维度：selfCheckFingerprintFor（协议版本＋适配器纪元＋源切片，引擎落印＋命中判定＋旧指纹迁移共用），App 版本与清单整体版本退役出指纹",
+      "min": 3,
+      "symbol": "selfCheckFingerprintFor"
     }
   ]
 }

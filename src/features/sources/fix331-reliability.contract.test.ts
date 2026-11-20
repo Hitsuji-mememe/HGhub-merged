@@ -14,18 +14,26 @@
  * 不播放）、posts 类正文段与 image 类图集段复用详情响应判定，
  * 每源请求 ≤ 硬预算 3；(b) 旧格式结果（无末段/无版本指纹）
  * 落盘读入即丢弃，不许冒充已检；(c) 四态派生＋徽标文案逐一对号
- * （全链通／取流段死／从未探／已过期／清单版本已变／App 已换代／
- * 列表即死）；
- * (d) 补探触发——结果缺失/过期/版本不符才补、补完即新鲜不再补、
+ * （全链通／取流段死／从未探／已过期／该源切片已变／适配器纪元
+ * 不符／列表即死）；
+ * (d) 补探触发——结果缺失/过期/指纹不符才补、补完即新鲜不再补、
  * 在飞去重；(e) 诊断行组按四态计数；(f) 展示面/浏览面/诊断归属
  * 的接线以文本断言钉住（registryDiag/SourceSwitcher 含 React/
  * Tauri 链不在 node 直导入，同 final-d 先例）。
  * 不访问真实网络：适配器经注入接缝以假适配器隔离。
+ *
+ * 断言适配（2026-11-20 fix333/m7-selfcheck）：结果指纹改三维
+ * （协议版本/适配器纪元/源切片，见 fix333-m7-selfcheck 契约），
+ * 夹具改按 def 盖指纹（mkResultFor）、派生/徽标/补探调用签名
+ * 收敛为 (结果, def, now)；原「清单版本已变/App 已换代」两断言
+ * 由「该源切片已变/适配器纪元不符」接棒，口径不变、覆盖不降。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  SELF_CHECK_ADAPTER_EPOCH,
   SELF_CHECK_MAX_REQUESTS_PER_SOURCE,
+  SELF_CHECK_PROTOCOL_VERSION,
   SELF_CHECK_TTL_MS,
   bindSelfCheckStorage,
   buildSelfCheckPlan,
@@ -35,17 +43,15 @@ import {
   runSourceSelfCheck,
   saveSelfCheckResult,
   selfCheckDiagLines,
+  selfCheckFingerprintFor,
   selfCheckNeedsProbe,
   sourceHealthBadgeText,
   type SourceSelfCheckResult,
 } from "./healthCheck.ts";
-import { getActiveRegistry, getRegistryInfo } from "./manifest.ts";
 import type { SourceAdapter, SourceDef } from "./types.ts";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const NOW = 1_700_000_000_000;
-const MV = getActiveRegistry().manifestVersion;
-const AV = getRegistryInfo().appVersion;
 
 function fakeStorage() {
   const map = new Map<string, string>();
@@ -109,11 +115,11 @@ function fakeAdapter(behavior: FakeBehavior, counter: { calls: number; resolveCa
   };
 }
 
-function mkResult(over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckResult {
+function mkResult(def: SourceDef, over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckResult {
   return {
-    sourceId: "s", at: NOW, listOk: true, itemCount: 5, listFailure: null,
+    sourceId: def.id, at: NOW, listOk: true, itemCount: 5, listFailure: null,
     detail: "ok", detailFailure: null, requests: 3,
-    tail: "ok", tailKind: "stream", tailFailure: null, manifestVersion: MV, appVersion: AV,
+    tail: "ok", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(def),
     ...over,
   };
 }
@@ -128,8 +134,9 @@ function mkResult(over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckRes
   assert.equal(ok.tailKind, "stream", "视频类末段＝取流");
   assert.equal(ok.requests, 3, "全链通用满 3 请求（列表＋详情＋取流）");
   assert.ok(ok.requests <= SELF_CHECK_MAX_REQUESTS_PER_SOURCE, "不超硬预算");
-  assert.equal(ok.manifestVersion, MV, "结果带清单版本指纹");
-  assert.equal(ok.appVersion, AV, "结果带 App 版本指纹");
+  assert.equal(ok.protocolVersion, SELF_CHECK_PROTOCOL_VERSION, "结果带自检协议版本指纹");
+  assert.equal(ok.adapterEpoch, SELF_CHECK_ADAPTER_EPOCH, "结果带适配器纪元指纹");
+  assert.equal(ok.sourceScope, selfCheckFingerprintFor(def).sourceScope, "结果带该源切片指纹");
 
   const c403 = { calls: 0, resolveCalls: 0 };
   const dead = await runSourceSelfCheck(def, {
@@ -209,7 +216,7 @@ function mkResult(over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckRes
   bindSelfCheckStorage(storage);
   const loaded = getSelfCheckResults();
   assert.equal(loaded.legacy, undefined, "旧格式结果（无末段/无版本指纹）读入即丢弃、不冒充已检");
-  assert.equal(classifySelfCheckResult(loaded.legacy, NOW, MV, AV).status, "unchecked", "丢弃后派生为未自检");
+  assert.equal(classifySelfCheckResult(loaded.legacy, undefined, NOW).status, "unchecked", "丢弃后派生为未自检");
   bindSelfCheckStorage(null);
 }
 
@@ -218,58 +225,58 @@ function mkResult(over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckRes
   const probeDef = fakeDef("probe-src");
   const stableDef = fakeDef("stable-src", { maturity: "stable" });
 
-  const full = mkResult();
-  const coreFull = classifySelfCheckResult(full, NOW, MV, AV);
+  const full = mkResult(probeDef);
+  const coreFull = classifySelfCheckResult(full, probeDef, NOW);
   assert.equal(coreFull.status, "ok", "全链通（列表/详情/取流）派生可用");
   assert.equal(coreFull.stale, false, "新鲜结果不标过期");
-  assert.equal(sourceHealthBadgeText(probeDef, full, NOW, MV, AV), undefined, "可用源不挂徽标（与 stable 既有口径一致）");
+  assert.equal(sourceHealthBadgeText(probeDef, full, NOW), undefined, "可用源不挂徽标（与 stable 既有口径一致）");
 
-  const streamDead = mkResult({ tail: "fail", tailFailure: "HTTP 状态" });
-  const coreStream = classifySelfCheckResult(streamDead, NOW, MV, AV);
+  const streamDead = mkResult(probeDef, { tail: "fail", tailFailure: "HTTP 状态" });
+  const coreStream = classifySelfCheckResult(streamDead, probeDef, NOW);
   assert.equal(coreStream.status, "partial", "取流段死派生部分可用（不再全绿）");
   assert.equal(coreStream.segment, "取流", "部分可用注明死段＝取流");
-  assert.equal(sourceHealthBadgeText(probeDef, streamDead, NOW, MV, AV), "部分可用", "徽标读派生：部分可用");
+  assert.equal(sourceHealthBadgeText(probeDef, streamDead, NOW), "部分可用", "徽标读派生：部分可用");
 
-  const bodyDead = mkResult({ tailKind: "body", tail: "fail", tailFailure: "解析为空" });
-  assert.equal(classifySelfCheckResult(bodyDead, NOW, MV, AV).segment, "正文", "posts 死段注明正文");
+  const bodyDead = mkResult(probeDef, { tailKind: "body", tail: "fail", tailFailure: "解析为空" });
+  assert.equal(classifySelfCheckResult(bodyDead, probeDef, NOW).segment, "正文", "posts 死段注明正文");
 
-  const listDead = mkResult({ listOk: false, listFailure: "网络类", detail: "skipped", tail: "skipped" });
-  const coreDown = classifySelfCheckResult(listDead, NOW, MV, AV);
+  const listDead = mkResult(probeDef, { listOk: false, listFailure: "网络类", detail: "skipped", tail: "skipped" });
+  const coreDown = classifySelfCheckResult(listDead, probeDef, NOW);
   assert.equal(coreDown.status, "down", "列表即死派生不可用");
-  assert.equal(sourceHealthBadgeText(probeDef, listDead, NOW, MV, AV), "不可用", "徽标读派生：不可用");
+  assert.equal(sourceHealthBadgeText(probeDef, listDead, NOW), "不可用", "徽标读派生：不可用");
 
-  assert.equal(classifySelfCheckResult(undefined, NOW, MV, AV).status, "unchecked", "无结果派生未自检");
-  assert.equal(sourceHealthBadgeText(probeDef, undefined, NOW, MV, AV), "未实测", "从未探过回落静态 maturity：probe→未实测");
-  assert.equal(sourceHealthBadgeText(stableDef, undefined, NOW, MV, AV), undefined, "从未探过回落静态 maturity：stable→无徽标");
+  assert.equal(classifySelfCheckResult(undefined, probeDef, NOW).status, "unchecked", "无结果派生未自检");
+  assert.equal(sourceHealthBadgeText(probeDef, undefined, NOW), "未实测", "从未探过回落静态 maturity：probe→未实测");
+  assert.equal(sourceHealthBadgeText(stableDef, undefined, NOW), undefined, "从未探过回落静态 maturity：stable→无徽标");
 
-  const stale = mkResult({ at: NOW - SELF_CHECK_TTL_MS - 1 });
-  const coreStale = classifySelfCheckResult(stale, NOW, MV, AV);
+  const stale = mkResult(probeDef, { at: NOW - SELF_CHECK_TTL_MS - 1 });
+  const coreStale = classifySelfCheckResult(stale, probeDef, NOW);
   assert.equal(coreStale.status, "ok", "过期结果底层结论仍是可用");
   assert.equal(coreStale.stale, true, "超 24h 标已过期、不冒充新鲜");
-  assert.equal(sourceHealthBadgeText(probeDef, stale, NOW, MV, AV), "已过期", "过期可用源徽标明示已过期");
+  assert.equal(sourceHealthBadgeText(probeDef, stale, NOW), "已过期", "过期可用源徽标明示已过期");
 
-  const wrongVersion = mkResult({ manifestVersion: MV + 99 });
-  assert.equal(classifySelfCheckResult(wrongVersion, NOW, MV, AV).stale, true, "清单版本已变标已过期（热改域名后旧结果不冒充）");
+  const wrongScope = mkResult(probeDef, { sourceScope: "fnv1a:mismatch" });
+  assert.equal(classifySelfCheckResult(wrongScope, probeDef, NOW).stale, true, "该源切片已变标已过期（清单热改该源域名/参数后旧结果不冒充）");
 
-  const oldApp = mkResult({ appVersion: "0.0.0-old" });
-  assert.equal(classifySelfCheckResult(oldApp, NOW, MV, AV).stale, true, "App 已换代标已过期（旧抓页路线时代的结果不冒充现行结论）");
-  assert.equal(selfCheckNeedsProbe(probeDef, { "probe-src": oldApp }, NOW, MV, AV), true, "App 版本不符要补探");
+  const oldEpoch = mkResult(probeDef, { adapterEpoch: 0 });
+  assert.equal(classifySelfCheckResult(oldEpoch, probeDef, NOW).stale, true, "适配器纪元不符标已过期（旧适配器代码探得的结果不冒充现行结论）");
+  assert.equal(selfCheckNeedsProbe(probeDef, { "probe-src": oldEpoch }, NOW), true, "适配器纪元不符要补探");
 
-  const emptyList = mkResult({ itemCount: 0, detail: "skipped", tail: "skipped", requests: 1 });
-  assert.equal(classifySelfCheckResult(emptyList, NOW, MV, AV).status, "partial", "列表真空深段无从验证派生部分可用、不冒充全通");
+  const emptyList = mkResult(probeDef, { itemCount: 0, detail: "skipped", tail: "skipped", requests: 1 });
+  assert.equal(classifySelfCheckResult(emptyList, probeDef, NOW).status, "partial", "列表真空深段无从验证派生部分可用、不冒充全通");
 }
 
 /* ── (d) 补探触发口径 ── */
 {
   const def = fakeDef("topup");
-  const fresh = mkResult({ sourceId: "topup" });
-  assert.equal(selfCheckNeedsProbe(def, { topup: fresh }, NOW, MV, AV), false, "新鲜结果不补探");
-  assert.equal(selfCheckNeedsProbe(def, {}, NOW, MV, AV), true, "无结果要补探");
-  assert.equal(selfCheckNeedsProbe(def, { topup: { ...fresh, at: NOW - SELF_CHECK_TTL_MS - 1 } }, NOW, MV, AV), true, "过期要补探");
-  assert.equal(selfCheckNeedsProbe(def, { topup: { ...fresh, manifestVersion: MV + 1 } }, NOW, MV, AV), true, "清单版本不符要补探");
-  assert.equal(selfCheckNeedsProbe(fakeDef("off", { enabled: false }), {}, NOW, MV, AV), false, "未启用源不补探");
+  const fresh = mkResult(def);
+  assert.equal(selfCheckNeedsProbe(def, { topup: fresh }, NOW), false, "新鲜结果不补探");
+  assert.equal(selfCheckNeedsProbe(def, {}, NOW), true, "无结果要补探");
+  assert.equal(selfCheckNeedsProbe(def, { topup: { ...fresh, at: NOW - SELF_CHECK_TTL_MS - 1 } }, NOW), true, "过期要补探");
+  assert.equal(selfCheckNeedsProbe(def, { topup: { ...fresh, sourceScope: "fnv1a:mismatch" } }, NOW), true, "该源切片不符要补探");
+  assert.equal(selfCheckNeedsProbe(fakeDef("off", { enabled: false }), {}, NOW), false, "未启用源不补探");
   assert.ok(!buildSelfCheckPlan([def], { topup: fresh }, NOW).some((s) => s.id === "topup"), "全量计划同口径：新鲜不进名单");
-  assert.ok(buildSelfCheckPlan([def], { topup: { ...fresh, manifestVersion: MV + 1 } }, NOW).some((s) => s.id === "topup"), "全量计划同口径：版本不符进名单");
+  assert.ok(buildSelfCheckPlan([def], { topup: { ...fresh, sourceScope: "fnv1a:mismatch" } }, NOW).some((s) => s.id === "topup"), "全量计划同口径：切片不符进名单");
 
   const storage = fakeStorage();
   bindSelfCheckStorage(storage);
@@ -288,16 +295,18 @@ function mkResult(over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckRes
 
 /* ── (e) 诊断行组按四态计数 ── */
 {
+  const defA = fakeDef("a");
+  const defB = fakeDef("b");
   const sources = [
-    { id: "a", stableId: "source-001" },
-    { id: "b", stableId: "source-002" },
-    { id: "c", stableId: "source-003" },
+    { id: "a", stableId: "source-001", def: defA },
+    { id: "b", stableId: "source-002", def: defB },
+    { id: "c", stableId: "source-003", def: fakeDef("c") },
   ];
   const results: Record<string, SourceSelfCheckResult> = {
-    a: mkResult({ sourceId: "a" }),
-    b: mkResult({ sourceId: "b", tail: "fail", tailFailure: "HTTP 状态" }),
+    a: mkResult(defA),
+    b: mkResult(defB, { tail: "fail", tailFailure: "HTTP 状态" }),
   };
-  const lines = selfCheckDiagLines(sources, results, NOW, MV, AV);
+  const lines = selfCheckDiagLines(sources, results, NOW);
   const joined = lines.join("\n");
   assert.ok(joined.includes("可用 1"), "诊断汇总按派生计可用");
   assert.ok(joined.includes("部分可用 1"), "诊断汇总按派生计部分可用（取流死不再计通过）");
