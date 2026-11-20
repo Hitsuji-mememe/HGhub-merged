@@ -131,19 +131,32 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
   switch (t) {
     case "chigua": {
       /* 吃瓜面发现口径（Muse 2026-11-20 fix337/chigua-surface 改版，
-       * 用户裁定＋调查 fix337/evidence/chigua-surface-investigation.md）：
+       * 用户裁定＋调查 fix337/evidence/chigua-surface-investigation.md；
+       * 标签口径 fix338/chigua-pill 修订，证据见
+       * fix338/evidence/chigua-pill.md）：
        * 发现只走热点榜单/时间排序/查找——分类轴整体下线（26/19/30
        * 个栏目 chips 平铺把真榜单埋进栏目表、用户从不按栏目找）；
        * 栏目表保留在注册表 params，只作 categoryPath 路径校验全集，
        * 不再作发现入口。登记只一件——榜单：栏目表中标 rank 的子集
        * （readDiscoveryRanks 为唯一出处）进 rankPeriods、由
        * disc.period 承载、复用 categoryPath 归档取页；首项空值＝
-       * 缺省流并标「最新」（三源缺省流即站方最新流、实拉证）——
-       * 「最新」不另登记 sorts：站方无第二时间序参数，单项 sorts
-       * 在 DiscoveryBar 只会渲染出一行点了无反应的 chips（噪声），
-       * 榜单行首项已同时承载呈现与退出榜单的路径。003/004 的榜单
-       * 是站方编辑栏目形态、005 是站方真周期榜（日/周/月/热门），
-       * 均经生产路径实拉真出条目。
+       * 缺省流（兼退出榜单的路径）。
+       * 「最热」pill（用户 2026-11-20 追加，与 001 的最新/最热同
+       * 形态）：栏目表中标 hot 的站方热门栏目（每源一个）标
+       * 「最热」、其余榜单保留站方名。机制走 disc.period 而非
+       * sorts：站方无排序参数面、最热的真身是归档栏目，伪造
+       * sort 值只会让登记与上游脱节；001 用 sorts 是因其上游有
+       * 真 sort 参数，两源各按上游真相登记。
+       * 缺省流只标「全部」、不标「最新」：fix338 生产路径实测
+       * 三源缺省流均非时间序——适配器条目 id 序三页内 003
+       * 38/72、004 36/89、005 32/75 处非单调，003/004 卡片日期
+       * 序第一页各 7/9 处逆序、005 列表无日期字段（站方编辑
+       * 混排、置顶/推荐混入）；fix337 调查「缺省流即最新流」是
+       * 凭站点类型的未实测断言、已被实测推翻。无时间序实证即
+       * 不贴「最新」假标签（与分类/标签行的「全部」清选口径
+       * 同词）；日后某源拿到 id/时间单调实证再单独改标。
+       * 003/004 的榜单是站方编辑栏目形态、005 是站方真周期榜
+       * （日/周/月/热门），均经生产路径实拉真出条目。
        * 公告存档栏目（003 51hd/004 ztds）与 003 大赛征集栏目本就不
        * 在栏目表内（被推广过滤全覆盖、登记只会恒解析为空），口径
        * 不变；非榜单栏目（含 004/005 的每日大赛栏目）不标 rank、
@@ -153,9 +166,9 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
       const hasRankPath = typeof params.categoryPath === "string" && params.categoryPath.length > 0;
       if (ranks.length === 0 || !hasRankPath) return EMPTY_DISCOVERY_SPEC;
       return {
-        rankPeriods: [{ value: "", label: "最新" }, ...ranks.map((c) => ({ value: c.slug, label: c.name }))],
+        rankPeriods: [{ value: "", label: "全部" }, ...ranks.map((c) => ({ value: c.slug, label: c.hot ? "最热" : c.name }))],
         periodDefault: "",
-        evidence: "吃瓜面调查 2026-11-20（fix337/evidence/chigua-surface-investigation.md）：缺省流即最新流、榜单栏目/周期榜生产路径实拉真出条目",
+        evidence: "fix338/chigua-pill 实拉 2026-11-20（fix338/evidence/chigua-pill.md）：三源缺省流 id/日期序非单调、无时间序实证，缺省档标「全部」；最热＝站方热门栏目（003 热门 61 页/004 热搜 122 页/005 热门 101 页，生产路径复核）；榜单栏目/周期榜生产路径实拉真出条目（fix337/evidence/chigua-surface-investigation.md）",
       };
     }
     case "native-huangguo":

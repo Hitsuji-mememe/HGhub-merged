@@ -239,8 +239,9 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   瓜、004 热搜吃瓜、005 日/周/月/热门四榜）进 DiscoverySpec 的
   rankPeriods、由 disc.period 承载并复用 categoryPath 归档取页
   （period 已在 discFingerprint 内、滚动 key 天然隔离）；榜单行
-  首项空值＝缺省流标「最新」（三源缺省流即站方最新流，不另登记
-  单项 sorts——DiscoveryBar 会渲染成一行无操作 chips）。001 登记
+  首项空值＝缺省流（标签口径经 fix338 修订为「全部」、见下段；
+  本段原记「标最新／缺省流即站方最新流」系未实测断言、已推翻）。
+  001 登记
   最新/最热（上游 sort=hot 热度序实证），原生适配器 list 消费
   disc.sort（缺省/异值回落 latest），切换在原生 Posts 页内（排
   序进 resetKey、整表重置）。005 搜索假回退拆除：chigua 模板未声
@@ -251,6 +252,22 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   （调查 `chigua-surface-investigation.md`）；契约
   `fix335-f-discovery.contract.test.ts`（登记表改版＋period 榜单
   行为＋005 抛错钉）与 `fix333-m4`（005 搜索腿改钉抛错语义）。
+  fix338/chigua-pill（2026-11-20）：吃瓜三源补「最热」pill 并
+  订正缺省档标签（用户在 001 最新/最热 pill 后追加要求）——栏目
+  表新增 hot 标记（与 rank 同处、每源至多一个：003 rdsj/004
+  rstt/005 jqrm），DiscoverySpec 呈现标「最热」、其余榜单保留
+  站方名；机制仍走 disc.period＋categoryPath（站方无排序参数
+  面、最热真身是归档栏目；001 用 sorts 因其上游有真 sort 参数，
+  各按上游真相登记）。缺省档由「最新」改标「全部」：生产路径
+  实测三源缺省流均非时间序（适配器条目 id 序三页内非单调
+  38/72、36/89、32/75 处；003/004 卡片日期序第一页 7/9 处逆
+  序；005 无日期字段），fix337「缺省流即最新流」断言被推翻——
+  排序类标签登记前必须有 id/时间单调实证，无实证不贴标。取页
+  行为未变（list/路径/解析零改动），SELF_CHECK_ADAPTER_EPOCH
+  不 bump；注册表 params 变更使三源自检切片指纹按既有机制更
+  新、旧结果判过期补探。证据：`~/workspace/hghub/fix338/
+  evidence/chigua-pill.md`；契约 `fix335-f-discovery.contract.
+  test.ts`（A 段标签与 hot 标记断言适配）。
   fix335/e-category（2026-11-20）：分类总览索引化（设计
   `fix335/design-category-hub.md` 方案②，用户真机反馈纵深过大
   ＋样式不统一）——总览删全部预览段（频道横滑预览/吃瓜

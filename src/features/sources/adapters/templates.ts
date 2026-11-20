@@ -220,16 +220,18 @@ async function htmlResolve(def: SourceDef, externalId: string): Promise<{ stream
  * htmlListAdapter 的路径校验与 DiscoverySpec 同读本函数，不许两处
  * 各抄一份。形态不符的条目剔除。rank＝该栏目是站方榜单（fix337/
  * chigua-surface：发现面只登记榜单子集、栏目全集降为 categoryPath
- * 路径校验出处，见 readDiscoveryRanks）。 */
-export interface DiscoveryCategoryParam { slug: string; name: string; rank?: boolean }
+ * 路径校验出处，见 readDiscoveryRanks）。hot＝该榜单是站方热门
+ * 栏目、即该源「最热」pill 的上游映射（fix338/chigua-pill：每源
+ * 至多一个，与 rank 同标一处、不另抄名单）。 */
+export interface DiscoveryCategoryParam { slug: string; name: string; rank?: boolean; hot?: boolean }
 export function readDiscoveryCategories(def: SourceDef): DiscoveryCategoryParam[] {
   const params = (def.adapter.params ?? {}) as Record<string, unknown>;
   const raw = params.discoveryCategories;
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((x) => {
-    const o = x as { slug?: unknown; name?: unknown; rank?: unknown };
+    const o = x as { slug?: unknown; name?: unknown; rank?: unknown; hot?: unknown };
     return typeof o?.slug === "string" && o.slug && typeof o?.name === "string" && o.name
-      ? [{ slug: o.slug, name: o.name, ...(o?.rank === true ? { rank: true } : {}) }]
+      ? [{ slug: o.slug, name: o.name, ...(o?.rank === true ? { rank: true } : {}), ...(o?.hot === true ? { hot: true } : {}) }]
       : [];
   });
 }
