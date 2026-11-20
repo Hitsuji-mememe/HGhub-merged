@@ -13,6 +13,11 @@ pub(crate) const BOOTSTRAP: [SocketAddr; 2] = [
 ];
 const MAX_RESPONSE_BYTES: usize = 16 * 1024;
 
+/// 卫生否决的统一错误字面：备用 DNS 答案含内网/保留/fake/Teredo 等
+/// 不可用地址时整份作废。DoH 与 UDP 两路共用同一字面，合并层靠它区分
+/// 「答案被否决」（通道不可信、整轮作废）与「请求失败」（可降级单族）。
+pub(crate) const HYGIENE_VETO: &str = "备用 DNS 返回内网或保留地址";
+
 #[derive(Default)]
 pub(crate) struct Routes(HashMap<String, Instant>);
 
@@ -94,7 +99,7 @@ fn answers_typed(value: &Value, port: u16, qtype: u64) -> Result<Resolution, Str
             }),
         };
         if !network_policy::allowed_ip(ip) || fake {
-            return Err("备用 DNS 返回内网或保留地址".into());
+            return Err(HYGIENE_VETO.into());
         }
         addresses.push(SocketAddr::new(ip, port));
     }
@@ -380,7 +385,7 @@ fn parse_udp_answers(
             first == 198 && (18..=20).contains(&second)
         });
         if !network_policy::allowed_ip(ip) || fake_v4 {
-            return Err("备用 DNS 返回内网或保留地址".into());
+            return Err(HYGIENE_VETO.into());
         }
     }
     addresses.sort_unstable();
@@ -438,6 +443,20 @@ pub(crate) async fn resolve_udp(host: &str, port: u16) -> Result<Resolution, Str
         query_udp(seed, host, 1, port),
         query_udp(seed.wrapping_add(1), host, 28, port),
     );
+    merge_udp_round(a, aaaa)
+}
+
+/// UDP 直查一轮（A＋AAAA）的合并（纯函数，Muse 2026-11-20 fix335 改）：
+/// 任一族成功即用是原有语义，但任一族被卫生否决（HYGIENE_VETO）即整轮
+/// 作废——同一轮里另一族的「公网形态」答案与被否决的答案来自同一条
+/// 不可信通道：Hark 实证的污染形态正是 A 给无关公网地址（逐项校验全
+/// 过）、AAAA 给 Teredo，旧合并把 A 摘出来钉死采用、009 恒失败。合并
+/// 集若仍混有 Teredo（逐族校验被绕过的假想路径）同样整份作废。非否决
+/// 类失败（超时/请求失败）保持降级单族的既有语义。
+fn merge_udp_round(
+    a: Result<Resolution, String>,
+    aaaa: Result<Resolution, String>,
+) -> Result<Resolution, String> {
     let mut addresses = Vec::new();
     let mut ttl = Duration::from_secs(30);
     let mut error: Option<String> = None;
@@ -447,11 +466,19 @@ pub(crate) async fn resolve_udp(host: &str, port: u16) -> Result<Resolution, Str
                 ttl = ttl.min(resolution.ttl);
                 addresses.extend(resolution.addresses);
             }
-            Err(e) => error = Some(e),
+            Err(e) => {
+                if e == HYGIENE_VETO {
+                    return Err(HYGIENE_VETO.into());
+                }
+                error = Some(e);
+            }
         }
     }
     addresses.sort_unstable();
     addresses.dedup();
+    if addresses.iter().any(|addr| is_teredo(addr.ip())) {
+        return Err(HYGIENE_VETO.into());
+    }
     if addresses.is_empty() || addresses.len() > 32 {
         return Err(error.unwrap_or_else(|| "备用 DNS 没有可用地址".into()));
     }
@@ -691,11 +718,61 @@ mod tests {
         assert!(parse_udp_answers(&packet[..10], 0x1234, 443, "example.com", 1).is_err());
     }
 
+    fn resolution(addrs: &[&str]) -> Resolution {
+        Resolution {
+            addresses: addrs.iter().map(|a| a.parse().unwrap()).collect(),
+            ttl: Duration::from_secs(60),
+        }
+    }
+
+    // fix335 回归（主线裁定后落，代维护者同意）：UDP 直查一轮里任一族
+    // 被卫生否决 ⇒ 整轮作废。此前合并语义「任一成功即采用」让污染轮的
+    // A 族（203.111.254.117，Hark 实证形态）混过逐族校验被钉死采用。
+    #[test]
+    fn udp_round_is_void_when_any_family_is_hygiene_vetoed() {
+        let polluted_a = resolution(&["203.111.254.117:443"]);
+        assert!(
+            merge_udp_round(Ok(polluted_a), Err(HYGIENE_VETO.into())).is_err(),
+            "AAAA 族被卫生否决时整轮必须作废"
+        );
+        // 非否决类失败（超时/请求失败）保持「任一成功即用」的既有语义。
+        let clean = resolution(&["203.111.254.117:443"]);
+        let merged = merge_udp_round(Ok(clean), Err("备用 DNS 请求超时".into())).unwrap();
+        assert_eq!(merged.addresses, vec!["203.111.254.117:443".parse().unwrap()]);
+        // Teredo 混入合并集（绕过逐族校验的假想路径）同样整份作废。
+        let teredo = resolution(&["[2001::7c0b:d2af]:443"]);
+        assert!(merge_udp_round(Ok(teredo), Err("备用 DNS 请求超时".into())).is_err());
+        // is_teredo 边界：只认 2001:0000::/32，不误伤其他 2001 段与文档段。
+        assert!(is_teredo("2001::1".parse().unwrap()));
+        assert!(is_teredo("2001::7c0b:d2af".parse().unwrap()));
+        assert!(!is_teredo("2001:db8::1".parse().unwrap()));
+        assert!(!is_teredo("2001:4860:4860::8888".parse().unwrap()));
+        assert!(!is_teredo("104.26.10.39".parse().unwrap()));
+    }
+
+    // fix335 回归：strict 链在系统答案全为 FakeIP 时信任系统答案、
+    // 不触发任何旁路重解析（新码此分支无网络 I/O，本测试可离线跑）。
+    #[tokio::test]
+    async fn strict_reresolve_trusts_system_answers_when_all_fake() {
+        let resolved: Vec<SocketAddr> = vec!["198.19.88.72:443".parse().unwrap()];
+        let (addrs, ttl) = strict_reresolve(
+            "https://danbooru.donmai.us/posts.json?limit=1",
+            "danbooru.donmai.us",
+            443,
+            true,
+            resolved.clone(),
+        )
+        .await;
+        assert_eq!(addrs, resolved);
+        assert_eq!(ttl, crate::net::CLIENT_TTL);
+    }
+
 
 }
 
 /* ── 严格模式解析链（Muse 2026-11-18 自 net/client 拆入，移植自 2.0.x DNS 绕行） ──
- * client_for_dns 的 strict 分支调用：全 fake 时先 UDP 直查、再 DoH，最后回退系统结果；
+ * client_for_dns 的 strict 分支调用：全 fake 时信任系统答案（2026-11-20 fix335
+ * 改，原为 UDP 直查→DoH 绕行，绕行已被实证会被污染答案钉死，见 strict_reresolve）；
  * ≥2 个真实答案时按 TCP 握手 RTT 竞速重排。 */
 fn ipv4_kind(o: [u8; 4]) -> &'static str {
     let v4 = std::net::Ipv4Addr::from(o);
@@ -703,6 +780,15 @@ fn ipv4_kind(o: [u8; 4]) -> &'static str {
     else if o[0] == 198 && (o[1] == 18 || o[1] == 19) { "fake_ip" }
     else if v4.is_private() { "private" } else if v4.is_link_local() { "link_local" }
     else if v4.is_broadcast() { "broadcast" } else { "public" }
+}
+
+/// Teredo 前缀 2001:0000::/32（RFC 4380）判定。合法公网解析答案不会
+/// 出现该前缀；它出现在备用 DNS 答案里即是通道被污染的指纹（Hark
+/// 2026-11-20 实证：223.5.5.5 对被墙域名的 AAAA 答案为 2001::/32）。
+/// allowed_ip 对单个 Teredo 地址本就拒绝，这里供「整轮/整份作废」的
+/// 合并层与采用点校验使用（见 merge_udp_round、resolve_via_udp）。
+pub(crate) fn is_teredo(ip: IpAddr) -> bool {
+    matches!(ip, IpAddr::V6(v6) if { let s = v6.segments(); s[0] == 0x2001 && s[1] == 0x0000 })
 }
 
 pub fn ip_kind(ip: std::net::IpAddr) -> &'static str {
@@ -729,19 +815,25 @@ pub async fn resolve_via_doh(host: &str, port: u16, strict: bool) -> Result<(Vec
     Ok((resolution.addresses, crate::net::CLIENT_TTL.min(resolution.ttl)))
 }
 
-/// 全 fake 时的第一绕行（Muse 2026-11-14，2.0.9）：向 223.5.5.5:53 走普通 UDP
-/// DNS 直查拿真实地址。2.0.8 真机已钉死家里 DoH（443）通道不通，所以顺序是
-/// UDP → DoH → fake 回退。UDP 答案若仍全是 fake 段（被网关劫持回假答案）视为失败；
-/// 其余校验与 DoH 路径同一套（check_addresses_with_mode）。
+/// UDP 直查入口（Muse 2026-11-14，2.0.9 建）：向 223.5.5.5:53 走普通 UDP
+/// DNS 直查拿真实地址。2026-11-20 fix335 起 strict 链的全 fake 分支不再
+/// 经此绕行（改信任系统答案，见 strict_reresolve），本函数保留为带污染
+/// 护栏的独立入口：整份答案含 Teredo 即在采用前作废（merge_udp_round 已
+/// 在合并层整轮作废，这里是采用点的兜底校验，覆盖全部调用方）；答案若
+/// 仍全是 fake 段（被网关劫持回假答案）视为失败；其余校验与 DoH 路径
+/// 同一套（check_addresses_with_mode）。
 pub async fn resolve_via_udp(host: &str, port: u16, strict: bool) -> Result<(Vec<SocketAddr>, Duration), String> {
     let resolution = crate::media_dns::resolve_udp(host, port).await?;
+    if resolution.addresses.iter().any(|addr| is_teredo(addr.ip())) {
+        return Err(HYGIENE_VETO.into());
+    }
     if !resolution.addresses.is_empty()
         && resolution
             .addresses
             .iter()
             .all(|addr| ip_kind(addr.ip()) == "fake_ip")
     {
-        return Err("备用 DNS 返回内网或保留地址".into());
+        return Err(HYGIENE_VETO.into());
     }
     network_policy::check_addresses_with_mode(&resolution.addresses, strict)?;
     Ok((resolution.addresses, crate::net::CLIENT_TTL.min(resolution.ttl)))
@@ -815,8 +907,9 @@ pub fn resolve_kinds(addrs: &[SocketAddr]) -> Vec<&'static str> {
 }
 
 /// strict 模式重解析决策（Muse 2026-11-18 自 net/client_for_dns 拆入）：
-/// 全 fake → UDP 直查 → DoH → 回退 fake；≥2 真实答案 → 握手竞速重排；否则原样。
-/// 返回 (地址, TTL)。`raw` 仅用于日志 resource_id。
+/// 全 fake → 信任系统答案（2026-11-20 fix335 改，理由见分支内注释）；
+/// ≥2 真实答案 → 握手竞速重排；否则原样。返回 (地址, TTL)。
+/// `raw` 仅用于日志 resource_id。
 pub async fn strict_reresolve(
     raw: &str,
     host: &str,
@@ -827,23 +920,21 @@ pub async fn strict_reresolve(
     let system_kinds = resolve_kinds(&resolved);
     let all_fake = !resolved.is_empty() && resolved.iter().all(|addr| ip_kind(addr.ip()) == "fake_ip");
     if all_fake {
-        match resolve_via_udp(host, port, strict).await {
-            Ok(real) => {
-                crate::playback_log::record("network.resolve", serde_json::json!({"host": host, "kinds": resolve_kinds(&real.0), "count": real.0.len(), "all_fake": true, "branch": "udp_dns"}));
-                real
-            }
-            Err(udp_error) => match resolve_via_doh(host, port, strict).await {
-                Ok(real) => {
-                    crate::playback_log::record("network.dns_fallback", serde_json::json!({"resource": crate::playback_log::resource_id(raw), "public_dns": true, "reason": "fake_ip"}));
-                    crate::playback_log::record("network.resolve", serde_json::json!({"host": host, "kinds": resolve_kinds(&real.0), "count": real.0.len(), "all_fake": true, "branch": "doh"}));
-                    real
-                }
-                Err(error) => {
-                    crate::playback_log::record("network.resolve", serde_json::json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": true, "branch": "fake_fallback", "doh_error": error, "udp_error": udp_error}));
-                    (resolved, crate::net::CLIENT_TTL)
-                }
-            },
-        }
+        /* 全 fake ⇒ 本机在 FakeIP 透明代理之后，直接信任系统答案
+         * （Muse 2026-11-20 fix335，Hark 家庭网络实证后主线裁定）：
+         * 198.18.0.0/15 只由本机代理核心合成、其 fake→域名映射也由同一
+         * 核心在数据面持有，系统答案就是设计连接路径。此前本分支走
+         * UDP 直查 223.5.5.5 旁路求「真实地址」，但直查与系统解析走同一
+         * 张不可信网络：被墙域名必然拿到污染答案（A 给无关公网地址、
+         * AAAA 给 Teredo 段），公网形态逐项校验全过、被钉死采用，
+         * 009 在家里 Wi-Fi 下列表段恒失败即此（透明路径实拉同域名
+         * 连续 200、出口无责）。与真劫持可分：劫持要生效必须返回貌似
+         * 真实的地址（公网或内网），不会也不必用 198.18/15——非 fake
+         * 答案的全部 strict 校验（allowed_ip、混合集整体拒绝、逐跳
+         * 复检）一概不动，本分支只收「答案全为合成段」这一形态。
+         * resolve_via_udp/resolve_via_doh 保留为带污染护栏的独立入口。 */
+        crate::playback_log::record("network.resolve", serde_json::json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": true, "branch": "fake_trusted"}));
+        (resolved, crate::net::CLIENT_TTL)
     } else if resolved.len() >= 2 {
         let (raced, first_ms) = race_answers(&resolved).await;
         crate::playback_log::record("network.resolve", serde_json::json!({"host": host, "kinds": system_kinds, "count": resolved.len(), "all_fake": false, "branch": "system_raced", "first_ms": first_ms}));

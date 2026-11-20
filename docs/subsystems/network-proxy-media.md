@@ -27,6 +27,10 @@
 - 公网 DNS 回退：[`src-tauri/src/media_dns.rs`](../../src-tauri/src/media_dns.rs) 的 `HOST`、
   `BOOTSTRAP`、`resolve()`（A/AAAA 并发双查，`merge_resolutions()` 合并）、
   `answers_typed()`、`eligible()`、`Routes`。
+- strict 解析链：同文件的 `strict_reresolve()`（全 fake 信任系统答案、≥2 真实
+  答案握手竞速）、`resolve_udp()`/`merge_udp_round()`（UDP 直查与整轮合并）、
+  `resolve_via_udp()`/`resolve_via_doh()`（带污染护栏的独立绕行入口）、
+  `is_teredo()`、`HYGIENE_VETO`。
 - 地址策略：[`src-tauri/src/network_policy.rs`](../../src-tauri/src/network_policy.rs) 的
   `strict_security()`、`parse_target()`、`parse_target_with_mode()`、`allowed_ip()`、
   `resolve_target()`、`redirect_target()`。
@@ -96,6 +100,11 @@
 
 - 严格模式默认开启。禁止 HTTPS 降级、普通内网/回环/链路本地/保留地址和危险的 IPv6 转换；
   198.18.0.0/15 的 FakeIP 是明确例外，不能当普通私网拒绝。
+- 系统答案全为 FakeIP 时，strict 链直接信任系统答案、不再旁路重解析（fix335）：
+  FakeIP 只由本机透明代理核心合成、映射也在其数据面持有；旁路 UDP 直查走同一
+  不可信网络，被墙域名必然拿到污染答案。备用 DNS（UDP/DoH）的卫生否决是整轮/
+  整份语义：任一族答案被否决，或整份含 Teredo（2001::/32），整轮作废，不许把
+  另一族的「公网形态」答案摘出来采用。
 - 不使用自动重定向。每一跳都要重新检查 scheme、主机/IP、DNS 和固定地址；发布页/脚本额外
   要求同源，代理路径也必须保留逐跳检查，不能把安全判断交给代理。
 - 只有 `reqwest` 的 `system-proxy` feature 能读取 Windows/macOS 固定系统代理；PAC 不支持。
