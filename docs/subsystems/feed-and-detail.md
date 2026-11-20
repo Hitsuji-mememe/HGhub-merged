@@ -130,6 +130,34 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   InplaceSearch）补上哨兵自动续页，手点「加载更多」只在自动失败
   后作兜底出现。证伪夹具：`tests/list-lifecycle` 的 autoscroll/
   autofail 场景（`scripts/test-list-lifecycle.mjs` 驱动）。
+  fix335/a-pagination（2026-11-20）：外部源列表的分页信号根治——
+  此前除 002 外全部适配器的 `pagination` 只装本次取回条数
+  （pageOf 口径、已取冒充总数），三套源 UI 以 page≥pages 停拉：
+  006/008/011/012/009 第 1 页见底、003/004/005/010 第 2 页见底；
+  HTML 型另有 slice 恒跳每页尾部卡片（005 每页漏 10/30）。现行
+  信号契约（`adapters/templates.ts` 的 apiSignal/htmlSignal＋
+  `adapters/parse.ts` 的 lastPageInNav）：真信号优先——HTML 导航
+  末页（按 listPath 模板形状扫 href 取最大页码、窗口式导航自校
+  正）、API 总数字段（iwara 的 count、redgifs 的 pages/total）；
+  无真总数时满页推断（本页满额→暂报 page+1、不满→page、空页→
+  page−1），推断的终止由三件套兜底：不满页收尾、第二页起空页
+  按导航覆盖判前进/收尾、三套源 UI 的整页零新增终止（整页与已
+  加载全重即以当前页为尾页）。HTML 型整页消费（UI 页与站方页
+  1:1、删 slice）；第一页 0 卡仍抛 `SourceParseEmptyError`（未
+  知不是空不变）。WP 系（006/008/013/014）：总量在 X-WP-Total
+  响应头、取页通道只回正文不可达，故走满页推断；越界页恒回
+  HTTP 400 `rest_post_invalid_page_number`（2026-11-20 对
+  006/008 live 实证），page>1 撞 400 按越界收尾返空页、page=1
+  的 400 仍如实抛错（残余风险：他因 400 会被误判到底，代价是
+  少看尾页，权衡记于 templates.ts 注释）。三套源 UI 同步对齐：
+  哨兵失败冷却 3s（对齐 ERROR_RETRY_COOLDOWN_MS；旧口径 err 一
+  置位哨兵整体停摆已除），手点按钮只作失败兜底、到底文案不变；
+  自动追加只向下生长列表、不写 scrollTop（滚动恢复归 D 线）。
+  SWAG 逐条取数失败改计数留痕（`source.list_skip`，经
+  resolveTrace 共享通道进诊断导出账本；成功路径不变）。适配器
+  取页行为变更按 M7 纪律 bump `SELF_CHECK_ADAPTER_EPOCH` 至 2。
+  证据：`~/workspace/hghub/fix335/evidence/a-pagination.md`（旧红
+  harness、逐源信号表、故障注入三项双树实测）。
 - 封面状态机（同批）：`ImageLoad` 状态 loading→decoded→displayed 或
   failed(reason)（http/timeout/decode 分因），每 attempt 20s 超时，
   src 变化自动重试；失败计数与分页证据同节进诊断报告。fix2.1 修正

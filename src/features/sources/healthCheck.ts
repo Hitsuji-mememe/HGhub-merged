@@ -100,8 +100,11 @@ export const SELF_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
 export const SELF_CHECK_PROTOCOL_VERSION = 1;
 /** 适配器纪元（指纹维度二）：适配器取页/解析行为（adapters/ 下
  * 模板、解析、内置参数形态）变更到可能改变探测结论时 bump。
- * 纯 UI/文案/展示变更不许 bump——那正是本维度要放行的更新。 */
-export const SELF_CHECK_ADAPTER_EPOCH = 1;
+ * 纯 UI/文案/展示变更不许 bump——那正是本维度要放行的更新。
+ * v2（2026-11-20 fix335/a-pagination）：分页信号派生改版（真信号
+ * 优先＋满页推断、HTML 整页消费删 slice、WP 越界 400 收尾）——
+ * 列表段条目数口径随之变化，旧纪元自检结果按过期补探。 */
+export const SELF_CHECK_ADAPTER_EPOCH = 2;
 /** 最近打开记录落盘键（hghubx_*，不变量 7）：源 id → 最近一次
  * 进入其浏览面的时刻；只记 id/时刻（不变量 10），供批量补探
  * 排序（M7）。 */

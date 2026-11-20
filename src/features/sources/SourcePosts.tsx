@@ -71,6 +71,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   const [detail, setDetail] = useState<DetailState | null>(null);
   const busy = useRef(false);
   const seq = useRef(0);
+  const failAt = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const pageSize = compact ? 8 : 20;
 
@@ -117,25 +118,40 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
       const next = reset ? 1 : page + 1;
       const res = await adapter.list(next, pageSize);
       if (mySeq !== seq.current) return;
-      setItems((prev) => (reset ? res.items : [...prev, ...res.items.filter((x) => !prev.some((y) => y.externalId === x.externalId))]));
+      const fresh = reset ? res.items : res.items.filter((x) => !items.some((y) => y.externalId === x.externalId));
+      setItems(reset ? res.items : [...items, ...fresh]);
       setPage(next);
-      setPages(res.pagination?.pages ?? (res.items.length ? Math.max(reset ? 1 : pages, next) : next));
+      /* 零新增终止（fix335/a-pagination）：整页条目与已加载集合全重
+       * （站方忽略页码恒回同一页等形态）时以当前页为尾页——分页
+       * 信号的满页推断只声称「至少还有一页可探」，探到零新增即
+       * 实测到底，不许被推断带着无限续拉（审计 §5.2 终止口径）。
+       * 判读以原始 items 为准（验杀/标题兜底只影响呈现、同既有
+       * 分页口径）；追加只向下生长列表、不动滚动位置（D 线接口）。 */
+      setPages(!reset && res.items.length > 0 && fresh.length === 0
+        ? next
+        : (res.pagination?.pages ?? (res.items.length ? Math.max(reset ? 1 : pages, next) : next)));
       setErr(null);
     } catch (e) {
-      if (mySeq === seq.current) setErr((e as Error).message || "加载失败");
+      if (mySeq === seq.current) { failAt.current = Date.now(); setErr((e as Error).message || "加载失败"); }
     } finally {
       if (mySeq === seq.current) { busy.current = false; setLoading(false); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def, page, pages, pageSize]);
+  }, [def, page, pages, pageSize, items]);
 
-  /* 自动续页（与 SourceBrowse 同口径）：哨兵接近底部自动拉下一页；
-   * 失败置 err 后哨兵停摆、「加载更多」只作兜底。compact 不续页。 */
+  /* 自动续页（与 SourceBrowse 同口径，fix335/a-pagination）：哨兵
+   * 接近底部自动拉下一页（rootMargin 300px 近底预取、busy 单飞防
+   * 并发重复拉）；失败落回「加载更多」按钮重试。失败冷却对齐
+   * usePaginatedList 的 ERROR_RETRY_COOLDOWN_MS：旧口径 err 一置
+   * 位哨兵整体停摆、瞬时失败即永久转手点；现哨兵保持在册，冷却
+   * 3s 内不重试、冷却后哨兵重入可再拉。compact 不续页。 */
   useEffect(() => {
     const el = sentinelRef.current;
-    if (compact || !el || loading || err || page >= pages || items.length === 0) return;
+    if (compact || !el || loading || page >= pages || items.length === 0) return;
     const io = new IntersectionObserver((es) => {
-      if (es[0].isIntersecting) void load(false);
+      if (!es[0].isIntersecting) return;
+      if (err && Date.now() - failAt.current < 3000) return;
+      void load(false);
     }, { rootMargin: "300px" });
     io.observe(el);
     return () => io.disconnect();

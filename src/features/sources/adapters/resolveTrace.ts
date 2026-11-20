@@ -37,14 +37,14 @@ export function resolveFailureEventData(
   };
 }
 
-/** 段失败留痕（旁路）：defId → 稳定编号的换算与 002 原实现同口径
- * （active 注册表顺序；查不到落 source-001 兜底，与原实现一致）。 */
-export function traceResolveFailure(
+/** 源事件发射（共享旁路）：defId → 稳定编号的换算与 002 原实现同
+ * 口径（active 注册表顺序；查不到落 source-001 兜底，与原实现一
+ * 致）。动态 import 与 manifest.ts 的解析埋点同模式（避免静态环）；
+ * 纯旁路，埋点失败不影响业务本身。 */
+function emitSourceTrace(
+  event: string,
   defId: string,
-  segment: string,
-  code: string,
-  status: number | undefined,
-  attempt: number,
+  build: (stableId: string) => Record<string, unknown>,
 ): void {
   void (async () => {
     const [diag, manifest, registryDiag] = await Promise.all([
@@ -53,11 +53,38 @@ export function traceResolveFailure(
       import("../registryDiag.ts"),
     ]);
     const idx = manifest.getActiveRegistry().sources.findIndex((s) => s.id === defId);
-    diag.tracePlayback(
-      "source.resolve_fail",
-      resolveFailureEventData(registryDiag.sourceStableId(idx >= 0 ? idx : 0), segment, code, status, attempt),
-    );
+    diag.tracePlayback(event, build(registryDiag.sourceStableId(idx >= 0 ? idx : 0)));
   })().catch(() => { /* 诊断不可用时静默 */ });
+}
+
+/** 段失败留痕（旁路）：事件与数据形状自立项不变，经共享发射器。 */
+export function traceResolveFailure(
+  defId: string,
+  segment: string,
+  code: string,
+  status: number | undefined,
+  attempt: number,
+): void {
+  emitSourceTrace("source.resolve_fail", defId, (stable) =>
+    resolveFailureEventData(stable, segment, code, status, attempt));
+}
+
+/** 列表逐条失败的事件数据组装（纯函数，契约可定值断言）：键集合
+ * 固定为 source/code/count，值只来自稳定编号、固定码与计数——
+ * 不带条目 id、错误原文或 URL（不变量 10）。 */
+export function listSkipEventData(source: string, failedCount: number): Record<string, unknown> {
+  return { source, code: "item_fetch_failed", count: failedCount };
+}
+
+/** 列表逐条取数失败留痕（旁路，Muse 2026-11-20 fix335/a-pagination
+ * 收敛审计）：列表页逐条补取详情的适配器（SWAG 逐条 /messages）旧
+ * 形态单条失败静默跳过——失败与判据过滤在结果里不可分、诊断导出
+ * 查无此失败，撞「失败留痕」口径。现失败计数后经本通道落一条
+ * source.list_skip 进同一播放账本（诊断导出全量日志可见；结构化
+ * 专节暂不设，与 search.copy_fail 同级处理）。计数 ≤0 不发。 */
+export function traceListItemSkips(defId: string, failedCount: number): void {
+  if (!Number.isFinite(failedCount) || failedCount <= 0) return;
+  emitSourceTrace("source.list_skip", defId, (stable) => listSkipEventData(stable, failedCount));
 }
 
 /** 生产取页栈折叠错误文本里的 HTTP 状态（fetchPage 失败形态
