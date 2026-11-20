@@ -648,6 +648,139 @@ await test("filter3 counter-example: click narrative sentence survives", () => {
   assert(ts.length === 3, `kept ${ts.length}/3: ${JSON.stringify(ts)}`);
 });
 
+/* ── 第四轮（3.3.3 残余清剿 M2）：五类只漏残余 ─────────────────
+ * 证据：fix333/evidence/m2-reader-leaks.md（25 样本新旧差分对账）。
+ * 任务书即本组新增用例的授权（不变量 11）。判据：⑮独占跨帖链接
+ * 块＋同名标题配对、⑯插件图＋短标签行、⑰无编号问答组（仅 FAQ
+ * 小节头在场时）。④ 容器外标签簇与 ⑤ 单对问答经实测结案、不设
+ * 判据——榜单帖的长标题行组（④ 最接近判据的误伤形态）在 FIX4
+ * 里以存活断言钉住「没有引入文本廓形杀」。 */
+
+/* ⑮＋⑯ 正例（003 形态）：区外合集推广单元＝无链接标题行＋封面
+ * 图＋独占跨帖按钮行，整组消失；插件图＋短标签行成对消失；正文
+ * 段落与正文图片保留。 */
+const FIX4_PROMO_UNIT = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p><img z-image-loader-url="https://img.example.invalid/body-1.jpg"></p>
+  <blockquote><p><strong><em>人气创作者小甲 全部作品合集 线下活动造型引发热议 反差感直接拉满！</em></strong></p></blockquote>
+  <p><img z-image-loader-url="https://img.example.invalid/promo-cover.jpg"></p>
+  <p><a class="btn btn-primary" href="/archives/2002/">👉点我查看详情帖 人气创作者小甲 全部作品合集</a></p>
+  <p><a href="/wish/"><img src="https://source-003.example/usr/plugins/WishWall/assets/images/article-wish.png?v=1">去许愿墙</a></p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter4: cross-post promo unit (title+cover+button) and plugin pair are dropped", () => {
+  const bs = extractArticleBlocks(FIX4_PROMO_UNIT, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 2, `kept ${ts.length}/2 texts: ${JSON.stringify(ts)}`);
+  assert(!ts.some((t) => t.includes("全部作品合集") || t.includes("去许愿墙")), "promo unit leaked");
+  assert(JSON.stringify(images(bs)) === JSON.stringify([proxied("https://img.example.invalid/body-1.jpg")]),
+    `images=${JSON.stringify(images(bs))}`);
+});
+
+/* ⑮ 反例：同名叙事段（带逗号展开）、指向本帖的独占自链段、文内
+ * 嵌链接的混合段、与推广行相邻但不同名的标题——全部保留；只有
+ * 跨帖按钮行本身消失。 */
+const FIX4_KEEP_NEAR_PROMO = `<article>
+  <p>人气创作者小甲 全部作品合集的消息一传开，粉丝们就纷纷跑来留言讨论，有人夸她这次的造型大胆，也有人觉得不过是活动需要罢了，评论区热闹得很。</p>
+  <p><a href="/archives/1001/">本帖的置顶说明与目录页</a></p>
+  <p>更多背景见<a href="/archives/2002/">另一篇报道</a>，当时在场的人后来都证实了这个说法。</p>
+  <h2>事后复盘</h2>
+  <p><a href="/archives/2002/">👉点我查看详情帖 人气创作者小甲 全部作品合集</a></p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter4 counter-example: narrative/self-link/mixed-link/neighbour heading survive", () => {
+  const bs = extractArticleBlocks(FIX4_KEEP_NEAR_PROMO, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 5, `kept ${ts.length}/5 texts: ${JSON.stringify(ts)}`);
+  assert(ts.some((t) => t.includes("消息一传开")), "narrative dropped");
+  assert(ts.some((t) => t.includes("置顶说明")), "self link dropped");
+  assert(ts.some((t) => t.includes("更多背景见")), "mixed link paragraph dropped");
+  assert(ts.some((t) => t.includes("事后复盘")), "neighbour heading dropped");
+  assert(!ts.some((t) => t.includes("点我查看详情帖")), "cross-post button leaked");
+});
+
+/* ⑮ 正例（004 形态）＋④ 结案钉：正文区前的独占跨帖推广标题行
+ * 消失；榜单帖正文的长标题行组（无句读无逗号、与标签簇同廓形）
+ * 是正文结构，必须整组保留——证明没有引入文本廓形判据。 */
+const FIX4_PRE_ZONE_PROMO = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>🔥NO1🔥 探花甲 约拍记录 造型清凉出镜 全程配合度直接拉满</p>
+  <p><img z-image-loader-url="https://img.example.invalid/rank-1.jpg"></p>
+  <p>🔥NO2🔥 探花乙 深夜场次 灯光昏暗氛围十足 细节表现可圈可点</p>
+  <p><img z-image-loader-url="https://img.example.invalid/rank-2.jpg"></p>
+  <p>🔥NO3🔥 探花丙 周末加场 临时改期两次 最终成行实属不易</p>
+  <p><img z-image-loader-url="https://img.example.invalid/rank-3.jpg"></p>
+  <p><a href="/archives/3003/">另一位当事人 新的事件标题 噱头满满的独家推广行</a></p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter4: pre-zone cross-post title line dropped, ranked body headings survive", () => {
+  const bs = extractArticleBlocks(FIX4_PRE_ZONE_PROMO, { base: BASE_004 });
+  const ts = texts(bs);
+  assert(ts.length === 5, `kept ${ts.length}/5 texts: ${JSON.stringify(ts)}`);
+  assert(ts.filter((t) => t.includes("NO")).length === 3, "ranked headings dropped");
+  assert(!ts.some((t) => t.includes("独家推广行")), "pre-zone promo leaked");
+});
+
+/* ⑯ 反例：普通上传图＋短图注保留；插件图后跟正文段（无短标签
+ * 行）时图保留——成对判据只认「插件图＋短标签」单元。 */
+const FIX4_KEEP_PLUGIN_NEIGHBOURS = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p><img z-image-loader-url="https://img.example.invalid/body-2.jpg"></p>
+  <p>现场图</p>
+  <p><img src="https://source-003.example/usr/plugins/OtherPlugin/assets/icon.png"></p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter4 counter-example: upload image with caption and unpaired plugin image survive", () => {
+  const bs = extractArticleBlocks(FIX4_KEEP_PLUGIN_NEIGHBOURS, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 3, `kept ${ts.length}/3 texts: ${JSON.stringify(ts)}`);
+  assert(ts.some((t) => t === "现场图"), "caption dropped");
+  assert(images(bs).length === 2, `images=${JSON.stringify(images(bs))}`);
+});
+
+/* ⑰ 正例：FAQ 小节头＋无编号 Q：/A：交替 3 对（003 真机变体形
+ * 态）连头整组消失；正文保留。 */
+const FIX4_UNNUMBERED_FAQ = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <h2>常见问题解答</h2>
+  <p>Q：这段内容主要讲什么？</p>
+  <p>A：两位当事人在公开场合的一次同框，以及随后被拍到的私下互动。</p>
+  <p>Q：画面清楚吗？</p>
+  <p>A：光线一般，但关键细节都能看清，辨识度没有问题。</p>
+  <p>Q：当事人有回应吗？</p>
+  <p>A：截至目前双方都没有公开回应，评论区还在持续讨论。</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter4: unnumbered FAQ group under FAQ heading is dropped", () => {
+  const bs = extractArticleBlocks(FIX4_UNNUMBERED_FAQ, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 2, `kept ${ts.length}/2 texts: ${JSON.stringify(ts)}`);
+  assert(!ts.some((t) => t.startsWith("Q：") || t.includes("常见问题解答")), "unnumbered faq leaked");
+});
+
+/* ⑰ 反例：无编号问答组挂在非 FAQ 小节头（采访栏目名）之下，是
+ * 正文体裁，必须连头整组保留——小节头是唯一的分隔面。 */
+const FIX4_KEEP_HEADED_INTERVIEW = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <h2>采访实录</h2>
+  <p>Q：你第一次意识到自己会红，是什么时候？</p>
+  <p>A：其实没有想过这个问题，当时只是把日常随手发了出来。</p>
+  <p>Q：后来为什么改变了风格？</p>
+  <p>A：因为观众的反馈很直接，我慢慢摸到了他们喜欢的方向。</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter4 counter-example: unnumbered Q/A under non-FAQ heading survives", () => {
+  const bs = extractArticleBlocks(FIX4_KEEP_HEADED_INTERVIEW, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 7, `kept ${ts.length}/7: ${JSON.stringify(ts)}`);
+});
+
 const report = { passed: results.filter((r) => r.passed).length, failed: results.filter((r) => !r.passed).length, results };
 document.querySelector("#results")!.textContent = JSON.stringify(report, null, 2);
 (window as unknown as { readerResults: typeof report }).readerResults = report;

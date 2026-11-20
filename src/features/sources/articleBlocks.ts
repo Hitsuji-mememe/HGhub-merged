@@ -41,6 +41,17 @@
  *   起头＋下载/安装＋全行无句读的整行句式）。容器层同批补：标签
  *   簇容器（tags/keywords 段＋itemprop="keywords"，两源同构）与
  *   公告选项卡容器（content-tabs 整 token）整棵排除。
+ * - 3.3.3 残余清剿（filter4／M2，证据 fix333/evidence/m2-reader-leaks.md）：
+ *   ⑮独占跨帖链接块——整块文本只出自一个指向他帖（/archives/<id>/
+ *   且 id 与本帖不同）的 <a>，是跨帖推广的统一载体（合集推广的
+ *   按钮行、区前推广标题行同形）；与其名称核有 ≥12 字公共前缀的
+ *   相邻（±3 块）非正文段一并杀（合集推广的无链接标题行）。
+ *   ⑯插件图＋短标签行——图 src（解码后）带 /plugins/ 路径段且紧
+ *   随 ≤12 字无句读文本行时成对杀（插件挂件单元）。⑰无编号问答
+ *   组——Q：/A：交替 ≥2 对仅在紧贴 FAQ 类小节头时连头杀（无小节
+ *   头的访谈问答仍为反例保留）。容器外标签簇（④）与单对问答、
+ *   无编号不连续问答（⑤ 余项）经 25 样本实测无存活实例、最接近
+ *   的文本廓形判据会命中真标题/正文行，结案不设判据（见报告）。
  * - 图片：地址解析与整页清洗链共用 html.ts 的 articleImageSrc
  *   （同一候选链＋安全门＋基址补全，两条路径地址集合恒一致），
  *   渲染继续走本地 /img 路由，不新开通道。
@@ -53,7 +64,7 @@
 import { articleImageSrc } from "../../shared/lib/html";
 
 export type ArticleBlock =
-  | { type: "text"; text: string; heading: boolean }
+  | { type: "text"; text: string; heading: boolean; soloHref?: string }
   | { type: "image"; src: string; alt: string };
 
 export interface ArticleExtraction {
@@ -122,21 +133,38 @@ function isJunkContainer(el: Element): boolean {
   return false;
 }
 
-/** 文档顺序遍历：文本攒进当前段、块级边界与 <br> 断段、图片独立成块。 */
+/** 文档顺序遍历：文本攒进当前段、块级边界与 <br> 断段、图片独立成块。
+ * 同时记录文本块的「独占锚」：整块有效文本只出自同一个 <a> 时把其
+ * href 记为 soloHref（空白文本不参与判定，缩进/换行不破坏独占性；
+ * 文本一旦混入锚外来源或第二个锚即作废）。⑮ 跨帖推广判据靠它把
+ * 「整段就是一个链接」与「正文段里嵌了链接」区分开。 */
 function walkBlocks(root: ParentNode, base: string | undefined, skipJunkClass: boolean): ArticleBlock[] {
   const blocks: ArticleBlock[] = [];
   let buf = "";
   let bufHeading = false;
+  let bufAnchor: string | null = null;
+  let bufAnchorOk = true;
   const flush = () => {
     const text = buf.replace(/\s+/g, " ").trim();
-    if (text) blocks.push({ type: "text", text, heading: bufHeading });
+    if (text) {
+      const b: ArticleBlock = { type: "text", text, heading: bufHeading };
+      if (bufAnchorOk && bufAnchor) b.soloHref = bufAnchor;
+      blocks.push(b);
+    }
     buf = "";
     bufHeading = false;
+    bufAnchor = null;
+    bufAnchorOk = true;
   };
-  const visit = (node: Node, headingCtx: boolean): void => {
+  const visit = (node: Node, headingCtx: boolean, anchorCtx: string | null): void => {
     if (node.nodeType === 3) {
       if (!buf.trim() && headingCtx) bufHeading = true;
-      buf += node.textContent ?? "";
+      const text = node.textContent ?? "";
+      if (text.trim()) {
+        if (!buf.trim()) { bufAnchor = anchorCtx; bufAnchorOk = true; }
+        else if (bufAnchorOk && anchorCtx !== bufAnchor) bufAnchorOk = false;
+      }
+      buf += text;
       return;
     }
     if (node.nodeType !== 1) return;
@@ -153,11 +181,12 @@ function walkBlocks(root: ParentNode, base: string | undefined, skipJunkClass: b
     }
     const isBlock = BLOCK_TAGS.has(tag);
     const childHeading = headingCtx || /^H[1-6]$/.test(tag);
+    const childAnchor = tag === "A" ? (el.getAttribute("href") || anchorCtx) : anchorCtx;
     if (isBlock) flush();
-    for (const child of Array.from(el.childNodes)) visit(child, childHeading);
+    for (const child of Array.from(el.childNodes)) visit(child, childHeading, childAnchor);
     if (isBlock) flush();
   };
-  for (const child of Array.from(root.childNodes)) visit(child, false);
+  for (const child of Array.from(root.childNodes)) visit(child, false, null);
   flush();
   return blocks;
 }
@@ -356,6 +385,35 @@ function faqIndices(blocks: ArticleBlock[]): Set<number> {
       i = j;
     } else i++;
   }
+  /* ⑰ 无编号问答组（filter4）：同模板的无编号变体实测以
+   * 「常见问题解答」小节头＋Q：/A：交替组出现（003 一帖 3 对）。
+   * 分隔面只有小节头：无编号问答本身是访谈正文体裁（⑪ 的反例
+   * 夹具），无头时一律保留；带头且 ≥2 对交替才连头整组杀。单对
+   * （含带头）未在 25 样本出现且有测验/互动体裁风险，不设判据。 */
+  const Q_BARE_RE = /^Q\s*[:：]/i;
+  const A_BARE_RE = /^A\s*[:：]/i;
+  const bareAt = (idx: number, re: RegExp): boolean => {
+    const b = blocks[idx];
+    return !!b && b.type === "text" && re.test(b.text.trim()) && !FAQ_Q_RE.test(b.text.trim()) && !FAQ_A_RE.test(b.text.trim());
+  };
+  let k = 0;
+  while (k < blocks.length) {
+    if (!bareAt(k, Q_BARE_RE)) { k++; continue; }
+    const run: number[] = [];
+    let j = k;
+    while (bareAt(j, Q_BARE_RE) && bareAt(j + 1, A_BARE_RE)) { run.push(j, j + 1); j += 2; }
+    if (run.length >= 4) {
+      const prev = blocks[k - 1];
+      if (prev && prev.type === "text" && prev.text.trim().length <= 16
+        && FAQ_HEADING_RE.test(prev.text)) {
+        run.forEach((x) => kill.add(x));
+        kill.add(k - 1);
+        k = j;
+        continue;
+      }
+    }
+    k++;
+  }
   return kill;
 }
 
@@ -417,6 +475,109 @@ function tailTemplateIndices(blocks: ArticleBlock[]): Set<number> {
   for (let i = start; i < blocks.length; i++) {
     if (blocks[i].type === "text") kill.add(i);
   }
+  return kill;
+}
+
+/* ── filter4 新增判据（M2 残余清剿，证据同上） ── */
+
+/* ⑮ 独占跨帖链接块：整块文本只出自一个 <a>（soloHref，walkBlocks
+ * 记录）且其指向 /archives/<他帖 id>/——跨帖推广的统一载体：合集
+ * 推广的按钮行（003）、正文区前的推广标题行（004）实测同形。正
+ * 文段落里嵌链接的形态文本混源、永不独占；指向本帖的自链（相关
+ * 文章挂件的自身条目）id 相同、保留。基址无帖 id 时整条不启用。
+ * 配对杀：推广单位是「标题行＋图＋按钮行」，标题行本身无链接——
+ * 以按钮行剥掉 CTA 词组后的名称核与 ±3 块内文本块算公共前缀，
+ * ≥12 字且对方非叙事段（isNarrativeContinuation 口径）才连带杀，
+ * 标题行与按钮行之间的封面图随单元一并杀；前缀不合的相邻正文/
+ * 标题不受影响（夹具反例钉死）。 */
+/* 帖 id 两种 URL 形态：正文内跨帖链接写作 /archives/<id>/，而适
+ * 配器给的详情地址是站方短形 /<id>（003/004 实测）——两形都认，
+ * 否则自帖 id 恒为空、整条判据不启用。 */
+function articleIdOf(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const m = /\/archives\/(\d+)/.exec(url) ?? /\/(\d+)\/?(?:[?#]|$)/.exec(url);
+  return m ? m[1] : null;
+}
+const PROMO_CTA_RE = /点我查看详情帖|点击查看详情|点我查看详情|查看详情帖|点击查看|点我下载|点击下载|点击观看|点我观看|查看详情|看详情/;
+function promoNameCore(text: string): string {
+  let s = stripDecor(text);
+  if (/[｜|]/.test(s)) {
+    const keep = s.split(/[｜|]/).map((x) => x.trim())
+      .filter((x) => x && !PROMO_CTA_RE.test(x));
+    if (keep.length) s = keep.join(" ");
+  }
+  s = s.replace(/^(点我查看详情帖|点击查看详情|点我查看详情|查看详情帖|点我下载|点击下载|点我|点击)\s*/, "");
+  s = s.replace(/\s*(相关文章\s*)?(点我查看详情帖|点击查看详情|点我查看详情|点击观看|点我观看|查看详情)\s*$/, "");
+  s = s.replace(/\s*相关文章\s*$/, "");
+  return s.trim();
+}
+function commonPrefixLen(a: string, b: string): number {
+  const n = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < n && a[i] === b[i]) i++;
+  return i;
+}
+function crossPostIndices(blocks: ArticleBlock[], base: string | undefined): Set<number> {
+  const kill = new Set<number>();
+  const selfId = articleIdOf(base);
+  if (!selfId) return kill;
+  const anchors: number[] = [];
+  blocks.forEach((b, i) => {
+    if (b.type !== "text" || !b.soloHref) return;
+    const id = articleIdOf(b.soloHref);
+    if (id && id !== selfId) { kill.add(i); anchors.push(i); }
+  });
+  for (const i of anchors) {
+    const core = promoNameCore((blocks[i] as { text: string }).text);
+    if (core.length < 12) continue;
+    for (let j = Math.max(0, i - 3); j <= Math.min(blocks.length - 1, i + 3); j++) {
+      if (j === i || kill.has(j)) continue;
+      const b = blocks[j];
+      if (b.type !== "text" || b.soloHref) continue;
+      /* 叙事段守门与 ⑫ 同口径（≥50 字且句读 ≥2 或有逗号）：推广
+       * 标题行是短语串烧、无逗号展开，51 字带单个叹号的实测标题
+       * 行由此与真叙事段分开（后者恒有逗号/多句读）。 */
+      if (isNarrativeContinuation(b.text)) continue;
+      if (commonPrefixLen(stripDecor(b.text), core) >= 12) {
+        kill.add(j);
+        /* 标题行与按钮行之间的图是推广单位的封面图（实测三帖同
+         * 构：标题/图/按钮三件相邻、中间无其他文本块），随单元
+         * 一并杀；两者之间还夹着其他文本块时图归属不明，只杀文
+         * 本行、图保留（只漏不误）。 */
+        const lo = Math.min(i, j);
+        const hi = Math.max(i, j);
+        let innerText = false;
+        for (let m = lo + 1; m < hi; m++) {
+          if (blocks[m].type === "text") { innerText = true; break; }
+        }
+        if (!innerText) {
+          for (let m = lo + 1; m < hi; m++) {
+            if (blocks[m].type === "image") kill.add(m);
+          }
+        }
+      }
+    }
+  }
+  return kill;
+}
+
+/* ⑯ 插件图＋短标签行：图片 src 解码后带 /plugins/ 路径段（站点插
+ * 件资产目录，正文图片走上传目录、永不经此）且紧随 ≤12 字无句读
+ * 文本行——插件挂件的「图标＋入口字」单元（003 全样本实测 9/9 同
+ * 形），成对杀；插件图后无短标签行、或普通上传图＋短图注，均保
+ * 留（夹具反例钉死）。 */
+function pluginWidgetIndices(blocks: ArticleBlock[]): Set<number> {
+  const kill = new Set<number>();
+  blocks.forEach((b, i) => {
+    if (b.type !== "image") return;
+    if (!/\/plugins\//.test(b.src.replace(/%2f/gi, "/"))) return;
+    const next = blocks[i + 1];
+    if (next && next.type === "text" && next.text.trim().length <= 12
+      && sentencePunctCount(next.text) === 0) {
+      kill.add(i);
+      kill.add(i + 1);
+    }
+  });
   return kill;
 }
 
@@ -516,7 +677,7 @@ function isUltraShortLine(b: ArticleBlock): boolean {
  * - 词墙行组：≥2 行同为词元墙廓形（每行 ≥5 词元）、全组合计 ≥12
  *   词元 → 整组杀（<br> 分行的词墙，每行单独都不满整段门槛）。
  * 行组被图片块隔开的形态不在覆盖内（残余漏杀，报告标注）。 */
-function groupJunkIndices(blocks: ArticleBlock[]): Set<number> {
+function groupJunkIndices(blocks: ArticleBlock[], base?: string): Set<number> {
   const kill = new Set<number>();
   for (const run of consecutiveRuns(blocks, isPublishLine)) {
     if (run.length < 3) continue;
@@ -536,6 +697,9 @@ function groupJunkIndices(blocks: ArticleBlock[]): Set<number> {
    * 组/整区并入杀集。 */
   faqIndices(blocks).forEach((i) => kill.add(i));
   tailTemplateIndices(blocks).forEach((i) => kill.add(i));
+  /* ⑮ 独占跨帖链接块＋配对标题行、⑯ 插件图＋短标签行（filter4）。 */
+  crossPostIndices(blocks, base).forEach((i) => kill.add(i));
+  pluginWidgetIndices(blocks).forEach((i) => kill.add(i));
   /* ⑩ 的行组按块（非文本）资格切分，单独走一遍块序列。 */
   let cur: number[] = [];
   const closeRun = () => {
@@ -569,9 +733,9 @@ function isJunkText(text: string): boolean {
 /** 去重键：抹掉空白与标点后精确比对（近似重复不合并，保守保留）。 */
 const dedupeKey = (text: string) => text.replace(/[\s\p{P}\p{S}]+/gu, "");
 
-function filterBlocks(blocks: ArticleBlock[], title?: string): ArticleBlock[] {
+function filterBlocks(blocks: ArticleBlock[], title?: string, base?: string): ArticleBlock[] {
   /* 成组判读先行标杀（地址发布行组/词墙行组），再走逐段判读与去重。 */
-  const groupJunk = groupJunkIndices(blocks);
+  const groupJunk = groupJunkIndices(blocks, base);
   const seen = new Set<string>();
   const titleKey = title ? dedupeKey(title) : "";
   const out: ArticleBlock[] = [];
@@ -606,5 +770,5 @@ export function extractArticleBlocks(
   /* 类名排除误包保底：首轮零块时不按类名排除重走，有正文不假空。 */
   if (!raw.length) raw = walkBlocks(doc.body, opts.base, false);
   if (!raw.length) return { blocks: [], located: false };
-  return { blocks: filterBlocks(raw, opts.title), located: true };
+  return { blocks: filterBlocks(raw, opts.title, opts.base), located: true };
 }
