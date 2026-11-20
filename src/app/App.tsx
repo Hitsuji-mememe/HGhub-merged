@@ -182,8 +182,9 @@ function AppBody() {
      返回动作走与硬件返回键完全同序的统一返回序（见 onEnd）。
      手势仲裁优先级（Muse 2026-11-19 fix2.1 批四#12 定版，fix322/play
      修订，fix330/gesture-back 一致性批再修订，高→低）：
-     ①输入框/横滚区起手——本链整体不触发（上方 walk；弹层内同
-       规则）；dialog 起手不再整体封锁（监听挂 #root 后弹层触摸
+     ①输入框起手——本链整体不触发；横滚区起手按方向容量让行
+       （该方向起手时还滚得动才让、起手即尽头交回本链，fix333/
+       m6 清扫 P7；弹层内同规则）；dialog 起手不再整体封锁（监听挂 #root 后弹层触摸
        可达本链）：只许返回动作、由 runBack 最上层弹层先消费；
      ①′播放器手势面（data-player-surface）/进度条区
        （data-feed-scrub-zone）起手——中部起手本链不接管（fix322：
@@ -238,6 +239,12 @@ function AppBody() {
           feedScrubZone: !!n.hasAttribute?.("data-feed-scrub-zone"),
           playerSurface: !!n.hasAttribute?.("data-player-surface"),
           hScrollable: (s.overflowX === "auto" || s.overflowX === "scroll") && n.scrollWidth > n.clientWidth,
+          /* 横滚方向容量（fix333/m6，清扫 P7）：右拖靠 scrollLeft
+           * 减小吞入、左拖靠增大；起手采样双向剩余量（0.5px 容差
+           * 挡子像素残量），分类器据此按方向裁豁免——起手即尽头
+           * 的方向交回本链，不再整体封锁成死区（见 gestureChain）。 */
+          hScrollCanConsumePos: n.scrollLeft > 0.5,
+          hScrollCanConsumeNeg: n.scrollLeft < n.scrollWidth - n.clientWidth - 0.5,
         });
       }
       const c = classifyChainStart(ancestors, {
