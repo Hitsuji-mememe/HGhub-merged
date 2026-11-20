@@ -256,6 +256,11 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   Category.tsx 内原生 id 字面量清零（postsRoute 1 处与
   Posts.tsx 的 isNativeSource 本地定义 1 处不在本线范围、留
   集成清单）。证据：`~/workspace/hghub/fix335/evidence/e-category.md`。
+  集成收敛（2026-11-20，第三阶段）：上列留集成清单两处已收——
+  Posts.tsx 回落值与本地 isNativeSource 改经 `nativeSourceId()`；
+  postsRoute 改用与 `surfaces.isNativeSource` 同式的模板判据
+  （该模块被 surfaces 反向 import，不回引以免成环，同
+  templateSegments 先例）。两处行为逐字不变。
 - 封面状态机（同批）：`ImageLoad` 状态 loading→decoded→displayed 或
   failed(reason)（http/timeout/decode 分因），每 attempt 20s 超时，
   src 变化自动重试；失败计数与分页证据同节进诊断报告。fix2.1 修正

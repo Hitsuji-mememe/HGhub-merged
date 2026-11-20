@@ -20,7 +20,11 @@ export type PostsBrowseRoute = "native" | "blocked" | "browse";
 
 export function resolvePostsBrowse(def: SourceDef | undefined): PostsBrowseRoute {
   if (!def) return "blocked";
-  if (def.id === "huangguo") return "native";
+  /* 原生判据与 surfaces.isNativeSource 同式（模板判据、抗源改名，
+   * 不认 id 字面量）；本模块被 surfaces 反向 import，不回引
+   * surfaces.nativeSourceId 以免成环（同 templateSegments 先例）。
+   * Muse 2026-11-20 集成收敛（E 线登记项）。 */
+  if (def.adapter.template === "native-huangguo") return "native";
   if (def.maturity === "blocked") return "blocked";
   return "browse";
 }

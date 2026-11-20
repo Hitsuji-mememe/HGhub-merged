@@ -20,6 +20,7 @@ import { firstEnabledSource, sourcesForCategory } from "../sources/registry";
 import { getActiveRegistry } from "../sources/manifest";
 import { resolvePostsBrowse } from "../sources/postsRoute";
 import { resolveSelectedSource } from "../sources/selectedSource";
+import { nativeSourceId } from "../sources/surfaces";
 import SourcePosts from "../sources/SourcePosts";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from "../sources/SourceSwitcher";
 import { postHot } from "./postData";
@@ -60,8 +61,8 @@ export function PostsPage({ onBack, wide, initialSourceId, openExternalId }: {
     return () => window.removeEventListener("hg:registry-changed", onRegistry);
   }, []);
   const postSourceOptions = sourceOptionsForCategory("posts");
-  const [sourceId, setSourceId] = useState(() => initialSourceId ?? firstEnabledSource("posts", getActiveRegistry().sources)?.id ?? "huangguo");
-  const isNativeSource = sourceId === "huangguo";
+  const [sourceId, setSourceId] = useState(() => initialSourceId ?? firstEnabledSource("posts", getActiveRegistry().sources)?.id ?? nativeSourceId());
+  const isNativeSource = sourceId === nativeSourceId();
   /* 选中态校验（fix333-P2，G5）：选中源不在 active 表时不再以
    * undefined 落通用提示——三态经 resolveSelectedSource 唯一派生，
    * 页头与提示一律读 label，内部 id 永不进文案。 */
