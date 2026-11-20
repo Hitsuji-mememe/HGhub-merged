@@ -181,9 +181,13 @@ const def = (id: string) => {
   for (const id of ["yandere"]) {
     assert.equal(searchPolicyFor(def(id)).include, true, `${id} moebooru 校准有搜索段、进扇出（fix335/g-sources）`);
   }
+  /* 断言适配（fix338/realphoto-add）：everia 启用且搜索属实进扇出，
+   * 纳入集 14→15 源；xsnvshen 搜索未验 caps.search=false 维持出局。 */
+  assert.equal(searchPolicyFor(def("everia")).include, true, "everia 搜索属实、进扇出（fix338/realphoto-add）");
+  assert.equal(searchPolicyFor(def("xsnvshen")).include, false, "xsnvshen 搜索未验、无搜索段出局（fix338/realphoto-add）");
   const included = reg.filter((s) => searchPolicyFor(s).include).map((s) => s.id).sort();
-  assert.deepEqual(included, ["51chigua", "cosplaytele", "hanime-tv", "hanime1", "huangguo", "iwara", "meiridasai", "nudecosplay", "pixibb", "xiuren", "yandere"],
-    "扇出纳入集＝保留集内具备搜索段的 11 源（20:48 裁定口径＋3.3.0 集成；fix338 摘三源后 14→11）");
+  assert.deepEqual(included, ["51chigua", "cosplaytele", "everia", "hanime-tv", "hanime1", "huangguo", "iwara", "meiridasai", "nudecosplay", "pixibb", "xiuren", "yandere"],
+    "扇出纳入集＝保留集内具备搜索段的 12 源（20:48 裁定口径＋3.3.0 集成；fix338 集成：摘三源 14→11、realphoto-add 加 everia 后 12）");
 }
 /* ── (F) 51吃瓜解 blocked＋黑料网毕业：内置面三面一致 ── */
 {

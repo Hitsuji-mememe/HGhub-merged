@@ -32,6 +32,10 @@ import { TEMPLATE_IDS } from "./adapters/templates.ts";
 const CORE_IDS = [
   "huangguo", "hanime-tv", "51chigua", "feedheiliao", "meiridasai",
   "xiuren", "cosplaytele", "hanime1", "iwara",
+  /* 断言适配（fix338/realphoto-add，集成对账 2026-11-20）：真人图片
+   * 新源 everia/xsnvshen 以命名源入册（候选准入＋生产取页栈实拉全
+   * 通，证据 fix338/evidence/realphoto-add.md），保留集 9→11。 */
+  "everia", "xsnvshen",
 ];
 
 /* ── 注册表完整性 ── */
@@ -39,7 +43,7 @@ const CORE_IDS = [
   const ids = new Set(BUILTIN_SOURCES.map((s) => s.id));
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
   for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
-  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 9（fix338 已摘 danbooru/hentaihaven，此前已摘 rule34video/pornpics）");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 11（fix338/registry-cut 摘 danbooru/hentaihaven、fix338/realphoto-add 新增 everia/xsnvshen；此前已摘 rule34video/pornpics）");
   /* 瘦身负向不变量：被删源不得回流注册表（App 内不得出现）。 */
   for (const goneId of ["rouvideo", "91video", "pornhub", "xvideos", "swag", "fyptt", "redgifs", "fc2",
     "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91", "rule34video", "pornpics",

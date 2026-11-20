@@ -317,10 +317,13 @@ for (const [si, state] of STATES.entries()) {
     "原生谓词认模板不认 id（反向）");
   /* 频道切源名单成员（适配 fix336/ui-fixes：总览源行两面删除，
    * 名单迁频道面——图片走 channel-image、视频走 channel-video；
-   * 成员集合随注册表现状（fix338 后图片 5 源/视频 3 源），视频名
+   * 成员集合随注册表现状（fix338 集成后图片 7 源/视频 3 源），视频名
    * 单另摘原生（空壳退场、声明出局见下条）。 */
   assert.deepEqual(sourcesForSurface("channel-image", R1).map((d) => d.id),
-    ["xiuren", "cosplaytele", "pixibb", "nudecosplay", "yandere"], "channel-image 成员＝已启用图片源（fix338 后 5 源）");
+    ["xiuren", "cosplaytele", "pixibb", "nudecosplay", "yandere",
+      /* 断言适配（fix338 集成对账）：registry-cut 摘 008/016 后 5 源，
+       * realphoto-add 新增 everia/xsnvshen 启用入册、按注册表序居末。 */
+      "everia", "xsnvshen"], "channel-image 成员＝已启用图片源（fix338 集成后 7 源）");
   assert.deepEqual(sourcesForSurface("channel-video", R1).map((d) => d.id),
     ["hanime-tv", "hanime1", "iwara"], "channel-video 成员＝已启用外部视频源（原生不在名单；fix338 后 3 源）");
   assert.deepEqual(routeForSurface("channel-video", byId("huangguo"), ctx),
@@ -328,10 +331,13 @@ for (const [si, state] of STATES.entries()) {
   /* 搜索扇出成员：005（App 编号，feedheiliao）以声明 g 出局、001 以
    * 声明 b 出局；声明 h（hls-site 模板搜索不可用）的触发改由合成
    * hlsSiteFx 承接（适配 fix335/g-sources：007 退役、内置无 hls-site
-   * 源）；fix338 后成员 10 源（008/011/016 摘除出集）。 */
+   * 源）；fix338 集成后成员 11 源（registry-cut 摘 008/011/016 出集
+   * 13→10、realphoto-add everia 启用且有搜索段新进 10→11；
+   * xsnvshen 为内置 hls-site 源且 caps.search=false、以声明 h 出局
+   * （合成 hlsSiteFx 的触发与之同口径并存）。 */
   assert.deepEqual(sourcesForSurface("search-fanout", R1).map((d) => d.id),
-    ["hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "hanime1", "iwara", "pixibb", "nudecosplay", "yandere"],
-    "M11 成员＝已启用∧有搜索段的外部源（fix338 后 10 源）");
+    ["hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "hanime1", "iwara", "pixibb", "nudecosplay", "yandere", "everia"],
+    "M11 成员＝已启用∧有搜索段的外部源（fix338 集成后 11 源）");
   assert.deepEqual(routeForSurface("search-fanout", byId("huangguo"), ctx),
     { kind: "not-applicable", declaration: "native-dual-path" }, "001×M11 声明 b");
   assert.deepEqual(routeForSurface("search-fanout", byId("feedheiliao"), ctx),
@@ -339,10 +345,11 @@ for (const [si, state] of STATES.entries()) {
   assert.deepEqual(routeForSurface("search-fanout", hlsSiteFx, ctx),
     { kind: "not-applicable", declaration: "search-unusable-hls-site" }, "hls-site 合成源×M11 声明 h");
   /* 自检：001 在册（设计声明 c 与码上事实矛盾——selfCheckEligible(001)
-   * 为真、引擎经 native 适配器实探，见报告设计订正）；R1 合格 12 源
-   * （适配 fix338/registry-cut：008/011/016 摘除出集，15→12）。 */
+   * 为真、引擎经 native 适配器实探，见报告设计订正）；R1 合格 14 源
+   * （fix338 集成对账：registry-cut 摘除出集 15→12、realphoto-add
+   * everia/xsnvshen 启用且自检合格进集 12→14）。 */
   assert.deepEqual(routeForSurface("selfcheck", byId("huangguo"), ctx), { kind: "listed" }, "001×M21 在册（订正设计声明 c）");
-  assert.equal(sourcesForSurface("selfcheck", R1).length, 12, "M21 R1 合格集＝12 源");
+  assert.equal(sourcesForSurface("selfcheck", R1).length, 14, "M21 R1 合格集＝14 源");
   /* 短剧频道：外部 video 源以声明 e 出局（caps 映射属实为空）。 */
   assert.deepEqual(routeForSurface("channel-drama", byId("hanime-tv"), ctx),
     { kind: "not-applicable", declaration: "no-drama-mapping" }, "002×M6 声明 e");

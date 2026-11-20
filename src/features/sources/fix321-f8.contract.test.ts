@@ -232,7 +232,12 @@ function checkResult(sourceId: string, over: Partial<SourceSelfCheckResult> = {}
    * 内置注册表再无 hls-site 源——覆盖名单＝注册表 hls-site 全集＝
    * 空集，如实断言；参数下发机制本身由上方合成 hls-site def 的
    * applyManifest 用例证明仍活，保护行为不变。 */
-  assert.equal(covered.length, 0, "fix335/g-sources 后注册表无 hls-site 源、覆盖名单为空集");
+  /* 断言适配（fix338/realphoto-add，2026-11-20）：019 xsnvshen 以
+   * hls-site 模板入册——覆盖名单＝注册表 hls-site 全集＝{xsnvshen}，
+   * 如实断言；其校准参数（itemLinkRegex/detailPageParam/
+   * detailImagePattern）不在可下发字段冻结集内、恒走内置（口径
+   * 与 danbooru 系 detailPath 等内置参数同类），保护行为不变。 */
+  assert.deepEqual(covered.map((s) => s.id), ["xsnvshen"], "fix338/realphoto-add 后注册表 hls-site 源＝xsnvshen、覆盖名单随之");
 }
 
 console.log("fix321-f8 contract: ALL PASS");

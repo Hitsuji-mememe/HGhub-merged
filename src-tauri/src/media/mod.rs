@@ -151,6 +151,16 @@ pub async fn handle(path: &str, query: &str, origin: &str, range: Option<&str>) 
         return respond(400, "text/plain", b"missing u".to_vec(), "no-store");
     }
 
+    /* 页面 Referer（Muse 2026-11-20 fix338/realphoto-add）：/img 的
+     * p= 参数＝承载该图的详情页地址，仅进图片抓取的 Referer 候选链
+     * （页面级防盗链校准，见 net/edge.rs media_referer_candidates）；
+     * 不作抓取目标、不落日志。其余路由不消费本参数。 */
+    let page = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("p="))
+        .map(dec)
+        .filter(|s| !s.is_empty());
+
     let started = std::time::Instant::now();
     let route = match path {
         "/img" => "image",
@@ -163,7 +173,7 @@ pub async fn handle(path: &str, query: &str, origin: &str, range: Option<&str>) 
         serde_json::json!({"route": route, "resource": crate::playback_log::resource_id(&target)}),
     );
     let response = match path {
-        "/img" => match load_image(&target).await {
+        "/img" => match load_image(&target, page.as_deref()).await {
             Ok((kind, bytes)) => respond(
                 200,
                 &kind,

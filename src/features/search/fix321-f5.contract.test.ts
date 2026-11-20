@@ -131,14 +131,17 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
  * 契约适配（fix335/g-sources，2026-11-20）：pornpics 退役摘除（本就
  * 出局、名单不变），yandere/konachan moebooru 校准有搜索段进扇出，
  * 名单 12→14 源。
- * 契约适配（fix338/registry-cut，2026-11-20）：008/011/016 摘除，
- * 名单 14→11 源；三源改入下方「不在册」负向断言组。 */
+ * 契约适配（fix338 集成对账，2026-11-20）：registry-cut 摘除
+ * 008/011/016、名单 14→11 源、三源改入下方「不在册」负向断言组；
+ * realphoto-add 真人图片新源 everia（wp-rest、caps.search 据实
+ * true）进扇出，名单 11→12 源；xsnvshen 搜索未验、caps.search=
+ * false 维持出局（判定口径不变）。 */
 {
   const included = getBuiltinRegistry().filter((d) => searchPolicyFor(d).include).map((d) => d.id);
   assert.deepEqual(
     included,
-    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "hanime1", "iwara", "pixibb", "nudecosplay", "yandere"],
-    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix338 后 11 源）",
+    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "hanime1", "iwara", "pixibb", "nudecosplay", "yandere", "everia"],
+    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix338 集成后 12 源）",
   );
   assert.ok(!getBuiltinRegistry().some((d) => d.id === "rule34video"), "rule34video 已摘除注册表（用户裁定），不进扇出也不在册");
   assert.ok(!getBuiltinRegistry().some((d) => d.id === "pornpics"), "pornpics 已退役摘除注册表（fix335/g-sources），不进扇出也不在册");

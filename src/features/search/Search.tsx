@@ -881,6 +881,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
               return images.length > 0 ? (
                 <div className="fixed inset-0 z-40 bg-black">
                   <AlbumViewer title={galleryItems ? (curItem.title || merged.title) : merged.title} images={images} index={idx}
+                    page={data.active.item.href}
                     onIndexChange={setImgIdx}
                     onBack={closeExtDetail} backLabel="返回搜索结果"
                     footerNote={`数据源：${data.active.sourceName}（经适配器实时取数）`} immersive

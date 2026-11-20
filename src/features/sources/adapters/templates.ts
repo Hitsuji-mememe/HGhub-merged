@@ -151,18 +151,30 @@ function isPromoCard(inner: string, title: string, promo: PromoCardFilter): bool
  * 形态漂移误报成空列表。未声明 cardContainer 的源行为逐字不变。
  * 推广帖过滤（fix333/promo-filter）：promo 声明时，条目成形后（标题
  * 确定后）、入列前过 isPromoCard；与容器采集正交，两参数由
- * htmlListAdapter 从 params 组装、list/search 两路同口径透传。 */
-function parseAnchorList(html: string, base: string, sourceId: string, itemLinkPattern: string, cardContainer = "", promo?: PromoCardFilter, retainCats = false): SourceItem[] {
+ * htmlListAdapter 从 params 组装、list/search 两路同口径透传。
+ * 条目链接正则（Muse 2026-11-20 fix338/realphoto-add）：源声明
+ * itemLinkRegex 时锚点匹配改走正则（对原始 href 全串匹配）——子串
+ * 模式在路径前缀多义的站上会误收同前缀的分类页/隐藏空锚/分页锚
+ * （xsnvshen /album/ 裸子串实测 132 条 vs 真卡 25 条）；未声明的
+ * 源逐字走子串口径、行为不变。 */
+function parseAnchorList(html: string, base: string, sourceId: string, itemLinkPattern: string, cardContainer = "", promo?: PromoCardFilter, retainCats = false, itemLinkRe?: RegExp): SourceItem[] {
   const seen = new Set<string>();
   const items: SourceItem[] = [];
   let anchors = cardContainer === "article" || cardContainer === "video-item" ? findCardAnchors(html, cardContainer) : [];
   if (anchors.length === 0) anchors = findAnchors(html);
   for (const a of anchors) {
-    if (!a.href.includes(itemLinkPattern)) continue;
+    if (itemLinkRe ? !itemLinkRe.test(a.href) : !a.href.includes(itemLinkPattern)) continue;
     const href = absUrl(base, a.href);
     if (seen.has(href)) continue;
     seen.add(href);
-    const title = a.titleAttr || headingText(a.inner) || imgAlt(a.inner) || stripTags(a.inner) || titleFromHref(href);
+    const realTitle = a.titleAttr || headingText(a.inner) || imgAlt(a.inner) || stripTags(a.inner);
+    /* 严格形态源的空壳锚剔除（fix338/realphoto-add）：声明
+     * itemLinkRegex 的源按「卡片必有真实标题载体」收紧——站方埋的
+     * 隐藏 SEO 空锚（rel=nofollow noindex、无 title/文本/图 alt）
+     * 形态上能过正则，但标题只能靠 href 末段数字冒充，不是卡片。
+     * 未声明正则的源逐字走旧口径（titleFromHref 兜底不变）。 */
+    if (itemLinkRe && !realTitle) continue;
+    const title = realTitle || titleFromHref(href);
     if (!title) continue;
     /* 推广帖过滤（fix333/promo-filter）：源声明判据时，公告/活动类
      * 卡片在列表层整条剔除（搜索同路径同口径）；未声明的源零影响。 */
@@ -260,6 +272,11 @@ function htmlListAdapter(def: SourceDef, opts?: { retainCats?: boolean; searchRe
   const params = (def.adapter.params ?? {}) as Params;
   const listPath = str(params, "listPath", "/?page={page}");
   const itemLinkPattern = str(params, "itemLinkPattern", "/");
+  /* 条目链接正则（fix338/realphoto-add）：params 声明 itemLinkRegex
+   * 时锚点匹配改走正则（见 parseAnchorList 头注）；正则非法属内置
+   * 参数写错，构造期直接抛错由契约拦下，不静默回落子串口径。 */
+  const itemLinkRegexRaw = str(params, "itemLinkRegex", "");
+  const itemLinkRe = itemLinkRegexRaw ? new RegExp(itemLinkRegexRaw) : undefined;
   /* 卡片容器声明（fix333/list-noise）：按源主题在注册表 params 里
    * 声明（article / video-item），未声明的源整页扫描、行为不变。 */
   const cardContainer = str(params, "cardContainer", "");
@@ -301,7 +318,7 @@ function htmlListAdapter(def: SourceDef, opts?: { retainCats?: boolean; searchRe
       const pathTemplate = slug ? categoryPath.replace("{slug}", slug) : listPath;
       const path = slug ? categoryPagePath(categoryPath, slug, page) : fill(listPath, { page });
       const html = await fetchPage(absUrl(base, path));
-      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo, opts?.retainCats ?? false);
+      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo, opts?.retainCats ?? false, itemLinkRe);
       if (all.length === 0) {
         /* 未知不是空（fix321-F2）：第一页 0 条目 = 解析失败，显式抛错
          * 走列表层错误通道，口径不变。第二页起 0 条目按分页信号判读：
@@ -344,7 +361,7 @@ function htmlListAdapter(def: SourceDef, opts?: { retainCats?: boolean; searchRe
         ? fill(searchPath, { q: encodeURIComponent(q), page })
         : `/?s=${encodeURIComponent(q)}&paged=${page}`;
       const html = await fetchPage(absUrl(base, path));
-      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo, opts?.retainCats ?? false);
+      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo, opts?.retainCats ?? false, itemLinkRe);
       /* 搜索同列表口径（fix335/a-pagination）：整页消费＋htmlSignal
        * （信号模板用未填的 searchPath 形状、无声明时用默认形，两者
        * 的 {page} 段都是导航末页的提取形状）。搜索真空合法：0 条目
@@ -390,7 +407,49 @@ export function createChiguaAdapter(def: SourceDef): SourceAdapter {
  * 负责），wp-rest/danbooru 的 images 本就来自内容载荷，均不外溢。 */
 export function createHlsSiteAdapter(def: SourceDef): SourceAdapter {
   const base0 = htmlListAdapter(def);
-  return { ...base0, detail: (id) => htmlDetail(def, id, true) };
+  const params = (def.adapter.params ?? {}) as Params;
+  /* 详情分页组装＋本册图过滤（Muse 2026-11-20 fix338/realphoto-add，
+   * xsnvshen 校准）：详情页服务端分页（?p=N、每页定额张）且内容区
+   * 混排相关推荐的他人图集缩略图——单页取图只有首段、整页取图会
+   * 把推荐缩略图冒充本册图。params 声明 detailPageParam 时逐页
+   * 跟进组装整册（新页零新增或取页失败即停、失败不拖垮已收段，
+   * 上限 12 页防异常形态无限跟进）；声明 detailImagePattern
+   * （含 {id} 占位、id 取条目 href 末段）时只留命中本册形态的全
+   * 尺寸图。两参数皆未声明的源逐字走旧单页口径、行为不变。og
+   * 封面缺失时以本册首图兜底（站方无 og:image、封面即图集首帧，
+   * 非合成地址）。 */
+  const detailPageParam = str(params, "detailPageParam", "");
+  const detailImagePattern = str(params, "detailImagePattern", "");
+  if (!detailPageParam && !detailImagePattern) return { ...base0, detail: (id) => htmlDetail(def, id, true) };
+  return {
+    ...base0,
+    async detail(id) {
+      const base = def.baseUrls[0];
+      const first = await htmlDetail(def, id, true);
+      let imageRe: RegExp | null = null;
+      if (detailImagePattern) {
+        let itemId = id;
+        try { itemId = new URL(absUrl(base, id)).pathname.split("/").filter(Boolean).pop() ?? id; } catch { /* id 本就是末段形态 */ }
+        imageRe = new RegExp(fill(detailImagePattern, { id: itemId }));
+      }
+      const keep = (urls: string[]): string[] => (imageRe ? urls.filter((u) => imageRe.test(u)) : urls);
+      const seen = new Set<string>();
+      const images: string[] = [];
+      for (const u of keep(first.images)) { if (!seen.has(u)) { seen.add(u); images.push(u); } }
+      if (detailPageParam) {
+        const detailUrl = absUrl(base, id);
+        const sep = detailUrl.includes("?") ? "&" : "?";
+        for (let n = 2; n <= 12; n++) {
+          let html: string;
+          try { html = await fetchPage(`${detailUrl}${sep}${detailPageParam}=${n}`); } catch { break; }
+          const fresh = keep(contentImgSrcs(html).map((s) => absUrl(base, s))).filter((u) => !seen.has(u));
+          if (fresh.length === 0) break;
+          for (const u of fresh) { seen.add(u); images.push(u); }
+        }
+      }
+      return { ...first, images, cover: first.cover || images[0] || "" };
+    },
+  };
 }
 
 /** (b) WP REST 骨架（秀人网）。 */

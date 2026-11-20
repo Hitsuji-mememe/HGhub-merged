@@ -50,7 +50,10 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
    * 注册表（18→17 源），本文件原以其为「中性权重已启用视频源」样本的
    * 断言改由 iwara 接替（同为总表未覆盖、已启用、具备搜索段的 video
    * 源，覆盖口径不变）；源数断言随之 18→17。 */
-  assert.equal(getBuiltinRegistry().length, 14, "注册表 14 源（fix338 摘 008/011/016 后）下页签仍封顶四类（上一断言即证据）");
+  /* 断言适配（fix338 集成对账，2026-11-20）：registry-cut 摘
+   * 008/011/016、realphoto-add 加 everia/xsnvshen，注册表 17→16 源；
+   * 页签封顶四类的口径不变。 */
+  assert.equal(getBuiltinRegistry().length, 16, "注册表 16 源（fix338 集成：摘 008/011/016、加 everia/xsnvshen）下页签仍封顶四类（上一断言即证据）");
   const groups = aggregateHits([]);
   assert.deepEqual(Object.keys(groups).sort(), ["drama", "image", "post", "video"], "聚合分组恒四键");
 }

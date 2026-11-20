@@ -127,6 +127,22 @@ export const NAMED_SOURCES: SourceDef[] = [
     enabled: true, order: 54, maturity: "probe", capabilities: HLS_CAPS, network: PROBE_NET,
     note: "fix330 接通批启用：专用 API 适配器（api.iwara.tv /videos 列表、/search 搜索段、/video/<id> 详情、fileUrl＋X-Version 签名取流，结构据公开插件 iwara.js 协议事实＋解析夹具实证）；住宅出口四级验收全通在案（source-verify-20261119，引存档）；本机机房出口为 CF 403（出口形态、非站点结论）；App 侧未真机验 → probe",
   },
+  {
+    id: "everia", displayName: "Everia", kind: "image", category: "image",
+    adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
+    baseUrls: ["https://everia.club"],
+    enabled: true, order: 122, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    network: PROBE_NET, note: "fix338/realphoto-add 新增（2026-11-20）：真人图片候选准入 C1（候选调查 fix338/evidence/realphoto-candidates.md §三）——与 006/007/012/013 逐字同形 wp-rest（/wp-json/wp/v2/posts，本机出口实证：列表 200、x-wp-total 50800、详情帖图集各 120 张、图床无 Referer 直拉魔数真图、搜索端点 200 真结果），模板实例化零新适配器代码；编号 018（注册表位置号，order 122 置末）；App 侧未真机验 → probe",
+  },
+  {
+    id: "xsnvshen", displayName: "秀色女神", kind: "image", category: "image",
+    adapter: { template: "hls-site", params: { listPath: "/album/?p={page}", itemLinkPattern: "/album/", itemLinkRegex: "^/album/\\d+$", detailPageParam: "p", detailImagePattern: "/album/\\d+/{id}/\\d+\\.jpg" } },
+    baseUrls: ["https://www.xsnvshen.com"],
+    enabled: true, order: 123, maturity: "probe",
+    capabilities: NO_CAPS, network: PROBE_NET,
+    note: "fix338/realphoto-add 新增（2026-11-20）：真人图片候选准入 C2（候选调查 fix338/evidence/realphoto-candidates.md §三）——hls-site 锚点骨架按校准点落地：列表 /album/?p={page}（导航末页 1800）；itemLinkRegex 收紧条目形态（裸子串 /album/ 会误收分类页/隐藏空锚/分页锚，实测 132 vs 真卡 25）；详情服务端分页 ?p=N 每页 10 张、detailPageParam 逐页组装整册＋detailImagePattern 只留本册全尺寸图（内容区混排他人图集缩略图 40 张须滤）；图床 img.xsnvshen.com 防盗链判据＝Referer 须本站域且路径以 /album/ 开头（无 Referer/根 Referer 均 403、本批实测矩阵），详情图经 /img 的 p= 参数带详情页 Referer 进候选链（见 net/edge.rs）；搜索未验 caps.search 维持 false；编号 019（order 123 置末）；App 侧未真机验 → probe",
+  },
 ];
 
 /** 内置注册表全量 = 命名源 + 目录导入源（catalog.ts）。远程清单按

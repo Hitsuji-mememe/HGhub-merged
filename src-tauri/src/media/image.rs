@@ -1,7 +1,7 @@
 //! Image cache and AES-128-CBC cover decryption.
 
 use super::ByteLru;
-use crate::net::fetch_bytes_capped;
+use crate::net::fetch_bytes_capped_with_page;
 use aes::cipher::{BlockDecrypt, KeyInit};
 use aes::Aes128;
 use once_cell::sync::Lazy;
@@ -80,7 +80,10 @@ fn image_kind(buf: &[u8]) -> Option<&'static str> {
 }
 
 /// 取封面：命中缓存直接返回；同地址的进行中请求共享下载和解密结果。
-pub async fn load_image(url: &str) -> ImageResult {
+/// page（fix338/realphoto-add）：/img 的 p= 页面 Referer（详情页地址），
+/// 只影响首次下载的 Referer 候选链、不进缓存键——同一图片字节与来
+/// 源页无关，命中缓存时不重走候选链。
+pub async fn load_image(url: &str, page: Option<&str>) -> ImageResult {
     let req_scope = crate::net::request_scope();
     let generation = IMG_GENERATION.load(Ordering::Acquire);
     let cache_key = format!("{}:{}:{generation}:{url}", u8::from(req_scope.strict), req_scope.generation);
@@ -100,16 +103,17 @@ pub async fn load_image(url: &str) -> ImageResult {
             request
         }
     };
-    loading.get_or_init(|| download_image(url, &cache_key, req_scope, generation)).await.clone()
+    let page = page.map(str::to_string);
+    loading.get_or_init(|| download_image(url, &cache_key, req_scope, generation, page.as_deref())).await.clone()
 }
 
-async fn download_image(url: &str, cache_key: &str, req_scope: crate::net::RequestScope, generation: u64) -> ImageResult {
+async fn download_image(url: &str, cache_key: &str, req_scope: crate::net::RequestScope, generation: u64, page: Option<&str>) -> ImageResult {
     // 缓存检查与领取任务之间，另一请求可能已完成。
     if let Some(hit) = IMG_CACHE.lock().unwrap().get(cache_key) {
         let kind = image_kind(&hit).unwrap_or("image/jpeg");
         return Ok((kind.to_string(), hit));
     }
-    let (_, bytes) = fetch_bytes_capped(url, IMG_MAX_BYTES).await?;
+    let (_, bytes) = fetch_bytes_capped_with_page(url, IMG_MAX_BYTES, page).await?;
     let plain = if image_kind(&bytes).is_some() {
         bytes
     } else {
@@ -180,7 +184,7 @@ mod tests {
     async fn cover_decrypt_works() {
         let url = crate::env::var("TEST_COVER_URL")
             .expect("需要设置 HGHUBX_TEST_COVER_URL 为当前有效的封面地址");
-        match load_image(&url).await {
+        match load_image(&url, None).await {
             Ok((kind, bytes)) => {
                 println!("kind={kind} len={}", bytes.len());
                 assert!(kind.starts_with("image/"));
