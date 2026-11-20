@@ -1861,6 +1861,26 @@
       "item": "fix332-B1 hls-site 详情图片限定内容区：contentImgSrcs 内容区地标采集（parse 定义＋templates hls-site detail 消费），站点样式资产不进相册",
       "min": 3,
       "symbol": "contentImgSrcs"
+    },
+    {
+      "files": [
+        "src/features/sources/promoVerify.ts",
+        "src/features/sources/SourcePosts.tsx"
+      ],
+      "id": "fix333-promo004-staff-verify-hook",
+      "item": "fix333/promo-004 站务帖异步验杀接线：useStaffPromoVerify（promoVerify 定义＋SourcePosts 消费，注入适配器 detail），列表先渲染、判站务就地撤下",
+      "min": 2,
+      "symbol": "useStaffPromoVerify"
+    },
+    {
+      "files": [
+        "src/features/sources/registry.ts",
+        "src/features/sources/promoVerify.ts"
+      ],
+      "id": "fix333-promo004-staff-verify-params",
+      "item": "fix333/promo-004 判据声明与消费：registry feedheiliao params.staffVerify（maxBodyChars=890）＋promoVerify staffVerifyConfig 读取组装作用域",
+      "min": 3,
+      "symbol": "staffVerify"
     }
   ]
 }

@@ -64,10 +64,10 @@ export const NAMED_SOURCES: SourceDef[] = [
   },
   {
     id: "feedheiliao", displayName: "黑料网", kind: "post", category: "posts",
-    adapter: { template: "chigua", params: { listPath: "/page/{page}/", itemLinkPattern: "/archives/", detailPath: "/archives/{id}" } },
+    adapter: { template: "chigua", params: { listPath: "/page/{page}/", itemLinkPattern: "/archives/", detailPath: "/archives/{id}", staffVerify: { maxBodyChars: 890 } } },
     baseUrls: ["https://heiliao.com", "https://www.heiliao88.com"],
     enabled: true, order: 32, maturity: "probe",
-    capabilities: NO_CAPS, network: PROBE_NET, note: "fix321-F2b 自目录导入毕业为命名源并启用（与远程清单 v2 同口径：heiliao.com＋镜像 heiliao88.com、enabled=true）：启用依据三段齐——列表 video-item 卡片（/archives/<id>/、h3 标题、z-image-loader-url 封面）本机实测解析出条目、详情 h1.detail-title＋DPlayer 内嵌 m3u8 本机实测可取流（结构据 Hentai-Park feedheiliao 插件、本机抓取互证）、住宅出口四级验收全通（source-verify-20261119）；App 侧未真机验 → 代码就绪未验证、probe。3.3.0 接通批（2026-11-19）：真机点开仍是提示页的根因＝posts 分类从未接浏览组件（Posts/分类总览对非黄果源无条件提示、与 maturity 无关），已接 SourcePosts 浏览面（postsRoute browse）；详情正文容器 editormd-preview 已入 chigua 模板捕获（旧两式恒空）；搜索无段属实——本机出口实证 /search/<词>/、/?s=、/index/search 三种 GET 形态均返回关键词不变页（无意义词与常用词响应同量级、条目集恒定），站点搜索为前端驱动、无 GET 搜索段可接，caps.search 维持 false、不进扇出",
+    capabilities: NO_CAPS, network: PROBE_NET, note: "fix321-F2b 自目录导入毕业为命名源并启用（与远程清单 v2 同口径：heiliao.com＋镜像 heiliao88.com、enabled=true）：启用依据三段齐——列表 video-item 卡片（/archives/<id>/、h3 标题、z-image-loader-url 封面）本机实测解析出条目、详情 h1.detail-title＋DPlayer 内嵌 m3u8 本机实测可取流（结构据 Hentai-Park feedheiliao 插件、本机抓取互证）、住宅出口四级验收全通（source-verify-20261119）；App 侧未真机验 → 代码就绪未验证、probe。3.3.0 接通批（2026-11-19）：真机点开仍是提示页的根因＝posts 分类从未接浏览组件（Posts/分类总览对非黄果源无条件提示、与 maturity 无关），已接 SourcePosts 浏览面（postsRoute browse）；详情正文容器 editormd-preview 已入 chigua 模板捕获（旧两式恒空）；搜索无段属实——本机出口实证 /search/<词>/、/?s=、/index/search 三种 GET 形态均返回关键词不变页（无意义词与常用词响应同量级、条目集恒定），站点搜索为前端驱动、无 GET 搜索段可接，caps.search 维持 false、不进扇出。3.3.3 fix333/promo-004：卡内站务推广帖列表层无分类/作者信号、组合判据不存在（promo-filter 线停工证据），改走详情层异步验杀——params.staffVerify 声明阈值（正文≤890 字∧episodes=0 判站务型、列表先渲染后台逐条验、判定落盘每帖只验一次；活动投票帖 1744 字＋有流按用户裁定保留），实现 promoVerify.ts、证据 fix333/evidence/promo-004.md",
   },
   {
     id: "meiridasai", displayName: "每日大赛", kind: "post", category: "posts",
