@@ -12,6 +12,7 @@ import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
 import { IWARA_API_ORIGIN, REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
+import { httpStatusOf, traceResolveFailure } from "./resolveTrace.ts";
 import { allImgSrcs, cardCategoryTokens, contentImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
 
 export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "hentaihaven-api", "preview-only", "none"] as const;
@@ -547,9 +548,30 @@ export function createIwaraAdapter(def: SourceDef): SourceAdapter {
       return { ...item, description: String(v.body ?? ""), images: [], episodes: [{ label: "正片", externalId: id }] };
     },
     async resolve(id) {
-      const v = await getJson<IwaraVideo>(`${apiBase}/video/${id}`);
+      /* 取流分段留痕（fix333-m5 P5，与 002 同口径）：detail（详情取数
+       * 得 fileUrl）/fetch（流表取数）/decode（流表判读）三段，任一
+       * 失败或终局无流落 source.resolve_fail，不再只有 fetchHealth
+       * 的 host 级兜底。取数在此内联（不走 getJson）以便分段归属，
+       * 失败行为与原实现一致（抛出点不变、空结果仍回空流表）。 */
+      let detailRaw: string;
+      try {
+        detailRaw = await fetchPage(`${apiBase}/video/${id}`);
+      } catch (e) {
+        traceResolveFailure(def.id, "detail", "detail_fetch_failed", httpStatusOf(e), 0);
+        throw e;
+      }
+      let v: IwaraVideo;
+      try {
+        v = JSON.parse(detailRaw) as IwaraVideo;
+      } catch (e) {
+        traceResolveFailure(def.id, "detail", "detail_decode_failed", undefined, 0);
+        throw e;
+      }
       const fileUrl = String(v?.fileUrl ?? "");
-      if (!fileUrl) return { streams: [] };
+      if (!fileUrl) {
+        traceResolveFailure(def.id, "detail", "file_url_unavailable", undefined, 0);
+        return { streams: [] };
+      }
       let version = "";
       try {
         const u = new URL(fileUrl);
@@ -557,13 +579,29 @@ export function createIwaraAdapter(def: SourceDef): SourceAdapter {
         const exp = u.searchParams.get("expires") ?? "";
         if (seg && exp) version = sha1Hex(`${seg}_${exp}_${IWARA_FILE_VERSION_SALT}`);
       } catch { /* fileUrl 形态异常：无签名取数、由响应形态决定成败 */ }
-      const rows = await getJson<{ name?: string; quality?: string; src?: { view?: string; download?: string }; url?: string }[]>(
-        fileUrl, version ? { "X-Version": version } : undefined);
-      if (!Array.isArray(rows)) return { streams: [] };
+      let rowsRaw: string;
+      try {
+        rowsRaw = await fetchPage(fileUrl, version ? { "X-Version": version } : undefined);
+      } catch (e) {
+        traceResolveFailure(def.id, "fetch", "stream_fetch_failed", httpStatusOf(e), 0);
+        throw e;
+      }
+      let rows: { name?: string; quality?: string; src?: { view?: string; download?: string }; url?: string }[];
+      try {
+        rows = JSON.parse(rowsRaw) as typeof rows;
+      } catch (e) {
+        traceResolveFailure(def.id, "decode", "stream_decode_failed", undefined, 0);
+        throw e;
+      }
+      if (!Array.isArray(rows)) {
+        traceResolveFailure(def.id, "decode", "stream_table_invalid", undefined, 0);
+        return { streams: [] };
+      }
       const cands = rows
         .map((r) => ({ url: r.src?.view ?? r.src?.download ?? r.url ?? "", q: Number(String(r.name ?? r.quality ?? "").match(/\d+/)?.[0] ?? 0) }))
         .filter((c) => /^https:\/\//i.test(c.url));
       cands.sort((a, b) => b.q - a.q);
+      if (!cands.length) traceResolveFailure(def.id, "decode", "stream_unavailable", undefined, 0);
       return { streams: cands.length ? [{ url: cands[0].url, kind: "file" as const }] : [] };
     },
     async search(q, page, size) {
@@ -642,10 +680,26 @@ export function createHanime1Adapter(def: SourceDef): SourceAdapter {
       };
     },
     async resolve(id) {
-      let sources = parseSources(await fetchPage(`${base}/watch?v=${id}`));
-      if (sources.length === 0) {
-        try { sources = parseSources(await fetchPage(`${base}/download?v=${id}`)); } catch { /* 下载页不可达：以 watch 页结论为准（无流） */ }
+      /* 取流分段留痕（fix333-m5 P5，与 002 同口径）：watch（详情页
+       * 取数）/download（回落下载页取数）/decode（页内流解析判读）
+       * 三段；下载页失败原为静默吞掉，现留痕后仍按 watch 页结论
+       * 走（行为不变），终局无流同落一条 decode 留痕。 */
+      let watchHtml: string;
+      try {
+        watchHtml = await fetchPage(`${base}/watch?v=${id}`);
+      } catch (e) {
+        traceResolveFailure(def.id, "watch", "watch_fetch_failed", httpStatusOf(e), 0);
+        throw e;
       }
+      let sources = parseSources(watchHtml);
+      if (sources.length === 0) {
+        try {
+          sources = parseSources(await fetchPage(`${base}/download?v=${id}`));
+        } catch (e) { /* 下载页不可达：以 watch 页结论为准（无流），失败本身留痕 */
+          traceResolveFailure(def.id, "download", "download_fetch_failed", httpStatusOf(e), 0);
+        }
+      }
+      if (sources.length === 0) traceResolveFailure(def.id, "decode", "stream_unavailable", undefined, 0);
       return { streams: sources.length ? [{ url: sources[0].url, kind: "file" as const }] : [] };
     },
     async search(q, page, size) {
@@ -716,15 +770,33 @@ export function createHentaihavenAdapter(def: SourceDef): SourceAdapter {
       };
     },
     async resolve(id) {
+      /* 取流分段留痕（fix333-m5 P5，与 002 同口径）：watch（详情页
+       * 取数）/episode（集页取数）/decode（ld+json 流提取判读）
+       * 三段；任一段取数失败或终局无流落 source.resolve_fail，
+       * 抛出点与原实现一致。 */
       const [slug, epPart] = id.split("/episode-");
-      const watchHtml = await fetchPage(`${base}/watch/${slug}/`);
+      let watchHtml: string;
+      try {
+        watchHtml = await fetchPage(`${base}/watch/${slug}/`);
+      } catch (e) {
+        traceResolveFailure(def.id, "watch", "watch_fetch_failed", httpStatusOf(e), 0);
+        throw e;
+      }
       const eps = episodeNums(watchHtml, slug);
       const want = epPart ? Number(epPart) : eps[0];
       let url: string | null = null;
       if (want !== undefined && eps.includes(want)) {
-        url = extractHls(await fetchPage(`${base}/watch/${slug}/episode-${want}/`));
+        let epHtml: string;
+        try {
+          epHtml = await fetchPage(`${base}/watch/${slug}/episode-${want}/`);
+        } catch (e) {
+          traceResolveFailure(def.id, "episode", "episode_fetch_failed", httpStatusOf(e), 0);
+          throw e;
+        }
+        url = extractHls(epHtml);
       }
       url ??= extractHls(watchHtml);
+      if (!url) traceResolveFailure(def.id, "decode", "stream_unavailable", undefined, 0);
       return { streams: url ? [{ url, kind: "hls" as const }] : [] };
     },
     async search(q, page, size) {

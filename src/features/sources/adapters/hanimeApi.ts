@@ -26,6 +26,7 @@ import { fetchPage } from "./fetchPage.ts";
 import { fetchPost, type FetchPostResult } from "./fetchPost.ts";
 import { HANIME_AUTH_ORIGIN, HANIME_CT_ORIGIN, HANIME_GUEST_ORIGIN } from "./fetchOrigins.ts";
 import { metaContent, pageOf, stripTags } from "./parse.ts";
+import { httpStatusOf, traceResolveFailure } from "./resolveTrace.ts";
 import { SourceParseEmptyError } from "./templates.ts";
 
 const CATALOG_URL = `${HANIME_GUEST_ORIGIN}/api/v11/search_hvs`;
@@ -184,66 +185,14 @@ export async function openHandshakeResponse(xToken: string, base: string): Promi
   return streams;
 }
 
-/* ── 取流分段留痕（Muse 2026-11-20 fix331-hanime-403）──
- * 立项依据（设备级实证）：3.3.1 真机 00:56 握手 403 发生在诊断会话
- * 内，整份导出却零记录——POST 接缝无取页埋点、GET 侧记录按
- * baseUrls host 归属错位到不了本源、自检结果是旧账。取流段失败
- * 此前在诊断中不可见，本节堵此洞：resolve 三段（csrf / handshake /
- * decode）任一失败落一条 tracePlayback("source.resolve_fail")，
- * 只带稳定编号（active 注册表顺序 source-NNN）、段名、固定错误码、
- * HTTP 状态（有才带）与尝试序——结构上没有能放令牌/签名/正文的
- * 位置（不变量 10）。动态 import 与 manifest.ts 的解析埋点同模式
- * （避免 adapters → diagnostics/manifest 的静态环）；纯旁路，
- * 埋点失败不影响取流本身。 */
+/* ── 取流分段留痕（Muse 2026-11-20 fix331-hanime-403 立、fix333-m5
+ * 抽共享）── resolve 三段（csrf / handshake / decode）任一失败经共享
+ * 落点 resolveTrace 落 source.resolve_fail（机制与键集合见该文件头）；
+ * 本适配器是四源中第一个接入者，010/011/012 已由 m5 批同口径补齐。 */
 
 export type ResolveSegment = "csrf" | "handshake" | "decode";
 
-/** 留痕数据组装（纯函数，契约可定值断言）：键集合固定为
- * source/segment/code[/status]/attempt，值只来自入参的固定码、
- * 状态与序号。 */
-export function resolveFailureEventData(
-  source: string,
-  segment: ResolveSegment,
-  code: string,
-  status: number | undefined,
-  attempt: number,
-): Record<string, unknown> {
-  return {
-    source,
-    segment,
-    code,
-    ...(status !== undefined ? { status } : {}),
-    attempt,
-  };
-}
-
-function traceResolveFailure(
-  defId: string,
-  segment: ResolveSegment,
-  code: string,
-  status: number | undefined,
-  attempt: number,
-): void {
-  void (async () => {
-    const [diag, manifest, registryDiag] = await Promise.all([
-      import("../../../shared/diagnostics/playbackDiagnostics"),
-      import("../manifest.ts"),
-      import("../registryDiag.ts"),
-    ]);
-    const idx = manifest.getActiveRegistry().sources.findIndex((s) => s.id === defId);
-    diag.tracePlayback(
-      "source.resolve_fail",
-      resolveFailureEventData(registryDiag.sourceStableId(idx >= 0 ? idx : 0), segment, code, status, attempt),
-    );
-  })().catch(() => { /* 诊断不可用时静默 */ });
-}
-
-/** 生产取页栈折叠错误文本里的 HTTP 状态（fetchPage 失败形态
- * 恒为 "HTTP <n>"，见 net/edge）；提取不到回 undefined，不猜。 */
-function httpStatusOf(error: unknown): number | undefined {
-  const m = /^HTTP (\d{3})$/.exec(error instanceof Error ? error.message : String(error));
-  return m ? Number(m[1]) : undefined;
-}
+export { resolveFailureEventData } from "./resolveTrace.ts";
 
 /* ── 适配器 ── */
 

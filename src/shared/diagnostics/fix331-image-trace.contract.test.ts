@@ -11,7 +11,9 @@
  * (2) 逐图终局失败事件的字段口径（ev=failed/error ∧ final=true ∧
  *     surface/origin/reason/attempt/ms）足以被导出逐行渲染——origin
  *     是包装前地址的 host#长度指纹、不含完整 URL；
- * (3) 诊断导出源码确实消费 bySurface 并逐行印终局失败（防接线脱落）。
+ * (3) 诊断导出源码确实消费 bySurface（防接线脱落）；逐图逐行渲染
+ *     已由 fix333-m5 O1 收敛为 imageFailures 明细单段（信息更全），
+ *     本条随之改钉明细段在位＋事件逐图行不复活。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -61,8 +63,13 @@ import { traceFeed, imageStarted, imageDisplayed, imageFailed, feedTraceSnapshot
 {
   const src = readFileSync(new URL("./diagnosticReport.ts", import.meta.url), "utf8");
   assert.ok(src.includes("snap.image.bySurface"), "导出必须消费段位分桶");
-  assert.ok(src.includes("图片失败["), "导出必须逐行印终局失败");
-  assert.ok(src.includes("e.data.final === true"), "导出逐行只取终局失败（与本契约谓词同口径）");
+  /* 逐图呈现收敛（fix333-m5 O1）：导出逐行渲染改走 imageFailures
+   * 明细环单段（12 条、双耗时档＋stage），原事件逐图行（6 条、单
+   * 耗时档）已删——同一失败双段并存易被误计为两批。防脱落断言
+   * 随之改钉明细段，并钉事件逐图行不复活。 */
+  assert.ok(src.includes("snap.imageFailures.slice(-12)"), "导出必须逐行印终局失败（明细环单段）");
+  assert.ok(src.includes("图片失败明细（最近"), "导出逐图明细节标题在位");
+  assert.ok(!src.includes("图片失败["), "事件逐图行已删、不许双段复活（m5 O1）");
 }
 
 console.log("fix331-image-trace contract: all passed");

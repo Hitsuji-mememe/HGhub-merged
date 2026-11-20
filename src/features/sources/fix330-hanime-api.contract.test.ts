@@ -164,11 +164,14 @@ const catalogJson = fx("hanime-search-hvs.json");
   const noStatus = resolveFailureEventData("source-002", "decode", "decode_failed", undefined, 1);
   assert.deepEqual(Object.keys(noStatus).sort(), ["attempt", "code", "segment", "source"], "无状态时 status 键整缺、键集合封闭");
   const adapterSrc = readFileSync(new URL("./adapters/hanimeApi.ts", import.meta.url), "utf8");
-  assert.ok(adapterSrc.includes('tracePlayback(\n      "source.resolve_fail"') || adapterSrc.includes('"source.resolve_fail"'), "resolve 失败经 source.resolve_fail 留痕");
+  /* 留痕落点已抽共享 resolveTrace.ts（fix333-m5，四源同口径）：事件名
+   * 字面与组装口径以共享文件为准，hanimeApi 只保留三段调用点。 */
+  const traceSrc = readFileSync(new URL("./adapters/resolveTrace.ts", import.meta.url), "utf8");
+  assert.ok(traceSrc.includes('tracePlayback(\n      "source.resolve_fail"') || traceSrc.includes('"source.resolve_fail"'), "resolve 失败经 source.resolve_fail 留痕");
   for (const seg of ['"csrf"', '"handshake"', '"decode"']) {
     assert.ok(adapterSrc.includes(`traceResolveFailure(def.id, ${seg}`), `三段留痕齐全：${seg}`);
   }
-  assert.ok(!adapterSrc.includes("tracePlayback") || !/tracePlayback\([^)]*(req\.|headers|csrfToken)/.test(adapterSrc), "留痕落点不直收请求材料（只经 resolveFailureEventData 固定组装）");
+  assert.ok(!traceSrc.includes("tracePlayback") || !/tracePlayback\([^)]*(req\.|headers|csrfToken)/.test(traceSrc), "留痕落点不直收请求材料（只经 resolveFailureEventData 固定组装）");
 
   /* 终局拒绝：非 CSRF 错误的 403 不重试、错误文案保持固定形态 */
   setFetchPage(async (url) => {

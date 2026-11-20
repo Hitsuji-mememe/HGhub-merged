@@ -1963,6 +1963,45 @@
       "item": "fix333-M3（清扫 P9）模板段事实单一派生：templateSegments 探针（工厂实例化按方法存在性）定义 templateHasSearch/templateHasAdapter，multiSourceSearch 的 missingSearchSegments 只消费派生、不再持有模板副本集合",
       "min": 3,
       "symbol": "templateHasSearch"
+    },
+    {
+      "files": [
+        "src/features/sources/adapters/resolveTrace.ts",
+        "src/features/sources/adapters/templates.ts"
+      ],
+      "id": "fix333-m5-resolve-trace-shared",
+      "item": "fix333-m5 P5 取流分段留痕共享落点：resolveTrace 定义 traceResolveFailure＋templates 三源（iwara/hanime1/hentaihaven）resolve 各段生产调用，四源与 002 同落 source.resolve_fail",
+      "min": 2,
+      "symbol": "traceResolveFailure"
+    },
+    {
+      "files": [
+        "src/shared/diagnostics/resolveFailLines.ts",
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "id": "fix333-m5-resolve-fail-section",
+      "item": "fix333-m5 P5 取流失败留痕结构化节：resolveFailSectionLines 定义＋diagnosticReport 取流失败留痕节消费（全量解析日志、非尾段切片）",
+      "min": 3,
+      "symbol": "resolveFailSectionLines"
+    },
+    {
+      "files": [
+        "src/shared/lib/feedTrace.ts",
+        "src/shared/diagnostics/diagnosticReport.ts"
+      ],
+      "id": "fix333-m5-image-surface-label",
+      "item": "fix333-m5 O4 图片面中文标签单一出处：feedTrace 定义 imageSurfaceLabel（六面齐全）＋diagnosticReport 分桶行/明细行共用",
+      "min": 3,
+      "symbol": "imageSurfaceLabel"
+    },
+    {
+      "files": [
+        "src/features/sources/healthCheck.ts"
+      ],
+      "id": "fix333-m5-selfcheck-requests-caliber",
+      "item": "fix333-m5 O2 自检 requests 适配器调用口径标注：字段定义＋单源段段尾＋汇总行定义三处同口径，不许裸称请求数",
+      "min": 3,
+      "symbol": "适配器调用口径"
     }
   ]
 }

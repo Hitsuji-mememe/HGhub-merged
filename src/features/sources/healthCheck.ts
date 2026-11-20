@@ -57,7 +57,8 @@ import { classifyFetchError } from "./adapters/fetchErrorClassify.ts";
 import { getActiveRegistry, getRegistryInfo } from "./manifest.ts";
 
 export const SELF_CHECK_STORAGE_KEY = "hghubx_source_selfcheck_v1";
-/** 每源请求硬预算：列表 1 页＋（有条目时）详情 1 条＋（视频类）取流 1 次。 */
+/** 每源请求硬预算：列表 1 页＋（有条目时）详情 1 条＋（视频类）取流 1 次。
+ * 按适配器调用计（口径定义见 SourceSelfCheckResult.requests）。 */
 export const SELF_CHECK_MAX_REQUESTS_PER_SOURCE = 3;
 export const SELF_CHECK_LIST_PAGE_SIZE = 20;
 /** 启动延迟：避开启动/注册表解析/首屏取页高峰。 */
@@ -94,7 +95,13 @@ export interface SourceSelfCheckResult {
   /** 探测时的 App 版本（结果指纹：适配器代码随 App 换代，旧版本
    * 探得的结果——如旧抓页路线时代的失败——不许冒充现行结论）。 */
   appVersion: string;
-  /** 本次实际发出的适配器请求数（≤ 硬预算）。 */
+  /** 本次自检的适配器调用数（≤ 硬预算）。口径（唯一定义，fix333-m5
+   * O2）：列表/详情/取流三次适配器调用各计 1，与 HTTP 请求数不是
+   * 一回事——一次调用内可含多次 HTTP（如 002 取流一次调用含 CSRF
+   * 取令牌 GET＋握手 POST 共 2 次 HTTP、计 1；010 取流含详情页＋
+   * 下载页两取、计 1）。旧口径只叫「请求数」，与真实网络量对不上、
+   * 判读易误读；诊断呈现恒带「适配器调用口径」标注（见
+   * selfCheckSegmentText/selfCheckDiagLines）。 */
   requests: number;
 }
 
@@ -575,8 +582,14 @@ function timeText(at: number): string {
 
 /** 单源自检段（App 内明细用）：恒带「最近自检」口径标注，与明细行
  * 里的「本会话取页」段并存不互盖。三段逐段呈现：末段失败单独成
- * 句——取流/正文/图集死在这里必须看得见，不许被「详情可达」盖住。 */
+ * 句——取流/正文/图集死在这里必须看得见，不许被「详情可达」盖住。
+ * 段尾恒缀请求数＋口径标注（fix333-m5 O2）：requests 是适配器调用
+ * 口径（定义见结果字段），不许裸数字出门被误读为 HTTP 请求数。 */
 export function selfCheckSegmentText(r: SourceSelfCheckResult): string {
+  return `${selfCheckSegmentBody(r)} · 请求 ${r.requests} 次（适配器调用口径）`;
+}
+
+function selfCheckSegmentBody(r: SourceSelfCheckResult): string {
   const t = timeText(r.at);
   if (!r.listOk) return `最近自检 失败·${r.listFailure ?? "其他"} · 详情未探（${t}）`;
   if (r.detail === "fail") {
@@ -623,7 +636,7 @@ export function selfCheckDiagLines(
   }
   const checked = ok + partial + down;
   return [
-    `源自检（最近自检口径，与本会话取页分开）：已检 ${checked} · 可用 ${ok} · 部分可用 ${partial} · 不可用 ${down} · 未自检 ${sources.length - checked}`,
+    `源自检（最近自检口径，与本会话取页分开）：已检 ${checked} · 可用 ${ok} · 部分可用 ${partial} · 不可用 ${down} · 未自检 ${sources.length - checked} · 请求数＝适配器调用口径（列表/详情/取流各计 1，一次调用内可含多次 HTTP）`,
     ...per,
   ];
 }
