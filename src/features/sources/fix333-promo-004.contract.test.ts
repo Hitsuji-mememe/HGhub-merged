@@ -40,8 +40,12 @@
  * (5) 验杀会话：并发 ≤3；在飞去重；详情失败不判不落缓存（网
  *     络失败≠站务）；unknown 不落缓存；已落盘判定经 enqueue
  *     直接回放、不再抓详情（每帖一生只验一次）。
- * (6) 注册表口径：仅 feedheiliao 声明 staffVerify（890/3），
- *     其余源零外溢；SourcePosts 接线文本断言（hook 真接入）。
+ * (6) 注册表口径：feedheiliao 声明 staffVerify（890/3）；3.3.5
+ *     fix335/b-purify 起 51chigua（100000/26）与 meiridasai
+ *     （100000/18）按实拉量测分布校准后同声明（字数不承重、eps
+ *     ∧图数分离，证据 fix335/evidence/b-purify.md，判据行为由
+ *     fix335-b-purify 契约钉死）；其余源零外溢；SourcePosts 接
+ *     线文本断言（hook 真接入）。
  * 夹具为合成形态，不访问真实网络。
  */
 import assert from "node:assert/strict";
@@ -83,11 +87,15 @@ const flush = async (rounds = 60) => {
   for (let i = 0; i < rounds; i++) await new Promise((r) => setTimeout(r, 2));
 };
 
-/* ── (6) 注册表口径：仅 004 声明、阈值与样本分布一致 ── */
+/* ── (6) 注册表口径：声明源与阈值逐源钉死、其余零外溢 ── */
 {
   assert.deepEqual(cfgOf("feedheiliao"), { maxBodyChars: 890, maxBodyImages: 3 },
     "feedheiliao 声明 staffVerify（字数 890＝站务上限 706 与内容下限 1075 中点；图数 3＝M8 全量量测空带 2–6 中段）");
-  for (const id of ["51chigua", "meiridasai", "huangguo", "xiuren", "hanime-tv"]) {
+  assert.deepEqual(cfgOf("51chigua"), { maxBodyChars: 100000, maxBodyImages: 26 },
+    "51chigua 声明 staffVerify（fix335/b-purify 校准：字数不承重 100000；图 26＝站务图数上限 23 与内容下限 30 的空带 24–29 内）");
+  assert.deepEqual(cfgOf("meiridasai"), { maxBodyChars: 100000, maxBodyImages: 18 },
+    "meiridasai 声明 staffVerify（fix335/b-purify 校准：字数不承重 100000；图 18＝公告图数上限 16 与内容下限 21 的空带 17–20 内）");
+  for (const id of ["huangguo", "xiuren", "hanime-tv"]) {
     assert.equal(staffVerifyConfig(def(id)), null, `${id} 未声明 staffVerify（零外溢）`);
   }
   assert.match(promoVerifyScope(def("feedheiliao"), cfgOf("feedheiliao")),
