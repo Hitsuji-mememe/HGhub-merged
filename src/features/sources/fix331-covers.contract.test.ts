@@ -73,4 +73,17 @@ const def = (id: string): SourceDef => {
   assert.equal(c.cover, "", "无封面载体的卡片 cover 必须为空串，不许补成站点根地址");
 }
 
+/* ── (4) reader3 批追加：z-bg-loader-url 载体（source-003 列表页
+ *        2026-11-20 实测：两页 48 张卡片中 45 张只带此载体，生产
+ *        firstCoverSrc 返回 ""——卡片在解析层无封面。证据
+ *        fix333/evidence/reader3.md。同属 loader 属性族，优先级与
+ *        既有 loader 一致，排在 img 系之后、脚本参数之前） ── */
+{
+  const zbg = `<div class="post-card"><div class="blog-background" z-bg-loader-url="https://pic.fixture.invalid/z.jpg"></div></div>`;
+  assert.equal(firstCoverSrc(zbg), "https://pic.fixture.invalid/z.jpg",
+    "z-bg-loader-url 必须被识别为封面（旧码返回空串）");
+  const zbgImgFirst = `<img data-src="https://img.fixture.invalid/first.jpg"><div z-bg-loader-url="https://pic.fixture.invalid/z.jpg"></div>`;
+  assert.equal(firstCoverSrc(zbgImgFirst), "https://img.fixture.invalid/first.jpg", "img 系属性仍优先于 z-bg-loader-url");
+}
+
 console.log("fix331-covers contract: all passed");

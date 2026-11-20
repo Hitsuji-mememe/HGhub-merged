@@ -81,11 +81,15 @@ export function headingText(fragment: string): string {
  * 问题①）：source-005 卡片封面不在任何属性上，只由内联脚本调用
  * loadBannerDirect('<直址>', '', el, ...) 的第一字符串参数承载
  * （2026-11-20 本机抓真站列表页实测形态）；前两级落空时按此兜底。
- * 只认 http(s) 直址、单双引号通吃。 */
+ * 只认 http(s) 直址、单双引号通吃。
+ * 第四载体（Muse 2026-11-20 fix333/reader3，3.3.2 真机验收）：source-003
+ * 列表页卡片改用 z-bg-loader-url 承封面（2026-11-20 实测两页 48 卡
+ * 中 45 卡只有此载体、旧链返回 ""；与 x-bg 同为该主题的背景懒加载
+ * 属性族），并入同一级 loader 属性 alternation，优先级不变。 */
 export function firstCoverSrc(fragment: string): string {
   const img = firstImgSrc(fragment);
   if (img) return img;
-  const m = /\b(?:x-bg-loader-url|z-image-loader-url)=(["'])([^"']+)\1/i.exec(fragment);
+  const m = /\b(?:x-bg-loader-url|z-bg-loader-url|z-image-loader-url)=(["'])([^"']+)\1/i.exec(fragment);
   if (m) return decodeEntities(m[2]);
   const s = /\bloadBannerDirect\(\s*(["'])(https?:\/\/[^"']+)\1/i.exec(fragment);
   return s ? decodeEntities(s[2]) : "";
