@@ -145,7 +145,9 @@ const hhDetail = await hhAdapter.detail("fixture-slug-001");
   const browse = src("./SourceBrowse.tsx");
   assert.ok(browse.includes("episodeChoicesForSurface"), "SourceBrowse 消费选集派生");
   assert.ok(browse.includes("\"play-external\""), "SourceBrowse 宿主面＝play-external");
-  assert.ok(browse.includes("EpisodePicker"), "SourceBrowse 渲染 EpisodePicker");
+  /* 渲染形断言（fix334 清扫已坏-3 补强）：只查符号子串时改名/
+   * 摘除 JSX 渲染仍全绿——须断言 JSX 实际渲染形在场。 */
+  assert.ok(browse.includes("<EpisodePicker "), "SourceBrowse 实际渲染 EpisodePicker（JSX 形）");
   assert.ok(browse.includes("adapter.detail(item.externalId)"), "SourceBrowse openItem 并发取 detail（选集数据来源）");
   assert.ok(browse.includes("currentEpExternalId"), "SourceBrowse 持有当前集状态");
   assert.ok(browse.includes("scopeKey={`${def.id}:${detail.currentEpExternalId}`}"), "Player scopeKey 随当前集变更（防串集缓存）");
@@ -154,7 +156,7 @@ const hhDetail = await hhAdapter.detail("fixture-slug-001");
   const search = src("../search/Search.tsx");
   assert.ok(search.includes("episodeChoicesForSurface"), "Search 消费选集派生");
   assert.ok(search.includes("\"search-external-detail\""), "Search 宿主面＝search-external-detail");
-  assert.ok(search.includes("EpisodePicker"), "Search 详情层渲染 EpisodePicker");
+  assert.ok(search.includes("<EpisodePicker "), "Search 详情层实际渲染 EpisodePicker（JSX 形，清扫已坏-3 补强）");
   assert.ok(search.includes("switchEpisode"), "Search 有切集动作");
   /* 副本切换不带选集状态（fix334 清扫已坏-1）：switchCopy 构造新
    * 副本 data 时须显式剔除上一副本的 epExternalId/epError（ExtReady

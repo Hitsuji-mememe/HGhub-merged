@@ -360,6 +360,12 @@ for (const [si, state] of STATES.entries()) {
   assert.equal(topUpOf("diag-export"), "none");
   assert.ok(srcText("../category/Category.tsx").includes("useSourceSelfCheckOnShow"), "总览行面 OnShow 落点在 Category");
   assert.ok(srcText("./SourceSwitcher.tsx").includes("useSourceSelfCheckOnShow"), "切换器 OnShow 落点（M3/M7/M10 共用）");
+  /* Profile 消费断言（fix334 清扫已坏-3 补强）：routeForSurface 的
+   * 全仓唯一生产消费者是 Profile 回访路由——此前本契约对该消费
+   * 零断言、wiring 只查符号出现（import 行即满足），摘除实际调
+   * 用全绿。断言钉实际调用形：摘调用只剩 import 必须变红。 */
+  assert.ok(srcText("../account/Profile.tsx").includes("routeForSurface(surface, def, { active, builtin })"),
+    "Profile 回访以实际调用形消费 routeForSurface 派生");
   for (const f of ["./SourcePosts.tsx", "./SourceGallery.tsx", "./SourceBrowse.tsx"]) {
     assert.ok(srcText(f).includes("useSourceSelfCheckOnView"), `${f} OnView 落点（view-single 宿主）`);
   }

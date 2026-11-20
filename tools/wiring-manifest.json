@@ -2073,26 +2073,24 @@
       "symbol": "templateCapabilitiesFor"
     },
     {
+      "each": true,
       "files": [
-        "src/features/sources/episodes.ts",
         "src/features/sources/SourceBrowse.tsx",
         "src/features/search/Search.tsx"
       ],
       "id": "fix334-g3-episodes-derivation",
-      "item": "结构批 L2／G3：选集适用性单一派生 episodeChoicesForSurface（定义＋SourceBrowse／Search 两宿主消费）",
-      "min": 3,
-      "symbol": "episodeChoicesForSurface"
+      "item": "结构批 L2／G3：选集适用性单一派生 episodeChoicesForSurface 两宿主调用形（带面字面量实参、逐文件必在——fix334 清扫已坏-3 补强，原三文件合计计数下单宿主摘除不可见；定义由 episodes.ts 导出、g3/surfaces 契约行为断言守）",
+      "symbol": "episodeChoicesForSurface(\""
     },
     {
+      "each": true,
       "files": [
-        "src/features/sources/EpisodePicker.tsx",
         "src/features/sources/SourceBrowse.tsx",
         "src/features/search/Search.tsx"
       ],
       "id": "fix334-g3-episode-picker",
-      "item": "结构批 L2／G3：外部源选集组件 EpisodePicker（定义＋两宿主渲染）",
-      "min": 3,
-      "symbol": "EpisodePicker"
+      "item": "结构批 L2／G3：外部源选集组件 EpisodePicker 两宿主 JSX 渲染形（逐文件必在；改名/摘除任一宿主渲染即红——fix334 清扫已坏-3 补强，原符号计数口径下定义文件自满额、宿主摘除不可见；组件定义由 g3 契约 §5 文件断言守）",
+      "symbol": "<EpisodePicker "
     },
     {
       "files": [
@@ -2161,9 +2159,9 @@
         "src/features/account/Profile.tsx"
       ],
       "id": "fix334-g4-profile-revisit",
-      "item": "结构批 L3／G4：Profile 回访路由经 surfaces 派生消费（routeForSurface），不本地另判",
+      "item": "结构批 L3／G4：Profile 回访路由经 surfaces 派生消费（routeForSurface 实际调用形；摘除调用只剩 import 也须红——fix334 清扫已坏-3 补强），不本地另判",
       "min": 1,
-      "symbol": "routeForSurface"
+      "symbol": "routeForSurface(surface, def, { active, builtin })"
     }
   ]
 }
