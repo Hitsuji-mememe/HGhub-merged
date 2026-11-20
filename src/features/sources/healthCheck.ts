@@ -8,7 +8,8 @@
  *
  * 纪律（红线）：
  * ① 静默：无弹窗、无任何用户可见打扰；呈现只走既有状态位——
- *    诊断导出与 App 内源明细（registryDiag 两条呈现路径），以及
+ *    诊断导出（registryDiag 导出路径；原 App 内明细路径已于
+ *    fix334/L4 随死面删除），以及
  *    浏览面原有的状态徽标位（2026-11-20 用户裁定：源可靠性状态
  *    收敛为单一派生 classifySelfCheckResult，切换器/总览的徽标
  *    改读派生，不再各读静态 maturity——此前双轨并存时同一源可
@@ -780,14 +781,14 @@ export function startSourceSelfCheckScheduler(partial: PartialDeps): boolean {
   }
 }
 
-/* ── 诊断呈现构建（registryDiag 两条路径共用，口径在此一处） ── */
+/* ── 诊断呈现构建（导出路径的逐源行经 selfCheckDiagLines 消费，
+ * 口径在此一处） ── */
 
 function timeText(at: number): string {
   return new Date(at).toLocaleTimeString("zh-CN", { hour12: false });
 }
 
-/** 单源自检段（App 内明细用）：恒带「最近自检」口径标注，与明细行
- * 里的「本会话取页」段并存不互盖。三段逐段呈现：末段失败单独成
+/** 单源自检段：恒带「最近自检」口径标注。三段逐段呈现：末段失败单独成
  * 句——取流/正文/图集死在这里必须看得见，不许被「详情可达」盖住。
  * 段尾恒缀请求数＋口径标注（fix333-m5 O2）：requests 是适配器调用
  * 口径（定义见结果字段），不许裸数字出门被误读为 HTTP 请求数。 */

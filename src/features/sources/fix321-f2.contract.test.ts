@@ -51,13 +51,18 @@ const def = (id: string) => {
 }
 
 /* ── (b) 浏览面只显示已启用源：分类总览不再渲染未启用源块；
- * 未启用源只在管理/诊断面（registryDiag 全量明细）可见。 ── */
+ * 未启用源只在诊断面（registryDiag 导出路径全量总览）可见。
+ * 断言适配（fix334/L4，2026-11-20）：原 App 内明细面
+ * sourceHealthDetailLinesInApp 无生产消费者、已按清扫口径删除，
+ * 「诊断面保留全量源」的钉改挂导出路径 sourceHealthLines（其 L1
+ * 总览遍历全注册表、含停用计数），覆盖意图不变。 ── */
 {
   const category = read("../category/Category.tsx");
   assert.ok(!category.includes("未启用"), "Category 浏览面不渲染「未启用」源条目");
   assert.ok(!category.includes("!s.enabled"), "Category 浏览面无未启用源过滤渲染块");
   const diag = read("./registryDiag.ts");
-  assert.ok(diag.includes("sourceHealthDetailLinesInApp"), "管理/诊断明细面仍保留全量源（含未启用）");
+  assert.ok(diag.includes("sourceHealthLines"), "诊断导出面仍保留全量源（含未启用）");
+  assert.ok(!diag.includes("export function sourceHealthDetailLinesInApp"), "App 内明细死面已删除（fix334/L4）");
 }
 
 /* ── (c) 肉视频：真站 /home 卡片锚点 /v/<id>（根路径为年龄门）。

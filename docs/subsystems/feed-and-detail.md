@@ -543,6 +543,21 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   红：基线 localLibrary 无 externalHashId 等封装、library 派生
   ＝g4-pending；新绿七节含旧格式读入零变化与逐面接线文本断
   言），详见 `~/workspace/hghub/fix334/evidence/l3-g4.md`。
+- **结构批 L4 集成：死面 M20 删除（fix334，3.3.4）**：诊断 App
+  内明细面（`registryDiag.sourceHealthDetailLinesInApp`）自立项
+  起无任何生产消费者（只有契约文本断言其存在），按 L1 的 D-4
+  清扫口径整面删除：函数本体、surfaces 的 `diag-inapp` 声明条
+  目与路由分支、wiring 三条明细消费条目（fix321-f7-diag-detail
+  ／fix321-f8-diag-params／fix321-f8-diag-fault-class）、四份契
+  约里指向它的接线断言（fix321-f2／f7／f8／fix331-reliability，
+  其中 f2 的「诊断面保留全量源」改挂导出路径 sourceHealthLines，
+  纯函数覆盖不减）。**面数落账：surfaces 21 → 20 面**，完备性契
+  约以断言钉死（SURFACES.length＝20、无 diag-inapp、现存面无
+  dead 标注）；诊断呈现只剩导出一条路径。如实记账：healthCheck
+  的 `selfCheckStatusText` 与 adapterParams 的
+  `adapterParamsSegmentText`／`classifySourceFault` 就此失去生产
+  消费者（构建器与契约覆盖保留），去留留清扫裁定。集成报告
+  `~/workspace/hghub/fix334/integration-report-334.md`。
 
 ## 验证命令
 

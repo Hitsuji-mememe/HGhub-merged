@@ -223,9 +223,9 @@ function checkResult(sourceId: string, over: Partial<SourceSelfCheckResult> = {}
 {
   const main = read("../../main.tsx");
   assert.ok(main.includes("verifyAppliedAdapterParams"), "main.tsx 启动装配参数校验回滚");
-  const diag = read("./registryDiag.ts");
-  assert.ok(diag.includes("adapterParamsSegmentText("), "registryDiag 明细呈现参数来源");
-  assert.ok(diag.includes("classifySourceFault("), "registryDiag 明细呈现故障类标注");
+  /* 原 registryDiag 明细呈现两断言（adapterParamsSegmentText /
+   * classifySourceFault 的 App 内明细消费）随该死面于 fix334/L4
+   * 删除；两构建器本身的纯函数覆盖在本文件上文不变。 */
   const manifestSrc = read("./manifest.ts");
   // 契约适配（3.3.0 集成，2026-11-19）：原断言写死 "3.2.1"，版本 bump 后
   // 必然假红；保护的行为是「FALLBACK_APP_VERSION 与 package.json 同步」，改为

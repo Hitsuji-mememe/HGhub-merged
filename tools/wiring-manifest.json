@@ -684,15 +684,6 @@
       "min": 1
     },
     {
-      "id": "fix321-f7-diag-detail",
-      "item": "F7 自检结果进 App 内源明细（registryDiag 明细行消费 selfCheckSegmentText）",
-      "files": [
-        "src/features/sources/registryDiag.ts"
-      ],
-      "symbol": "selfCheckSegmentText(",
-      "min": 1
-    },
-    {
       "id": "fix321-f7-storage-key",
       "item": "F7 自检结果落盘键 hghubx_*（不变量 7）",
       "files": [
@@ -1315,15 +1306,6 @@
       "min": 3
     },
     {
-      "id": "fix321-f8-diag-params",
-      "item": "F8 诊断明细呈现参数来源 adapterParamsSegmentText（registryDiag App 内明细消费）",
-      "files": [
-        "src/features/sources/registryDiag.ts"
-      ],
-      "symbol": "adapterParamsSegmentText(",
-      "min": 1
-    },
-    {
       "id": "fix330-diag-levels-report-line",
       "item": "3.3.0批诊断档位线 报告独立档位行 formatLevelFactsLine（定义＋diagnosticReport 双分支消费）：含播放必出、三要素逐项、缺失标未知＋来源",
       "files": [
@@ -1342,15 +1324,6 @@
       ],
       "symbol": "levelFactsFromFirstRendition",
       "min": 2
-    },
-    {
-      "id": "fix321-f8-diag-fault-class",
-      "item": "F8 诊断明细故障类标注 classifySourceFault（registryDiag 消费纯函数定性）",
-      "files": [
-        "src/features/sources/registryDiag.ts"
-      ],
-      "symbol": "classifySourceFault(",
-      "min": 1
     },
     {
       "id": "fix321-f8-storage-key",

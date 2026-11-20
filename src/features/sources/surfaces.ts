@@ -17,6 +17,12 @@
  * （fix334-surfaces.contract.test.ts）守住，暂不替换各面现行判定；
  * 逐面换读归 L2/L3 接线。派生与现行裁定的对账见 L1 报告。
  *
+ * L4 集成（2026-11-20）：死面 M20（diag-inapp，App 内源明细）已按
+ * D-4 清扫口径删除——registryDiag 的 sourceHealthDetailLinesInApp
+ * 无任何生产消费者，本表的 diag-inapp 条目、对应 wiring 条目与各
+ * 契约的明细接线断言同步移除，面数 21 → 20。现存 20 面均无 dead
+ * 标注；dead 机制保留给未来死面先标注后处置。
+ *
  * 语义约定：
  * - route 回答「该面与该源的关系」：native＝走仓内既有 api 通道
  *   （仅 001）；browse＝经外部浏览组件/加载器接通；notice＝诚实提示
@@ -56,7 +62,8 @@ import { searchPolicyFor } from "../search/multiSourceSearch.ts";
 import { selfCheckEligible } from "./healthCheck.ts";
 import type { SourceCategory, SourceDef } from "./types.ts";
 
-/* ── 面枚举与元数据（21 面，与设计 §1.1 同编号语义） ── */
+/* ── 面枚举与元数据（20 面，与设计 §1.1 同编号语义；原第 21 面
+ * M20 diag-inapp 为死面，已于 fix334/L4 集成删除，见文件头） ── */
 export interface SurfaceMeta {
   id: string;
   /** 面的品类口径：具体品类／all＝跨品类／native-only＝原生构成面。 */
@@ -64,8 +71,9 @@ export interface SurfaceMeta {
   /** 自检补探触发策略声明（设计 §1.5）：执行仍归 sourceHealth/
    * healthCheck，本处只声明、契约对账现行钩子落点。 */
   topUp: "view-single" | "show-batch" | "none";
-  /** 死面标注（D-4）：生产消费者为 0 的面在此明示，不冒充活面；
-   * 本批只标注，删除/接 UI 的处置留后续线（清扫口径）。 */
+  /** 死面标注（D-4）：生产消费者为 0 的面在此明示，不冒充活面。
+   * 机制保留：新死面出现时先标注、再按清扫口径处置（M20 即经
+   * 此标注后于 L4 删除）。 */
   dead?: string;
 }
 
@@ -89,10 +97,6 @@ export const SURFACES = [
   { id: "library", category: "all", topUp: "none" },
   { id: "discover", category: "native-only", topUp: "none" },
   { id: "diag-export", category: "all", topUp: "none" },
-  {
-    id: "diag-inapp", category: "all", topUp: "none",
-    dead: "生产消费者为 0（sourceHealthDetailLinesInApp 只有契约文本断言其存在、无 UI 消费）：死面，D-4 处置（删除或另立小线接 UI）留后续线，本批只标注",
-  },
   { id: "selfcheck", category: "all", topUp: "none" },
 ] as const satisfies readonly SurfaceMeta[];
 
@@ -307,9 +311,8 @@ export function routeForSurface(
       return browseOrNoAdapter(def, "ProfileLibrary");
     }
 
-    /* 诊断列示：全注册表在册（含停用源的计数/明细），无逐源导航。 */
+    /* 诊断列示：全注册表在册（含停用源的计数），无逐源导航。 */
     case "diag-export":
-    case "diag-inapp":
       return LISTED;
 
     /* 自检计划：合格集＝selfCheckEligible（唯一口径）；不合格按

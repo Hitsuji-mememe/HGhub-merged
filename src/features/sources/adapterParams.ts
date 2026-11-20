@@ -281,8 +281,10 @@ export function classifySourceFault(def: SourceDef, result: SourceSelfCheckResul
   return "需发版";
 }
 
-/** 诊断呈现段（registryDiag App 内明细消费）：参数来源一眼可读——
- * 清单 vN（已应用/待验证）或已回滚到的版本；无记录返回空串。 */
+/** 诊断呈现段：参数来源一眼可读——清单 vN（已应用/待验证）或
+ * 已回滚到的版本；无记录返回空串。原唯一生产消费者（registryDiag
+ * App 内明细）已于 fix334/L4 随死面删除，本构建器保留契约覆盖，
+ * 去留留清扫裁定。 */
 export function adapterParamsSegmentText(sourceId: string, state: AdapterParamsState = loadState()): string {
   const rec = state.applied[sourceId];
   if (rec) {

@@ -197,7 +197,7 @@ const nativeOf = (def: SourceDef) => def.adapter.template === "native-huangguo";
 function expectedClass(surface: SurfaceId, def: SourceDef, active: SourceDef[]): Class {
   const sel = (cat: SourceDef["category"]) => resolveSelectedSource(def.id, sourcesForCategory(cat, active));
   switch (surface) {
-    case "diag-export": case "diag-inapp":
+    case "diag-export":
       return "applicable";
     case "selfcheck":
       return selfCheckEligible(def) ? "applicable" : "na";
@@ -339,8 +339,14 @@ for (const [si, state] of STATES.entries()) {
   /* 陈旧 id（def 缺失）在可寻址面落 gone 提示。 */
   assert.deepEqual(routeForSurface("deeplink-image", undefined, ctx), { kind: "notice", reason: "gone" }, "缺失源×M8＝gone");
   assert.deepEqual(routeForSurface("posts-page", undefined, ctx), { kind: "notice", reason: "gone" }, "缺失源×M10＝gone");
-  /* 死面标注（D-4）：M20 在元数据里显式标死，不冒充活面。 */
-  assert.ok(SURFACES.find((s) => s.id === "diag-inapp")?.dead, "M20 须在 SURFACES 元数据标注为死面");
+  /* 死面处置落账（D-4）：M20（diag-inapp）L1 时在元数据标死，
+   * fix334/L4 集成已按清扫口径整面删除（函数/声明/wiring/接线
+   * 断言同步移除）——面数 21 → 20、无 diag-inapp、现存面无 dead
+   * 标注；dead 机制本身保留（校验器对 dead 面的处理在 §2b 突变
+   * 自检的历史口径之外，此处只钉删除后的事实）。 */
+  assert.equal(SURFACES.length, 20, "面数落账：M20 删除后 20 面");
+  assert.ok(!SURFACES.some((s) => (s.id as string) === "diag-inapp"), "diag-inapp 已删除、不许复活");
+  assert.ok(SURFACES.every((s) => !(s as { dead?: string }).dead), "现存 20 面均无 dead 标注");
   /* 声明表每条都有理由文本（声明不许只剩 key）。 */
   for (const [key, decl] of Object.entries(SURFACE_DECLARATIONS)) {
     assert.ok(decl.reason.length > 0, `声明 ${key} 须有理由`);

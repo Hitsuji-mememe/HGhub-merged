@@ -236,10 +236,12 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   assert.ok(joined.includes("source-001"), "成功源同样出自检行");
   assert.ok(joined.includes("未自检 1"), "无结果源计入未自检（不冒充未发生）");
   const seg = selfCheckSegmentText(results.swag);
-  assert.ok(seg.includes("最近自检") && seg.includes("解析为空"), "App 内明细段含口径与失败形态");
+  assert.ok(seg.includes("最近自检") && seg.includes("解析为空"), "自检段构建器含口径与失败形态");
   const diag = read("./registryDiag.ts");
   assert.ok(diag.includes("selfCheckDiagLines("), "导出路径 sourceHealthLines 消费自检行构建器");
-  assert.ok(diag.includes("selfCheckSegmentText("), "App 内明细路径消费自检段构建器");
+  /* 原「App 内明细路径消费自检段构建器」断言随该死面于 fix334/L4
+   * 删除；selfCheckSegmentText 的生产消费改由导出路径的
+   * selfCheckDiagLines 承担（healthCheck 内，上行断言已钉）。 */
   assert.ok(diag.includes("getSelfCheckResults("), "registryDiag 读落盘自检结果");
 }
 

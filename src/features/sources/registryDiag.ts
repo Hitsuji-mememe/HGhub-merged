@@ -1,15 +1,16 @@
 /* ── 源诊断（Muse 2026-11-19 根治包·飞行记录仪收口；2026-11-19
  * 整改 C8 报告格式重构）──
- * 本文件有两条路径，严格分开：
- * ① sourceHealthLines()＝默认导出路径（经 provider 钩子被诊断报告
- *    消费）：只出 L1 总览计数＋L2 当前源一行＋L3 分组计数与异常编号
- *    清单，全程稳定编号（source-001…，按 active 注册表顺序）、零业
- *    务名、零域名/host。
- * ② sourceHealthDetailLinesInApp()＝App 内明细专用：含业务名与生效
- *    origin，供 App 内排障界面用；禁止进导出路径（任何导出/复制/
- *    分享文本都不许调用它拼段）。
- * 两条路径都并入源健康自检结果（fix321-F7，healthCheck.ts 落盘）：
- * 「最近自检」口径与「本会话取页」口径同行并存、标注分清、不互盖。
+ * 本文件只剩一条路径：sourceHealthLines()＝默认导出路径（经
+ * provider 钩子被诊断报告消费）：只出 L1 总览计数＋L2 当前源一行
+ * ＋L3 分组计数与异常编号清单，全程稳定编号（source-001…，按
+ * active 注册表顺序）、零业务名、零域名/host。导出路径并入源健康
+ * 自检结果（fix321-F7，healthCheck.ts 落盘）：「最近自检」口径与
+ * 「本会话取页」口径同行并存、标注分清、不互盖。
+ * 原 App 内明细路径 sourceHealthDetailLinesInApp（整改 C8 时立，
+ * 含业务名与生效 origin）自始无任何生产消费者（只有契约文本断言
+ * 其存在），已于 2026-11-20 fix334/L4 集成按 L1 清扫口径删除
+ * （D-4 处置落地）；surfaces 的 diag-inapp 死面声明、对应 wiring
+ * 条目与各契约的明细接线断言同步移除。
  * 2026-11-20 fix331/source-reliability：取页归属改按每源全部 host
  * 集合认领（审计 C④）；自检健康状态改读 healthCheck 单一派生
  * （四态计数/状态整句），导出行组分母只计自检合格源。 */
@@ -19,9 +20,7 @@ import { countFetchStates } from "./fetchCounts.ts";
 import { fetchHealthSnapshot } from "./adapters/fetchHealth.ts";
 import { templateFetchOrigins } from "./adapters/fetchOrigins.ts";
 import { readPlaybackFacts } from "../../shared/diagnostics/playbackFacts.ts";
-import { getSelfCheckResults, selfCheckDiagLines, selfCheckEligible, selfCheckSegmentText, selfCheckStatusText } from "./healthCheck.ts";
-import { adapterParamsSegmentText, classifySourceFault, getAdapterParamsState } from "./adapterParams.ts";
-import { getBuiltinRegistry } from "./registry.ts";
+import { getSelfCheckResults, selfCheckDiagLines, selfCheckEligible } from "./healthCheck.ts";
 
 function hostOf(url: string): string {
   try { return new URL(url).host || "?"; } catch { return "?"; }
@@ -152,47 +151,5 @@ export function sourceHealthLines(): string[] {
       .filter((x) => x.def && selfCheckEligible(x.def)),
     getSelfCheckResults(),
   ));
-  return lines;
-}
-
-/** App 内明细专用（整改 C8）：含业务名与生效 origin 的逐源明细。
- * 禁止进导出路径——导出/复制/分享文本一律走 sourceHealthLines()。 */
-export function sourceHealthDetailLinesInApp(): string[] {
-  const info = getRegistryInfo();
-  const defs = getActiveRegistry().sources;
-  const health = fetchHealthSnapshot();
-  const selfCheck = getSelfCheckResults();
-  const byHost = new Map(health.map(h => [h.host, h]));
-  const claimed = new Set<string>();
-  const lines: string[] = [];
-  info.sources.forEach((s, i) => {
-    /* 归属与导出路径同口径（C④）：按全部 host 集合认领、取最近
-     * 一条——明细面不许与导出面两个归属口径。 */
-    const hosts = defs[i] ? sourceHostSet(defs[i]) : new Set<string>();
-    for (const hst of hosts) claimed.add(hst);
-    const h = latestFetchRecord(hosts, byHost);
-    const fetchText = h
-      ? `最近取页 ${h.ok ? `成功 ${h.ms}ms` : `失败·${h.category ?? "其他"} ${h.ms}ms`}（${timeText(h.at)}） · 本会话 成 ${h.okCount}/败 ${h.failCount}`
-      : "本会话未取页";
-    /* 自检段（fix321-F7）：「最近自检」与「本会话取页」同行并存、
-     * 口径标注分清；无结果写「未自检」，不冒充未发生。健康状态整
-     * 句读同一派生（selfCheckStatusText），与展示面徽标同源。 */
-    const check = selfCheck[s.id];
-    const checkText = check
-      ? `${selfCheckSegmentText(check)} · 健康状态 ${selfCheckStatusText(check, defs[i], Date.now())}`
-      : "未自检";
-    /* 清单参数段＋故障类标注（fix321-F8）：参数来源（清单 vN/已回滚）
-     * 只在有下发记录时呈现；故障类按 classifySourceFault 纯函数口径
-     * （参数可热修 vs 需发版）标注在自检失败源上，无故障不标。 */
-    const paramsText = adapterParamsSegmentText(s.id, getAdapterParamsState());
-    const builtinDef = getBuiltinRegistry().find((d) => d.id === s.id);
-    const faultClass = builtinDef ? classifySourceFault(builtinDef, check) : null;
-    const faultText = faultClass ? ` · 故障类：${faultClass}` : "";
-    lines.push(`源 ${s.displayName}（${s.id}）：${s.enabled ? "启用" : "停用"} · 成熟度 ${s.maturity} · 生效 ${s.origin} · ${fetchText} · ${checkText}${paramsText ? ` · ${paramsText}` : ""}${faultText}`);
-  });
-  for (const h of health) {
-    if (claimed.has(h.host)) continue;
-    lines.push(`取页[${h.host}]（未归属注册表源）：最近 ${h.ok ? `成功 ${h.ms}ms` : `失败·${h.category ?? "其他"} ${h.ms}ms`}（${timeText(h.at)}） · 本会话 成 ${h.okCount}/败 ${h.failCount}`);
-  }
   return lines;
 }
