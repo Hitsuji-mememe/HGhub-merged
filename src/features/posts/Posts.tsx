@@ -19,6 +19,7 @@ import { usePaginatedList } from "../../shared/lib/usePaginatedList";
 import { firstEnabledSource, sourcesForCategory } from "../sources/registry";
 import { getActiveRegistry } from "../sources/manifest";
 import { resolvePostsBrowse } from "../sources/postsRoute";
+import { resolveSelectedSource } from "../sources/selectedSource";
 import SourcePosts from "../sources/SourcePosts";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory } from "../sources/SourceSwitcher";
 import { postHot } from "./postData";
@@ -54,7 +55,14 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
   const postSourceOptions = sourceOptionsForCategory("posts");
   const [sourceId, setSourceId] = useState(() => firstEnabledSource("posts", getActiveRegistry().sources)?.id ?? "huangguo");
   const isNativeSource = sourceId === "huangguo";
-  const activeSource = sourcesForCategory("posts", getActiveRegistry().sources).find((s) => s.id === sourceId);
+  /* 选中态校验（fix333-P2，G5）：选中源不在 active 表时不再以
+   * undefined 落通用提示——三态经 resolveSelectedSource 唯一派生，
+   * 页头与提示一律读 label，内部 id 永不进文案。 */
+  const selectedSource = resolveSelectedSource(
+    sourceId,
+    sourcesForCategory("posts", getActiveRegistry().sources),
+  );
+  const activeSource = selectedSource.kind === "active" ? selectedSource.def : undefined;
   const { items, page, pages, loading, err, loadMore, scroller: scrollRef, sentinel } = usePaginatedList<Post>({
     enabled: isNativeSource,
     resetKey: `${lineEpoch}:${sourceId}`,
@@ -74,7 +82,7 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
             <span className="w-9 h-9 rounded-[12px] bg-pc text-on-pc flex items-center justify-center shrink-0"><IFlame size={18} strokeWidth={1.9} /></span>
             <div className="flex-1 min-w-0">
               <h1 className="text-[17px] font-bold text-on leading-tight">吃瓜</h1>
-              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">数据源：{activeSource?.displayName ?? sourceId}</div>
+              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">数据源：{selectedSource.label}</div>
             </div>
           </div>
           <div className="px-4 pb-2"><SourceSwitcher options={postSourceOptions} value={sourceId} onChange={setSourceId} ariaLabel="吃瓜数据源切换" /></div>
@@ -83,7 +91,7 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
           {postsRoute === "browse" && activeSource ? (
             <SourcePosts def={activeSource} />
           ) : (
-            <SourcePendingNotice displayName={activeSource?.displayName ?? sourceId} maturity={activeSource?.maturity} note={activeSource?.note} />
+            <SourcePendingNotice displayName={selectedSource.label} maturity={activeSource?.maturity} note={activeSource?.note} disabled={selectedSource.kind !== "active"} />
           )}
         </div>
       </div>

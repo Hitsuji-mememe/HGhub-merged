@@ -1861,6 +1861,17 @@
       "item": "fix332-B1 hls-site 详情图片限定内容区：contentImgSrcs 内容区地标采集（parse 定义＋templates hls-site detail 消费），站点样式资产不进相册",
       "min": 3,
       "symbol": "contentImgSrcs"
+    },
+    {
+      "files": [
+        "src/features/sources/selectedSource.ts",
+        "src/features/posts/Posts.tsx",
+        "src/features/category/Category.tsx"
+      ],
+      "id": "fix333-p2-disabled-notice",
+      "item": "fix333-P2 选中源被清单停用：resolveSelectedSource 三态唯一派生（active/disabled/gone），吃瓜全量/总览/图片深链/视频深链/频道外源五面共用，停用落停用口径、页头与提示不外显内部 id",
+      "min": 6,
+      "symbol": "resolveSelectedSource"
     }
   ]
 }

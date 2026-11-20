@@ -34,6 +34,7 @@ import SourceBrowse from "../sources/SourceBrowse";
 import SourceGallery from "../sources/SourceGallery";
 import SourcePosts from "../sources/SourcePosts";
 import { resolvePostsBrowse } from "../sources/postsRoute";
+import { resolveSelectedSource } from "../sources/selectedSource";
 import { contentSectionVisible } from "./overviewSections";
 
 /* 短剧三类合一（根治包多源线条目5）：原 AI成人短剧 / AI成人漫剧
@@ -110,7 +111,13 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
   /* 吃瓜数据源（条目5）：默认第一顺位 enabled 源，切换整段换源不混排 */
   const postSourceOptions = sourceOptionsForCategory("posts");
   const [postsSourceId, setPostsSourceId] = useState(() => firstEnabledSource("posts", getActiveRegistry().sources)?.id ?? "huangguo");
-  const postsSource = sourcesForCategory("posts", activeSources).find((s) => s.id === postsSourceId);
+  /* 选中态校验（fix333-P2，G5）：与 Posts 页同一派生，停用源不再以
+   * undefined 落「尚未接通」假文案；提示一律读 label，内部 id 永不进文案。 */
+  const postsSelected = resolveSelectedSource(
+    postsSourceId,
+    sourcesForCategory("posts", activeSources),
+  );
+  const postsSource = postsSelected.kind === "active" ? postsSelected.def : undefined;
   const mounted = useRef(false);
   const started = useRef(false);
   const pending = useRef(new Set<string>());
@@ -326,7 +333,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
              * 走诚实提示。此前本预览对一切非黄果源无条件提示。 */
             <SourcePosts def={postsSource} compact onShowAll={() => push({ kind: "posts" })} onSettledEmpty={(empty) => reportSettledEmpty(postsSourceId, empty)} />
           ) : (
-            <SourcePendingNotice displayName={postsSource?.displayName ?? postsSourceId} maturity={postsSource?.maturity} note={postsSource?.note} />
+            <SourcePendingNotice displayName={postsSelected.label} maturity={postsSource?.maturity} note={postsSource?.note} disabled={postsSelected.kind !== "active"} />
           )}
         </section>
         )}
@@ -440,7 +447,15 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
   const effectiveChannelSourceId = channelSourceId === "huangguo" || videoSourceOptions.some((o) => o.id === channelSourceId)
     ? channelSourceId
     : "huangguo";
-  const channelSource = sourcesForChannel(cate, getActiveRegistry().sources).find((s) => s.id === effectiveChannelSourceId);
+  /* 选中态校验（fix333-P2）：与 effective 回落同口径的派生——effective
+   * 已保证 id 在切源片内时 channelSource 必在位，此处只为统一页头/
+   * 提示的 label 口径，不再 `?? id`；若将来回落口径变化，停用态仍
+   * 落停用分支而非「尚未接通」。 */
+  const channelSelected = resolveSelectedSource(
+    effectiveChannelSourceId,
+    sourcesForChannel(cate, getActiveRegistry().sources),
+  );
+  const channelSource = channelSelected.kind === "active" ? channelSelected.def : undefined;
   /* 外部视频详情开合（Muse 2026-11-20 fix331/covers-header）：SourceBrowse
    * 详情自带页头，打开时本页外层页头让位（问题②双层标题栏）；频道/
    * 切源变化时复位，避免残留隐藏态把列表页头吞掉。 */
@@ -591,9 +606,15 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
    * channel 栈页与 push/pop，不新增路由 kind）。blocked 源维持
    * 既有诚实提示页、不拉数据；其余经 SourceGallery 走适配器。 */
   const imageSourceId = cate.startsWith("image:") ? cate.slice("image:".length) : null;
-  const imageSource = imageSourceId
-    ? sourcesForCategory("image", getActiveRegistry().sources).find((s) => s.id === imageSourceId)
+  /* 选中态校验（fix333-P2）：深链源 id 同样校验，停用源落停用口径
+   * 而非强制 "blocked" 的错因分支；页头一律读 label。 */
+  const imageSelected = imageSourceId
+    ? resolveSelectedSource(
+        imageSourceId,
+        sourcesForCategory("image", getActiveRegistry().sources),
+      )
     : undefined;
+  const imageSource = imageSelected?.kind === "active" ? imageSelected.def : undefined;
   if (imageSourceId) {
     return (
       <div className="ios-page absolute inset-0 bg-bg flex flex-col">
@@ -602,13 +623,13 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
             <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
             <div className="flex-1 min-w-0">
               <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
-              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">图片 · 数据源：{imageSource?.displayName ?? imageSourceId}</div>
+              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">图片 · 数据源：{imageSelected?.label ?? ""}</div>
             </div>
           </div>
         </div>
         <div className="flex-1 scroll-y pb-8">
           {!imageSource || imageSource.maturity === "blocked" ? (
-            <SourcePendingNotice displayName={imageSource?.displayName ?? name} maturity={imageSource?.maturity ?? "blocked"} note={imageSource?.note} />
+            <SourcePendingNotice displayName={imageSelected?.label ?? name} maturity={imageSource?.maturity} note={imageSource?.note} disabled={imageSelected?.kind !== "active"} />
           ) : (
             <SourceGallery def={imageSource} />
           )}
@@ -622,9 +643,14 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
    * active 注册表（如清单覆盖后停用）或 blocked 时维持诚实提示
    * 页、不拉数据；其余经 SourceBrowse 走适配器真取数。 */
   const videoSourceId = cate.startsWith("video:") ? cate.slice("video:".length) : null;
-  const videoSource = videoSourceId
-    ? sourcesForCategory("video", getActiveRegistry().sources).find((s) => s.id === videoSourceId)
+  /* 选中态校验（fix333-P2）：与图片深链页同口径。 */
+  const videoSelected = videoSourceId
+    ? resolveSelectedSource(
+        videoSourceId,
+        sourcesForCategory("video", getActiveRegistry().sources),
+      )
     : undefined;
+  const videoSource = videoSelected?.kind === "active" ? videoSelected.def : undefined;
   if (videoSourceId) {
     return (
       <div className="ios-page absolute inset-0 bg-bg flex flex-col">
@@ -634,14 +660,14 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
               <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
               <div className="flex-1 min-w-0">
                 <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
-                <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">视频 · 数据源：{videoSource?.displayName ?? videoSourceId}</div>
+                <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">视频 · 数据源：{videoSelected?.label ?? ""}</div>
               </div>
             </div>
           </div>
         )}
         <div className="flex-1 scroll-y pb-8">
           {!videoSource || videoSource.maturity === "blocked" ? (
-            <SourcePendingNotice displayName={videoSource?.displayName ?? name} maturity={videoSource?.maturity ?? "blocked"} note={videoSource?.note} />
+            <SourcePendingNotice displayName={videoSelected?.label ?? name} maturity={videoSource?.maturity} note={videoSource?.note} disabled={videoSelected?.kind !== "active"} />
           ) : (
             <SourceBrowse def={videoSource} onDetailOpenChange={setBrowseDetailOpen} />
           )}
@@ -662,7 +688,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
               <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
               <div className="flex-1 min-w-0">
                 <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
-                <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">数据源：{channelSource?.displayName ?? effectiveChannelSourceId}</div>
+                <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">数据源：{channelSelected.label}</div>
               </div>
             </div>
             <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={effectiveChannelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
@@ -670,7 +696,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
         )}
         <div className="flex-1 scroll-y pb-8">
           {!channelSource || channelSource.maturity === "blocked" ? (
-            <SourcePendingNotice displayName={channelSource?.displayName ?? effectiveChannelSourceId} maturity={channelSource?.maturity} note={channelSource?.note} />
+            <SourcePendingNotice displayName={channelSelected.label} maturity={channelSource?.maturity} note={channelSource?.note} disabled={channelSelected.kind !== "active"} />
           ) : (
             <SourceBrowse def={channelSource} onDetailOpenChange={setBrowseDetailOpen} />
           )}
