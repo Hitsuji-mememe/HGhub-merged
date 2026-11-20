@@ -217,6 +217,76 @@ assert.deepEqual(
   "嵌套⑥同面无嵌套层（真页签根）：前进链照旧成立——资格探针未置位时根面行为逐字不变，防误伤正例",
 );
 
+/* ── 死区组（fix333/m6，3.3.2 清扫 P7 专项核查）：横滚祖先旧版无条件
+ * 整体封锁——分类器只问「有没有能溢出的横滚祖先」、不问「它在这一
+ * 拖的方向上还滚不滚得动」。横滚条静止位（scrollLeft=0，如切换器
+ * chips 行）上左缘右滑（返回手势）落进死区：横滚自身吞不下（已在
+ * 起点）、本链又被 blocked 挡住，不返回也不切页签；滚到尽头时右缘
+ * 左滑同理（栈页返回/页签根前进链双死）。定版：豁免按方向容量裁
+ * ——glue 起手采样横滚祖先的双向剩余量（hScrollCanConsumePos/Neg），
+ * classify 并集为方向所有权（hScrollOwnsPos/Neg），decide 在分发前
+ * 按方向查所有权：该方向起手即尽头 → 仲裁权交回本链（与浏览器滚
+ * 动链同理）；起手尚有余量 → 整拖归横滚（中途滚到尽头不中途交接，
+ * 原生链同样如此）。旧描述符（无容量字段）＝双向全豁免、旧行为
+ * 逐字不变。本组前六例在旧实现上逐条为 null（blocked）、即 P7 死
+ * 区的契约复现；后六例为对照（豁免本该成立处新旧同为 null）。── */
+const CHIPS_HEAD: ChainAncestor[] = [{ tagName: "DIV", hScrollable: true, hScrollCanConsumePos: false, hScrollCanConsumeNeg: true }, { tagName: "SECTION" }, { tagName: "MAIN" }];
+const CHIPS_TAIL: ChainAncestor[] = [{ tagName: "DIV", hScrollable: true, hScrollCanConsumePos: true, hScrollCanConsumeNeg: false }, { tagName: "SECTION" }, { tagName: "MAIN" }];
+const CHIPS_MID: ChainAncestor[] = [{ tagName: "DIV", hScrollable: true, hScrollCanConsumePos: true, hScrollCanConsumeNeg: true }, { tagName: "SECTION" }, { tagName: "MAIN" }];
+const CHIPS_BARE: ChainAncestor[] = [{ tagName: "DIV", hScrollable: true }, { tagName: "SECTION" }, { tagName: "MAIN" }];
+const DIALOG_CHIPS_HEAD: ChainAncestor[] = [{ tagName: "DIV", hScrollable: true, hScrollCanConsumePos: false, hScrollCanConsumeNeg: true }, { tagName: "DIV", role: "dialog" }, { tagName: "DIV" }];
+const INFO_CHIPS_TAIL: ChainAncestor[] = [{ tagName: "DIV", feedInfoZone: true }, { tagName: "DIV", hScrollable: true, hScrollCanConsumePos: true, hScrollCanConsumeNeg: false }, { tagName: "SECTION" }];
+const INFO_CHIPS_MID: ChainAncestor[] = [{ tagName: "DIV", feedInfoZone: true }, { tagName: "DIV", hScrollable: true, hScrollCanConsumePos: true, hScrollCanConsumeNeg: true }, { tagName: "SECTION" }];
+
+assert.deepEqual(
+  swipe(CHIPS_HEAD, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 130, 8), { type: "back" },
+  "死区①chips 行静止位（scrollLeft=0）左缘右滑：横滚吞不下右拖、旧实现 blocked 死区；新实现仲裁权交回本链触发 back",
+);
+assert.deepEqual(
+  swipe(CHIPS_TAIL, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 385 }, -130, 8), { type: "back" },
+  "死区②chips 行滚到尽头右缘左滑：横滚吞不下左拖、旧实现死区；新实现触发 back（双缘同义）",
+);
+assert.deepEqual(
+  swipe(CHIPS_TAIL, { tab: "category", stackDepth: 0, clientX: 385 }, -120, 5), { type: "tab", tab: "profile" },
+  "死区③页签根 chips 行尽头右缘左滑：旧实现前进链同样被 blocked 吞掉；新实现穿透成立前进链",
+);
+assert.deepEqual(
+  swipe(CHIPS_HEAD, { tab: "home", stackDepth: 0, clientX: 10 }, 120, 5), { type: "back" },
+  "死区④链首 chips 行静止位左缘右滑：与平坦面正例同义（触发 back、落点由返回序裁决），旧实现死区",
+);
+assert.deepEqual(
+  swipe(DIALOG_CHIPS_HEAD, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 130, 8), { type: "back" },
+  "死区⑤弹层内横滚行静止位左缘右滑：弹层内豁免同套方向容量——横滚吞不下时交回本链、由 runBack 关最上层弹层（与误触⑧的能吞情形对照）",
+);
+assert.deepEqual(
+  swipe(INFO_CHIPS_TAIL, { tab: "home", stackDepth: 1, topKind: "feed", clientX: 200 }, -120, 10), { type: "detailNext" },
+  "死区⑥详情信息区内横滚行尽头中部左划：左拖无主（横滚已尽头），按同方向所有权口径交回本链、detailNext 成立",
+);
+assert.equal(
+  swipe(CHIPS_MID, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 130, 8), null,
+  "死区对照①chips 行中段（双向有余量）左缘右滑：右拖归横滚吞入，链不触发（豁免本义不变）",
+);
+assert.equal(
+  swipe(CHIPS_HEAD, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 385 }, -130, 8), null,
+  "死区对照②chips 行静止位右缘左滑：左拖正是横滚能吞的方向，链不触发（方向容量只放行吞不下的方向）",
+);
+assert.equal(
+  swipe(CHIPS_TAIL, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 130, 8), null,
+  "死区对照③chips 行尽头左缘右滑：右拖归横滚回滚吞入，链不触发",
+);
+assert.equal(
+  swipe(CHIPS_BARE, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 10 }, 130, 8), null,
+  "死区对照④旧描述符（hScrollable 无容量字段）：按双向全豁免处理、旧行为逐字不变（容量缺省不许猜测放行）",
+);
+assert.equal(
+  swipe(INFO_CHIPS_MID, { tab: "home", stackDepth: 1, topKind: "feed", clientX: 200 }, -120, 10), null,
+  "死区对照⑤详情信息区内横滚行中段左划：左拖归横滚，detailNext 不冒领",
+);
+assert.equal(
+  swipe(CHIPS_HEAD, { tab: "home", stackDepth: 1, topKind: "settings", clientX: 200 }, 130, 8), null,
+  "死区对照⑥chips 行静止位中部起手右划：穿透只交回仲裁、不放松边缘锚——中部起手仍无动作",
+);
+
 /* ── 过程方向锁谓词（glue 的 touchmove 采样口径） ── */
 assert.equal(chainMoveVerticalClaim(10, 30), true, "位移 30 且纵向占优：滚动认领");
 assert.equal(chainMoveVerticalClaim(30, 10), false, "横向占优：不认领");

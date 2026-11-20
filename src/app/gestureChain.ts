@@ -20,10 +20,12 @@
  *   Escape 完全同序的分发（runBack 注册制 → 退全屏 → 文档全屏
  *   → 退栈 → 回上一页签；手势不退出应用），落点按上下文裁决、
  *   不在本模块写死——旧 { type:"pop" } 与页签后退动作就此合并。
- * ④豁免同一套（见 classifyChainStart）：输入框、横向可滚内容
- *   起手永不触发（弹层内同样适用）；播放器手势面/进度条区中部
- *   起手归面内手势（seek/pan），边缘起手归本链返回；全屏中部
- *   不触发、边缘起手经返回序退全屏。
+ * ④豁免同一套（见 classifyChainStart）：输入框起手永不触发
+ *   （弹层内同样适用）；横向可滚内容按方向容量豁免（fix333/m6：
+ *   起手时该方向还滚得动才归横滚，起手即尽头交回本链——旧版见
+ *   横滚祖先即整体封锁，静止位/尽头成死区，清扫 P7）；播放器手
+ *   势面/进度条区中部起手归面内手势（seek/pan），边缘起手归本
+ *   链返回；全屏中部不触发、边缘起手经返回序退全屏。
  * ⑤嵌套资格（fix331/gesture-precedence，3.3.1 真机首验推翻一
  *   角）：内嵌详情面（组件局部状态原地渲染、不推栈）对只读
  *   topKind 的分类器不可见，曾被当页签根领取前进链/back 落穿
@@ -56,6 +58,12 @@ export interface ChainAncestor {
   feedScrubZone?: boolean;
   playerSurface?: boolean;
   hScrollable?: boolean;
+  /** 横滚祖先的方向容量（glue 起手采样，仅 hScrollable 时读）：
+   * CanConsumePos = scrollLeft 还能减小（吞得下 dx>0 的右拖）、
+   * CanConsumeNeg = 还能增大（吞得下 dx<0 的左拖）。缺省＝双向
+   * 都能吞（旧描述符口径，豁免全强度、旧行为不变）。 */
+  hScrollCanConsumePos?: boolean;
+  hScrollCanConsumeNeg?: boolean;
 }
 
 export interface ChainStartContext {
@@ -82,6 +90,12 @@ export interface ChainStart {
   nestedBack: boolean;
   inInfo: boolean;
   inScrub: boolean;
+  /** 横滚方向所有权（fix333/m6）：classify 由横滚祖先容量并集得
+   * 出——OwnsPos＝任一横滚祖先起手时还能吞右拖（dx>0），OwnsNeg
+   * 同理（dx<0）。decide 分发前按方向查：被认领的方向整拖归横
+   * 滚；无人认领（起手即尽头/无横滚祖先）才进链裁决。 */
+  hScrollOwnsPos: boolean;
+  hScrollOwnsNeg: boolean;
   fromLeftEdge: boolean;
   fromRightEdge: boolean;
   /** 过程方向锁：glue 在 touchmove 中以 chainMoveVerticalClaim
@@ -102,14 +116,27 @@ export function classifyChainStart(ancestors: ChainAncestor[], ctx: ChainStartCo
   let inScrub = false;
   let onPlayerSurface = false;
   let inOverlay = false;
+  let hScrollOwnsPos = false;
+  let hScrollOwnsNeg = false;
   for (const n of ancestors) {
     if (n.feedInfoZone) inInfo = true;
     if (n.feedScrubZone) inScrub = true;
     if (n.playerSurface) onPlayerSurface = true;
     if (n.role === "dialog") inOverlay = true;
+    /* 横滚豁免按方向容量累计（fix333/m6，清扫 P7）：旧版见横滚祖
+     * 先即整体封锁，不问它在这一拖的方向上还滚不滚得动——横滚条
+     * 静止位（scrollLeft=0，如切换器 chips 行）上右拖、或滚到尽头
+     * 时左拖，该方向容量为零、横滚自身吞不下，本链又被 blocked
+     * 挡住，不返回也不切页签（死区）。定版：所有权按方向取祖先
+     * 容量并集（任一横滚祖先还能吞该方向即归横滚，与浏览器滚动
+     * 链向外传递同理），decide 分发前按方向查所有权；容量缺省
+     * （旧描述符）按双向都能吞＝全豁免，不猜测放行。 */
+    if (n.hScrollable) {
+      if (n.hScrollCanConsumePos ?? true) hScrollOwnsPos = true;
+      if (n.hScrollCanConsumeNeg ?? true) hScrollOwnsNeg = true;
+    }
     if (!blocked) {
       if (n.tagName === "INPUT" || n.tagName === "TEXTAREA") blocked = true;
-      else if (n.hScrollable) blocked = true;
     }
   }
   /* 起点归属隔离（fix322/play，用户 3.2.1 真机实报）：播放器手势面
@@ -120,7 +147,7 @@ export function classifyChainStart(ancestors: ChainAncestor[], ctx: ChainStartCo
    * 本链接管并经统一返回序分发——旧版此处整体封锁再靠 Feed 自带
    * 手势代行（28px 锁定/64px 触发的另一套判定）就此消除。 */
   if ((onPlayerSurface || inScrub) && !fromEdge) blocked = true;
-  return { blocked, inOverlay, nestedBack: ctx.nestedBack, inInfo, inScrub, fromLeftEdge, fromRightEdge, scrollClaimed: false };
+  return { blocked, inOverlay, nestedBack: ctx.nestedBack, inInfo, inScrub, hScrollOwnsPos, hScrollOwnsNeg, fromLeftEdge, fromRightEdge, scrollClaimed: false };
 }
 
 export type ChainAction =
@@ -138,6 +165,13 @@ export function decideChainSwipe(
 ): ChainAction {
   if (start.blocked || start.scrollClaimed) return null;
   if (Math.abs(dx) < GESTURE_MIN_DX || Math.abs(dx) < Math.abs(dy) * GESTURE_CONE) return null;
+  /* 横滚方向所有权（fix333/m6）：本方向已被横滚祖先认领（起手时
+   * 该方向尚有剩余量）→ 整拖归横滚，本链不裁；起手即尽头的方向
+   * 无人认领，落回下方正常裁决（返回/前进/detailNext）。所有权
+   * 起手采样、中途不重估：滚到一半才尽头的拖仍归横滚（原生滚动
+   * 链同样不中途交接），只有起手即尽头才穿透——死区边界在此。 */
+  if (dx > 0 && start.hScrollOwnsPos) return null;
+  if (dx < 0 && start.hScrollOwnsNeg) return null;
   /* 弹层内只许返回动作（双缘同义），且落点由 runBack 最上层先
    * 消费；前进链在弹层内无义。豁免已在 classify 同一套规则内
    * 处理（弹层内的输入框/横滚区起手同样 blocked）。 */
