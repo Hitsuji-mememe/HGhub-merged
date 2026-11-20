@@ -88,9 +88,30 @@ const def = (id: string) => {
   const list = await a.list(1, 20);
   assert.equal(list.items.length, 2, "danbooru list 2 条");
   assert.ok(list.items[0].cover.endsWith("p9001.jpg"), "danbooru cover=preview");
+  /* fix337/008-detail：单帖单图模型的列表侧载体——列表载荷本就
+   * 逐帖带大图地址（large_file_url），旧 toItem 只留 preview 作
+   * cover、大图被丢弃，宿主无从以列表组装画廊、点开恒只见详情
+   * 的 1 张。条目须自带大图（与 detail 同口径 largeField 优先）。 */
+  assert.ok(list.items[0].largeImage?.endsWith("l9001.jpg"), "danbooru 条目自带大图（large_file_url）");
+  const detail = await a.detail("9001");
+  assert.deepEqual(detail.images, ["https://cdn.example.com/l9001.jpg"], "danbooru detail 恒单图（单帖单图模型：画廊靠列表组装、非详情聚合丢图）");
   const res = await a.resolve("9001");
   assert.equal(res.streams[0].kind, "file");
   assert.ok(res.streams[0].url.endsWith("f9001.jpg"), "danbooru resolve=file_url");
+}
+
+/* ── Danbooru 模板 moebooru 校准形态（yandere def；同族 konachan
+ * 参数逐字同构、共用本块口径）fix337/008-detail ── */
+{
+  const post = { id: 7001, tags: "landscape sky", preview_url: "https://cdn.example.com/p7001.jpg", jpeg_url: "https://cdn.example.com/j7001.jpg", file_url: "https://cdn.example.com/f7001.jpg" };
+  setFetchPage(async (url) => (url.includes("tags=id:7001") ? JSON.stringify([post]) : JSON.stringify([post, { ...post, id: 7002 }])));
+  const a = createDanbooruAdapter(def("yandere"));
+  const list = await a.list(1, 20);
+  assert.equal(list.items.length, 2, "moebooru list 2 条");
+  assert.ok(list.items[0].cover.endsWith("p7001.jpg"), "moebooru cover=preview_url");
+  assert.ok(list.items[0].largeImage?.endsWith("j7001.jpg"), "moebooru 条目自带大图（jpeg_url＝largeField）");
+  const detail = await a.detail("7001");
+  assert.deepEqual(detail.images, ["https://cdn.example.com/j7001.jpg"], "moebooru detail 恒单图（单元素数组归一）");
 }
 
 /* ── preview-only 模板（断言适配，3.2.2 瘦身）：唯一使用方 myfans 已

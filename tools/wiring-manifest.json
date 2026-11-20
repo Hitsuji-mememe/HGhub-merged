@@ -2306,6 +2306,37 @@
       ],
       "symbol": "defaultSourceId",
       "min": 3
+    },
+    {
+      "id": "fix337-selfcheck-list-success-reprobe",
+      "item": "fix337/008-detail 自检成功推翻：reprobeSelfCheckOnListSuccess（healthCheck 定义——落盘 down 结论被浏览面真实 list 成功证伪时绕过新鲜度强制补探复核；sourceHealth 成功信号口消费）",
+      "files": [
+        "src/features/sources/healthCheck.ts",
+        "src/features/sources/sourceHealth.ts"
+      ],
+      "symbol": "reprobeSelfCheckOnListSuccess",
+      "min": 3
+    },
+    {
+      "id": "fix337-selfcheck-list-success-faces",
+      "item": "fix337/008-detail 成功信号接线：noteSourceListSuccess 必须在三浏览面 list 成功点位都在（摘任一面该面回到旧结论与真实成功并存展示）",
+      "files": [
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourcePosts.tsx",
+        "src/features/sources/SourceGallery.tsx"
+      ],
+      "symbol": "noteSourceListSuccess",
+      "each": true
+    },
+    {
+      "id": "fix337-booru-album-gallery",
+      "item": "fix337/008-detail 单图模型画廊组装：assembleAlbumGallery（albumGallery.ts 定义＋SourceGallery 打开相册时消费，booru 家族以已加载列表为画廊）；条目自带大图 largeImage（types 字段＋danbooru 模板 toItem 填充）",
+      "files": [
+        "src/features/sources/albumGallery.ts",
+        "src/features/sources/SourceGallery.tsx"
+      ],
+      "symbol": "assembleAlbumGallery",
+      "min": 3
     }
   ]
 }

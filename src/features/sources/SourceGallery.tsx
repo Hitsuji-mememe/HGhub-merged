@@ -20,14 +20,18 @@ import { useStore } from "../../shared/model/store";
 import { externalHashId } from "../../shared/model/localLibrary";
 import { setImageTraceSurface } from "../../shared/lib/feedTrace";
 import { createAdapter } from "./adapters/index.ts";
-import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
+import { noteSourceListSuccess, useSourceSelfCheckOnView } from "./sourceHealth.ts";
+import { assembleAlbumGallery } from "./albumGallery.ts";
 import DiscoveryBar from "./DiscoveryBar";
 import { discFingerprint, EMPTY_LIST_DISCOVERY, type ListDiscovery } from "./types.ts";
 import type { SourceDef, SourceItem } from "./types.ts";
 
 type AlbumState =
   | { phase: "loading"; item: SourceItem }
-  | { phase: "ready"; item: SourceItem; images: string[]; index: number }
+  /* galleryItems（fix337/008-detail）：单图模型画廊组装成立时的
+   * 入选条目集——item 随 index 在集内跟随（标题/收藏作用于当前
+   * 所见条目）；未组装（图集源等）时缺省、item 恒为点开条目。 */
+  | { phase: "ready"; item: SourceItem; images: string[]; index: number; galleryItems?: SourceItem[] }
   | { phase: "error"; item: SourceItem; message: string };
 
 export default function SourceGallery({ def, openExternalId, scrollerRef }: {
@@ -97,6 +101,10 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
       if (mySeq !== seq.current) return;
       const fresh = reset ? res.items : res.items.filter((x) => !items.some((y) => y.externalId === x.externalId));
       setItems(reset ? res.items : [...items, ...fresh]);
+      /* 自检成功推翻（fix337/008-detail）：真实 list 成功撞上落盘
+       * 的列表段失败结论时即时送探针复核，不让旧结论继续冒充
+       * 现行状态（机制见 healthCheck.reprobeSelfCheckOnListSuccess）。 */
+      noteSourceListSuccess(def);
       setPage(next);
       /* 零新增终止（fix335/a-pagination）：整页条目与已加载集合全重
        * （站方忽略页码恒回同一页等形态）时以当前页为尾页——分页
@@ -195,11 +203,21 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
       if (mySeq !== albumSeq.current) return;
       const images = (d.images?.length ? d.images : [d.cover]).filter(Boolean);
       if (!images.length) { setAlbum({ phase: "error", item, message: "该相册未解析到图片" }); return; }
-      setAlbum({ phase: "ready", item, images, index: 0 });
+      /* 单图模型画廊组装（fix337/008-detail）：detail 恰 1 图且已
+       * 加载列表条目自带大图时，以列表为画廊沿帖前后翻（组装判
+       * 定唯一出处 albumGallery.ts）；不成立维持单册形态。判定吃
+       * detail.images 原值——封面回落（images 里的 [d.cover]）不
+       * 算单图模型签名，不许拿预览图混进画廊充数。 */
+      const asm = assembleAlbumGallery(items, item, d.images ?? []);
+      if (asm) {
+        setAlbum({ phase: "ready", item: asm.items[asm.index], images: asm.images, index: asm.index, galleryItems: asm.items });
+      } else {
+        setAlbum({ phase: "ready", item, images, index: 0 });
+      }
     } catch (e) {
       if (mySeq === albumSeq.current) { setAlbum({ phase: "error", item, message: (e as Error).message || "图集加载失败" }); }
     }
-  }, [def, captureScroll]);
+  }, [def, captureScroll, items]);
 
   /* 回访直达消费（G4）：目标相册在已加载列表中才打开，消费一次。 */
   useEffect(() => {
@@ -223,7 +241,7 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
       return (
         <div className="fixed inset-0 z-40 bg-black">
           <AlbumViewer title={album.item.title} images={album.images} index={album.index}
-            onIndexChange={(i) => setAlbum({ ...album, index: i })}
+            onIndexChange={(i) => setAlbum({ ...album, index: i, item: album.galleryItems?.[i] ?? album.item })}
             onBack={closeAlbum} backLabel="返回相册列表"
             onClose={closeAlbum} immersive
             headerAction={(

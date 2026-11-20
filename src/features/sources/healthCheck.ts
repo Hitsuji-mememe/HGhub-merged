@@ -38,6 +38,13 @@
  *   展示状态的面挂载时对本面展示的源批量补探
  *   （ensureSourcesSelfCheck）——与单源补探共用判定/去重/预算，
  *   串行排队、任一时刻至多 1 个补探在飞，不阻塞渲染。
+ * - 成功推翻（2026-11-20 fix337/008-detail 补，3.3.6 真机定案）：
+ *   浏览面真实 list 成功而落盘结论为列表段失败时，立即强制补探
+ *   一次（reprobeSelfCheckOnListSuccess）——旧机制下结论只被
+ *   TTL/指纹过期驱动，一条在瞬时故障或旧取页形态下产生的失败
+ *   结论可与同路径的真实成功长期并存展示（008/010 真机同报）。
+ *   纪律不变：结论只由探针产生——真实成功不改写结果、只触发
+ *   复核；探针再失败则失败结论如实保留。
  *
  * 结果指纹（2026-11-20 fix333/m7-selfcheck 分维度，收口 fix331
  * 的「清单版本＋App 版本」两维）：旧口径下纯 UI/文案更新（App
@@ -115,13 +122,22 @@ export const SELF_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
  * 指纹不符判过期补探；落盘读入时其抽查段归一 skipped（见
  * pagingFieldsOf），不丢弃。 */
 export const SELF_CHECK_PROTOCOL_VERSION = 2;
-/** 适配器纪元（指纹维度二）：适配器取页/解析行为（adapters/ 下
- * 模板、解析、内置参数形态）变更到可能改变探测结论时 bump。
- * 纯 UI/文案/展示变更不许 bump——那正是本维度要放行的更新。
+/** 适配器纪元（指纹维度二）：取页/解析行为变更到可能改变探测结
+ * 论时 bump——覆盖面是整条取页链：adapters/ 下模板、解析、内置
+ * 参数形态，以及取页链形态层（Rust net 的 UA/指纹层、信封与重
+ * 试形态）。纯 UI/文案/展示变更不许 bump——那正是本维度要放行
+ * 的更新。
  * v2（2026-11-20 fix335/a-pagination）：分页信号派生改版（真信号
  * 优先＋满页推断、HTML 整页消费删 slice、WP 越界 400 收尾）——
- * 列表段条目数口径随之变化，旧纪元自检结果按过期补探。 */
-export const SELF_CHECK_ADAPTER_EPOCH = 2;
+ * 列表段条目数口径随之变化，旧纪元自检结果按过期补探。
+ * v3（2026-11-20 fix337/008-detail，补 bump）：fix336 的取页形态
+ * 变更（UA 自称桌面 Chrome→诚实 UA）使 CF 前置源的探测结论整
+ * 类翻转（008/016 本机由败转通），当时未 bump——3.3.5 时段的失
+ * 败结论以纪元 2 指纹被判新鲜、带进 3.3.6 继续展示（真机定案：
+ * 设备导出自检时间戳 18:24/18:35 与新会话取页成功 13 次并存，
+ * 徽标仍报不可用）。纪元口径自此明列取页链形态层（见上），v2
+ * 时代结论一律按过期补探、不再冒充新鲜。 */
+export const SELF_CHECK_ADAPTER_EPOCH = 3;
 /** 最近打开记录落盘键（hghubx_*，不变量 7）：源 id → 最近一次
  * 进入其浏览面的时刻；只记 id/时刻（不变量 10），供批量补探
  * 排序（M7）。 */
@@ -728,11 +744,13 @@ export interface SelfCheckTopUpDeps {
 
 /** 启动一次单源补探（单源/批量补探共用核心）：需要补探∧不在飞
  * 才启动；返回补探完成承诺（不 reject），未启动返回 null。完成
- * 经 saveSelfCheckResult 落盘并通知订阅刷新徽标。 */
-function launchTopUp(def: SourceDef, deps: SelfCheckTopUpDeps): Promise<void> | null {
+ * 经 saveSelfCheckResult 落盘并通知订阅刷新徽标。
+ * force（fix337/008-detail 成功推翻专用）：跳过新鲜度判定（结论
+ * 已被真实成功证伪、等不起过期），资格与在飞去重不让步。 */
+function launchTopUp(def: SourceDef, deps: SelfCheckTopUpDeps, force = false): Promise<void> | null {
   try {
     const now = (deps.now ?? (() => Date.now()))();
-    if (!selfCheckNeedsProbe(def, getSelfCheckResults(), now)) return null;
+    if (force ? !selfCheckEligible(def) : !selfCheckNeedsProbe(def, getSelfCheckResults(), now)) return null;
     if (topUpInFlight.has(def.id)) return null;
     topUpInFlight.add(def.id);
     return runSourceSelfCheck(def, { createAdapterFor: deps.createAdapterFor, now: () => now })
@@ -750,6 +768,25 @@ function launchTopUp(def: SourceDef, deps: SelfCheckTopUpDeps): Promise<void> | 
  * 任何异常吞掉、不抛、不打扰用户。 */
 export function ensureSourceSelfCheck(def: SourceDef, deps: SelfCheckTopUpDeps): boolean {
   return launchTopUp(def, deps) !== null;
+}
+
+/** 成功推翻（2026-11-20 fix337/008-detail，3.3.6 真机定案）：浏览
+ * 面经同一适配器真实 list 成功，而落盘结论却是列表段失败——两
+ * 个同路径结论不可能同时为真，失败结论已被证伪。但结论只许由
+ * 探针产生（不拿浏览结果改写结果、不用一次成功冒充全链可用），
+ * 故此处只做一件事：绕过新鲜度判定、立即强制补探复核一次。探
+ * 针翻正则徽标/派生随落盘通知即时恢复；探针再失败则失败结论
+ * 以新时刻如实保留（源站抖动期不误报可用）。触发面只认「落盘
+ * down ∧ 本次真实成功」：无结论/已可用/不合格源一律不启动，常
+ * 规补探口径（ensureSourceSelfCheck）不受影响。全程旁路。 */
+export function reprobeSelfCheckOnListSuccess(def: SourceDef, deps: SelfCheckTopUpDeps): boolean {
+  try {
+    const r = getSelfCheckResults()[def.id];
+    if (!r || r.listOk) return false;
+    return launchTopUp(def, deps, true) !== null;
+  } catch {
+    return false;
+  }
 }
 
 /* ── 展示面批量补探（2026-11-20 fix333/selfcheck-trigger） ──

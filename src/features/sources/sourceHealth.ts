@@ -15,7 +15,10 @@
  *    后台执行、不阻塞渲染。启动序经 healthCheck 排序（fix333/
  *    m7-selfcheck M7：本面选中源最先、最近打开过的源次之）——
  *    选中源经钩子第二参透传；「最近打开」由 ② 在进入浏览面时
- *    经 recordSourceView 落盘记录（M7 排序信号）。 */
+ *    经 recordSourceView 落盘记录（M7 排序信号）。
+ * ④ noteSourceListSuccess——浏览面真实 list 成功信号（fix337/
+ *    008-detail）：成功撞上落盘 down 结论时经成功推翻入口即时
+ *    强制补探复核，不让旧失败结论与真实成功长期并存展示。 */
 
 import { useEffect, useSyncExternalStore } from "react";
 import {
@@ -23,6 +26,7 @@ import {
   ensureSourcesSelfCheck,
   getSelfCheckResults,
   recordSourceView,
+  reprobeSelfCheckOnListSuccess,
   subscribeSelfCheckResults,
   type SourceSelfCheckResult,
 } from "./healthCheck.ts";
@@ -45,6 +49,18 @@ export function useSourceSelfCheckOnView(def: SourceDef): void {
     const current = getActiveRegistry().sources.find((s) => s.id === id);
     if (current) ensureSourceSelfCheck(current, { createAdapterFor: (d) => createAdapter(d) });
   }, [id]);
+}
+
+/** 浏览面真实 list 成功信号（fix337/008-detail）：三浏览面在 list
+ * 成功点位调用——落盘结论为列表段失败时经 healthCheck 的成功推
+ * 翻入口立即强制补探复核（reprobeSelfCheckOnListSuccess），其余
+ * 情形零动作。与补探钩子同口径：现查 active 注册表拿最新 def、
+ * 全程旁路不抛。 */
+export function noteSourceListSuccess(def: SourceDef): void {
+  try {
+    const current = getActiveRegistry().sources.find((s) => s.id === def.id);
+    if (current) reprobeSelfCheckOnListSuccess(current, { createAdapterFor: (d) => createAdapter(d) });
+  } catch { /* 旁路：信号失败不影响浏览 */ }
 }
 
 /** 展示面挂载时批量补探：对本面展示的源按 id 集合触发（依赖只认

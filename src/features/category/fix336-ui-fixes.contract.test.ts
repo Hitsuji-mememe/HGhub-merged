@@ -33,9 +33,13 @@
  *     immersive）、DiscoveryBar 收敛接线（去重消费/展开开关/
  *     单行横滑与展开平铺两形态）、总览四行派生与计数、图片频
  *     道分支与视频频道恒走外部源分支；
- * (E) 底栏让位接线（fix337）：store 持有标记＋App 渲染条件
- *     含标记＋bottomInset 不掺入（被盖页布局不移位）、两宿主
- *     持有/释放成对、搜索宿主持有条件与覆层渲染条件同源。
+ * (E) 底栏让位接线（fix337/album-chrome）：store 持有标记＋App
+ *     渲染条件含标记＋bottomInset 不掺入（被盖页布局不移位）、
+ *     两宿主持有/释放成对、搜索宿主持有条件与覆层渲染条件同源；
+ * (F) 单图模型画廊组装（fix337/008-detail）：assembleAlbumGallery
+ *     真值表（成立三条件/点开位以 detail 图为准/无大图条目不入
+ *     集）＋SourceGallery 消费与当前条目跟随接线。两线同名 (E)
+ *     于集成时由本线改 (F)（fix337-integration 对账）。
  * 旧码（@17f6bca）上：defaultSourceId/dedupeTagOptions/
  * channel-image 均不存在（导入即红），总览/宿主/频道文本断言
  * 亦全红——修复回归钉的既定证伪形态。
@@ -46,6 +50,8 @@ import { getBuiltinRegistry, sourcesForCategory } from "../sources/registry.ts";
 import { defaultSourceId } from "../sources/selectedSource.ts";
 import { dedupeTagOptions, normalizeDiscoveryName } from "../sources/discoveryOptions.ts";
 import { routeForSurface, sourcesForSurface } from "../sources/surfaces.ts";
+import { assembleAlbumGallery } from "../sources/albumGallery.ts";
+import type { SourceItem } from "../sources/types.ts";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const R1 = getBuiltinRegistry();
@@ -161,6 +167,46 @@ const ctx = { active: R1, builtin: R1 };
   const gallery = read("../sources/SourceGallery.tsx");
   assert.ok(gallery.includes("setTabBarHeld(true)") && gallery.includes("setTabBarHeld(false)"),
     "源内宿主同一持有/释放不变量（栈页上底栏本不渲染、持有为空转无害）");
+}
+
+/* ── (F) 单图模型画廊组装（fix337/008-detail；集成时由 (E) 改名 (F)；3.3.6 真机实报
+ * booru 家族 008/014/016 详情只有一张图）──
+ * 家族模型定案：单帖单图——detail 恒 1 图是模型事实、非聚合丢
+ * 图（生产路径实拉：图集源 detail 50–103 图、同批 booru 三源恒
+ * 1）。正确形态＝查看器以已加载列表为画廊沿帖前后翻：组装只在
+ * 「detail 恰 1 图 ∧ 已加载条目自带大图（largeImage）≥2 ∧ 点开
+ * 条目在列」时成立，点开条目本位以 detail 图为准（权威），其余
+ * 以列表自带大图；任一条件不满足回 null、宿主维持现行单册形态
+ * （图集源 detail 多图永不触发、行为逐字不变）。 */
+{
+  const item = (id: string, largeImage?: string): SourceItem => ({
+    sourceId: "danbooru", externalId: id, title: `t-${id}`, cover: `https://cdn.example.com/p${id}.jpg`,
+    href: "", tags: [], ...(largeImage ? { largeImage } : {}),
+  });
+  const a = item("1", "https://cdn.example.com/l1.jpg");
+  const b = item("2", "https://cdn.example.com/l2.jpg");
+  const c = item("3", "https://cdn.example.com/l3.jpg");
+  const bare = item("9");
+
+  const asm = assembleAlbumGallery([a, b, c], b, ["https://cdn.example.com/detail-b.jpg"]);
+  assert.ok(asm, "三条自带大图＋点开居中 → 组装成立");
+  assert.deepEqual(asm.images, ["https://cdn.example.com/l1.jpg", "https://cdn.example.com/detail-b.jpg", "https://cdn.example.com/l3.jpg"],
+    "画廊＝列表序，点开位以 detail 图为准、邻帖以自带大图");
+  assert.equal(asm.index, 1, "起始 index＝点开条目在画廊中的位置");
+  assert.deepEqual(asm.items.map((x) => x.externalId), ["1", "2", "3"], "画廊条目集与图片一一对应（标题/收藏随当前条目）");
+
+  assert.equal(assembleAlbumGallery([a, b, c], b, ["x", "y"]), null, "detail 多图（图集源）→ 不组装、维持单册");
+  assert.equal(assembleAlbumGallery([a, b, c], b, []), null, "detail 无图 → 不组装（宿主走既有错误态）");
+  assert.equal(assembleAlbumGallery([a, b, c], bare, ["x"]), null, "点开条目不在已加载列表 → 不组装");
+  assert.equal(assembleAlbumGallery([a, bare], a, ["x"]), null, "自带大图条目不足 2 → 不组装（无可翻之邻）");
+  const mixed = assembleAlbumGallery([a, bare, c], c, ["https://cdn.example.com/detail-c.jpg"]);
+  assert.ok(mixed, "混合列表（个别条目无大图）→ 只以自带大图条目组装");
+  assert.deepEqual(mixed.items.map((x) => x.externalId), ["1", "3"], "无大图条目不入画廊（不以 preview 充大图、不降质）");
+  assert.equal(mixed.index, 1, "混合组装 index 按入选条目计");
+
+  const gallery = read("../sources/SourceGallery.tsx");
+  assert.ok(gallery.includes("assembleAlbumGallery"), "SourceGallery 打开相册时消费画廊组装（单图模型以列表为画廊）");
+  assert.ok(gallery.includes("album.galleryItems"), "查看态当前条目随 index 在画廊条目集内跟随（标题/收藏不钉死在点开条目）");
 }
 
 console.log("fix336-ui-fixes.contract: all assertions passed");

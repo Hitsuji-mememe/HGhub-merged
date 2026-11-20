@@ -320,6 +320,42 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   不碰。宿主义务已写入 AlbumViewer 文件头（覆层形态＋底栏
   让位缺一不可）。契约 `fix336-ui-fixes.contract.test.ts`
   (E) 段；证据 `~/workspace/hghub/fix337/evidence/album-chrome.md`。
+  fix337/008-detail（2026-11-20，3.3.6 真机三报）：①booru 家族
+  （008/014/016，danbooru-api 模板）详情恒 1 图定案为单帖单图模
+  型事实、非聚合丢图（生产路径实拉：图集型源 detail 50–103 图、
+  家族三源恒 1）——正确形态是查看器以已加载列表为画廊：适配器
+  toItem 新增条目自带大图 `SourceItem.largeImage`（列表载荷逐帖
+  自带、与 detail 同口径 largeField 优先，旧实现只留 preview、
+  大图在组装前被丢弃）；SourceGallery 打开相册时经纯函数
+  `albumGallery.assembleAlbumGallery` 组装（detail 恰 1 图∧自带
+  大图条目 ≥2∧点开条目在列才成立，点开位以 detail 图为准、无
+  大图条目不以 preview 充数），AlbumState 带 galleryItems、当前
+  条目随 index 跟随（标题/收藏作用于所见条目）；不成立维持单
+  册形态，图集源行为逐字不变。搜索宿主（copyLoader）同根未改
+  （其「列表」是跨源合并副本、组装语义不同，留主线另排）。
+  ②自检误报机制修（008 图片频道与 010 视频频道同报，跨频道系
+  统性）：落盘失败结论与同路径真实成功长期并存——成因两点：
+  (a) 指纹失效缺口：fix336 取页形态变更（Rust 取页链 UA）使探
+  测结论整类翻转却未 bump 纪元（纪元旧口径只写 adapters/ 行
+  为），3.3.5 时段失败结论（设备导出时间戳 18:24/18:35）在
+  3.3.6 以纪元 2 指纹判新鲜；(b) 结论只被 TTL/指纹过期驱动、
+  真实取数成功无任何推翻通道。现行口径：纪元补 bump 至 3 且覆
+  盖面明列整条取页链（含 UA/指纹形态层）；新增成功推翻——三
+  浏览面 list 成功经 `sourceHealth.noteSourceListSuccess` 发信
+  号，落盘为列表段失败时 `healthCheck.
+  reprobeSelfCheckOnListSuccess` 绕过新鲜度强制补探复核一次
+  （结论仍只由探针产生：再失败如实保留、不拿浏览成功改写结
+  果）。③source-016 真机 403 定案为源站 CF JS 验证拦非浏览器
+  客户端（PC 浏览器同出口实测：先弹验证、约 10 秒自动通过后回
+  JSON），非出口 IP 被封、非 App 代码问题；备用端点判别（本机
+  生产路径实拉）：api 子域不存在、www 与主站同面、konachan.net
+  为 safe-only 镜像（样本 rating 全 s、技术可解析但内容范围缩
+  减且设备侧验证状态本机不可证）——不切注册表，处置（诚实标
+  注/候选切换）归主线。证据 `~/workspace/hghub/fix337/
+  evidence/008-detail.md`；契约 adapters（家族大图字段＋detail
+  单图钉）／fix336-ui-fixes (F) 组装真值表（集成时由 (E) 改名，
+  与 album-chrome (E) 并存）／fix333-selfcheck-
+  trigger (f) 推翻机制＋纪元钉，基线均先红。
 - 封面状态机（同批）：`ImageLoad` 状态 loading→decoded→displayed 或
   failed(reason)（http/timeout/decode 分因），每 attempt 20s 超时，
   src 变化自动重试；失败计数与分页证据同节进诊断报告。fix2.1 修正

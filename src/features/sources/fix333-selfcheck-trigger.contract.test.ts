@@ -31,12 +31,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  SELF_CHECK_ADAPTER_EPOCH,
   SELF_CHECK_MAX_REQUESTS_PER_SOURCE,
   bindSelfCheckStorage,
   classifySelfCheckResult,
   ensureSourceSelfCheck,
   ensureSourcesSelfCheck,
   getSelfCheckResults,
+  reprobeSelfCheckOnListSuccess,
   saveSelfCheckResult,
   selfCheckFingerprintFor,
   type SourceSelfCheckResult,
@@ -228,6 +230,79 @@ function mkResult(def: SourceDef, over: Partial<SourceSelfCheckResult> = {}): So
 
   for (const rel of ["./SourceBrowse.tsx", "./SourcePosts.tsx", "./SourceGallery.tsx"]) {
     assert.ok(read(rel).includes("useSourceSelfCheckOnView"), `${rel} 浏览面单源补探保持在位（本批不改浏览面）`);
+  }
+}
+
+/* ── (f) 真实成功推翻旧失败结论（fix337/008-detail；3.3.6 真机
+ * 定案，设备导出摘录 fix337/evidence/device-export-336-analysis.md）：
+ * 3.3.5 时段的自检失败结论（008/009/010/011/016，时间戳 18:24/
+ * 18:35）被带进 3.3.6 继续展示——取页形态已变（诚实 UA）而指纹
+ * 未失效、且新会话取页成功 13 次也不推翻落盘结论。两点机制修：
+ * ①纪元口径补正：纪元 2 时代（≤3.3.6）的结论一律判过期——取页
+ * 链形态变更（UA/指纹层）与适配器行为同列入纪元覆盖面；
+ * ②成功推翻：浏览面真实 list 成功而落盘结论为列表段失败时，
+ * 立即强制补探一次（结论仍只由探针产生、不拿浏览结果改写；
+ * 探针再失败则失败结论如实保留）。 */
+{
+  /* ① 纪元 2 的旧结论：时间再新也判过期（旧码纪元即 2 → 此断言红）。 */
+  bindSelfCheckStorage(fakeStorage());
+  const legacy = fakeDef("t-legacy-epoch");
+  const staleCore = classifySelfCheckResult(mkResult(legacy, { adapterEpoch: 2 }), legacy, NOW);
+  assert.equal(staleCore.stale, true, "纪元 2 时代结论不得再判新鲜（取页形态已变、旧失败结论不许冒充现行结论）");
+  assert.ok(SELF_CHECK_ADAPTER_EPOCH > 2, "现行纪元已越过 2（fix336 取页形态变更的补 bump）");
+  bindSelfCheckStorage(null);
+
+  /* ② 新鲜的 down 结论：常规补探不触发（新鲜口径），成功推翻触发并翻正。 */
+  bindSelfCheckStorage(fakeStorage());
+  const def = fakeDef("t-contradicted", { kind: "image", category: "image", adapter: { template: "wp-rest" } });
+  saveSelfCheckResult(mkResult(def, {
+    listOk: false, itemCount: 0, listFailure: "网络类", detail: "skipped", tail: "skipped",
+  }));
+  assert.equal(classifySelfCheckResult(getSelfCheckResults()[def.id], def, NOW).status, "down", "夹具前提：落盘结论为不可用");
+  const t = newTracker();
+  assert.equal(ensureSourceSelfCheck(def, { createAdapterFor: factoryFor(t), now: () => NOW }), false,
+    "结论尚新鲜时常规补探不启动（旧机制下该错误结论只能等 24h TTL——本症状的成因之一）");
+  assert.equal(t.factoryCalls.size, 0, "常规补探零调用（对照组）");
+  assert.equal(reprobeSelfCheckOnListSuccess(def, { createAdapterFor: factoryFor(t), now: () => NOW }), true,
+    "浏览面真实 list 成功撞上落盘 down 结论 → 强制补探立即启动（不等过期）");
+  for (let i = 0; i < 50 && !getSelfCheckResults()[def.id]?.listOk; i++) await sleep(20);
+  assert.equal(getSelfCheckResults()[def.id]?.listOk, true, "补探后结论翻正（徽标/发现维度禁用随单一派生即时恢复）");
+  assert.equal(classifySelfCheckResult(getSelfCheckResults()[def.id], def, NOW).status, "ok", "派生回到可用");
+
+  /* 对照：结论已可用时成功信号不引发任何补探。 */
+  const callsBefore = t.factoryCalls.get(def.id) ?? 0;
+  assert.equal(reprobeSelfCheckOnListSuccess(def, { createAdapterFor: factoryFor(t), now: () => NOW }), false,
+    "结论已可用 → 成功推翻不启动（不无谓重探）");
+  assert.equal(t.factoryCalls.get(def.id) ?? 0, callsBefore, "已可用时适配器工厂零新增调用");
+
+  /* 对照：无落盘结论时不归本通道（缺失走常规补探口径）。 */
+  const unseen = fakeDef("t-unseen");
+  assert.equal(reprobeSelfCheckOnListSuccess(unseen, { createAdapterFor: factoryFor(t), now: () => NOW }), false,
+    "无落盘结论 → 不归成功推翻通道");
+
+  /* 对照：探针复核仍失败时结论如实保留（不拿一次浏览成功冒充可用）。 */
+  const down = fakeDef("t-still-down", { kind: "image", category: "image", adapter: { template: "wp-rest" } });
+  saveSelfCheckResult(mkResult(down, {
+    listOk: false, itemCount: 0, listFailure: "网络类", detail: "skipped", tail: "skipped",
+  }));
+  const failingFactory = (d: SourceDef): SourceAdapter => ({
+    sourceId: d.id,
+    list: async () => { throw new Error("fetch failed: network unreachable"); },
+    detail: async () => { throw new Error("unreachable"); },
+    resolve: async () => ({ streams: [] }),
+  });
+  assert.equal(reprobeSelfCheckOnListSuccess(down, { createAdapterFor: failingFactory, now: () => NOW }), true,
+    "down 结论＋成功信号 → 复核补探启动");
+  await sleep(200); // 复核探针为即时失败形态，落盘在毫秒级；留足余量防慢机抖动
+  assert.equal(getSelfCheckResults()[down.id]?.listOk, false, "复核仍失败 → 失败结论如实保留（推翻只认探针复核结果）");
+  bindSelfCheckStorage(null);
+
+  /* 接线：三浏览面 list 成功点位统一经 sourceHealth 的成功信号口。 */
+  const hooks = read("./sourceHealth.ts");
+  assert.ok(hooks.includes("reprobeSelfCheckOnListSuccess"), "sourceHealth 成功信号口走 healthCheck 统一推翻入口");
+  assert.ok(hooks.includes("noteSourceListSuccess"), "浏览面成功信号口在位");
+  for (const rel of ["./SourceBrowse.tsx", "./SourcePosts.tsx", "./SourceGallery.tsx"]) {
+    assert.ok(read(rel).includes("noteSourceListSuccess"), `${rel} list 成功后发成功信号（自检误报跨频道同治）`);
   }
 }
 
