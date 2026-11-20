@@ -56,6 +56,9 @@ function hlsDef(id: string, over: Partial<SourceDef> = {}): SourceDef {
 function checkResult(sourceId: string, over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckResult {
   return {
     sourceId, at: NOW, listOk: true, itemCount: 5, listFailure: null,
+    /* fix335/selfcheck-paging 断言适配：结果格式新增分页抽查两
+     * 字段，夹具补齐（口径不变、覆盖不降）。 */
+    paging: "skipped", pagingFailure: null,
     detail: "ok", detailFailure: null, requests: 2,
     /* fix331/source-reliability 断言适配：结果格式新增末段三字段＋
      * 清单版本指纹，夹具补齐（口径不变、覆盖不降）。

@@ -2245,6 +2245,15 @@
       "item": "fix335/f-discovery 自检降级：DiscoveryBar 经 classifySelfCheckResult 派生，该源 down（列表段失败）时维度禁用并明示、随健康恢复自动可用；摘除派生接线即红",
       "min": 1,
       "symbol": "classifySelfCheckResult"
+    },
+    {
+      "files": [
+        "src/features/sources/healthCheck.ts"
+      ],
+      "id": "fix335-selfcheck-paging-probe",
+      "item": "fix335/selfcheck-paging 自检分页信号一致性抽查：healthCheck 引擎在第 1 页信号称有下一页时多取第 2 页核对（可达/非空/与第 1 页不全同），失败经 classifySelfCheckResult 单一派生降级部分可用（段名「分页」）；摘除第 2 页调用点即红",
+      "min": 1,
+      "symbol": "adapter.list(2,"
     }
   ]
 }

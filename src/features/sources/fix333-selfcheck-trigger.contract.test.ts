@@ -117,6 +117,9 @@ function factoryFor(t: BatchTracker, gates?: Map<string, Promise<void>>) {
 function mkResult(def: SourceDef, over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckResult {
   return {
     sourceId: def.id, at: NOW, listOk: true, itemCount: 5, listFailure: null,
+    /* fix335/selfcheck-paging 断言适配：结果格式新增分页抽查两
+     * 字段，夹具补齐（口径不变、覆盖不降）。 */
+    paging: "skipped", pagingFailure: null,
     detail: "ok", detailFailure: null, requests: 3,
     tail: "ok", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(def),
     ...over,

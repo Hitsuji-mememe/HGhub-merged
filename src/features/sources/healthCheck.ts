@@ -23,7 +23,7 @@
  * - 启动后延迟 SELF_CHECK_START_DELAY_MS 才开第一轮——避开启动、
  *   注册表解析与首屏取页高峰；
  * - 每片 SELF_CHECK_SHARD_SIZE 个源、片间间隔
- *   SELF_CHECK_SHARD_INTERVAL_MS——任一时刻至多 3 源 × ≤3 请求在
+ *   SELF_CHECK_SHARD_INTERVAL_MS——任一时刻至多 3 源 × ≤4 请求在
  *   飞，远低于用户浏览的突发量；现行 14 个合格源一轮约分 5 片、
  *    spread 在数分钟内完成；
  * - 全量一轮频率上限：结果 TTL SELF_CHECK_TTL_MS（24h）内不重探
@@ -64,17 +64,31 @@
  * 人值守调度、仍按注册表序。
  *
  * 请求预算（硬上限）：每源最多 SELF_CHECK_MAX_REQUESTS_PER_SOURCE
- * =3 个请求——列表 1 页，列表有条目才再取 1 条详情，视频类详情
- * 可达后抽同 1 条目续探 1 次取流（只取流不播放，2026-11-20 补：
- * 此前自检只探列表＋详情，取流段失败在诊断里零记录、「可用」
- * 不覆盖用户真正用的那一段）；posts 类正文段与 image 类图集段
- * 复用详情响应判定、不另发请求（这两类实际请求 ≤2）。无第二页。
+ * =4 个请求——列表 1 页，信号称有下一页时抽查第 2 页 1 页（见下
+ * 「分页抽查」），列表有条目才再取 1 条详情，视频类详情可达后抽
+ * 同 1 条目续探 1 次取流（只取流不播放，2026-11-20 补：此前自检
+ * 只探列表＋详情，取流段失败在诊断里零记录、「可用」不覆盖用户
+ * 真正用的那一段）；posts 类正文段与 image 类图集段复用详情响
+ * 应判定、不另发请求（这两类实际请求 ≤3）。除抽查外不取第二页。
+ *
+ * 分页抽查（2026-11-20 fix335/selfcheck-paging 补）：分页信号
+ * （fix335/a-pagination 新信号体系）只保证信号形态自洽，信号说
+ * 谎（站方忽略页码恒回同一页、导航末页虚报、第 2 页不可达或为
+ * 空）时第 1 页照样成功、自检照样全绿，用户翻页才撞见。本线在
+ * 列表成功后按同一 Paged 信号（pages＞当前页，与三套 UI 的停
+ * 拉判据同口径）多取第 2 页一页：不可达按取页同源形态记、为
+ * 空记「解析为空」、与第 1 页条目集全同记「其他」（信号说谎或
+ * 分页失效）；部分重叠（置顶类合法重复）不算全同。信号称单页
+ * 者标不适用（na）——不多取页、不冒充通过。抽查失败经单一派
+ * 生降级部分可用（段名「分页」），不翻列表/详情/末段结论。协
+ * 议版本随本段 bump 1→2：v1 结果无抽查段，按指纹不符判过期补
+ * 探；落盘旧结果缺本段字段读入归一 skipped，不丢弃。
  *
  * 失败形态口径：与 fetchHealth 的 classifyFetchError 同源（唯一
  * 出处 fetchErrorClassify.ts）——网络不可达/超时/校验拒绝/响应过大
  * 归「网络类」，HTTP 状态单列，模板解析为空认 SourceParseEmptyError
  * 记「解析为空」，详情/取流步的未分类失败各记「详情失败」/「取流
- * 失败」，余者「其他」。三段分开记：后段失败不翻前段结论。 */
+ * 失败」，余者「其他」。各段分开记：后段失败不翻前段结论。 */
 
 import type { SourceAdapter, SourceDef, SourceDetail } from "./types.ts";
 import { SourceParseEmptyError } from "./adapters/templates.ts";
@@ -82,9 +96,10 @@ import { classifyFetchError } from "./adapters/fetchErrorClassify.ts";
 import { getActiveRegistry, getRegistryInfo } from "./manifest.ts";
 
 export const SELF_CHECK_STORAGE_KEY = "hghubx_source_selfcheck_v1";
-/** 每源请求硬预算：列表 1 页＋（有条目时）详情 1 条＋（视频类）取流 1 次。
+/** 每源请求硬预算：列表 1 页＋（信号称有下一页时）分页抽查第 2
+ * 页 1 页＋（有条目时）详情 1 条＋（视频类）取流 1 次。
  * 按适配器调用计（口径定义见 SourceSelfCheckResult.requests）。 */
-export const SELF_CHECK_MAX_REQUESTS_PER_SOURCE = 3;
+export const SELF_CHECK_MAX_REQUESTS_PER_SOURCE = 4;
 export const SELF_CHECK_LIST_PAGE_SIZE = 20;
 /** 启动延迟：避开启动/注册表解析/首屏取页高峰。 */
 export const SELF_CHECK_START_DELAY_MS = 90_000;
@@ -94,10 +109,12 @@ export const SELF_CHECK_SHARD_INTERVAL_MS = 45_000;
 /** 结果新鲜期：全量一轮一天最多一次的落点（逐源判）。 */
 export const SELF_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
 /** 自检协议版本（指纹维度一）：探测步骤/段位构成/失败分类口径
- * 变更时 bump。现行 v1＝fix331 全链口径（列表＋详情＋品类末段、
- * 每源预算 3）——此前落盘的全链结果均由该口径产出，迁移时按
- * v1 认定。 */
-export const SELF_CHECK_PROTOCOL_VERSION = 1;
+ * 变更时 bump。v1＝fix331 全链口径（列表＋详情＋品类末段、每源
+ * 预算 3）；现行 v2（2026-11-20 fix335/selfcheck-paging）＝v1
+ * ＋分页信号一致性抽查段（每源预算 4）——v1 结果无抽查段，按
+ * 指纹不符判过期补探；落盘读入时其抽查段归一 skipped（见
+ * pagingFieldsOf），不丢弃。 */
+export const SELF_CHECK_PROTOCOL_VERSION = 2;
 /** 适配器纪元（指纹维度二）：适配器取页/解析行为（adapters/ 下
  * 模板、解析、内置参数形态）变更到可能改变探测结论时 bump。
  * 纯 UI/文案/展示变更不许 bump——那正是本维度要放行的更新。
@@ -112,6 +129,11 @@ export const SOURCE_LAST_VIEW_STORAGE_KEY = "hghubx_source_last_view_v1";
 
 export type SelfCheckFailureKind = "网络类" | "HTTP 状态" | "解析为空" | "详情失败" | "取流失败" | "其他";
 export type SelfCheckDetailState = "ok" | "fail" | "skipped";
+/** 分页抽查段状态：ok＝第 2 页可达、非空、与第 1 页不全同；
+ * fail＝信号说谎/分页失效（形态见 pagingFailure）；na＝信号称
+ * 单页、不适用（未抽查、不冒充通过）；skipped＝列表失败无从
+ * 抽查，或结果由旧协议口径产出（读入归一，见 pagingFieldsOf）。 */
+export type SelfCheckPagingState = "ok" | "fail" | "na" | "skipped";
 export type SelfCheckTailState = "ok" | "fail" | "skipped";
 /** 末段种类（按源品类）：stream＝视频取流、body＝posts 正文、gallery＝image 图集。 */
 export type SelfCheckTailKind = "stream" | "body" | "gallery";
@@ -124,6 +146,10 @@ export interface SourceSelfCheckResult {
   /** 列表条目数（失败时 0）。 */
   itemCount: number;
   listFailure: SelfCheckFailureKind | null;
+  /** 分页抽查段（协议 v2 新增）：第 1 页信号称有下一页时多取
+   * 第 2 页核对一致性；状态口径见 SelfCheckPagingState。 */
+  paging: SelfCheckPagingState;
+  pagingFailure: SelfCheckFailureKind | null;
   /** skipped＝列表失败或列表真空、无从探详情。 */
   detail: SelfCheckDetailState;
   detailFailure: SelfCheckFailureKind | null;
@@ -140,7 +166,7 @@ export interface SourceSelfCheckResult {
    * 派生）。迁移哨兵空串＝旧结果的该源切片无法证实未变。 */
   sourceScope: string;
   /** 本次自检的适配器调用数（≤ 硬预算）。口径（唯一定义，fix333-m5
-   * O2）：列表/详情/取流三次适配器调用各计 1，与 HTTP 请求数不是
+   * O2）：列表/分页抽查/详情/取流四次适配器调用各计 1，与 HTTP 请求数不是
    * 一回事——一次调用内可含多次 HTTP（如 002 取流一次调用含 CSRF
    * 取令牌 GET＋握手 POST 共 2 次 HTTP、计 1；010 取流含详情页＋
    * 下载页两取、计 1）。旧口径只叫「请求数」，与真实网络量对不上、
@@ -277,14 +303,15 @@ export interface SourceHealthCore {
   /** 结果已过期（超 TTL 或指纹三维任一不符）：结论仅供参考、不冒充新鲜。 */
   stale: boolean;
   at: number | null;
-  /** partial/down 时出问题的段名（列表/详情/取流/正文/图集/列表为空）。 */
+  /** partial/down 时出问题的段名（列表/分页/详情/取流/正文/图集/列表为空）。 */
   segment: string | null;
   failure: SelfCheckFailureKind | null;
 }
 
-/** 四态派生（纯函数）：未自检＝无结果；可用＝全链（列表＋详情＋
- * 品类末段）通；部分可用＝前段通、某深段死或无从验证（注明段）；
- * 不可用＝列表段即死。 */
+/** 四态派生（纯函数）：未自检＝无结果；可用＝全链（列表＋分页
+ * 抽查＋详情＋品类末段）通；部分可用＝前段通、某深段死或无从
+ * 验证（注明段）；不可用＝列表段即死。分页抽查标不适用（单页
+ * 源）不降级——不适用不是失败。 */
 export function classifySelfCheckResult(
   r: SourceSelfCheckResult | undefined,
   def: SourceDef | undefined,
@@ -293,6 +320,7 @@ export function classifySelfCheckResult(
   if (!r) return { status: "unchecked", stale: false, at: null, segment: null, failure: null };
   const stale = now - r.at >= SELF_CHECK_TTL_MS || !selfCheckFingerprintMatches(r, def);
   if (!r.listOk) return { status: "down", stale, at: r.at, segment: "列表", failure: r.listFailure };
+  if (r.paging === "fail") return { status: "partial", stale, at: r.at, segment: "分页", failure: r.pagingFailure };
   if (r.detail === "fail") return { status: "partial", stale, at: r.at, segment: "详情", failure: r.detailFailure };
   if (r.detail === "ok") {
     if (r.tail === "fail") return { status: "partial", stale, at: r.at, segment: tailSegmentLabel(r.tailKind), failure: r.tailFailure };
@@ -376,6 +404,25 @@ function isSelfCheckResult(x: unknown): x is SourceSelfCheckResult {
     && typeof r.sourceScope === "string";
 }
 
+const SELF_CHECK_FAILURE_KINDS: readonly SelfCheckFailureKind[] = ["网络类", "HTTP 状态", "解析为空", "详情失败", "取流失败", "其他"];
+
+/** 分页抽查段读入归一（协议 v1 结果无本段）：字段缺失/非法一律
+ * 归一 skipped——旧口径未抽查过，不冒充通过、也不冒充不适用；
+ * 协议版本不符本身会判其过期、待补探刷新（见文件头指纹节）。
+ * fail 形态只认封闭形态集，非法值归 null（呈现退化为裸失败）。 */
+function pagingFieldsOf(r: SourceSelfCheckResult): { paging: SelfCheckPagingState; pagingFailure: SelfCheckFailureKind | null } {
+  const raw = r as { paging?: unknown; pagingFailure?: unknown };
+  const paging: SelfCheckPagingState = raw.paging === "ok" || raw.paging === "fail" || raw.paging === "na" || raw.paging === "skipped"
+    ? raw.paging
+    : "skipped";
+  const pagingFailure = paging === "fail"
+    && typeof raw.pagingFailure === "string"
+    && SELF_CHECK_FAILURE_KINDS.includes(raw.pagingFailure as SelfCheckFailureKind)
+    ? (raw.pagingFailure as SelfCheckFailureKind)
+    : null;
+  return { paging, pagingFailure };
+}
+
 /** 旧两维指纹结果（fix331 格式：全链字段＋清单版本＋App 版本）。 */
 interface LegacySelfCheckResult extends Omit<SourceSelfCheckResult, "protocolVersion" | "adapterEpoch" | "sourceScope"> {
   manifestVersion: number;
@@ -392,7 +439,9 @@ function isLegacySelfCheckResult(x: unknown): x is LegacySelfCheckResult {
 
 /** 旧指纹结果迁移（逐条按新口径判定去留、不无条件全丢）：
  * - 协议版本：能通过全链形状校验的旧结果都由现行全链口径产
- *   出，按 SELF_CHECK_PROTOCOL_VERSION 认定；
+ *   出，按 SELF_CHECK_PROTOCOL_VERSION 认定；其分页抽查段是
+ *   协议 v2 才有的段，旧结果从未抽查过——归一 skipped 如实标
+ *   记未探，不随协议认定冒充已抽查；
  * - 适配器纪元：旧结果只带 App 版本作适配器身份——与当前 App
  *   版本相同即同一份适配器代码、按现行纪元认定；不同则无法
  *   证实适配器未变，给哨兵 0（判过期、待重探，但不丢弃）；
@@ -407,7 +456,8 @@ function migrateLegacyResult(r: LegacySelfCheckResult): SourceSelfCheckResult {
   const def = getActiveRegistry().sources.find((s) => s.id === r.sourceId);
   return {
     sourceId: r.sourceId, at: r.at, listOk: r.listOk, itemCount: r.itemCount,
-    listFailure: r.listFailure, detail: r.detail, detailFailure: r.detailFailure,
+    listFailure: r.listFailure, paging: "skipped", pagingFailure: null,
+    detail: r.detail, detailFailure: r.detailFailure,
     tail: r.tail, tailKind: r.tailKind, tailFailure: r.tailFailure,
     protocolVersion: SELF_CHECK_PROTOCOL_VERSION,
     adapterEpoch: sameApp ? SELF_CHECK_ADAPTER_EPOCH : 0,
@@ -423,7 +473,7 @@ function loadFrom(storage: SelfCheckStorageLike | null): Record<string, SourceSe
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const out: Record<string, SourceSelfCheckResult> = {};
     for (const [k, v] of Object.entries(parsed ?? {})) {
-      if (isSelfCheckResult(v) && v.sourceId === k) out[k] = v;
+      if (isSelfCheckResult(v) && v.sourceId === k) out[k] = { ...v, ...pagingFieldsOf(v) };
       else if (isLegacySelfCheckResult(v) && v.sourceId === k) out[k] = migrateLegacyResult(v);
     }
     return out;
@@ -507,17 +557,20 @@ export interface SelfCheckEngineDeps {
   now: () => number;
 }
 
-/** 单源自检：列表 1 页（记成败＋条目数），有条目再取 1 条详情
- * （记可达/失败），详情可达后按品类补末段——视频类抽同 1 条目
- * 续探 1 次取流（只取流不播放，零流记失败）；posts 正文段与
- * image 图集段复用详情响应判定（正文 HTML/图集图数为空记解析
- * 为空）。全程 ≤ SELF_CHECK_MAX_REQUESTS_PER_SOURCE 个请求——
- * 本函数只有 list/detail/resolve 三处调用点，结构上不可能超
- * 预算。本函数不抛错：一切失败都收敛成结果里的失败形态。 */
+/** 单源自检：列表 1 页（记成败＋条目数），信号称有下一页时抽
+ * 查第 2 页 1 页（记一致性，见文件头「分页抽查」），有条目再取
+ * 1 条详情（记可达/失败），详情可达后按品类补末段——视频类抽
+ * 同 1 条目续探 1 次取流（只取流不播放，零流记失败）；posts
+ * 正文段与 image 图集段复用详情响应判定（正文 HTML/图集图数
+ * 为空记解析为空）。全程 ≤ SELF_CHECK_MAX_REQUESTS_PER_SOURCE
+ * 个请求——本函数只有 list（第 1 页与抽查第 2 页）/detail/
+ * resolve 四处调用点，结构上不可能超预算。本函数不抛错：一
+ * 切失败都收敛成结果里的失败形态。 */
 export async function runSourceSelfCheck(def: SourceDef, deps: SelfCheckEngineDeps): Promise<SourceSelfCheckResult> {
   const base: SourceSelfCheckResult = {
     sourceId: def.id, at: deps.now(), listOk: false, itemCount: 0,
-    listFailure: null, detail: "skipped", detailFailure: null,
+    listFailure: null, paging: "skipped", pagingFailure: null,
+    detail: "skipped", detailFailure: null,
     tail: "skipped", tailKind: selfCheckTailKindFor(def), tailFailure: null,
     ...selfCheckFingerprintFor(def),
     requests: 0,
@@ -526,15 +579,41 @@ export async function runSourceSelfCheck(def: SourceDef, deps: SelfCheckEngineDe
   try { adapter = deps.createAdapterFor(def); } catch { adapter = null; }
   if (!adapter) return { ...base, listFailure: "其他" };
   let firstId: string | null = null;
+  let firstPage: Awaited<ReturnType<SourceAdapter["list"]>> | null = null;
   try {
     base.requests += 1;
     const page = await adapter.list(1, SELF_CHECK_LIST_PAGE_SIZE);
     base.listOk = true;
     base.itemCount = page.items.length;
     firstId = page.items[0]?.externalId ?? null;
+    firstPage = page;
   } catch (e) {
     base.listFailure = selfCheckFailureKind(e, "list");
     return base;
+  }
+  /* 分页抽查（协议 v2）：判据与三套 UI 的停拉口径同一黑盒信号
+   * （pagination.pages＞当前页）。抽查失败只落本段：不翻列表
+   * 结论、不阻断详情/末段（各段分开记）。 */
+  if (firstPage && firstPage.pagination.pages > firstPage.pagination.page) {
+    const firstIds = new Set(firstPage.items.map((it) => it.externalId));
+    try {
+      base.requests += 1;
+      const page2 = await adapter.list(2, SELF_CHECK_LIST_PAGE_SIZE);
+      if (page2.items.length === 0) {
+        base.paging = "fail";
+        base.pagingFailure = "解析为空";
+      } else if (page2.items.every((it) => firstIds.has(it.externalId))) {
+        base.paging = "fail";
+        base.pagingFailure = "其他"; // 第 2 页与第 1 页全同＝信号说谎或分页失效
+      } else {
+        base.paging = "ok";
+      }
+    } catch (e) {
+      base.paging = "fail";
+      base.pagingFailure = selfCheckFailureKind(e, "list");
+    }
+  } else if (firstPage) {
+    base.paging = "na"; // 信号称单页：不适用，不多取页、不冒充通过
   }
   if (firstId === null) return base; // 结构化真空：列表成功、无条目可探详情
   let detailData: SourceDetail | null = null;
@@ -785,23 +864,40 @@ export function selfCheckSegmentText(r: SourceSelfCheckResult): string {
   return `${selfCheckSegmentBody(r)} · 请求 ${r.requests} 次（适配器调用口径）`;
 }
 
+/** 分页抽查段呈现子句：失败明示形态（全同的「其他」是残余类、
+ * 不缀字面）、不适用明示单页口径；通过/跳过不另缀——通过已由
+ * 「可用」结论与调用数承载，跳过只发生在列表已失败（主句已明
+ * 示）或旧协议结果（过期标注已明示）。 */
+function pagingSegmentClause(r: SourceSelfCheckResult): string {
+  if (r.paging === "fail") {
+    const kind = r.pagingFailure && r.pagingFailure !== "其他" ? `·${r.pagingFailure}` : "";
+    return ` · 分页抽查失败${kind}`;
+  }
+  if (r.paging === "na") return " · 分页抽查不适用（单页）";
+  return "";
+}
+
 function selfCheckSegmentBody(r: SourceSelfCheckResult): string {
   const t = timeText(r.at);
   if (!r.listOk) return `最近自检 失败·${r.listFailure ?? "其他"} · 详情未探（${t}）`;
+  let body: string;
   if (r.detail === "fail") {
     const kind = r.detailFailure && r.detailFailure !== "详情失败" ? `·${r.detailFailure}` : "";
-    return `最近自检 列表 ${r.itemCount} 条 · 详情失败${kind}（${t}）`;
-  }
-  if (r.detail === "ok") {
+    body = `最近自检 列表 ${r.itemCount} 条 · 详情失败${kind}（${t}）`;
+  } else if (r.detail === "ok") {
     const label = tailSegmentLabel(r.tailKind);
     if (r.tail === "fail") {
       const kind = r.tailFailure && r.tailFailure !== "取流失败" ? `·${r.tailFailure}` : "";
-      return `最近自检 列表 ${r.itemCount} 条 · 详情可达 · ${label}失败${kind}（${t}）`;
+      body = `最近自检 列表 ${r.itemCount} 条 · 详情可达 · ${label}失败${kind}（${t}）`;
+    } else if (r.tail === "ok") {
+      body = `最近自检 成功 · 列表 ${r.itemCount} 条 · 详情可达 · ${label}可达（${t}）`;
+    } else {
+      body = `最近自检 成功 · 列表 ${r.itemCount} 条 · 详情可达（${t}）`;
     }
-    if (r.tail === "ok") return `最近自检 成功 · 列表 ${r.itemCount} 条 · 详情可达 · ${label}可达（${t}）`;
-    return `最近自检 成功 · 列表 ${r.itemCount} 条 · 详情可达（${t}）`;
+  } else {
+    body = `最近自检 成功 · 列表 ${r.itemCount} 条 · 详情未探（无条目）（${t}）`;
   }
-  return `最近自检 成功 · 列表 ${r.itemCount} 条 · 详情未探（无条目）（${t}）`;
+  return body + pagingSegmentClause(r);
 }
 
 /** 导出路径的自检行组：汇总一行＋有结果的源逐源一行（稳定编号、
@@ -830,7 +926,7 @@ export function selfCheckDiagLines(
   }
   const checked = ok + partial + down;
   return [
-    `源自检（最近自检口径，与本会话取页分开）：已检 ${checked} · 可用 ${ok} · 部分可用 ${partial} · 不可用 ${down} · 未自检 ${sources.length - checked} · 请求数＝适配器调用口径（列表/详情/取流各计 1，一次调用内可含多次 HTTP）`,
+    `源自检（最近自检口径，与本会话取页分开）：已检 ${checked} · 可用 ${ok} · 部分可用 ${partial} · 不可用 ${down} · 未自检 ${sources.length - checked} · 请求数＝适配器调用口径（列表/分页抽查/详情/取流各计 1，一次调用内可含多次 HTTP）`,
     ...per,
   ];
 }

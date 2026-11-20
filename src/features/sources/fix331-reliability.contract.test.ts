@@ -12,7 +12,8 @@
  *
  * 覆盖：(a) 探活补全链——视频类详情后抽 1 条目续探取流（只取流
  * 不播放）、posts 类正文段与 image 类图集段复用详情响应判定，
- * 每源请求 ≤ 硬预算 3；(b) 旧格式结果（无末段/无版本指纹）
+ * 每源请求 ≤ 硬预算（现行 4；fix335 补分页抽查段后 3→4，本文件
+ * 假适配器信号恒单页、抽查标不适用不多取，计数断言不变）；(b) 旧格式结果（无末段/无版本指纹）
  * 落盘读入即丢弃，不许冒充已检；(c) 四态派生＋徽标文案逐一对号
  * （全链通／取流段死／从未探／已过期／该源切片已变／适配器纪元
  * 不符／列表即死）；
@@ -118,6 +119,10 @@ function fakeAdapter(behavior: FakeBehavior, counter: { calls: number; resolveCa
 function mkResult(def: SourceDef, over: Partial<SourceSelfCheckResult> = {}): SourceSelfCheckResult {
   return {
     sourceId: def.id, at: NOW, listOk: true, itemCount: 5, listFailure: null,
+    /* fix335/selfcheck-paging 断言适配：结果格式新增分页抽查两
+     * 字段，夹具补齐（默认 skipped＝本夹具未探抽查段；口径不变、
+     * 覆盖不降，抽查段口径由 fix335-selfcheck-paging 契约承接）。 */
+    paging: "skipped", pagingFailure: null,
     detail: "ok", detailFailure: null, requests: 3,
     tail: "ok", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(def),
     ...over,
