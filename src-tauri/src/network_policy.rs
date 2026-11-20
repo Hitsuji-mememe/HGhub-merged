@@ -202,7 +202,96 @@ fn strict_allowed_subset(addrs: &[SocketAddr]) -> Vec<SocketAddr> {
     addrs.iter().copied().filter(|a| allowed_ip(a.ip())).collect()
 }
 
+/// FakeIP 合成地址形态（fix338 签名②）：代理核心 fake-ip 池的
+/// 地址——v4 198.18.0.0/15 与 v6 ULA 段（fc00::/7；sing-box
+/// fake-ip6 默认 fc00::/18、mihomo 默认 fdfe:dcba:9876::/64 均
+/// 落在其内）。与 allowed_ip 分开：ULA 本身不是「放行地址」，
+/// 只有当一组答案**全为**合成形态时才构成 fake 分支的证据
+/// （见 adopt_addresses）；混合集里的 ULA 仍按普通内网剔除，
+/// 非 fake 分支的真实 ULA/内网地址维持拒绝。
+pub fn is_synthetic_fake_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, _, _] = v4.octets();
+            a == 198 && (b == 18 || b == 19)
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_synthetic_fake_ip(IpAddr::V4(v4));
+            }
+            let s = v6.segments();
+            (s[0] & 0xfe00) == 0xfc00
+        }
+    }
+}
+
+/// 一组解析答案是否全为 FakeIP 合成形态（空集不算）。
+pub fn answers_all_synthetic(addrs: &[SocketAddr]) -> bool {
+    !addrs.is_empty() && addrs.iter().all(|a| is_synthetic_fake_ip(a.ip()))
+}
+
+/// 地址采用裁定（fix338 签名②）：系统解析（resolve_target）与
+/// 公网 DNS 回退（client_for_dns 的 public_dns 分支）两个采用点
+/// 共用同一口径。此前两处命运不同：前者 strict 子集保留
+/// （fix337），后者整组校验——同一混合答案集一放一拒；且
+/// AAAA-only 的 FakeIP v6 合成集在两处都因 ULA 被 allowed_ip
+/// 拒而整组失败（3.3.7 真机分片 private_address_denied ×12，
+/// 调查 fix338/investigation-338.md 签名②）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddressAdoption {
+    /// 钉死这组地址连接：每个地址都已过 allowed_ip，连接器
+    /// 永不连被拒地址。
+    Pin(Vec<SocketAddr>),
+    /// 答案集全为代理合成形态：不钉死、按主机名经系统/代理
+    /// 连接（fake→域名映射在代理核心数据面、连接由其接管，
+    /// 与 v4 fake_trusted 同口径同信任论证）；原始集仅作记录
+    /// 与探测参考，不作为连接目标钉入客户端。
+    ByHostname(Vec<SocketAddr>),
+}
+
+impl AddressAdoption {
+    pub fn into_addresses(self) -> Vec<SocketAddr> {
+        match self {
+            AddressAdoption::Pin(addrs) | AddressAdoption::ByHostname(addrs) => addrs,
+        }
+    }
+}
+
+/// 采用裁定纯函数（两采用点共用）：非 strict 全量保留（仅空集
+/// 拒绝，与旧 check 语义一致）；strict 下全合成集走 fake 分支，
+/// 其余保留 allowed 子集，子集为空（全被拒或无答案）整组拒绝、
+/// 错误文本与旧整组拒绝一致。
+pub fn adopt_addresses(addrs: &[SocketAddr], strict: bool) -> Result<AddressAdoption, String> {
+    if !strict {
+        check_addresses_with_mode(addrs, false)?;
+        return Ok(AddressAdoption::Pin(addrs.to_vec()));
+    }
+    if answers_all_synthetic(addrs) {
+        return Ok(AddressAdoption::ByHostname(addrs.to_vec()));
+    }
+    let subset = strict_allowed_subset(addrs);
+    if subset.is_empty() {
+        let err = check_addresses_with_mode(addrs, strict)
+            .err()
+            .unwrap_or_else(|| "目标没有可用的 DNS 地址".to_string());
+        return Err(err);
+    }
+    Ok(AddressAdoption::Pin(subset))
+}
+
 pub async fn resolve_target(url: &Url, strict: bool) -> Result<Vec<SocketAddr>, String> {
+    resolve_target_adopted(url, strict)
+        .await
+        .map(AddressAdoption::into_addresses)
+}
+
+/// 同 resolve_target，保留采用裁定：连接面（client_for_dns）
+/// 需要知道 fake 分支不钉死；诊断/探测方用 resolve_target 取
+/// 地址集即可（ByHostname 时为原始合成集）。
+pub async fn resolve_target_adopted(
+    url: &Url,
+    strict: bool,
+) -> Result<AddressAdoption, String> {
     let port = url.port_or_known_default().ok_or("目标端口无效")?;
     let mut addrs = match url.host().ok_or("目标缺少主机名")? {
         Host::Ipv4(ip) => vec![SocketAddr::new(ip.into(), port)],
@@ -218,17 +307,27 @@ pub async fn resolve_target(url: &Url, strict: bool) -> Result<Vec<SocketAddr>, 
     };
     sort_ipv6_first(&mut addrs);
     addrs.dedup();
-    if strict {
-        let subset = strict_allowed_subset(&addrs);
-        if subset.is_empty() {
-            // 全被拒（或无答案）：与旧整组拒绝同一错误出口与文本。
-            check_addresses_with_mode(&addrs, strict)?;
+    match adopt_addresses(&addrs, strict) {
+        Ok(adopted) => Ok(adopted),
+        Err(e) => {
+            /* 抛出点留痕（fix338 签名②）：被拒目标此前在诊断导出
+             * 里没有任何解析观测行（resolve_target 在 strict_reresolve
+             * 落 network.resolve 之前失败），答案构成不可见、真机
+             * 只能靠猜。现按 fake_trusted 行同格式落一行
+             * branch=denied：kinds 按 media_dns::ip_kind 归类计数、
+             * 不记原始 IP（不变量 10）。空集（纯 DNS 无答案）不是
+             * 策略拒绝，不落此行。 */
+            if strict && !addrs.is_empty() {
+                if let Some(host) = url.host_str() {
+                    crate::playback_log::record(
+                        "network.resolve",
+                        json!({"host": host, "kinds": crate::media_dns::resolve_kinds(&addrs), "count": addrs.len(), "all_fake": false, "branch": "denied"}),
+                    );
+                }
+            }
+            Err(e)
         }
-        addrs = subset;
-    } else {
-        check_addresses_with_mode(&addrs, strict)?;
     }
-    Ok(addrs)
 }
 
 pub fn redirect_target(current: &Url, location: &str) -> Result<Url, String> {
@@ -402,6 +501,87 @@ mod tests {
             .map(|s| s.parse().unwrap())
             .collect();
         assert!(strict_allowed_subset(&all_bad).is_empty(), "全被拒时子集为空、由调用方整组拒绝");
+    }
+
+    /* fix338 签名②（3.3.7 真机 source-009/010 点播，调查
+     * fix338/investigation-338.md）：FakeIP 的 IPv6 合成池（ULA：
+     * sing-box fake-ip6 默认 fc00::/18、mihomo 默认
+     * fdfe:dcba:9876::/64）与 v4 198.18.0.0/15 同口径——答案集
+     * 全为合成形态时走 fake 分支放行。旧码 allowed_ip 的 v6 分支
+     * 只认全球单播，AAAA-only 合成集子集为空、整组以「禁止访问
+     * 普通内网、回环或保留地址」拒绝（调查探针在旧码上字面复现
+     * 同一文案，真机 kind=private_address_denied ×12）。 */
+    #[tokio::test]
+    async fn strict_resolve_target_accepts_all_synthetic_answers() {
+        let ula = Url::parse("https://[fc00::abcd]/seg.ts").unwrap();
+        let addrs = resolve_target(&ula, true)
+            .await
+            .expect("AAAA-only ULA 合成集应放行（fake 分支）");
+        assert_eq!(
+            addrs,
+            vec!["[fc00::abcd]:443".parse::<SocketAddr>().unwrap()]
+        );
+        let mihomo = Url::parse("https://[fdfe:dcba:9876::1]/seg.ts").unwrap();
+        assert!(
+            resolve_target(&mihomo, true).await.is_ok(),
+            "mihomo fake-ip6 池形态同样放行"
+        );
+        // 非合成的真实内网字面集维持拒绝（fake 分支只收全合成集）。
+        let lan = Url::parse("https://192.168.1.1/seg.ts").unwrap();
+        assert!(resolve_target(&lan, true).await.is_err(), "真实内网地址维持拒绝");
+        let lan6 = Url::parse("https://[fe80::1]/seg.ts").unwrap();
+        assert!(resolve_target(&lan6, true).await.is_err(), "链路本地维持拒绝");
+    }
+
+    /* fix338 签名②采用口径（任务夹具三组形态）：全合成集走
+     * ByHostname 不钉死、混合集子集保留、真内网集仍拒；两采用
+     * 点（resolve_target 与 public_dns 分支）共用本函数，同一
+     * 答案集不得两处异命运——旧 public_dns 整组校验对
+     * 「FakeIP＋Teredo」集为 Err、与子集口径矛盾，本组钉住。 */
+    #[test]
+    fn adopt_addresses_unifies_subset_and_fake_semantics() {
+        let set = |raw: &[&str]| -> Vec<SocketAddr> {
+            raw.iter().map(|s| s.parse().unwrap()).collect()
+        };
+        // AAAA-only ULA 合成集（真机形态）→ ByHostname。
+        assert!(matches!(
+            adopt_addresses(&set(&["[fc00::abcd]:443"]), true),
+            Ok(AddressAdoption::ByHostname(_))
+        ));
+        // v4 FakeIP＋v6 合成混合集 → ByHostname。
+        assert!(matches!(
+            adopt_addresses(&set(&["198.18.0.5:443", "[fdfe:dcba:9876::1]:443"]), true),
+            Ok(AddressAdoption::ByHostname(_))
+        ));
+        // FakeIP＋Teredo → 子集保留 FakeIP（旧整组校验此集为 Err）。
+        assert_eq!(
+            adopt_addresses(&set(&["198.18.0.5:443", "[2001::1]:443"]), true),
+            Ok(AddressAdoption::Pin(set(&["198.18.0.5:443"])))
+        );
+        // 公网＋ULA → 只保留公网（非 fake 分支的真实 ULA 维持拒绝）。
+        assert_eq!(
+            adopt_addresses(&set(&["1.1.1.1:443", "[fd00::1]:443"]), true),
+            Ok(AddressAdoption::Pin(set(&["1.1.1.1:443"])))
+        );
+        // 公网＋Teredo → 保留公网（两采用点同命运）。
+        assert_eq!(
+            adopt_addresses(&set(&["1.1.1.1:443", "[2001::1]:443"]), true),
+            Ok(AddressAdoption::Pin(set(&["1.1.1.1:443"])))
+        );
+        // 污染集（公网＋真内网）→ 子集保留公网（fix337 语义不回退）。
+        assert_eq!(
+            adopt_addresses(&set(&["1.1.1.1:443", "192.168.1.1:443"]), true),
+            Ok(AddressAdoption::Pin(set(&["1.1.1.1:443"])))
+        );
+        // 真内网集 → 整组拒绝；空集 → 拒绝。
+        assert!(adopt_addresses(&set(&["192.168.1.1:443", "10.0.0.1:443"]), true).is_err());
+        assert!(adopt_addresses(&[], true).is_err());
+        // 非 strict：全量保留（仅空集拒绝），与旧 check 语义一致。
+        assert_eq!(
+            adopt_addresses(&set(&["192.168.1.1:443"]), false),
+            Ok(AddressAdoption::Pin(set(&["192.168.1.1:443"])))
+        );
+        assert!(adopt_addresses(&[], false).is_err());
     }
 
     #[test]

@@ -247,11 +247,44 @@ pub async fn client_for_dns(raw: &str, public_dns: bool) -> Result<(url::Url, Ar
     } else if public_dns {
         let resolver = build_client(crate::media_dns::HOST, &crate::media_dns::BOOTSTRAP, &route)?;
         let resolution = crate::media_dns::resolve(&resolver, host, port).await?;
-        network_policy::check_addresses_with_mode(&resolution.addresses, strict)?;
-        (resolution.addresses, CLIENT_TTL.min(resolution.ttl))
+        let ttl = CLIENT_TTL.min(resolution.ttl);
+        /* 采用口径与系统解析统一（fix338 签名②）：旧实现此处整组
+         * 校验，与 resolve_target 的子集保留对同一混合答案集一放
+         * 一拒。改走 network_policy::adopt_addresses 同一裁定；
+         * media_dns::resolve 的卫生校验已先行否决 fake/内网答案，
+         * ByHostname 在此仅作语义兜底（与系统解析同命运）。 */
+        match network_policy::adopt_addresses(&resolution.addresses, strict) {
+            Ok(network_policy::AddressAdoption::Pin(addrs)) => (addrs, ttl),
+            Ok(network_policy::AddressAdoption::ByHostname(set)) => {
+                crate::media_dns::record_fake_trusted_unpinned(host, &set);
+                (Vec::new(), ttl)
+            }
+            Err(e) => {
+                /* 抛出点留痕（fix338 签名②）：与 resolve_target 的
+                 * denied 行同格式（kinds＋count＋branch=denied）。 */
+                crate::playback_log::record(
+                    "network.resolve",
+                    json!({"host": host, "kinds": crate::media_dns::resolve_kinds(&resolution.addresses), "count": resolution.addresses.len(), "all_fake": false, "branch": "denied"}),
+                );
+                return Err(e);
+            }
+        }
     } else if strict {
-let resolved = network_policy::resolve_target(&target, strict).await?;
-        crate::media_dns::strict_reresolve(raw, host, port, strict, resolved).await    } else {
+        match network_policy::resolve_target_adopted(&target, strict).await? {
+            network_policy::AddressAdoption::ByHostname(set) => {
+                /* 全合成集（fix338 签名②）：fake 分支不钉死——按
+                 * 主机名连接、由系统解析与代理核心接管 fake 映射，
+                 * 与 v4 fake_trusted 同信任论证（见 media_dns::
+                 * strict_reresolve）；合成地址只入观测、不钉入
+                 * 客户端。 */
+                crate::media_dns::record_fake_trusted_unpinned(host, &set);
+                (Vec::new(), CLIENT_TTL)
+            }
+            network_policy::AddressAdoption::Pin(resolved) => {
+                crate::media_dns::strict_reresolve(raw, host, port, strict, resolved).await
+            }
+        }
+    } else {
         (Vec::new(), CLIENT_TTL)
     };
     let http = Arc::new(build_client(host, &addrs, &route)?);

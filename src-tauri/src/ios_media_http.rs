@@ -78,15 +78,19 @@ impl Handler {
             #[cfg(test)]
             Self::Fixture(calls) => {
                 calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                let (mime, bytes) = if request.query == "u=playlist" || request.path == "/hls" {
-                    ("application/vnd.apple.mpegurl", b"#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,URI=\"audio.m3u8\"\n#EXTINF:4,\nclip.ts\n".as_slice())
+                // 目标按用例形态给（fix338 签名① 夹具适配）：分片用例
+                // 此前也顶着 master.m3u8 目标，生产中 segment_response
+                // 收到的恒是分片自身 URL；魔数复验按「目标声称清单」
+                // 判读后，夹具目标必须与生产形态一致。
+                let (target, mime, bytes) = if request.query == "u=playlist" || request.path == "/hls" {
+                    ("https://fixture.example/video/master.m3u8", "application/vnd.apple.mpegurl", b"#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,URI=\"audio.m3u8\"\n#EXTINF:4,\nclip.ts\n".as_slice())
                 } else if request.query == "u=nested" {
                     // A sub-playlist is often served with an unhelpful MIME type.
-                    ("application/octet-stream", b"#EXTM3U\n#EXTINF:4,\nnested.ts\n".as_slice())
+                    ("https://fixture.example/video/master.m3u8", "application/octet-stream", b"#EXTM3U\n#EXTINF:4,\nnested.ts\n".as_slice())
                 } else {
-                    ("video/mp2t", b"0123456789".as_slice())
+                    ("https://fixture.example/video/clip.ts", "video/mp2t", b"0123456789".as_slice())
                 };
-                crate::media::fixture_response("https://fixture.example/video/master.m3u8", mime, bytes, origin, request.range.as_deref())
+                crate::media::fixture_response(target, mime, bytes, origin, request.range.as_deref())
             }
         }
     }

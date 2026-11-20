@@ -33,10 +33,13 @@
   `is_teredo()`、`HYGIENE_VETO`。
 - 地址策略：[`src-tauri/src/network_policy.rs`](../../src-tauri/src/network_policy.rs) 的
   `strict_security()`、`parse_target()`、`parse_target_with_mode()`、`allowed_ip()`、
-  `resolve_target()`、`redirect_target()`。
+  `resolve_target()`、`redirect_target()`；地址采用裁定（fix338）：
+  `is_synthetic_fake_ip()`、`answers_all_synthetic()`、`adopt_addresses()`、
+  `AddressAdoption`、`resolve_target_adopted()`。
 - 媒体入口与整形：[`src-tauri/src/media/mod.rs`](../../src-tauri/src/media/mod.rs) 的
   `LOCAL_ORIGIN`、`handle()`、`clear_caches()`；
-  [`hls.rs`](../../src-tauri/src/media/hls.rs) 的 `load_playlist()`、`rewrite_playlist()`；
+  [`hls.rs`](../../src-tauri/src/media/hls.rs) 的 `load_playlist()`、`rewrite_playlist()`、
+  `is_playlist_bytes()`（清单魔数单一判别，fix338）；
   [`image.rs`](../../src-tauri/src/media/image.rs) 的 `load_image()`；
   [`segment.rs`](../../src-tauri/src/media/segment.rs) 的 `load_segment()`；
   [`response.rs`](../../src-tauri/src/media/response.rs) 的 `respond()`、`apply_byte_range()`、
@@ -62,6 +65,18 @@
    子集为空才整组拒绝——旧整组拒绝让一条污染记录把同组好地址一并否决），把结果通过
    `resolve_to_addrs()` 固定进客户端；有代理时把域名交给代理解析。缓存 30 秒，命中不延长
    TTL，最多 64 项，配置/代理/安全模式变化会推进 generation 并清空。
+   地址采用口径统一（fix338/net-fix）：系统解析与公网 DNS 回退两个采用点共用
+   `adopt_addresses()` 同一裁定——strict 下答案集**全为 FakeIP 合成形态**（v4
+   198.18.0.0/15 ∪ v6 ULA fc00::/7，含 sing-box fc00::/18 与 mihomo
+   fdfe:dcba:9876::/64 两默认 fake-ip6 池）时走 fake 分支：不钉死地址、按主机名经
+   系统/代理连接（`AddressAdoption::ByHostname`，观测行 `network.resolve`
+   branch=fake_trusted＋pinned=false）；其余情形保留允许子集钉死；子集为空整组拒绝。
+   旧形态两缺陷：公网 DNS 分支整组校验与系统解析子集保留对同一混合集一放一拒；
+   AAAA-only 的 v6 合成集被 ULA 判读（`allowed_ip` v6 只放行全球单播、`ip_kind`
+   旧判 ULA 为 public）整组拒绝——3.3.7 真机分片 `private_address_denied` ×12。
+   两采用点 strict 整组拒绝时在抛出点落 `network.resolve` branch=denied 观测行
+   （kinds 按 `media_dns::ip_kind` 归类计数、不记原始 IP），被拒目标的答案构成
+   在诊断导出里可见（旧形态 resolve_target 在任何观测行之前失败、构成不可见）。
 4. `get_with_dns()` 关闭自动重定向，最多跟 5 跳。每一跳都重新 `parse_target()`、重新选客户端和
    固定 DNS，`redirect_target()` 拒绝跨协议降级、认证信息和非法目标。`edge()` 更严格：只有
    无 token、无 body 的游客 GET 才允许 301/302/303 迁移到新 origin；307/308、带凭据或带逻辑
@@ -85,6 +100,20 @@
    （`fetch_segment_bytes`）拿到 HTML 文档时整段改走 `fetch_bytes()` 的 Referer 候选链，
    整形层（`segment_response`）对 HTML 文档一律回 502——200＋HTML 不得以媒体形态交给
    播放器（旧形态为 hls.js 的 levelParsingError 与「下载成功却永不入缓冲」）。
+   清单魔数复验（fix338/net-fix）：`load_playlist` 与 `segment_response` 共用
+   `hls::is_playlist_bytes()` 一份 `#EXTM3U` 判别；`segment_response` 凡「声称清单」
+   （Content-Type 含 mpegurl 或目标路径以 .m3u8 结尾）而魔数不符 → 502。旧变体清单腿
+   只有 ctype/魔数二选一判定、分支内从不复验，非 doctype 前缀的网页体（脚本页/
+   `<head>` 页/纯文本/JSON 错误体）标 mpegurl 即被当清单改写后 200 返回（3.3.7
+   真机 source-011 变体清单 levelParsingError）。
+   清单腿总截止与在途合并（fix338/net-fix）：`load_playlist` 取数整体受 15 秒
+   deadline 约束（小于 hls.js 的 manifestLoadingTimeOut 20s，失败由 Rust 层先于
+   播放器超时以可分类的 502 给出），同 URL 并发经 `PL_LOADING` 与分片共用
+   `segment::coalesce` 只飞一条取数链；旧形态只有 attempt 级 20s×3 叠加（≈60s+）、
+   无总预算无合并，上游挂起时全链无结论（3.3.7 真机 mount 后 24 秒无清单无留痕）。
+   清单腿失败（取数/超时/非 UTF-8/魔数不符）落 `source.resolve_fail` 事件
+   （segment=manifest，与适配器 resolve 段同构、同节呈现），`media::handle` 入口
+   `proxy.begin` 与返回时 `proxy.end` 成对，挂起在导出里呈「有 begin 无 end」可辨。
 7. `apply_byte_range()` 只处理单段 `bytes=`，支持 `start-end`、`start-`、`-suffix`；无效/多段
    范围退回完整 200，越界返回 416。m3u8 永远完整返回，避免原生播放器的 0-1 字节探测把
    `#EXTM3U` 截掉。Linux 的 loopback HTTP 还支持 HEAD，并只发送一份 `Content-Length`/CORS 头。
@@ -116,6 +145,12 @@
   另一族的「公网形态」答案摘出来采用。系统解析（`resolve_target`）口径不同
   （fix337/video-resolve）：混合答案集只丢被拒的单条、保留允许子集继续——连接器
   钉住的地址仍逐个过 `allowed_ip()`、永不连被拒地址；子集为空才整组拒绝。
+- FakeIP 合成形态含 v6 池（fix338/net-fix）：`is_synthetic_fake_ip` 认 v4
+  198.18.0.0/15 与 v6 ULA（fc00::/7）；「全合成 ⇒ fake 分支不钉死」只在答案集
+  **全为**合成形态时成立——混合集里的 ULA 仍按普通内网剔除，非 fake 分支的真实
+  ULA/内网地址维持拒绝。已知取舍：ULA-only 的真实内网主机与 fake-ip6 合成集在
+  地址形态上不可区分，按主线裁定归 fake 分支（非 TUN 环境下等于该主机名可经
+  系统解析直连 ULA）；Teredo（2001::/32）是污染形态、不算合成，维持拒绝/剔除。
 - 不使用自动重定向。每一跳都要重新检查 scheme、主机/IP、DNS 和固定地址；发布页/脚本额外
   要求同源，代理路径也必须保留逐跳检查，不能把安全判断交给代理。
 - 只有 `reqwest` 的 `system-proxy` feature 能读取 Windows/macOS 固定系统代理；PAC 不支持。

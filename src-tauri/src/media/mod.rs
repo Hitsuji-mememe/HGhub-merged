@@ -337,6 +337,102 @@ mod tests {
         }
     }
 
+    /// 设备链模拟（fix338 签名③，用户验收分级：完整设备链＋延迟
+    /// 注入）：上游替身是本地 HTTP 代理（127.0.0.1:17890），本测试
+    /// 经 proxy::bind/set 把应用代理指向它，目标用假公网域名
+    /// http://upstream.example/* 经代理以 absolute-form 到达替身
+    /// ——与 fix331 device-chain 的 HGHUBX_PROXY 节流代理同一注入
+    /// 形态（沙箱无 NET_ADMIN，不能把替身直接挂到 FakeIP 段上；
+    /// 127.0.0.1 直连目标又会被生产目标校验拒绝，那是应用不变
+    /// 量、不为模拟放宽）。替身行为按路径分：/never.m3u8 接受
+    /// 连接永不响应、/slow30.m3u8 30 秒后回清单、/slow3*.m3u8
+    /// 3 秒后回清单；另以 /count/<name> 回该路径命中数
+    /// （single-flight 断言用）。替身脚本见仓外验证工具
+    /// ~/workspace/hghub/fix338/hls-double.py。
+    /// 断言：①永不响应与 30 秒响应都必须在清单总截止（15s）内
+    /// 以 502 明确失败（旧码 3×20s 叠加、>24s 无结论——3.3.7
+    /// 真机 mount 后 24 秒无清单签名）；②失败在播放日志里留
+    /// source.resolve_fail（segment=manifest）行（旧码恒无）；
+    /// ③3 秒慢但健康仍 200 出清单（不误杀慢源）；④同 URL 并发
+    /// 两次 /hls 只产生一条上游请求（旧码无清单 single-flight）。
+    /// 运行：cargo test --lib device_chain_hls_deadline -- --ignored --nocapture
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    #[ignore = "设备链模拟：需要 fix338 上游替身代理（127.0.0.1:17890），手动运行"]
+    async fn device_chain_hls_deadline() {
+        use std::time::{Duration, Instant};
+        let base = std::env::var("DEVICE_CHAIN_HLS_BASE")
+            .unwrap_or_else(|_| "http://upstream.example".to_string());
+        let stub = std::env::var("DEVICE_CHAIN_HLS_STUB")
+            .unwrap_or_else(|_| "http://127.0.0.1:17890".to_string());
+        // 代理注入：临时目录 bind 后 set 自定义代理指向替身。
+        let proxy_dir = std::env::temp_dir().join(format!("hghubx-hls-proxy-{}", std::process::id()));
+        std::fs::create_dir_all(&proxy_dir).expect("代理目录");
+        crate::proxy::bind(&proxy_dir);
+        crate::proxy::set("custom", &stub).expect("指向替身代理");
+        // 播放日志留痕断言：绑定临时目录并开启（本测试独占进程跑）。
+        let log_dir = std::env::temp_dir().join(format!("hghubx-hls-double-{}", std::process::id()));
+        std::fs::create_dir_all(&log_dir).expect("日志目录");
+        crate::playback_log::bind(&log_dir);
+        crate::playback_log::playback_log_set(true).expect("开启诊断日志");
+
+        let get = |path: &str| {
+            let url = format!("{base}{path}");
+            let q = format!("u={}", enc(&url));
+            async move { handle("/hls", &q, LOCAL_ORIGIN, None).await }
+        };
+
+        // ① 永不响应：deadline 内 502（余量 5s 容调度抖动）。
+        let started = Instant::now();
+        let never = get("/never.m3u8").await;
+        let never_ms = started.elapsed();
+        println!("[device-chain-hls] never → status={} elapsed={never_ms:?}", never.status());
+        assert_eq!(never.status(), 502, "永不响应必须以 502 明确失败");
+        assert!(never_ms < Duration::from_secs(20), "必须在总截止内出结论，实耗 {never_ms:?}");
+
+        // ① 30 秒才响应：不等满 30 秒，deadline 内判失败。
+        let started = Instant::now();
+        let slow30 = get("/slow30.m3u8").await;
+        let slow30_ms = started.elapsed();
+        println!("[device-chain-hls] slow30 → status={} elapsed={slow30_ms:?}", slow30.status());
+        assert_eq!(slow30.status(), 502, "30 秒响应必须在总截止内判失败");
+        assert!(slow30_ms < Duration::from_secs(20), "不得等满上游 30 秒，实耗 {slow30_ms:?}");
+
+        // ③ 3 秒慢但健康：200 且清单已改写（不误杀慢源）。
+        let slow3 = get("/slow3.m3u8").await;
+        println!("[device-chain-hls] slow3 → status={}", slow3.status());
+        assert_eq!(slow3.status(), 200, "3 秒慢源必须正常出清单");
+        let body = String::from_utf8_lossy(slow3.body()).to_string();
+        assert!(body.contains("#EXTM3U") && body.contains("/seg?u="), "清单应已改写：{body}");
+
+        // ④ single-flight：并发两次同一 URL（独立路径避免缓存
+        // 命中），替身命中数恰为 1。
+        let (a, b) = tokio::join!(get("/slow3f.m3u8"), get("/slow3f.m3u8"));
+        assert_eq!(a.status(), 200);
+        assert_eq!(b.status(), 200);
+        let count_body = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("计数客户端")
+            .get(format!("{stub}/count/slow3f.m3u8"))
+            .send()
+            .await
+            .expect("读替身命中数")
+            .text()
+            .await
+            .expect("命中数正文");
+        println!("[device-chain-hls] slow3f 上游命中={count_body}");
+        assert_eq!(count_body.trim(), "1", "同 URL 并发必须只飞一条上游请求");
+
+        // ② 留痕：日志含 segment=manifest 的 source.resolve_fail。
+        let log = crate::playback_log::playback_log_read().expect("读回播放日志");
+        assert!(
+            log.contains("\"segment\":\"manifest\"") || log.contains("segment=manifest"),
+            "清单失败必须留 source.resolve_fail（segment=manifest）行"
+        );
+        println!("[device-chain-hls] 留痕断言通过");
+    }
+
     /// 联网测试：默认跳过，手动跑 `cargo test --lib -- --ignored`。
     /// 依赖上游 `/api/videos/117/play` 返回的实时播放地址。
     #[tokio::test]
