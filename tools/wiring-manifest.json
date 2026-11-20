@@ -2164,6 +2164,24 @@
       "item": "结构批 L3／G4：Profile 回访路由经 surfaces 派生消费（routeForSurface），不本地另判",
       "min": 1,
       "symbol": "routeForSurface"
+    },
+    {
+      "files": [
+        "src/features/sources/adapters/parse.ts"
+      ],
+      "id": "fix335-bpurify-striptags-scripty",
+      "item": "fix335/b-purify stripTags 根治：剥标签前整棵剔除脚本族元素内容（SCRIPTY_ELEMENT_RE 定义＋stripTags 内消费），004 卡内封面脚本不再压平成标题文本",
+      "min": 2,
+      "symbol": "SCRIPTY_ELEMENT_RE"
+    },
+    {
+      "files": [
+        "src/features/sources/registry.ts"
+      ],
+      "id": "fix335-bpurify-staffverify-calibrated",
+      "item": "fix335/b-purify 站务验杀按源校准声明：51chigua（图≤26）与 meiridasai（图≤18）两源 staffVerify 字数阈值置不承重 100000（实拉量测分布校准，feedheiliao 890 不动）",
+      "min": 2,
+      "symbol": "maxBodyChars: 100000"
     }
   ]
 }

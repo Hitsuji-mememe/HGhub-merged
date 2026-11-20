@@ -456,6 +456,30 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   （`~/workspace/hghub/fix333/evidence/promo-004/`）＋M8 全量量测
   回归（`~/workspace/hghub/fix333/evidence/m8/`，165 条真实量测
   三元组喂新判据恰撤三连、零误杀）。
+  3.3.5 扩围（fix335/b-purify）：51chigua 与 meiridasai 同声明启
+  用——两源站务帖同为置顶异形卡（无 h2 标题、无分类词元，L1 词
+  元判据结构性不可达），详情量测（2026-11-20 本机实拉、生产量
+  法）显示两源站务帖字数与内容重叠不可分，分离面只剩 eps 与正
+  文图数：51chigua {maxBodyChars 100000 不承重, maxBodyImages
+  26}（站务图 3–23、内容图 ≥30、内容 eps 恒 1；用户截图招募卡
+  274838＝3558 字/图 23/eps 0 按判据撤下）、meiridasai
+  {100000, 18}（公告图 15–16、内容图 ≥21；网址说明型公告 47559
+  ＝1335 字/图 15/eps 0）。feedheiliao 现行 {890,3} 不动。审计
+  预估参数（003 图≤6、004 {≈900,≈6}）被实测双双证伪——阈值只
+  许由目标源实拉分布校准、不许跨源平移或凭小样本定版。003 的
+  游戏推广/求瓜合集两卡详情信号与内容同形、按构造存活（机制边
+  界，待裁定）；契约 `fix335-b-purify.contract.test.ts`＋证据
+  `~/workspace/hghub/fix335/evidence/b-purify.md`。
+- 标题链脚本字面根治（fix335/b-purify，2026-11-20）：`parse.ts`
+  的 `stripTags` 只删标签不删元素内容，004 卡内封面脚本
+  loadBannerDirect 在卡标题回退链落空时整段压平成标题、端上详
+  情页头栏（用户真机实报，与封面第四载体同源同元素：数据路径
+  当封面消费、正文路径 DOM 跳过、唯标题路径裸奔）。现 stripTags
+  剥标签前整棵剔除 script/style/noscript/template 元素内容（未
+  闭合开标签吞到串尾），全文本消费者一处受益、正常标题逐字不
+  变；证伪＝夹具删 h2 变体旧码标题逐字＝脚本字面、新码回落
+  slug，真实样本页差分仅脚本字面类改名、成员零增减。契约
+  `fix335-b-purify.contract.test.ts`。
 
 - 空壳卡标题兜底（fix333/M1，2026-11-20；Muse）：source-003 列表
   存在封面-only 卡（卡内无标题载体），`parseAnchorList` 标题链落

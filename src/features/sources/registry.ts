@@ -57,10 +57,10 @@ export const NAMED_SOURCES: SourceDef[] = [
   },
   {
     id: "51chigua", displayName: "51吃瓜网", kind: "post", category: "posts",
-    adapter: { template: "chigua", params: { listPath: "/page/{page}/", itemLinkPattern: "/archives/", detailPath: "/archives/{id}", searchPath: "/search/{q}/{page}/", cardContainer: "article", announcementCats: ["往期活动"], contestCat: "每日大赛", contestTitlePrefix: "每日大赛之【" } },
+    adapter: { template: "chigua", params: { listPath: "/page/{page}/", itemLinkPattern: "/archives/", detailPath: "/archives/{id}", searchPath: "/search/{q}/{page}/", cardContainer: "article", announcementCats: ["往期活动"], contestCat: "每日大赛", contestTitlePrefix: "每日大赛之【", staffVerify: { maxBodyChars: 100000, maxBodyImages: 26 } } },
     baseUrls: ["https://51cg1.com"],
     enabled: true, order: 30, maturity: "probe",
-    capabilities: POST_SEARCH_CAPS, network: PROBE_NET, note: "fix321-F2b 校准解 blocked：旧域名 51chigua.com 已停放（原 blocked 证据仍成立于旧域名）；现行域名 51cg1.com（与远程清单 v2 同口径）住宅出口四级验收全通（source-verify-20261119）＋本机出口三段实测——首页 post-card 列表（/archives/<id>/、h2 标题、x-bg-loader-url 封面）解析出条目、详情 DPlayer data-config 内嵌 m3u8 可取流（结构据 Hentai-Park feed51cg 插件、本机抓取互证）；分页按真站 /page/<n>/ 校准（旧 /?page= 未按真站核）；App 侧未真机验 → 代码就绪未验证、probe（非 blocked 呈现）。3.3.0 接通批（2026-11-19）：浏览面经 SourcePosts 接线；搜索段接线——真站搜索形态 /search/{q}/{page}/（站内 search.js buildSearchUrl 与 /?s= 重写互证、paged 参数被重写吞掉故不走模板默认形），本机出口实证搜索真出条目且第 2 页条目集与第 1 页不同、列表/详情/取流经生产适配器对实抓页解析通过（四级齐）；caps.search 据实改 true",
+    capabilities: POST_SEARCH_CAPS, network: PROBE_NET, note: "fix321-F2b 校准解 blocked：旧域名 51chigua.com 已停放（原 blocked 证据仍成立于旧域名）；现行域名 51cg1.com（与远程清单 v2 同口径）住宅出口四级验收全通（source-verify-20261119）＋本机出口三段实测——首页 post-card 列表（/archives/<id>/、h2 标题、x-bg-loader-url 封面）解析出条目、详情 DPlayer data-config 内嵌 m3u8 可取流（结构据 Hentai-Park feed51cg 插件、本机抓取互证）；分页按真站 /page/<n>/ 校准（旧 /?page= 未按真站核）；App 侧未真机验 → 代码就绪未验证、probe（非 blocked 呈现）。3.3.0 接通批（2026-11-19）：浏览面经 SourcePosts 接线；搜索段接线——真站搜索形态 /search/{q}/{page}/（站内 search.js buildSearchUrl 与 /?s= 重写互证、paged 参数被重写吞掉故不走模板默认形），本机出口实证搜索真出条目且第 2 页条目集与第 1 页不同、列表/详情/取流经生产适配器对实抓页解析通过（四级齐）；caps.search 据实改 true。3.3.5 fix335/b-purify 启用详情层异步验杀（params.staffVerify）：置顶招募型站务帖为无标题/无分类词元的异形卡、列表层判据无信号；详情量测（2026-11-20 本机实拉，生产量法）——招募/站务 3 帖 eps 恒 0、正文图 3–23、正文 2132–3558 字，内容 11 帖 eps 恒 1、正文图 30–44、正文 1941–2323 字。字数与内容重叠不承重（阈值置 100000），判据实效＝eps=0∧正文图≤26（图空带 24–29 取 26）；用户截图招募卡 274838（3558 字/图 23/eps 0）按判据撤下，审计预估图≤6 被其实测 23 图证伪后按扩样校准。残余同形风险与 feedheiliao 同类：无流∧图≤26 的真内容帖在量测样本内不存在。证据 fix335/evidence/b-purify.md",
   },
   {
     id: "feedheiliao", displayName: "黑料网", kind: "post", category: "posts",
@@ -71,10 +71,10 @@ export const NAMED_SOURCES: SourceDef[] = [
   },
   {
     id: "meiridasai", displayName: "每日大赛", kind: "post", category: "posts",
-    adapter: { template: "chigua", params: { listPath: "/page/{page}/", itemLinkPattern: "/archives/", detailPath: "/archives/{id}", searchPath: "/search/{q}/{page}/", cardContainer: "article", announcementCats: ["主题大赛"] } },
+    adapter: { template: "chigua", params: { listPath: "/page/{page}/", itemLinkPattern: "/archives/", detailPath: "/archives/{id}", searchPath: "/search/{q}/{page}/", cardContainer: "article", announcementCats: ["主题大赛"], staffVerify: { maxBodyChars: 100000, maxBodyImages: 18 } } },
     baseUrls: ["https://www.mrds66.com", "https://meiridasai.com"],
     enabled: true, order: 31, maturity: "probe",
-    capabilities: POST_SEARCH_CAPS, network: PROBE_NET, note: "3.3.0 接通批（2026-11-19）解 blocked：旧主域 meiridasai.com 本机出口复测仍 Cloudflare 525（原 blocked 证据于旧域仍成立、留作次选）；备用镜像 www.mrds66.com（与远程清单 v3 同口径、在前）住宅出口四级验收全通（source-verify-20261119）＋本机出口四级实证——首页 200、列表 post-card（/archives/<id>/）按 /page/{page}/ 校准（旧 /?page= 作废）经生产适配器解析出条目、详情正文＋m3u8 取流解析通过、搜索 /search/{q}/{page}/ 真出条目且分页有效（无意义词落 /search-empty/ 真空页）；浏览面经 SourcePosts 接线；App 侧未真机验 → probe",
+    capabilities: POST_SEARCH_CAPS, network: PROBE_NET, note: "3.3.0 接通批（2026-11-19）解 blocked：旧主域 meiridasai.com 本机出口复测仍 Cloudflare 525（原 blocked 证据于旧域仍成立、留作次选）；备用镜像 www.mrds66.com（与远程清单 v3 同口径、在前）住宅出口四级验收全通（source-verify-20261119）＋本机出口四级实证——首页 200、列表 post-card（/archives/<id>/）按 /page/{page}/ 校准（旧 /?page= 作废）经生产适配器解析出条目、详情正文＋m3u8 取流解析通过、搜索 /search/{q}/{page}/ 真出条目且分页有效（无意义词落 /search-empty/ 真空页）；浏览面经 SourcePosts 接线；App 侧未真机验 → probe。3.3.5 fix335/b-purify 启用详情层异步验杀（params.staffVerify）：置顶公告卡 3 张（网址说明型 47559/招募 193721/合作计划 161308）为无 h2、无分类词元的异形卡，L1 词元判据结构性不可达；详情量测（2026-11-20 本机实拉，生产量法）——公告 3 帖 eps 恒 0、正文图 15–16、正文 1335–3566 字，内容 19 帖 eps 恒 1、正文图 21–42、正文 1000–1398 字。审计预估 {≈900 字,≈6 图} 被实测双双证伪（公告字数与图数均越界），校准为字数不承重（阈值置 100000）∧正文图≤18（图空带 17–20 取 18），判据实效＝eps=0∧正文图≤18。残余同形风险与 feedheiliao 同类：无流∧图≤18 的真内容帖在量测样本内不存在。证据 fix335/evidence/b-purify.md",
   },
   {
     id: "xiuren", displayName: "秀人网", kind: "image", category: "image",
