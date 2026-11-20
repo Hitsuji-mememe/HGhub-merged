@@ -446,6 +446,208 @@ await test("filter2 counter-example: punctuated short-line narrative survives", 
   assert(ts.length === 11, `kept ${ts.length}/11: ${JSON.stringify(ts)}`);
 });
 
+/* ── 第三轮（3.3.3 批）：3.3.2 真机验收两帖漏杀形态 ─────────────
+ * 证据：fix333/evidence/reader3.md（复现对账表）。判据全部走结构
+ * 形态（问答编号交替、尾部模板区、标签容器、显式标签关键词墙、
+ * 下载 CTA 短行句式），不照单帖字面写关键词表；每条判据都配正文
+ * 反例形态钉住不许误伤。 */
+
+/* ⑪ FAQ 问答块：模板小节头＋编号 Q/A 交替 ≥2 对（003 真机形态）。
+ * 正文段落与图片必须保留，问答块与小节头整组消失。 */
+const FIX3_FAQ = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <h2>常见问题解答</h2>
+  <p>Q1：这位当事人是谁？</p>
+  <p>A1：一位小有名气的网络红人，此前以清纯形象示人，粉丝数量不少。</p>
+  <p>Q2：这次流出的内容主要是什么？</p>
+  <p>A2：一段私下聚会的视频，尺度较大，与此前的公开形象形成强烈反差。</p>
+  <p>Q3：为什么会引发热议？</p>
+  <p>A3：与她此前公开表态形成强烈对比，人设反差本身就具备话题性。</p>
+  <p><img z-image-loader-url="https://img.example.invalid/faq-1.jpg"></p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter3: numbered FAQ block with template heading is dropped", () => {
+  const bs = extractArticleBlocks(FIX3_FAQ, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 2, `kept ${ts.length}/2 texts: ${JSON.stringify(ts)}`);
+  assert(bs.some((b) => b.type === "image"), "body image kept");
+  assert(!ts.some((t) => t.startsWith("Q1") || t.startsWith("A1") || t.includes("常见问题解答")), "faq leaked");
+});
+
+/* ⑪ 变体小节头「常见疑问解答」＋恰好 2 对同样成立。 */
+const FIX3_FAQ_VARIANT = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <h2>常见疑问解答</h2>
+  <p>Q1：甲是谁？</p>
+  <p>A1：一位海外创作者，以体力见长。</p>
+  <p>Q2：乙是谁？</p>
+  <p>A2：一位本地创作者，以真实感强的作品为主。</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter3: FAQ variant heading with two pairs is dropped", () => {
+  const bs = extractArticleBlocks(FIX3_FAQ_VARIANT, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 2, `kept ${ts.length}/2 texts: ${JSON.stringify(ts)}`);
+});
+
+/* ⑪ 反例一：无编号的访谈问答（Q：/A：）是正文体裁，必须全保留。 */
+const FIX3_KEEP_INTERVIEW = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>Q：你第一次意识到自己会红，是什么时候？</p>
+  <p>A：其实没有想过这个问题，当时只是把日常随手发了出来。</p>
+  <p>Q：后来为什么改变了风格？</p>
+  <p>A：因为观众的反馈很直接，我慢慢摸到了他们喜欢的方向。</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter3 counter-example: unnumbered interview Q/A survives", () => {
+  const bs = extractArticleBlocks(FIX3_KEEP_INTERVIEW, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 6, `kept ${ts.length}/6: ${JSON.stringify(ts)}`);
+});
+
+/* ⑪ 反例二：只有一对编号问答（测验/互动）不构成模板块，必须保留。 */
+const FIX3_KEEP_SINGLE_PAIR = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>Q1：猜猜看，这次登上热搜第一的会是谁？</p>
+  <p>A1：答案放在文末揭晓，先卖个关子。</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter3 counter-example: single numbered Q/A pair survives", () => {
+  const bs = extractArticleBlocks(FIX3_KEEP_SINGLE_PAIR, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 4, `kept ${ts.length}/4: ${JSON.stringify(ts)}`);
+});
+
+/* 标签容器：两源同构的 tags/keywords 容器（itemprop=keywords 的
+ * 锚点簇）在正文里渲染成无空格关键词拼接行，必须整容器排除；
+ * 容器外的正文段落保留。 */
+const FIX3_TAGS_CONTAINER = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <div class="tags"><div itemprop="keywords" class="keywords AbCdEf"><a href="/tag/a/">甲词</a><a href="/tag/b/">乙词</a><a href="/tag/c/">丙词</a><a href="/tag/d/">丁词</a><a href="/tag/e/">戊词</a></div></div>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter3: tags/keywords container is excluded", () => {
+  const bs = extractArticleBlocks(FIX3_TAGS_CONTAINER, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 2, `kept ${ts.length}/2 texts: ${JSON.stringify(ts)}`);
+  assert(!ts.some((t) => t.includes("甲词")), "tag cluster leaked");
+});
+
+/* ⑫ 尾部模板区（003 形态）：正文之后出现模板小节头，其后全部
+ * 文本（另一小节头、他帖推广标题行）整区消失；正文与正文图片
+ * 保留。 */
+const FIX3_TAIL_ZONE = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p><img z-image-loader-url="https://img.example.invalid/tail-1.jpg"></p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+  <p><strong>🔥 热门吃瓜</strong></p>
+  <h2>🔥重磅热瓜🔥</h2>
+  <p>另一位当事人 新帖标题 噱头十足的推广文案！</p>
+</article>`;
+
+await test("filter3: trailing template zone after body is dropped", () => {
+  const bs = extractArticleBlocks(FIX3_TAIL_ZONE, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 2, `kept ${ts.length}/2 texts: ${JSON.stringify(ts)}`);
+  assert(bs.some((b) => b.type === "image"), "body image kept");
+  assert(!ts.some((t) => t.includes("热门吃瓜") || t.includes("重磅热瓜") || t.includes("推广文案")), "tail zone leaked");
+});
+
+/* ⑫ 尾部模板区（005 形态，无容器版）：温馨提示/重要提示小节头、
+ * 官方网址行、下载 CTA、导航行整区消失。 */
+const FIX3_TAIL_ZONE_005 = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <h2>🔥重磅热瓜🔥</h2>
+  <p>另一位当事人 新帖标题 噱头十足的推广文案！</p>
+  <p>点击可下载完整版视频！</p>
+  <h2>温馨提示</h2>
+  <p>本站 官方网址，永久有效，真实可靠，谨防假冒</p>
+  <p>福利导航（福利 管家）：</p>
+  <h2>重要提示</h2>
+</article>`;
+
+await test("filter3: trailing template zone (005 form) is dropped", () => {
+  const bs = extractArticleBlocks(FIX3_TAIL_ZONE_005, { base: BASE_005 });
+  const ts = texts(bs);
+  assert(ts.length === 1, `kept ${ts.length}/1 texts: ${JSON.stringify(ts)}`);
+});
+
+/* 公告选项卡容器（content-tabs）：005 尾部整块模板的容器形态，
+ * 容器内文本不进块流；容器外正文保留。 */
+const FIX3_CONTENT_TABS = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <div class="content-tabs"><h2>🔥重磅热瓜🔥</h2><p>点击可下载完整版视频！</p><h2>温馨提示</h2></div>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter3: content-tabs announcement container is excluded", () => {
+  const bs = extractArticleBlocks(FIX3_CONTENT_TABS, { base: BASE_005 });
+  const ts = texts(bs);
+  assert(ts.length === 2, `kept ${ts.length}/2 texts: ${JSON.stringify(ts)}`);
+});
+
+/* ⑫ 反例：作者在正文中段写「温馨提示」小节、其后还有成段正文
+ * 继续叙事——尾部区的中止守门必须让它整段保留。 */
+const FIX3_KEEP_MID_NOTICE = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <h2>温馨提示</h2>
+  <p>故事在这里继续展开，主人公经历了许多波折之后终于回到家乡，与多年未见的亲人重逢，席间说起这些年的经历，大家都感慨万千。</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter3 counter-example: mid-article notice followed by body survives", () => {
+  const bs = extractArticleBlocks(FIX3_KEEP_MID_NOTICE, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 4, `kept ${ts.length}/4: ${JSON.stringify(ts)}`);
+  assert(ts.some((t) => t.includes("温馨提示")), "notice heading dropped");
+});
+
+/* ⑬ 显式标签关键词墙：「关键词：」标签＋空格分隔的词墙（004 真机
+ * 形态，含较长的复合词）必须消失；正文保留。 */
+const FIX3_LABELED_WALL = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>关键词：眼镜妹 约炮 探花 反差 年度盛宴 蓝衣眼镜妹 年度盛宴眼镜妹新晋挑战者 蓝衣眼镜妹换妻性爱视频</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter3: labelled keyword wall is dropped", () => {
+  const bs = extractArticleBlocks(FIX3_LABELED_WALL, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 2, `kept ${ts.length}/2 texts: ${JSON.stringify(ts)}`);
+});
+
+/* ⑬ 反例：「关键词：」起头的正常句子（带句读、是叙述）必须保留。 */
+const FIX3_KEEP_LABELED_SENTENCE = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>关键词：效率。他用整整一个下午把这件事讲透了，从工具的选择讲到习惯的养成，听的人都觉得受益匪浅。</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter3 counter-example: labelled narrative sentence survives", () => {
+  const bs = extractArticleBlocks(FIX3_KEEP_LABELED_SENTENCE, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 3, `kept ${ts.length}/3: ${JSON.stringify(ts)}`);
+});
+
+/* ⑭ 反例：以「点击」起头但带逗号句读的叙述句必须保留（下载 CTA
+ * 判据只认无句读的整行短句式）。 */
+const FIX3_KEEP_CLICK_NARRATIVE = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>点击了下载按钮，他发现网速太慢，只好先去泡了杯茶。</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter3 counter-example: click narrative sentence survives", () => {
+  const bs = extractArticleBlocks(FIX3_KEEP_CLICK_NARRATIVE, { base: BASE_003 });
+  const ts = texts(bs);
+  assert(ts.length === 3, `kept ${ts.length}/3: ${JSON.stringify(ts)}`);
+});
+
 const report = { passed: results.filter((r) => r.passed).length, failed: results.filter((r) => !r.passed).length, results };
 document.querySelector("#results")!.textContent = JSON.stringify(report, null, 2);
 (window as unknown as { readerResults: typeof report }).readerResults = report;

@@ -30,6 +30,17 @@
  *   ——同源跨帖雷同的整块站务模板按块处理（详见
  *   headTemplateIndices，边界＝第一个正文段）；⑩超短行行组（分类导航名单，
  *   groupJunkIndices 内）；站务残行整行判据（isBoilerplateLine）。
+ * - 3.3.3（reader3）补 3.3.2 真机验收两帖漏杀形态，判据仍全为结构
+ *   形态（证据 fix333/evidence/reader3.md）：⑪编号问答块——模板小
+ *   节头＋Qn/An 编号交替 ≥2 对整组杀（无编号访谈问答、单对问答为
+ *   反例）；⑫尾部模板区——正文之后出现模板小节头（热门吃瓜/重磅
+ *   热瓜/温馨提示/重要提示等栏目名）且其后无叙事续段、且有旁证行
+ *   时，自小节头起文本块整区杀（图片保留；中段提示＋叙事续段为
+ *   反例）；⑬显式标签关键词墙（「关键词：」＋词墙廓形，阈值较
+ *   ⑦宽——显式标签本身即元数据证据）；⑭下载 CTA 短行（「点击」
+ *   起头＋下载/安装＋全行无句读的整行句式）。容器层同批补：标签
+ *   簇容器（tags/keywords 段＋itemprop="keywords"，两源同构）与
+ *   公告选项卡容器（content-tabs 整 token）整棵排除。
  * - 图片：地址解析与整页清洗链共用 html.ts 的 articleImageSrc
  *   （同一候选链＋安全门＋基址补全，两条路径地址集合恒一致），
  *   渲染继续走本地 /img 路由，不新开通道。
@@ -79,15 +90,31 @@ const JUNK_SEGMENTS = new Set([
   "share", "shares", "social",
   "download", "popup", "popover", "modal", "sidebar", "widget", "widgets",
   "login", "register", "signup", "qrcode", "qr", "footer", "header", "copyright",
+  /* reader3：标签簇容器段——两源同构的 <div class="tags"><div
+   * class="keywords" itemprop="keywords"> 锚点簇（004 形态为
+   * article-tags>tags），渲染成无空格关键词拼接行挂在正文尾部；
+   * 段精确匹配只命中类名里独立成段的 tags/keywords，正文容器类名
+   * 无此二段。 */
+  "tags", "keywords",
 ]);
+
+/* 整 token 命中的垃圾容器类名（不切段）：公告选项卡——005 尾部整
+ * 块模板（重磅热瓜/温馨提示/官方网址/福利导航）所在的主题组件
+ * 容器，两源页面均有此组件（reader3 普查）。切段匹配会把
+ * content/tabs 误扩到无关容器，故只认整 token。 */
+const JUNK_CLASS_TOKENS = new Set(["content-tabs"]);
 
 const JUNK_ROLES = new Set(["navigation", "banner", "contentinfo", "complementary", "search"]);
 
 function isJunkContainer(el: Element): boolean {
   const role = el.getAttribute("role");
   if (role && JUNK_ROLES.has(role.toLowerCase())) return true;
+  /* SEO 关键词簇的语义标记（reader3）：itemprop="keywords" 的元素
+   * 按定义即关键词元数据，不是正文。 */
+  if ((el.getAttribute("itemprop") ?? "").toLowerCase() === "keywords") return true;
   const names = `${el.getAttribute("class") ?? ""} ${el.id ?? ""}`.toLowerCase();
   for (const token of names.split(/\s+/)) {
+    if (JUNK_CLASS_TOKENS.has(token)) return true;
     for (const seg of token.split(/[-_/]+/)) {
       if (seg && JUNK_SEGMENTS.has(seg)) return true;
     }
@@ -258,6 +285,141 @@ function isBoilerplateLine(text: string): boolean {
   return false;
 }
 
+/* ── 3.3.3 新增判据（reader3，证据 fix333/evidence/reader3.md） ── */
+
+/* ⑬ 显式标签关键词墙：「关键词：/标签：」起头＋词墙廓形。显式标
+ * 签本身即元数据证据，故词元阈值较 ⑦ 宽（≥5 词元、平均 ≤8、最
+ * 长 ≤14，容 004 实测的长复合词）；但仍要求余下部分零句读、逗号
+ * 至多 1——带句读的同名起头句是叙述（「关键词：效率。他用整整一
+ * 个下午……」），由句读条件独立挡之（夹具反例钉死）。 */
+const KEYWORD_LABEL_RE = /^(关键词|关键字|标签)\s*[:：]\s*/;
+function isLabeledKeywordWall(text: string): boolean {
+  const t = text.trim();
+  const m = KEYWORD_LABEL_RE.exec(t);
+  if (!m) return false;
+  const rest = t.slice(m[0].length);
+  if (sentencePunctCount(rest) > 0 || commaCount(rest) > 1) return false;
+  const p = tokenProfile(rest);
+  return p.tokens.length >= 5 && p.avg <= 8 && p.max <= 14;
+}
+
+/* ⑭ 下载 CTA 短行句式：「点击」起头、含下载/安装、全行（除至多
+ * 一个尾随终止符）无任何句读逗号、总长 ≤40——整行就是一句按钮
+ * 文案（005 实测「点击可下载完整版视频！」）。叙事句以「点击」
+ * 起头时恒带逗号/句号展开后续（「点击了下载按钮，他发现……」），
+ * 由无句读条件独立挡之（夹具反例钉死）；裸「点击下载」由
+ * CTA_LINE_RE 既有覆盖，本条补带宾语的形态。 */
+function isDownloadCtaLine(text: string): boolean {
+  const t = text.trim();
+  if (t.length > 40 || !/^点击/.test(t) || !/(下载|安装)/.test(t)) return false;
+  const core = t.replace(/[!！。]$/, "");
+  return !/[，。；、！？!?；]/.test(core);
+}
+
+/* ⑪ 编号问答块：Qn：/An：编号严格递增、问答交替、≥2 对成块——
+ * 站点 SEO 问答模板的固定句法（003 两帖实测，问句复述帖名、答句
+ * 复述正文，无独立信息）。无编号的访谈问答（Q：/A：）是正文体
+ * 裁、单对编号问答（测验/互动）不成模板，两者均为反例（夹具钉
+ * 死）。块首若紧贴 FAQ 类小节头（常见问题解答/常见疑问解答/问题
+ * 解答/FAQ，≤16 字）连带杀——小节头本身是模板栏目名，非叙事。 */
+const FAQ_Q_RE = /^Q\s*(\d+)\s*[:：]/i;
+const FAQ_A_RE = /^A\s*(\d+)\s*[:：]/i;
+const FAQ_HEADING_RE = /常见(问题|疑问)解答|问题解答|FAQ/i;
+function faqIndices(blocks: ArticleBlock[]): Set<number> {
+  const kill = new Set<number>();
+  let i = 0;
+  while (i < blocks.length) {
+    const head = blocks[i];
+    const qm = head.type === "text" ? FAQ_Q_RE.exec(head.text.trim()) : null;
+    if (!qm) { i++; continue; }
+    let expect = Number(qm[1]);
+    let pairs = 0;
+    let j = i;
+    const run: number[] = [];
+    for (;;) {
+      const bq = blocks[j];
+      const mq = bq && bq.type === "text" ? FAQ_Q_RE.exec(bq.text.trim()) : null;
+      if (!mq || Number(mq[1]) !== expect) break;
+      const ba = blocks[j + 1];
+      const ma = ba && ba.type === "text" ? FAQ_A_RE.exec(ba.text.trim()) : null;
+      if (!ma || Number(ma[1]) !== expect) break;
+      run.push(j, j + 1);
+      pairs++;
+      expect++;
+      j += 2;
+    }
+    if (pairs >= 2) {
+      run.forEach((k) => kill.add(k));
+      const prev = blocks[i - 1];
+      if (prev && prev.type === "text" && prev.text.trim().length <= 16
+        && FAQ_HEADING_RE.test(prev.text)) kill.add(i - 1);
+      i = j;
+    } else i++;
+  }
+  return kill;
+}
+
+/* ⑫ 尾部模板区：站点在正文之后追加的固定栏目区（小节头＋他帖推
+ * 广标题/CTA/官方网址/导航行成片出现，003/004/005 三源实测同构）。
+ * 触发＝文本块剥掉首尾装饰（emoji/符号/空白）后恰为模板栏目名、
+ * 原文 ≤14 字。守门三道：(a) 触发点之前已有正文段；(b) 触发点及
+ * 之后无叙事续段（≥50 字且带 ≥2 句读或 ≥1 逗号——作者中段写
+ * 「温馨提示」小节、其后成段续写正文的形态由此整区保留，夹具反
+ * 例钉死；004 实测的跨帖推广长句只有空格分词＋单个尾随叹号，不
+ * 构成叙事续段）；(c) 区内除触发行外至少一行旁证（另一栏目名/
+ * 模板信号/已判垃圾/联系点/推广长句廓形）。只杀文本块，图片保
+ * 留（区尾图片归属不明时只漏不误）。 */
+const TAIL_SECTION_LABELS = new Set([
+  "热门吃瓜", "重磅热瓜", "温馨提示", "重要提示", "官方公告",
+  "相关推荐", "猜你喜欢", "热门推荐", "精彩推荐",
+]);
+function stripDecor(s: string): string {
+  return s.replace(/^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$/gu, "");
+}
+function isTailSectionTrigger(b: ArticleBlock): boolean {
+  if (b.type !== "text") return false;
+  const t = b.text.trim();
+  return t.length <= 14 && TAIL_SECTION_LABELS.has(stripDecor(t));
+}
+function isNarrativeContinuation(text: string): boolean {
+  if (text.length < 50 || isJunkText(text)) return false;
+  return sentencePunctCount(text) >= 2 || commaCount(text) >= 1;
+}
+/* 推广长句廓形（仅作尾部区旁证，不单独杀）：≥40 字、≥8 个空格分
+ * 词、平均 ≤9、逗号为零、句读至多 1——标题短语串烧的名单句法，
+ * 与带逗号展开的叙事句异形。 */
+function isPromoBlurbShape(text: string): boolean {
+  if (text.length < 40 || commaCount(text) > 0 || sentencePunctCount(text) > 1) return false;
+  const p = tokenProfile(text);
+  return p.tokens.length >= 8 && p.avg <= 9 && p.max <= 14;
+}
+function tailTemplateIndices(blocks: ArticleBlock[]): Set<number> {
+  const kill = new Set<number>();
+  let start = -1;
+  for (let i = 0; i < blocks.length; i++) {
+    if (isTailSectionTrigger(blocks[i])) { start = i; break; }
+  }
+  if (start < 0) return kill;
+  const hasBodyBefore = blocks.slice(0, start)
+    .some((b) => b.type === "text" && isBodyLike(b.text));
+  if (!hasBodyBefore) return kill;
+  let corroborated = false;
+  for (let i = start; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (b.type !== "text") continue;
+    if (isNarrativeContinuation(b.text)) return kill;
+    if (i > start && (isTailSectionTrigger(b) || isTemplateSignal(b.text)
+      || isJunkText(b.text) || contactCount(b.text) > 0 || isPromoBlurbShape(b.text))) {
+      corroborated = true;
+    }
+  }
+  if (!corroborated) return kill;
+  for (let i = start; i < blocks.length; i++) {
+    if (blocks[i].type === "text") kill.add(i);
+  }
+  return kill;
+}
+
 /* 地址发布行廓形（成组判读的成员资格）：短行（≤80 字）且带联系
  * 点/行首标签/播放 CTA/整段 CTA 之一。成员资格本身不杀，杀伤由
  * 组级占比决定。 */
@@ -370,6 +532,10 @@ function groupJunkIndices(blocks: ArticleBlock[]): Set<number> {
     if (total >= 12) run.forEach((i) => kill.add(i));
   }
   headTemplateIndices(blocks).forEach((i) => kill.add(i));
+  /* ⑪ 编号问答块、⑫ 尾部模板区（reader3）：各自带守门，命中即整
+   * 组/整区并入杀集。 */
+  faqIndices(blocks).forEach((i) => kill.add(i));
+  tailTemplateIndices(blocks).forEach((i) => kill.add(i));
   /* ⑩ 的行组按块（非文本）资格切分，单独走一遍块序列。 */
   let cur: number[] = [];
   const closeRun = () => {
@@ -390,6 +556,8 @@ function isJunkText(text: string): boolean {
   if (isHashtagWall(text)) return true;
   if (isBoilerplateLine(text)) return true;
   if (isAddressPublishBlock(text)) return true;
+  if (isLabeledKeywordWall(text)) return true;
+  if (isDownloadCtaLine(text)) return true;
   const trimmed = text.trim();
   if (CTA_LINE_RE.test(trimmed)) return true;
   if (BARE_URL_RE.test(trimmed)) return true;
