@@ -70,7 +70,7 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
   assert.ok(category.includes("<SourceGallery def={imageSource}"), "图集页在 ChannelPage 挂载");
   const imageSources = sourcesForCategory("image", getBuiltinRegistry());
   const ids = imageSources.map((s) => s.id);
-  for (const id of ["xiuren", "cosplaytele", "yandere"]) {
+  for (const id of ["xiuren", "cosplaytele"]) {
     assert.ok(ids.includes(id), `active 图片源含 ${id}`);
   }
   assert.ok(!ids.includes("pornpics"), "PornPics 已退役摘除、不在 active 图片源（fix335/g-sources）");
@@ -79,15 +79,19 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
   for (const id of ["danbooru", "konachan"]) {
     assert.ok(!ids.includes(id), `${id} 已摘除、不在 active 图片源（fix338）`);
   }
+  /* 断言适配（fix339/registry-cut-2）：yandere 已摘除（负向断言接棒），
+   * 图片频道保留集＝006/007/012/013/018/019。 */
+  assert.ok(!ids.includes("yandere"), "yandere 已摘除、不在 active 图片源（fix339）");
   /* 断言适配（fix338 集成对账，2026-11-20）：realphoto-add 新增
-   * everia/xsnvshen 两源启用入册，全集 5→7 源（恰集断言不降）。 */
-  assert.deepEqual([...ids].sort(), ["cosplaytele", "everia", "nudecosplay", "pixibb", "xiuren", "xsnvshen", "yandere"], "active 图片源全集恰为保留 7 源");
+   * everia/xsnvshen 两源启用入册，全集 5→7 源（恰集断言不降）；
+   * fix339 后全集 7→6 源。 */
+  assert.deepEqual([...ids].sort(), ["cosplaytele", "everia", "nudecosplay", "pixibb", "xiuren", "xsnvshen"], "active 图片源全集恰为保留 6 源");
   /* 断言适配（fix330 图片线，2026-11-19）：xiuren 改走 xiuren.biz 本机
    * 四级全通解 blocked（旧 blocked 系机房 CF 假象），改判 probe
    * （App 未真机验），证据 fix330/evidence/images.md。 */
   assert.equal(imageSources.find((s) => s.id === "xiuren")!.maturity, "probe", "秀人网 fix330 解 blocked 为 probe");
   assert.equal(imageSources.find((s) => s.id === "cosplaytele")!.maturity, "stable", "CosplayTele 如实 stable");
-  assert.equal(imageSources.find((s) => s.id === "yandere")!.maturity, "probe", "yandere moebooru 校准启用如实 probe（fix335/g-sources）");
+  /* yandere 的 maturity 断言随 fix339 源摘除退役。 */
 }
 
 /* ── 外部源接通：createAdapter 生产调用者 >0（接线断言） ── */

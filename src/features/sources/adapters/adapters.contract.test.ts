@@ -82,8 +82,9 @@ const def = (id: string) => {
 }
 
 /* ── Danbooru API（本尊默认形态；断言适配 fix338/registry-cut：
- * danbooru 源已摘除，模板为共享模板（yandere/gelbooru 在用）——
- * 默认形态覆盖移交参数逐字一致的内联合成 def，断言内容不变） ── */
+ * danbooru 源已摘除，模板为共享模板（当时 yandere/gelbooru 在用；
+ * fix339 后仅 gelbooru 在册）——默认形态覆盖移交参数逐字一致的
+ * 内联合成 def，断言内容不变） ── */
 {
   setFetchPage(async (url) => (url.includes("/posts/9001.json")
     ? JSON.stringify({ id: 9001, tag_string: "landscape sky", preview_file_url: "https://cdn.example.com/p9001.jpg", large_file_url: "https://cdn.example.com/l9001.jpg", file_url: "https://cdn.example.com/f9001.jpg" })
@@ -110,11 +111,20 @@ const def = (id: string) => {
   assert.ok(res.streams[0].url.endsWith("f9001.jpg"), "danbooru resolve=file_url");
 }
 
-/* ── Danbooru 模板 moebooru 校准形态（yandere def）fix337/008-detail ── */
+/* ── Danbooru 模板 moebooru 校准形态（断言适配 fix339/registry-cut-2：
+ * 原载体 yandere 源已摘除，模板由 gelbooru 在册承接但其 def 无校准
+ * 参数——校准形态覆盖移交参数逐字一致的内联合成 def，断言内容不变）
+ * fix337/008-detail ── */
 {
   const post = { id: 7001, tags: "landscape sky", preview_url: "https://cdn.example.com/p7001.jpg", jpeg_url: "https://cdn.example.com/j7001.jpg", file_url: "https://cdn.example.com/f7001.jpg" };
   setFetchPage(async (url) => (url.includes("tags=id:7001") ? JSON.stringify([post]) : JSON.stringify([post, { ...post, id: 7002 }])));
-  const a = createDanbooruAdapter(def("yandere"));
+  const a = createDanbooruAdapter({
+    id: "moebooru-synthetic", displayName: "moebooru 合成源", kind: "image", category: "image",
+    adapter: { template: "danbooru-api", params: {"listPath": "/post.json", "detailPath": "/post.json?tags=id:{id}", "postPath": "/post/show/{id}", "tagsField": "tags", "previewField": "preview_url", "largeField": "jpeg_url"} },
+    baseUrls: ["https://moebooru.example.com"], enabled: false, order: 997, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    network: { mode: "probe-required" }, note: "模板 moebooru 校准形态覆盖（fix339 适配合成 def，参数与原 yandere def 逐字一致）",
+  } as Parameters<typeof createDanbooruAdapter>[0]);
   const list = await a.list(1, 20);
   assert.equal(list.items.length, 2, "moebooru list 2 条");
   assert.ok(list.items[0].cover.endsWith("p7001.jpg"), "moebooru cover=preview_url");

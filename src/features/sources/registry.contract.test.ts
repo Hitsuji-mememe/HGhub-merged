@@ -28,13 +28,20 @@ import { TEMPLATE_IDS } from "./adapters/templates.ts";
  * 定不修）、konachan（CF JS 验证无解），命名源 11→9、目录源 6→5、
  * CORE_IDS 移除 danbooru/hentaihaven、三源并入负向名单；danbooru
  * 解封事实断言随源退役（模板由 yandere/gelbooru 共用、其行为覆
- * 盖由 adapters/f-discovery 契约以保留源承接）。 */
+ * 盖由 adapters/f-discovery 契约以保留源承接）。
+ * 断言适配（fix339/registry-cut-2，2026-11-21）：用户定案摘除三源
+ * ——hanime1/iwara（3.3.8 一轮修复后真机仍不可播、整组删无第三
+ * 轮）、yandere（单图帖与 danbooru 同标准删），命名源 11→9、目录
+ * 源 5→4、CORE_IDS 移除 hanime1/iwara、三源并入负向名单；远程熔
+ * 断样本由同 category 保留源 hanime-tv 接替（先例同口径）；danbooru-api
+ * 模板由 gelbooru 在册承接、不随 yandere 退役。 */
 const CORE_IDS = [
   "huangguo", "hanime-tv", "51chigua", "feedheiliao", "meiridasai",
-  "xiuren", "cosplaytele", "hanime1", "iwara",
+  "xiuren", "cosplaytele",
   /* 断言适配（fix338/realphoto-add，集成对账 2026-11-20）：真人图片
    * 新源 everia/xsnvshen 以命名源入册（候选准入＋生产取页栈实拉全
-   * 通，证据 fix338/evidence/realphoto-add.md），保留集 9→11。 */
+   * 通，证据 fix338/evidence/realphoto-add.md），保留集 9→11；
+   * fix339 后保留集 11→9（摘 hanime1/iwara）。 */
   "everia", "xsnvshen",
 ];
 
@@ -43,11 +50,11 @@ const CORE_IDS = [
   const ids = new Set(BUILTIN_SOURCES.map((s) => s.id));
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
   for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
-  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 11（fix338/registry-cut 摘 danbooru/hentaihaven、fix338/realphoto-add 新增 everia/xsnvshen；此前已摘 rule34video/pornpics）");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 9（fix339/registry-cut-2 摘 hanime1/iwara；此前 fix338 摘 danbooru/hentaihaven、加 everia/xsnvshen，更早已摘 rule34video/pornpics）");
   /* 瘦身负向不变量：被删源不得回流注册表（App 内不得出现）。 */
   for (const goneId of ["rouvideo", "91video", "pornhub", "xvideos", "swag", "fyptt", "redgifs", "fc2",
     "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91", "rule34video", "pornpics",
-    "danbooru", "hentaihaven", "konachan"]) {
+    "danbooru", "hentaihaven", "konachan", "hanime1", "iwara", "yandere"]) {
     assert.ok(!ids.has(goneId), `瘦身删除源 ${goneId} 不在册`);
   }
   assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
@@ -59,9 +66,6 @@ const CORE_IDS = [
     if (s.id === "pixibb" || s.id === "nudecosplay") {
       assert.equal(s.enabled, true, `目录源 ${s.id} fix330 实证启用（本机四级全通）`);
       assert.ok(s.note?.includes("fix330 图片线定级"), `目录源 ${s.id} 注记已按实证更新`);
-    } else if (s.id === "yandere") {
-      assert.equal(s.enabled, true, `目录源 ${s.id} fix335/g-sources moebooru 校准启用（本机实证）`);
-      assert.ok(s.note?.includes("fix335/g-sources"), `目录源 ${s.id} 注记已记 g-sources 结论`);
     } else {
       assert.equal(s.enabled, false, `目录源 ${s.id} fix330 定级维持未启用`);
       assert.ok(s.note?.includes("fix330 图片线定级"), `目录源 ${s.id} 注记已记定级结论`);
@@ -96,15 +100,8 @@ const CORE_IDS = [
       }
     }
   }
-  /* 断言适配（fix330 接通批）：hanime1/iwara 已写专用适配器并启用，
-   * 原「探测未过 enabled=false」事实被接通批取代；maturity 仍 probe
-   * （App 未真机验不上调）。（同批毕业的 hentaihaven 已于 fix338 摘除。） */
-  for (const probeId of ["hanime1", "iwara"]) {
-    const s = BUILTIN_SOURCES.find((x) => x.id === probeId)!;
-    assert.equal(s.enabled, true, `${probeId} fix330 接通批已启用`);
-    assert.notEqual(s.adapter.template, "none", `${probeId} 已有专用适配器`);
-    assert.equal(s.maturity, "probe");
-  }
+  /* fix330 接通批的 hanime1/iwara 启用事实断言已随 fix339/registry-cut-2
+   * 摘除退役（两源并入上方负向名单、不得回流）。 */
   assert.equal(getBuiltinRegistry()[0].id, "huangguo", "order 第一顺位为黄果");
 }
 
@@ -165,19 +162,21 @@ const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ i
 import { readFileSync } from "node:fs";
 import { getActiveRegistry } from "./manifest.ts";
 import { sourcesForCategory } from "./registry.ts";
-{ // fake fetcher 把 iwara 熔断 → active 表与 UI getter 同步反映
+{ // fake fetcher 把 hanime-tv 熔断 → active 表与 UI getter 同步反映
   // （断言适配 fix330/ui-fixes：原熔断样本 rule34video 已按用户裁定
-  // 摘除注册表，同 category 保留源 iwara 接替，覆盖不变）
+  // 摘除注册表，同 category 保留源 iwara 接替，覆盖不变；断言适配
+  // fix339/registry-cut-2：iwara 已摘除，同 category 保留源 hanime-tv
+  // 接替，覆盖不变）
   const st = memStorage();
   const r = await resolveRegistry({
-    fetcher: async () => ({ manifestVersion: 11, minAppVersion: "2.0.0", sources: [{ id: "iwara", enabled: false }] }),
+    fetcher: async () => ({ manifestVersion: 11, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: false }] }),
     storage: st, appVersion: "2.2.0",
   });
   assert.equal(r.source, "remote");
-  assert.equal(getActiveRegistry().sources.find((s) => s.id === "iwara")!.enabled, false, "active 表反映远程熔断");
+  assert.equal(getActiveRegistry().sources.find((s) => s.id === "hanime-tv")!.enabled, false, "active 表反映远程熔断");
   const uiVideo = sourcesForCategory("video", getActiveRegistry().sources);
-  assert.ok(!uiVideo.some((s) => s.id === "iwara"), "UI 消费 getter（active 表）不再列出被熔断源");
-  assert.ok(sourcesForCategory("video").some((s) => s.id === "iwara"), "对照：内置表口径仍含 iwara（证明覆盖来自 active 而非内置变更）");
+  assert.ok(!uiVideo.some((s) => s.id === "hanime-tv"), "UI 消费 getter（active 表）不再列出被熔断源");
+  assert.ok(sourcesForCategory("video").some((s) => s.id === "hanime-tv"), "对照：内置表口径仍含 hanime-tv（证明覆盖来自 active 而非内置变更）");
 }
 { // 接线文本断言：三处 UI 读 active 表 + 订阅事件；main 启动调用 resolveRegistry
   const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");

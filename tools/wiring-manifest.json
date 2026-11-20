@@ -1508,45 +1508,6 @@
       "min": 1
     },
     {
-      "id": "fix330-iwara-api-adapter",
-      "item": "3.3.0接通批新适配器线 Iwara 公开 API 适配器 createIwaraAdapter（模板定义＋工厂分发）",
-      "symbol": "createIwaraAdapter",
-      "files": [
-        "src/features/sources/adapters/templates.ts",
-        "src/features/sources/adapters/index.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix330-hanime1-adapter",
-      "item": "3.3.0接通批新适配器线 Hanime1 专用 HTML 适配器 createHanime1Adapter（模板定义＋工厂分发）",
-      "symbol": "createHanime1Adapter",
-      "files": [
-        "src/features/sources/adapters/templates.ts",
-        "src/features/sources/adapters/index.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix330-iwara-shared-origin",
-      "item": "3.3.0接通批新适配器线 Iwara API origin 单一常数 IWARA_API_ORIGIN（声明定义＋模板声明表＋适配器回落消费）",
-      "symbol": "IWARA_API_ORIGIN",
-      "files": [
-        "src/features/sources/adapters/fetchOrigins.ts",
-        "src/features/sources/adapters/templates.ts"
-      ],
-      "min": 3
-    },
-    {
-      "id": "fix330-iwara-xversion-scoped",
-      "item": "3.3.0接通批新适配器线 Rust source_fetch 对 X-Version 仅 Iwara 文件 host 定向放行 X_VERSION_SCOPED_ORIGINS（定义＋过滤消费）",
-      "symbol": "X_VERSION_SCOPED_ORIGINS",
-      "files": [
-        "src-tauri/src/api/source.rs"
-      ],
-      "min": 2
-    },
-    {
       "id": "fix330-ui-album-window",
       "item": "fix330/ui-fixes 图集舞台窗口化：当前张±1 三帧挂载（data-album-frame 定 key）、邻图预取，快翻不空白",
       "symbol": "data-album-frame",
@@ -1897,10 +1858,10 @@
     {
       "files": [
         "src/features/sources/adapters/resolveTrace.ts",
-        "src/features/sources/adapters/templates.ts"
+        "src/features/sources/adapters/hanimeApi.ts"
       ],
       "id": "fix333-m5-resolve-trace-shared",
-      "item": "fix333-m5 P5 取流分段留痕共享落点：resolveTrace 定义 traceResolveFailure＋templates 三源（iwara/hanime1/hentaihaven）resolve 各段生产调用，四源与 002 同落 source.resolve_fail",
+      "item": "fix333-m5 P5 取流分段留痕共享落点：resolveTrace 定义 traceResolveFailure＋生产调用落 source.resolve_fail；fix339/registry-cut-2 断言适配（2026-11-21）：templates 三源（iwara/hanime1/hentaihaven）调用点随各批摘除退役，生产调用方收敛为 002 hanimeApi，本条改绑 hanimeApi.ts，覆盖面（定义＋生产调用＋同落 resolve_fail）不变",
       "min": 2,
       "symbol": "traceResolveFailure"
     },

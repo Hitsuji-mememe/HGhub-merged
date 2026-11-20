@@ -48,9 +48,11 @@ const def = (id: string) => {
 
 /* ── ① P3：danbooru-api 模板同口径（断言适配 fix338/registry-cut：
  * danbooru 源已摘除，模板由 yandere 在用——改挂 yandere def，守卫
- * 行为断言不变） ── */
+ * 行为断言不变；断言适配 fix339/registry-cut-2：yandere 已摘除，
+ * 模板由 gelbooru 在册承接——改挂 gelbooru def，本节为空集/形状
+ * 守卫、与校准参数无关，断言不变） ── */
 {
-  const a = createDanbooruAdapter(def("yandere"));
+  const a = createDanbooruAdapter(def("gelbooru"));
   setFetchPage(async () => "[]");
   const list = await a.list(1, 20);
   assert.deepEqual(list.items, [], "danbooru-api [] → 空列表正常返回、不抛错");

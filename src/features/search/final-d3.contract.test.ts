@@ -53,7 +53,11 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   /* 断言适配（fix338 集成对账，2026-11-20）：registry-cut 摘
    * 008/011/016、realphoto-add 加 everia/xsnvshen，注册表 17→16 源；
    * 页签封顶四类的口径不变。 */
-  assert.equal(getBuiltinRegistry().length, 16, "注册表 16 源（fix338 集成：摘 008/011/016、加 everia/xsnvshen）下页签仍封顶四类（上一断言即证据）");
+  /* 断言适配（fix339/registry-cut-2，2026-11-21）：摘 hanime1/iwara/
+   * yandere，注册表 16→13 源；中性权重样本改由 everia 接替（同为
+   * 总表未覆盖、已启用、具备搜索段，覆盖口径不变）；页签封顶四
+   * 类的口径不变。 */
+  assert.equal(getBuiltinRegistry().length, 13, "注册表 13 源（fix339：摘 009/010/014）下页签仍封顶四类（上一断言即证据）");
   const groups = aggregateHits([]);
   assert.deepEqual(Object.keys(groups).sort(), ["drama", "image", "post", "video"], "聚合分组恒四键");
 }
@@ -64,7 +68,7 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   assert.equal(kindForHuangguoVideo({ total_episodes: 1, episode_count: 1 }), "video", "单条视频→视频");
   assert.equal(kindForSourceDef(def("feedheiliao")), "post", "文字主体→帖子（带视频也归帖子：post 类不因内容带视频改类）");
   assert.equal(kindForSourceDef(def("cosplaytele")), "image", "图集→图片");
-  assert.equal(kindForSourceDef(def("yandere")), "image", "图片主体→图片（适配 fix338：原例 konachan 已摘除、改挂同族 yandere）");
+  assert.equal(kindForSourceDef(def("gelbooru")), "image", "图片主体→图片（适配 fix338：原例 konachan 已摘除、改挂同族 yandere；适配 fix339：yandere 已摘除、改挂同族 gelbooru）");
   /* 断言适配（3.2.2 瘦身）：专用短剧源已全删，短剧只来自黄果分集结构判定（上两断言）与 fix322 标记线；源级 video 判定由保留源承接。 */
   assert.equal(kindForSourceDef(def("hanime-tv")), "video", "独立单条视频源→视频");
   assert.equal(kindForSourceDef(def("51chigua")), "post", "吃瓜图文→帖子");
@@ -89,15 +93,13 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
    * 其 PRIMARY 权重条目随源删除（权重表只含在册源）；yandere
    * moebooru 校准有搜索段、中性权重纳入。
    * 适配（fix338/registry-cut）：konachan/danbooru 已摘除，两行随
-   * 源退役（中性权重纳入由 yandere 与下方 iwara 通则行承接）。 */
-  assert.deepEqual([p("yandere").include, p("yandere").weight], [true, 40], "yandere：中性权重，具备搜索段纳入（fix335/g-sources）");
+   * 源退役（中性权重纳入由 yandere 与下方 iwara 通则行承接）。
+   * 适配（fix339/registry-cut-2）：yandere/iwara/hanime1 三行随源
+   * 退役，中性权重纳入通则改由 everia 承接（总表未覆盖、已启用、
+   * 具备搜索段，口径不变）。 */
+  assert.deepEqual([p("everia").include, p("everia").weight], [true, 40], "总表未覆盖的已启用源：中性 40 纳入（everia 承接通则）");
   assert.deepEqual([p("xiuren").include, p("xiuren").weight], [true, 40], "秀人网：中性权重，具备搜索段纳入（旧 OFF 表已退役）");
-  assert.deepEqual([p("iwara").include, p("iwara").weight], [true, 40], "总表未覆盖的已启用源：中性 40 纳入");
   assert.deepEqual([p("cosplaytele").include, p("cosplaytele").weight], [true, 40], "CosplayTele 维持现状：中性纳入");
-  /* 断言适配（fix330 接通批）：Hanime1 已写带 search 的专用适配器
-   * 并启用 → 按结构门通则纳入（中性权重 40），原「无适配器不纳入」
-   * 事实已被接通批取代。 */
-  assert.deepEqual([p("hanime1").include, p("hanime1").weight], [true, 40], "Hanime1 接通批后：具备搜索段纳入（中性 40）");
 }
 
 /* ── 扇出聚合：多源夹具结果都在、按种类分键、源名标注、混排 ── */
@@ -111,21 +113,23 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   });
   /* 帖子侧样本源原用黑料网（feedheiliao）；F5 三段门后该源已出局，
    * 换三段齐全的帖子侧源黄果承接同一覆盖（适配理由同上段）。 */
-  const defs = [def("iwara"), def("cosplaytele"), def("huangguo")];
+  /* 断言适配（fix339/registry-cut-2）：视频侧样本源 iwara 已摘除，
+   * 改由保留视频源 hanime-tv 承接（同为已启用 video 源、口径不变）。 */
+  const defs = [def("hanime-tv"), def("cosplaytele"), def("huangguo")];
   const adapters = new Map<string, SourceAdapter>([
-    ["iwara", stub([item("iwara", "v1", "扇出视频一", 5), item("iwara", "v2", "扇出视频二", 9)])],
+    ["hanime-tv", stub([item("hanime-tv", "v1", "扇出视频一", 5), item("hanime-tv", "v2", "扇出视频二", 9)])],
     ["cosplaytele", stub([item("cosplaytele", "g1", "扇出图集一", 3)])],
     ["huangguo", stub([item("huangguo", "p1", "扇出帖子一", 7)])],
   ]);
   const out = await fanoutSearch("扇出", defs, (d) => adapters.get(d.id) ?? null);
   assert.deepEqual(out.failures, [], "全成功无失败记录");
-  assert.deepEqual(out.searched.sort(), ["cosplaytele", "huangguo", "iwara"], "三源都真被搜");
+  assert.deepEqual(out.searched.sort(), ["cosplaytele", "hanime-tv", "huangguo"], "三源都真被搜");
   const groups = aggregateHits(out.hits);
   assert.equal(groups.video.length, 2, "视频组 2 条");
   assert.equal(groups.image.length, 1, "图片组 1 条");
   assert.equal(groups.post.length, 1, "帖子组 1 条");
   assert.equal(groups.video[0].item.title, "扇出视频二", "同类混排按相关性（热度）：hot 9 在前");
-  assert.equal(groups.video[0].sourceName, "Iwara", "源名标注正确（video）");
+  assert.equal(groups.video[0].sourceName, "Hanime.tv", "源名标注正确（video）");
   assert.equal(groups.image[0].sourceName, "CosplayTele", "源名标注正确（image）");
   assert.equal(groups.post[0].sourceName, "黄果", "源名标注正确（post）");
 }
@@ -139,54 +143,58 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
     resolve: async () => ({ streams: [] }),
     search: async () => ({ items: [item("hanime-tv", "ok1", "幸存结果", 1)], pagination: { page: 1, pages: 1, size: 20, total: 1 } }),
   };
+  /* 断言适配（fix339/registry-cut-2）：失败/超时/批量样本源 iwara 已
+   * 摘除，改由保留源 cosplaytele 承接同一隔离覆盖（口径不变）。 */
   const bad: SourceAdapter = {
-    ...good, sourceId: "iwara",
+    ...good, sourceId: "cosplaytele",
     search: async () => { throw new Error("fixture boom"); },
   };
   const traced: string[] = [];
-  const out = await fanoutSearch("隔离", [def("iwara"), def("hanime-tv")],
-    (d) => (d.id === "iwara" ? bad : good),
+  const out = await fanoutSearch("隔离", [def("cosplaytele"), def("hanime-tv")],
+    (d) => (d.id === "cosplaytele" ? bad : good),
     { onFailure: (sourceId) => { traced.push(sourceId); } });
   assert.equal(out.hits.length, 1, "失败源不阻塞：幸存源结果在");
   assert.equal(out.hits[0].item.title, "幸存结果");
-  assert.deepEqual(out.failures.map((f) => f.sourceId), ["iwara"], "失败留痕（源 id＋信息）");
-  assert.deepEqual(traced, ["iwara"], "失败回调被调用（生产接 tracePlayback 留痕）");
+  assert.deepEqual(out.failures.map((f) => f.sourceId), ["cosplaytele"], "失败留痕（源 id＋信息）");
+  assert.deepEqual(traced, ["cosplaytele"], "失败回调被调用（生产接 tracePlayback 留痕）");
 
   const slow: SourceAdapter = {
-    ...good, sourceId: "iwara",
+    ...good, sourceId: "cosplaytele",
     search: async () => {
       await new Promise((r) => setTimeout(r, 60));
-      return { items: [item("iwara", "slow1", "慢源结果", 1)], pagination: { page: 1, pages: 1, size: 20, total: 1 } };
+      return { items: [item("cosplaytele", "slow1", "慢源结果", 1)], pagination: { page: 1, pages: 1, size: 20, total: 1 } };
     },
   };
-  const timed = await fanoutSearch("超时", [def("iwara"), def("hanime-tv")],
-    (d) => (d.id === "iwara" ? slow : good), { timeoutMs: 10 });
+  const timed = await fanoutSearch("超时", [def("cosplaytele"), def("hanime-tv")],
+    (d) => (d.id === "cosplaytele" ? slow : good), { timeoutMs: 10 });
   assert.equal(timed.hits.length, 1, "单源超时不阻塞：快源结果在");
   assert.equal(timed.hits[0].sourceId, "hanime-tv");
-  assert.deepEqual(timed.failures.map((f) => f.sourceId), ["iwara"], "超时源按失败留痕");
+  assert.deepEqual(timed.failures.map((f) => f.sourceId), ["cosplaytele"], "超时源按失败留痕");
   assert.ok(timed.failures[0].message.includes("超时"), "失败信息标明超时");
 
   const many: SourceAdapter = {
-    ...good, sourceId: "iwara",
+    ...good, sourceId: "cosplaytele",
     search: async () => ({
-      items: Array.from({ length: 25 }, (_, i) => item("iwara", `m${i}`, `批量结果${i}`)),
+      items: Array.from({ length: 25 }, (_, i) => item("cosplaytele", `m${i}`, `批量结果${i}`)),
       pagination: { page: 1, pages: 2, size: 25, total: 25 },
     }),
   };
-  const capped = await fanoutSearch("上限", [def("iwara")], () => many, { perSourceLimit: 5 });
+  const capped = await fanoutSearch("上限", [def("cosplaytele")], () => many, { perSourceLimit: 5 });
   assert.equal(capped.hits.length, 5, "每源结果上限生效（25→5）");
 }
 
 /* ── 首屏贡献上限：单一源不淹没首屏 ── */
 {
   const hits: FanoutHit[] = [];
-  for (let i = 0; i < 10; i++) hits.push(hit("iwara", "Iwara", "video", `甲源视频${i}`, 40, 100 - i, i));
-  for (let i = 0; i < 10; i++) hits.push(hit("hanime-tv", "Hanime.tv", "video", `乙源视频${i}`, 40, 50 - i, 100 + i));
+  /* 样本源为构造标签（本段只验上限机制、与具体源无关；原甲源标签
+   * iwara 已随 fix339 摘除退役，改用中性标签 src-a/src-b）。 */
+  for (let i = 0; i < 10; i++) hits.push(hit("src-a", "甲源", "video", `甲源视频${i}`, 40, 100 - i, i));
+  for (let i = 0; i < 10; i++) hits.push(hit("src-b", "乙源", "video", `乙源视频${i}`, 40, 50 - i, 100 + i));
   const capped = applySourceContributionCap(rankMerged(mergeHits(hits)), 12, 6);
   assert.equal(capped.length, 20, "条目不丢、只顺延");
   const firstScreen = capped.slice(0, 12);
-  assert.ok(firstScreen.filter((m) => m.sourceId === "iwara").length <= 6, "首屏内甲源至多 6 条");
-  assert.equal(firstScreen.filter((m) => m.sourceId === "hanime-tv").length, 6, "乙源填入首屏空出的 6 位（低热度不被单一源淹没）");
+  assert.ok(firstScreen.filter((m) => m.sourceId === "src-a").length <= 6, "首屏内甲源至多 6 条");
+  assert.equal(firstScreen.filter((m) => m.sourceId === "src-b").length, 6, "乙源填入首屏空出的 6 位（低热度不被单一源淹没）");
 }
 
 /* ── 标题归一化与相似判据 ── */
@@ -205,7 +213,7 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
     hit("51chigua", "51吃瓜网", "post", "独家！某网红翻车现场", 100, 2, 1, SHARED_COVER, t0 + 3600_000),
     hit("meiridasai", "每日大赛", "post", "独家：某网红翻车现场！", 50, 1, 2, SHARED_COVER, t0 + 7200_000),
     hit("51chigua", "51吃瓜网", "post", "另一条独立帖子", 100, 3, 3),
-    hit("iwara", "Iwara", "video", "独家！某网红翻车现场", 40, 99, 4),
+    hit("src-v", "视频样本源", "video", "独家！某网红翻车现场", 40, 99, 4),
   ];
   assert.ok(mergeConfidence(hits[1], hits[0]) >= 4, "同题＋同封面＋时间近：置信达身份确认门");
   const merged = mergeHits(hits);

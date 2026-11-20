@@ -34,6 +34,19 @@
  * （danbooru-api 模板由 yandere/gelbooru 共用、单图组装画廊由
  * yandere 继续承接，均保留）。盘点与证据 fix338/evidence/
  * registry-cut.md。
+ * 2026-11-21 fix339/registry-cut-2（3.3.9）追加摘除三源：Hanime1/
+ * Iwara（3.3.8 一轮修复后真机仍不可播——清单取数段 dns_error，
+ * 用户 23:25 定案＋一轮制整组删、无第三轮，定案证据
+ * fix338/evidence/device-export-338-analysis.md）与 yandere
+ * （目录源，用户确认与 Danbooru 同为单图帖模型、同标准删）。
+ * 内置终态 13 源（命名 9＋目录 4）、启用 11；视频频道只剩
+ * Hanime.tv 一源（频道构成全由注册表派生、无空分组）。
+ * 独占牵连同批删码：hanime1/iwara-api 两模板本体、Iwara 签名
+ * SHA-1 实现与双盐、Rust X-Version 定向放行、IWARA origin 常量
+ * 与取页白名单声明、发现/选集登记、专属夹具 7 件。danbooru-api
+ * 模板与组装画廊保留（目录源 gelbooru 同模板在册承接、只摘
+ * yandere 注册）。清单 v6 同步已摘（仓外 remote-manifest）。
+ * 盘点与证据 fix339/evidence/registry-cut-2.md。
  *
  * 成熟度口径（诚实标注，2026-11-19 真站实测后更新）：
  * - 黄果 stable：仓内既有 native 通道、现行生产源；
@@ -109,23 +122,6 @@ export const NAMED_SOURCES: SourceDef[] = [
     baseUrls: ["https://cosplaytele.com"],
     enabled: true, order: 42, maturity: "stable",
     capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：本站为 WP 站、/wp-json/wp/v2/posts 列表实测可达、详情正文实测 103 张图（图集型、wp-rest detail.images 承接）；原 HTML slug 列表参数作废",
-  },
-  /* ── 里番接通批（fix330，2026-11-19）：Hanime1/Iwara 自探路保留
-   * 转专用适配器启用；两源 maturity 均 probe（App 未真机验、口径
-   * 同 F2b）。同批的 HentaiHaven 已于 fix338/registry-cut 摘除
-   * （见文件头 3.3.8 注记）。 */
-  {
-    id: "hanime1", displayName: "Hanime1", kind: "video", category: "video",
-    adapter: { template: "hanime1", params: {} }, baseUrls: ["https://hanime1.me"],
-    enabled: true, order: 53, maturity: "probe", capabilities: HLS_CAPS,
-    network: { mode: "probe-required", needsNonJpExit: true },
-    note: "fix330 接通批启用：专用 HTML 适配器（/search 列表与搜索段、/watch 详情、watch/download 页 mp4 多档取流，结构据公开插件 hanime1.js 协议事实＋解析夹具实证）；住宅出口四级验收全通在案（source-verify-20261119，引存档）；本机机房出口为 CF 403（出口形态、非站点结论）；封日本 IP、needsNonJpExit 维持；App 侧未真机验 → probe",
-  },
-  {
-    id: "iwara", displayName: "Iwara", kind: "video", category: "video",
-    adapter: { template: "iwara-api", params: {} }, baseUrls: ["https://www.iwara.tv", "https://api.iwara.tv"],
-    enabled: true, order: 54, maturity: "probe", capabilities: HLS_CAPS, network: PROBE_NET,
-    note: "fix330 接通批启用：专用 API 适配器（api.iwara.tv /videos 列表、/search 搜索段、/video/<id> 详情、fileUrl＋X-Version 签名取流，结构据公开插件 iwara.js 协议事实＋解析夹具实证）；住宅出口四级验收全通在案（source-verify-20261119，引存档）；本机机房出口为 CF 403（出口形态、非站点结论）；App 侧未真机验 → probe",
   },
   {
     id: "everia", displayName: "Everia", kind: "image", category: "image",

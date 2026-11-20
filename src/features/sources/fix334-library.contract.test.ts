@@ -58,7 +58,7 @@ const videoRef = {
 assert.equal(typeof lib.externalHashId, "function", "L3 须在 localLibrary 暴露 externalHashId（封装内算哈希，设计 §4.3）");
 assert.equal(lib.externalHashId(videoItem), videoHash, "externalHashId＝hashExternalId(`${sourceId}:${externalId}`)");
 assert.notEqual(
-  lib.externalHashId({ ...videoItem, sourceId: "iwara" }), videoHash,
+  lib.externalHashId({ ...videoItem, sourceId: "51chigua" }), videoHash,
   "跨源同 externalId 不撞（组合串含 sourceId）",
 );
 
@@ -190,9 +190,15 @@ assert.equal(typeof lib.applyExternalHistory, "function", "L3 须暴露 applyExt
   assert.ok(members.includes("hanime-tv") && members.includes("51chigua") && members.includes("xiuren"),
     "M17 成员含已启用外部源（帖/视频/图集）");
   /* 适配（fix335/g-sources）：yandere 已启用进成员；未启用例改挂 gelbooru/pixiv。
-   * 适配（fix338/registry-cut）：konachan 已摘除，改验不在成员（不在册即不入资料库面）。 */
-  assert.ok(members.includes("yandere"), "M17 成员含新启用图片源（fix335/g-sources）");
+   * 适配（fix338/registry-cut）：konachan 已摘除，改验不在成员（不在册即不入资料库面）。
+   * 适配（fix339/registry-cut-2）：yandere 已摘除，成员正例改 everia，
+   * 三源改验不在成员（成员派生只认在册源；用户 extRefs 快照数据不
+   * 受影响、仍以快照出卡，见本文件 extRefs 各节）。 */
+  assert.ok(members.includes("everia"), "M17 成员含启用图片源 everia（fix338/realphoto-add）");
   assert.ok(!members.includes("konachan"), "M17 成员不含已摘除源 konachan（fix338）");
+  for (const id of ["hanime1", "iwara", "yandere"]) {
+    assert.ok(!members.includes(id), `M17 成员不含已摘除源 ${id}（fix339）`);
+  }
   assert.ok(!members.includes("gelbooru") && !members.includes("pixiv"), "M17 成员不含未启用源");
 }
 

@@ -90,14 +90,16 @@ const def = (id: string) => {
   const video = sourcesForChannel("original", reg);
   const expectVideo = reg.filter((s) => s.enabled && s.category === "video");
   assert.deepEqual(video.map((s) => s.id), expectVideo.map((s) => s.id), "视频频道名单＝谓词全量枚举");
-  for (const id of ["hanime-tv", "iwara"]) {
+  for (const id of ["hanime-tv"]) {
     assert.ok(!drama.some((s) => s.id === id), `用户实报 offender ${id} 不在短剧切源名单`);
   }
   /* 合成双向：停用的 episodes 源不得入、启用的 episodes 源必须入
    * （证明按字段判定而非硬编码排除名单）。合成基底原用 rule34video，
-   * 已摘除后改 iwara（同为 video 分类保留源，fix330/ui-fixes 适配）。 */
+   * 已摘除后改 iwara（同为 video 分类保留源，fix330/ui-fixes 适配）；
+   * iwara 已摘除（fix339/registry-cut-2），基底改唯一保留 video 源
+   * hanime-tv，合成覆盖不变。 */
   const mk = (id: string, enabled: boolean, episodes: boolean): SourceDef => ({
-    ...def("iwara"), id, enabled, capabilities: { search: true, episodes, hevc: false, comments: false },
+    ...def("hanime-tv"), id, enabled, capabilities: { search: true, episodes, hevc: false, comments: false },
   });
   const synth = [mk("vd-drama-off", false, true), mk("vd-drama-on", true, true), mk("vd-nodrama", true, false)];
   const sd = sourcesForChannel("ai-duanju", synth);
@@ -110,6 +112,7 @@ const def = (id: string) => {
   const disabledIds = reg.filter((s) => !s.enabled).map((s) => s.id);
   /* 断言适配（3.3.0 集成）：hanime1/iwara 已启用，停用源由 5 减为 3（yandere/gelbooru/pixiv），枚举下限随之改 3，逐源排除断言不变。 */
   /* 断言适配（fix335/g-sources）：yandere 已启用，停用源减为 2（gelbooru/pixiv），枚举下限随之改 2，逐源排除断言不变。 */
+  /* 断言适配（fix339/registry-cut-2）：yandere 已摘除不在册，停用源仍为 2（gelbooru/pixiv），枚举下限不变。 */
   assert.ok(disabledIds.length >= 2, `注册表确有停用源可枚举（实得 ${disabledIds.length}）`);
   for (const cate of ["posts", "video", "image", "preview"] as const) {
     const listed = sourcesForCategory(cate, reg);
@@ -177,17 +180,15 @@ const def = (id: string) => {
    * nudecosplay 实证启用且搜索属实 true → 新进扇出。纳入集 7→8 源，
    * 结构门口径不变（与 fix321-f5 契约同口径）。 */
   assert.equal(searchPolicyFor(def("pornpics")).include, false, "pornpics 搜索属实 false、无搜索段出局（fix330；fix335/g-sources 后 def 走历史夹具表）");
-  /* 断言适配（fix335/g-sources）：yandere 启用且搜索属实进扇出。 */
-  for (const id of ["yandere"]) {
-    assert.equal(searchPolicyFor(def(id)).include, true, `${id} moebooru 校准有搜索段、进扇出（fix335/g-sources）`);
-  }
+  /* 断言适配（fix335/g-sources）：yandere 启用且搜索属实进扇出——该
+   * 断言已随 fix339/registry-cut-2 源摘除退役。 */
   /* 断言适配（fix338/realphoto-add）：everia 启用且搜索属实进扇出，
    * 纳入集 14→15 源；xsnvshen 搜索未验 caps.search=false 维持出局。 */
   assert.equal(searchPolicyFor(def("everia")).include, true, "everia 搜索属实、进扇出（fix338/realphoto-add）");
   assert.equal(searchPolicyFor(def("xsnvshen")).include, false, "xsnvshen 搜索未验、无搜索段出局（fix338/realphoto-add）");
   const included = reg.filter((s) => searchPolicyFor(s).include).map((s) => s.id).sort();
-  assert.deepEqual(included, ["51chigua", "cosplaytele", "everia", "hanime-tv", "hanime1", "huangguo", "iwara", "meiridasai", "nudecosplay", "pixibb", "xiuren", "yandere"],
-    "扇出纳入集＝保留集内具备搜索段的 12 源（20:48 裁定口径＋3.3.0 集成；fix338 集成：摘三源 14→11、realphoto-add 加 everia 后 12）");
+  assert.deepEqual(included, ["51chigua", "cosplaytele", "everia", "hanime-tv", "huangguo", "meiridasai", "nudecosplay", "pixibb", "xiuren"],
+    "扇出纳入集＝保留集内具备搜索段的 9 源（20:48 裁定口径＋3.3.0 集成；fix338 集成后 12、fix339 摘 009/010/014 后 9）");
 }
 /* ── (F) 51吃瓜解 blocked＋黑料网毕业：内置面三面一致 ── */
 {

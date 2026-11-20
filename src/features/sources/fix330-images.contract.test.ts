@@ -106,22 +106,16 @@ const def = (id: string): SourceDef => {
     assert.equal(s.capabilities.search, true, `${id} wp-rest 搜索端点实证可用、search 属实 true`);
     assert.ok(!s.note?.includes("未实测"), `${id} note 已按实证更新、不再写未实测`);
   }
-  /* 新增定级（fix335/g-sources）：yandere moebooru 校准启用
-   * ——本机实证（列表/详情/搜索段）＋danbooru 模板参数校准，住宅复测
-   * 未做成、App 未真机验 → probe。（同批的 konachan 已于 fix338 摘除。） */
-  for (const id of ["yandere"]) {
-    const s = def(id);
-    assert.equal(s.enabled, true, `${id} moebooru 校准 → 启用（fix335/g-sources）`);
-    assert.equal(s.maturity, "probe", `${id} 定级 probe（App 未真机验）`);
-    assert.equal(s.capabilities.search, true, `${id} 标签搜索段本机实证可用、search 属实 true`);
-    assert.equal(s.adapter.params?.listPath, "/post.json", `${id} listPath 按 moebooru 真实端点校准`);
-  }
+  /* yandere 原定级断言（fix335/g-sources moebooru 校准启用）随
+   * fix339/registry-cut-2 摘除改为不在册断言（单图帖与 danbooru 同
+   * 标准删、用户 2026-11-21 确认）；其模板校准形态覆盖由 adapters
+   * 契约合成 def 承接。（同批的 konachan 已于 fix338 摘除。） */
+  assert.ok(!getBuiltinRegistry().some((s) => s.id === "yandere"), "yandere 已摘除注册表（fix339）");
   for (const id of ["gelbooru", "pixiv"]) {
     const s = def(id);
     assert.equal(s.enabled, false, `${id} 无模板级真列表证据/按排除口径 → 维持未启用`);
   }
   assert.ok(def("gelbooru").note?.includes("401"), "gelbooru note 记 dapi 匿名 401（需凭证）");
-  assert.ok(def("yandere").note?.includes("DNS"), "yandere note 记住宅 DNS 失效");
   assert.ok(def("pixiv").note?.includes("登录"), "pixiv note 记需登录排除理由");
 }
 

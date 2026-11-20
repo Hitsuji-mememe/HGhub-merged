@@ -110,18 +110,18 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   /* 断言适配（fix335/g-sources）：pornpics 已退役摘除，样本由新启用
    * 的 yandere 接替，覆盖不降。
    * 断言适配（fix338/registry-cut）：konachan 已摘除，样本移除并改
-   * 验负向（不在册即不在名单）。 */
-  for (const id of ["huangguo", "hanime-tv", "yandere"]) {
+   * 验负向（不在册即不在名单）。
+   * 断言适配（fix339/registry-cut-2）：yandere 已摘除，样本由启用
+   * 源 everia 接替；hanime1/iwara 已摘除、其 fix330 启用断言退役
+   * 并改入下方负向组。 */
+  for (const id of ["huangguo", "hanime-tv", "everia"]) {
     assert.ok(ids.includes(id), `已启用源 ${id} 在自检名单`);
   }
   for (const id of ["danbooru", "hentaihaven", "konachan"]) {
     assert.ok(!ids.includes(id), `已摘除源 ${id} 不在自检名单（fix338）`);
   }
-  /* 断言适配（fix330 接通批）：hanime1/iwara 已启用 → 按资格通则
-   * 进自检名单；「未启用不进名单」的保护由合成 def 断言接棒
-   * （selfCheckEligible 对 enabled=false 恒 false，见 healthCheck）。 */
-  for (const id of ["hanime1", "iwara"]) {
-    assert.ok(ids.includes(id), `fix330 已启用源 ${id} 在自检名单`);
+  for (const id of ["hanime1", "iwara", "yandere"]) {
+    assert.ok(!ids.includes(id), `已摘除源 ${id} 不在自检名单（fix339）`);
   }
   /* 集成适配（3.3.0 接通批）：xiuren/meiridasai 均已解 blocked
    * 改判 probe 进自检名单（见下方 fix330 定级源断言），「blocked 不进

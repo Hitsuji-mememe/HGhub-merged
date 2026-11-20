@@ -197,8 +197,7 @@ export interface SourceSelfCheckResult {
   /** 本次自检的适配器调用数（≤ 硬预算）。口径（唯一定义，fix333-m5
    * O2）：列表/分页抽查/详情/取流四次适配器调用各计 1，与 HTTP 请求数不是
    * 一回事——一次调用内可含多次 HTTP（如 002 取流一次调用含 CSRF
-   * 取令牌 GET＋握手 POST 共 2 次 HTTP、计 1；009 hanime1 取流含详情页＋
-   * 下载页两取、计 1）。旧口径只叫「请求数」，与真实网络量对不上、
+   * 取令牌 GET＋握手 POST 共 2 次 HTTP、计 1）。旧口径只叫「请求数」，与真实网络量对不上、
    * 判读易误读；诊断呈现恒带「适配器调用口径」标注（见
    * selfCheckSegmentText/selfCheckDiagLines）。 */
   requests: number;
