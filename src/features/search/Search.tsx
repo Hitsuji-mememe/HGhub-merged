@@ -169,6 +169,18 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   const [extLoading, setExtLoading] = useState(false);
   const [hgError, setHgError] = useState<string | null>(null);
   const [extDetail, setExtDetail] = useState<ExtDetailState | null>(null);
+  /* 详情层独立代次（fix335/detail-guard，照 SourceGallery albumSeq
+   * 先例；与切集 extEpSeq 分开——切集落点另有 stillCurrent 身份校
+   * 验）：openExternal/manualPick/switchCopy 打开时取号、落地前比
+   * 对；关闭/改开/新搜索任一发生，在飞加载的迟到响应整路丢弃。 */
+  const extDetailSeq = useRef(0);
+  /* 关闭详情层＝作废在飞加载（与改开同列为作废触发点）：先行
+   * extDetailSeq++ 再清状态。全部关闭落点（返回序登记/页头返回
+   * 钮/查看器返回/提交与清空搜索/转原生副本）共用。 */
+  const closeExtDetail = useCallback(() => {
+    extDetailSeq.current++;
+    setExtDetail(null);
+  }, []);
   const [imgIdx, setImgIdx] = useState(0);
   /* 嵌套返回语义（fix331/gesture-precedence）：外部详情层虽带
    * role="dialog"（手势链 inOverlay 只许 back），此前却未登记返
@@ -178,8 +190,8 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   const extDetailOpen = extDetail !== null;
   useEffect(() => {
     if (!extDetailOpen) return undefined;
-    return registerOverlayBack(() => { setExtDetail(null); return true; });
-  }, [extDetailOpen]);
+    return registerOverlayBack(() => { closeExtDetail(); return true; });
+  }, [extDetailOpen, closeExtDetail]);
   const seqRef = useRef(0);
   const moreSentinelRef = useRef<HTMLDivElement>(null);
   const detailCache = useRef(new Map<string, SourceDetail>());
@@ -278,7 +290,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     setExtHits([]);
     setExtSummary(null);
     setExtTitleOverrides(EMPTY_EXT_TITLE_OVERRIDES);
-    setExtDetail(null);
+    closeExtDetail();
     setHgLoading(true);
     setExtLoading(true);
     void (async () => {
@@ -454,6 +466,12 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   };
 
   const openExternal = async (merged: MergedHit) => {
+    /* 代次守卫（fix335/detail-guard）：旧码评估＋顺延两段 await 后
+     * 无条件 setExtDetail——加载中关闭后详情层自行复活、改开他条
+     * 被旧响应覆盖，夹具旧红在案。取号后落地前比对，过期整路丢
+     * 弃（评估段的 detail 只写按副本键的缓存、无状态落点，不在此
+     * 守卫范围）。 */
+    const mySeq = ++extDetailSeq.current;
     setExtDetail({ phase: "loading", merged });
     setImgIdx(0);
     const extCopies = merged.copies.filter((c) => c.sourceId !== "huangguo");
@@ -493,6 +511,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
       allowAutoSwitch: merged.identityConfirmed,
       onFail: (copy) => traceCopyFail(copy.sourceId),
     });
+    if (mySeq !== extDetailSeq.current) return;
     if (!got) {
       setExtDetail({
         phase: "error", merged,
@@ -506,19 +525,24 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   /* 手动选副本（不受身份门限）：错误态与详情态共用。 */
   const manualPick = async (merged: MergedHit, copy: CopyRef) => {
     if (copy.sourceId === "huangguo") {
-      setExtDetail(null);
+      closeExtDetail();
       openNativeCopy(merged, copy);
       return;
     }
+    /* 代次守卫（fix335/detail-guard）：取号后落地前比对，加载中
+     * 关闭/改开时迟到响应整路丢弃（夹具旧红在案）。 */
+    const mySeq = ++extDetailSeq.current;
     setExtDetail({ phase: "loading", merged });
     try {
       const value = await loadCopy(merged, copy);
+      if (mySeq !== extDetailSeq.current) return;
       setImgIdx(0);
       setExtDetail({
         phase: "ready",
         data: { merged, ordered: merged.copies.filter((c) => c.sourceId !== "huangguo"), active: copy, ...value },
       });
     } catch {
+      if (mySeq !== extDetailSeq.current) return;
       traceCopyFail(copy.sourceId);
       setExtDetail({ phase: "error", merged, message: "该副本加载失败，可换其他副本或重试" });
     }
@@ -553,12 +577,17 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   const switchCopy = async (merged: MergedHit, copy: CopyRef, current: ExtReady) => {
     if (copy.sourceId === current.active.sourceId && copy.item.externalId === current.active.item.externalId) return;
     if (copy.sourceId === "huangguo") {
-      setExtDetail(null);
+      closeExtDetail();
       openNativeCopy(merged, copy);
       return;
     }
+    /* 代次守卫（fix335/detail-guard）：切换取号后落地前比对，
+     * 切换中关闭/再切换时迟到响应整路丢弃（夹具旧红在案）；失
+     * 败侧本就无状态落点（仅留痕），不守。 */
+    const mySeq = ++extDetailSeq.current;
     try {
       const value = await loadCopy(merged, copy);
+      if (mySeq !== extDetailSeq.current) return;
       setImgIdx(0);
       setExtDetail({ phase: "ready", data: { ...current, active: copy, ...value } });
     } catch {
@@ -653,7 +682,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
       <div className="ios-page absolute inset-0 z-30 bg-bg flex flex-col" role="dialog" aria-modal="true" aria-label="搜索结果详情">
         <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
           <div className="ios-subpage-bar">
-            <Button aria-label="返回搜索结果" onClick={() => setExtDetail(null)} className="ios-nav-btn"><IBack size={20} /></Button>
+            <Button aria-label="返回搜索结果" onClick={closeExtDetail} className="ios-nav-btn"><IBack size={20} /></Button>
             <h2 className="flex-1 min-w-0 truncate text-[15px] font-bold text-on">{merged.title}</h2>
             {extDetail.phase === "ready" && (() => {
               /* G4 收藏（fix334/L3）：作用于当前活副本条目，kind 按
@@ -759,7 +788,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
                   {images.length > 0 ? (
                     <AlbumViewer title={merged.title} images={images} index={idx}
                       onIndexChange={setImgIdx}
-                      onBack={() => setExtDetail(null)} backLabel="返回搜索结果"
+                      onBack={closeExtDetail} backLabel="返回搜索结果"
                       footerNote={`数据源：${data.active.sourceName}（经适配器实时取数）`} />
                   ) : (
                     <p className="px-4 pt-2 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>
@@ -818,11 +847,11 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
             onChange={(e) => {
               const next = e.target.value;
               setQ(next);
-              if (!next && submitted) { setSubmitted(""); seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setExtSummary(null); setExtTitleOverrides(EMPTY_EXT_TITLE_OVERRIDES); setHgError(null); setExtDetail(null); }
+              if (!next && submitted) { setSubmitted(""); seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setExtSummary(null); setExtTitleOverrides(EMPTY_EXT_TITLE_OVERRIDES); setHgError(null); closeExtDetail(); }
             }}
             placeholder="搜索视频、短剧、帖子、图片…"
             className="flex-1 min-w-0 bg-transparent text-[14px] text-on placeholder-dim outline-none" />
-          {(q || submitted) && <Button aria-label="清空搜索" type="button" onClick={() => { seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setExtSummary(null); setExtTitleOverrides(EMPTY_EXT_TITLE_OVERRIDES); setHgError(null); setExtDetail(null); setQ(""); setSubmitted(""); inputRef.current?.focus(); }} className="ios-icon-button ios-search-clear"><IClose size={16} /></Button>}
+          {(q || submitted) && <Button aria-label="清空搜索" type="button" onClick={() => { seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setExtSummary(null); setExtTitleOverrides(EMPTY_EXT_TITLE_OVERRIDES); setHgError(null); closeExtDetail(); setQ(""); setSubmitted(""); inputRef.current?.focus(); }} className="ios-icon-button ios-search-clear"><IClose size={16} /></Button>}
         </Form>
         <Button onClick={() => push({ kind: "ranks" })} aria-label="排行榜"
           variant="primary" className="ios-icon-button ios-search-shortcut">

@@ -71,6 +71,11 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   const [detail, setDetail] = useState<DetailState | null>(null);
   const busy = useRef(false);
   const seq = useRef(0);
+  /* 详情面独立代次（fix335/detail-guard，照 SourceGallery albumSeq
+   * 先例）：与列表 load 的 seq 分开——共用会让 openItem 抢占在飞
+   * load 的 finally 状态复位。切源/改开/关闭任一发生，在飞 detail
+   * 的迟到响应整路丢弃。 */
+  const detailSeq = useRef(0);
   const failAt = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const pageSize = compact ? 8 : 20;
@@ -160,12 +165,21 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   const openExternalConsumed = useRef<string | null>(null);
   useEffect(() => {
     seq.current++;
+    detailSeq.current++;
     busy.current = false;
     openExternalConsumed.current = null;
     setItems([]); setPage(0); setPages(1); setDetail(null);
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def.id]);
+
+  /* 关闭详情＝作废在飞 detail（与切源同列为作废触发点）：先行
+   * detailSeq++ 再清状态，迟到响应落地时比对不过、直接丢弃，不
+   * 会把已关详情复活。全部关闭落点（返回序登记/页头返回钮）共用。 */
+  const closeDetail = useCallback(() => {
+    detailSeq.current++;
+    setDetail(null);
+  }, []);
 
   /* 已结空态回报（fix330/ui-fixes）：page>0 表示至少一页成功返回
    * （失败走 err 不算已结）；源切换时 items/page 先复位、loading
@@ -184,10 +198,16 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   const detailOpen = detail !== null;
   useEffect(() => {
     if (!detailOpen) return undefined;
-    return registerOverlayBack(() => { setDetail(null); return true; });
-  }, [detailOpen]);
+    return registerOverlayBack(() => { closeDetail(); return true; });
+  }, [detailOpen, closeDetail]);
 
   const openItem = useCallback(async (item: SourceItem) => {
+    /* 代次守卫（fix335/detail-guard）：旧码 await 后无条件
+     * setDetail——切源后旧源迟到响应把详情复活到新源列表之上、
+     * 改开他条被旧响应覆盖、加载中关闭后详情自行复活，夹具三
+     * 场景旧红在案。取号后落地前比对，过期整路丢弃（成功/失败
+     * 两落点同守）。 */
+    const mySeq = ++detailSeq.current;
     const adapter = createAdapter(def);
     if (!adapter) { setDetail({ phase: "error", item, message: "该源未注册可用适配器" }); return; }
     setDetail({ phase: "loading", item });
@@ -196,9 +216,10 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
         adapter.detail(item.externalId),
         adapter.resolve(item.externalId).catch(() => ({ streams: [] as { url: string; kind: "hls" | "file" }[] })),
       ]);
+      if (mySeq !== detailSeq.current) return;
       setDetail({ phase: "ready", item, detail: d, streamUrl: res.streams[0]?.url ?? null, play: false });
     } catch (e) {
-      setDetail({ phase: "error", item, message: (e as Error).message || "详情加载失败" });
+      if (mySeq === detailSeq.current) { setDetail({ phase: "error", item, message: (e as Error).message || "详情加载失败" }); }
     }
   }, [def]);
 
@@ -244,7 +265,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
     return (
       <div className="flex flex-col">
         <div className="flex items-center gap-2 px-4 pt-2 pb-3">
-          <Button aria-label="返回列表" onClick={() => setDetail(null)} className="ios-nav-btn"><IBack size={20} /></Button>
+          <Button aria-label="返回列表" onClick={closeDetail} className="ios-nav-btn"><IBack size={20} /></Button>
           <h2 className="flex-1 min-w-0 truncate text-[15px] font-bold text-on">{detail.item.title}</h2>
           <Button aria-label={fav ? "取消收藏" : "收藏"} disabled={favPending}
             onClick={() => {
