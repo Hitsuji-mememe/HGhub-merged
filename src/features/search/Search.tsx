@@ -21,6 +21,7 @@ import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 const scope = LOCAL_SCOPE;
 import { AlbumViewer } from "../sources/AlbumViewer";
 import { extractArticleBlocks } from "../sources/articleBlocks.ts";
+import { nativeSourceId } from "../sources/surfaces";
 import { getActiveRegistry } from "../sources/manifest";
 import { createAdapter } from "../sources/adapters/index.ts";
 import { sourceStableId } from "../sources/registryDiag";
@@ -96,7 +97,7 @@ type ExtDetailState =
   | { phase: "error"; merged: MergedHit; message: string };
 
 /** 扇出排除（3.2.1 F1）：已由原生通道完整覆盖、不进 fanoutSearch 的源。 */
-const FANOUT_EXCLUDE_NATIVE = new Set(["huangguo"]);
+const FANOUT_EXCLUDE_NATIVE = new Set([nativeSourceId()]);
 
 /* ── 搜索面空壳卡标题兜底（fix333/m1-title-fallback 残余，集成轮定夺接入）──
  * M1 的 useTitleFallback 只接了 SourcePosts：搜索结果经 fanoutSearch
@@ -426,15 +427,15 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
       const resolvedKind = searchKindForHuangguoVideo(v, hgCanonicalSignals[`${envKey}:${v.id}`]);
       if (resolvedKind === "unknown") continue;
       nativeHits.push({
-        sourceId: "huangguo", sourceName: "黄果", kind: resolvedKind,
-        item: { sourceId: "huangguo", externalId: String(v.id), title: v.title, cover: v.cover, href: "", tags: v.tags ?? [], hot: v.hot },
+        sourceId: nativeSourceId(), sourceName: "黄果", kind: resolvedKind,
+        item: { sourceId: nativeSourceId(), externalId: String(v.id), title: v.title, cover: v.cover, href: "", tags: v.tags ?? [], hot: v.hot },
         weight: 100, hot: v.hot ?? 0, seq: seq++, publishedAt: parseTs(v.created_at),
       });
     }
     for (const p of hgPost?.items ?? []) {
       nativeHits.push({
-        sourceId: "huangguo", sourceName: "黄果", kind: "post",
-        item: { sourceId: "huangguo", externalId: String(p.id), title: p.title, cover: p.cover, href: "", tags: p.tags ?? [], hot: p.hot },
+        sourceId: nativeSourceId(), sourceName: "黄果", kind: "post",
+        item: { sourceId: nativeSourceId(), externalId: String(p.id), title: p.title, cover: p.cover, href: "", tags: p.tags ?? [], hot: p.hot },
         weight: 100, hot: p.hot ?? 0, seq: seq++, publishedAt: parseTs(p.publish_time ?? p.created_at),
       });
     }
@@ -484,7 +485,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     const mySeq = ++extDetailSeq.current;
     setExtDetail({ phase: "loading", merged });
     setImgIdx(0);
-    const extCopies = merged.copies.filter((c) => c.sourceId !== "huangguo");
+    const extCopies = merged.copies.filter((c) => c.sourceId !== nativeSourceId());
     /* 多副本时逐副本实测评估（可用性＋结构完整度）＋历史可靠性
      * （取页健康成功率），按选择链定默认副本与顺延序：可用性 →
      * 结构完整度 → 历史可靠性 → 分层权重（最后 tiebreak）。
@@ -534,7 +535,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
 
   /* 手动选副本（不受身份门限）：错误态与详情态共用。 */
   const manualPick = async (merged: MergedHit, copy: CopyRef) => {
-    if (copy.sourceId === "huangguo") {
+    if (copy.sourceId === nativeSourceId()) {
       closeExtDetail();
       openNativeCopy(merged, copy);
       return;
@@ -549,7 +550,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
       setImgIdx(0);
       setExtDetail({
         phase: "ready",
-        data: { merged, ordered: merged.copies.filter((c) => c.sourceId !== "huangguo"), active: copy, ...value },
+        data: { merged, ordered: merged.copies.filter((c) => c.sourceId !== nativeSourceId()), active: copy, ...value },
       });
     } catch {
       if (mySeq !== extDetailSeq.current) return;
@@ -586,7 +587,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
 
   const switchCopy = async (merged: MergedHit, copy: CopyRef, current: ExtReady) => {
     if (copy.sourceId === current.active.sourceId && copy.item.externalId === current.active.item.externalId) return;
-    if (copy.sourceId === "huangguo") {
+    if (copy.sourceId === nativeSourceId()) {
       closeExtDetail();
       openNativeCopy(merged, copy);
       return;
@@ -616,7 +617,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   const openMerged = (merged: MergedHit) => {
     const first = merged.copies[0];
     if (!first) return;
-    if (first.sourceId === "huangguo") { openNativeCopy(merged, first); return; }
+    if (first.sourceId === nativeSourceId()) { openNativeCopy(merged, first); return; }
     void openExternal(merged);
   };
 
