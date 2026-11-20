@@ -171,7 +171,3 @@ export function Sheet(props: { open: boolean; onClose: () => void; children: Rea
   return <DialogFrame {...props} kind="sheet" label={props.label ?? "详情面板"} />;
 }
 
-/** Full-player coach marks retain the shared focus trap, inert background and back handling. */
-export function GuideFrame(props: { open: boolean; onClose: () => void; children: ReactNode; label: string }) {
-  return <DialogFrame {...props} kind="guide" />;
-}

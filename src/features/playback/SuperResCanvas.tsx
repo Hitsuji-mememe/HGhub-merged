@@ -66,14 +66,6 @@ export const SR_PRESET_MAP = Object.fromEntries(
   SR_PRESETS.map((p) => [p.id, p]),
 ) as Record<SuperResMode, SuperResPresetInfo>;
 
-export const SR_SHORT_LABEL = Object.fromEntries(
-  SR_PRESETS.map((p) => [p.id, p.short]),
-) as Record<SuperResMode, string>;
-
-export const SR_FULL_LABEL = Object.fromEntries(
-  SR_PRESETS.map((p) => [p.id, p.name]),
-) as Record<SuperResMode, string>;
-
 export function getSvgFilterUrl(mode: SuperResMode): string | undefined {
   return mode === "off" ? undefined : `url(#hg-sr-filter-${mode})`;
 }

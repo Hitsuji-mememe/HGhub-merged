@@ -30,8 +30,7 @@ ad-hoc 签名都不应进入仓库或本机脚本输出。
   [`scripts/check-size-budgets.mjs`](../../scripts/check-size-budgets.mjs)、
   [`tools/size-budgets.json`](../../tools/size-budgets.json)。
 - iOS/TV 打包：[`scripts/build-ios-unsigned.sh`](../../scripts/build-ios-unsigned.sh)、
-  [`scripts/build-android-tv.mjs`](../../scripts/build-android-tv.mjs)、
-  [`scripts/patch-android-tv.mjs`](../../scripts/patch-android-tv.mjs)；图标/启动屏：
+  [`scripts/build-android-tv.mjs`](../../scripts/build-android-tv.mjs)；图标/启动屏：
   `generate-ios-icons.mjs`、`sync-ios-icons.mjs`、`patch-ios-splash.mjs`、
   `sync-android-icons.mjs`、`patch-android-splash.mjs`。
 - 本地入口：[`Makefile`](../../Makefile) 的 `check`、`test-rust`、`test-web`、`test-smoke`、

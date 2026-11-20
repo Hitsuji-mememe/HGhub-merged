@@ -91,11 +91,6 @@ export function missingSearchSegments(def: SourceDef): SearchSegment[] {
   return missing;
 }
 
-/** 结构三段齐全（实现都在；不等于已验通，验通看 maturity）。 */
-export function hasCompleteSearchChain(def: SourceDef): boolean {
-  return missingSearchSegments(def).length === 0;
-}
-
 export interface SearchPolicy {
   include: boolean;
   weight: number;

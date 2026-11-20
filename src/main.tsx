@@ -1,6 +1,6 @@
 import { markStartupReady } from "./legacyRuntime";
 import { initAutoLine } from "./shared/network/autoLine";
-import React, { lazy, Suspense, useCallback, useLayoutEffect, useState } from "react";
+import React, { Suspense, useCallback, useState } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./app/App";
 import { AppProvider } from "./shared/model/store";
@@ -11,7 +11,6 @@ import { APP_VERSION, LOCAL, logLine, platform, webviewVersion } from "./shared/
 import { installLayoutDiagnostics } from "./shared/diagnostics/layoutDiagnostics";
 import { scheduleGpuProbe } from "./shared/diagnostics/gpuProbe";
 import { registerSrProbeV2 } from "./features/playback/srProbe";
-import { hasAcceptedAgreement } from "./shared/storage/usageAgreement";
 import { setFetchPage } from "./features/sources/adapters/fetchPage";
 import { setFetchPost } from "./features/sources/adapters/fetchPost";
 import { recordFetchResult } from "./features/sources/adapters/fetchHealth";
@@ -24,9 +23,6 @@ import { sourceHealthLines } from "./features/sources/registryDiag";
 import { registerSourceRegistryProvider, registerSourceHealthProvider } from "./shared/diagnostics/sourceRegistry";
 import { createAdapter } from "./features/sources/adapters/index";
 import { startSourceSelfCheckScheduler } from "./features/sources/healthCheck";
-
-const loadAcceptedApp = () => import("./app/AcceptedApp");
-const AcceptedApp = lazy(loadAcceptedApp);
 
 installPlaybackPageEvents();
 
@@ -170,11 +166,6 @@ function scheduleBootDiagnostics() {
   });
 }
 
-function AcceptedAppHost({ onReady }: { onReady: () => void }) {
-  useLayoutEffect(onReady, [onReady]);
-  return <AcceptedApp />;
-}
-
 /* iOS 底部留白：改用 CSS 100dvh（见 index.css）动态跟踪可视高度。
    不再用 JS 在启动时钉死 html 高度——启动瞬间 visualViewport.height 尚未
    完成布局，抓到错误值会把 html 高度锁死，正是「底部留白、旋转一次才恢复」的根因。 */
@@ -196,5 +187,3 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <AcceptedApplication />
   </React.StrictMode>,
 );
-// 已签署协议的冷启动：在首帧提交后并行预热业务入口 chunk，不阻塞启动动画首帧上屏。
-if (hasAcceptedAgreement()) void loadAcceptedApp();

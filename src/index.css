@@ -422,11 +422,6 @@ input[type="range"].hg-range::-webkit-slider-thumb { -webkit-appearance: none; w
   border-left: 1px solid rgba(255,255,255,.06);
 }
 
-/* —— 影院模式：隐藏侧栏阴影，内容更宽 —— */
-.is-theater .desktop-video-meta { max-width: 760px; }
-/* 影院模式：侧栏收起后，主区左侧也留出同样 12px 呼吸位 */
-.win-main.is-theater-main { margin-left: 12px; }
-
 /* —— 播放器面板：圆角 + 嵌入感 —— */
 /* 说明：WebView2 里 overflow:hidden 裁视频层不做抗锯齿，必须用 clip-path + 独立合成层 */
 .player-surface {

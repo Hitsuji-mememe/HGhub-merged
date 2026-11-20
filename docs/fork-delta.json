@@ -1,0 +1,1028 @@
+{
+  "meta": {
+    "title": "FORK-DELTA: 本分叉相对上游 HGhubX v2.2.0 的文件级增量清单",
+    "generatedBy": "Muse 2026-11-20 fix335/cleanup（依据 fix335/audit-convergence.md §五立项）",
+    "upstream": {
+      "repo": "zxsos/HGhubX",
+      "tag": "v2.2.0",
+      "commit": "5f60e371a63798ff17bef18e87cc2e6453d5a24d"
+    },
+    "forkHead": "a9bb8927888f29b1d3fae28e3c24df06e6238484",
+    "forkHeadBranch": "fix-334-integration",
+    "regenerate": [
+      "git diff --name-status v2.2.0 <forkHead>  # added/deleted/modified/renamed 三类",
+      "git log --oneline v2.2.0..<forkHead> -- <path> | wc -l  # modified.commits 逐文件口径",
+      "git grep -l \"Muse\" <forkHead> -- <modified paths>  # modified.signed（文件含 Muse 署名注释）"
+    ],
+    "counts": {
+      "added": 248,
+      "deleted": 47,
+      "modified": 135,
+      "renamed": 1,
+      "modifiedSigned": 42,
+      "modifiedUnsigned": 93
+    },
+    "auditDiscrepancy": "audit-convergence.md §5.1 的总数（380 个：新增 205/删除 37/同名改 138）与 §5.3 的署名数（62）经上述命令复核不可复现：可复现值为新增 248/删除 47/同名改 135/重命名 1、署名 42/135。另 §5.2 把 adapters/templates.ts 列为同名改热点（22 次），复核其为新增文件（不在上游 v2.2.0 树中），已归入 added。本清单一律以可复现数据为准；§5.4 的同步检查项（syncCheckItems）为定性结论，原文保留。"
+  },
+  "syncCheckItems": [
+    {
+      "id": "C1",
+      "rule": "upstream-lines 子系统页的逐文件锚点表（7 个同名文件的锚点行号）同步上游前逐行重验——行号随上游提交漂移，表本身无自动校验。"
+    },
+    {
+      "id": "C2",
+      "rule": "同步顺序：契约/wiring 机制层 → src-tauri 平台壳 → net/media → 前端同名文件 → 新增层（我方新增文件原则上不与上游冲突，冲突只可能来自上游同名新建，同步时以 diff-filter=A 交集先行排查）。"
+    },
+    {
+      "id": "C3",
+      "rule": "侵入热点（modified.commits 高者）优先逐个三方比对（上游旧版/上游新版/我方版），不整文件覆盖：docs/lessons.md、docs/subsystems/*、src/features/feed/Feed.tsx、src/features/playback/Player.tsx 等。"
+    },
+    {
+      "id": "C4",
+      "rule": "署名覆盖：modified 中 signed=false 的文件在同步时无文件内溯源，只能靠 commit message 的 Muse 标记与对应 evidence 报告反查；新改同名文件应就地署名（Muse+日期+改了什么/为什么）。"
+    }
+  ],
+  "added": [
+    "public/probe/sr-1080p.mp4",
+    "public/probe/sr-720p.mp4",
+    "scripts/accept-f3-recompute.mjs",
+    "scripts/capture-baselines.mjs",
+    "scripts/check-wiring.mjs",
+    "scripts/convert-anime4k.mjs",
+    "scripts/device-chain/run-device-chain.sh",
+    "scripts/device-chain/throttle_proxy.py",
+    "scripts/device-chain/upstream_double.py",
+    "scripts/legacy-css.ts",
+    "scripts/patch-ios-sccache.mjs",
+    "scripts/test-channel-header.mjs",
+    "scripts/test-layout.mjs",
+    "scripts/test-list-covers.mjs",
+    "scripts/test-list-lifecycle.mjs",
+    "scripts/test-playback-engines.mjs",
+    "scripts/test-post-detail-playback.mjs",
+    "scripts/test-post-detail.mjs",
+    "scripts/test-webgpu-sr.mjs",
+    "src-tauri/src/api/source.rs",
+    "src-tauri/src/line_rank.rs",
+    "src-tauri/src/lines/ledger.rs",
+    "src-tauri/src/publish_parser.rs",
+    "src-tauri/src/range_fetch.rs",
+    "src-tauri/src/speed_probe.rs",
+    "src/app/AcceptedApp.tsx",
+    "src/app/gestureChain.contract.test.ts",
+    "src/app/gestureChain.ts",
+    "src/features/category/fix321-f4.contract.test.ts",
+    "src/features/category/fix322-kind.contract.test.ts",
+    "src/features/category/fix330-riban-surfaces.contract.test.ts",
+    "src/features/category/overviewSections.contract.test.ts",
+    "src/features/category/overviewSections.ts",
+    "src/features/feed/ActionRail.tsx",
+    "src/features/feed/HoldBadge.tsx",
+    "src/features/feed/RateMenu.tsx",
+    "src/features/feed/cacheMap.ts",
+    "src/features/feed/fix321-f3-hold-summary.contract.test.ts",
+    "src/features/feed/fix330-diag-hold-ruler.contract.test.ts",
+    "src/features/feed/holdJank.ts",
+    "src/features/feed/holdState.ts",
+    "src/features/feed/prewarm.ts",
+    "src/features/feed/stallHeal.ts",
+    "src/features/feed/useDetailNext.ts",
+    "src/features/feed/useFeedPrewarm.ts",
+    "src/features/feed/useFsKeepAlive.ts",
+    "src/features/feed/usePlayUrlCache.ts",
+    "src/features/feed/useProgressFlush.ts",
+    "src/features/playback/SrCanvas.tsx",
+    "src/features/playback/SuperResCanvas.tsx",
+    "src/features/playback/WebGpuSrCanvas.tsx",
+    "src/features/playback/anime4kWeights.ts",
+    "src/features/playback/appendStallWatchdog.ts",
+    "src/features/playback/fix322-recovery.contract.test.ts",
+    "src/features/playback/fix322-sr-release.contract.test.ts",
+    "src/features/playback/fix330-sr-fps.contract.test.ts",
+    "src/features/playback/hlsConfig.ts",
+    "src/features/playback/playbackThroughput.ts",
+    "src/features/playback/srFpsEstimate.ts",
+    "src/features/playback/srProbe.ts",
+    "src/features/playback/stallWatchdogWiring.ts",
+    "src/features/playback/usePlaybackKernel.ts",
+    "src/features/playback/useSrDensity.ts",
+    "src/features/playback/webgpuSr.ts",
+    "src/features/search/copyLoader.ts",
+    "src/features/search/final-d3.contract.test.ts",
+    "src/features/search/fix321-accept-f4.contract.test.ts",
+    "src/features/search/fix321-f1.contract.test.ts",
+    "src/features/search/fix321-f4b.contract.test.ts",
+    "src/features/search/fix321-f4c.contract.test.ts",
+    "src/features/search/fix321-f5.contract.test.ts",
+    "src/features/search/fix321-va-f1.accept.test.ts",
+    "src/features/search/fix330-riban-surfaces.contract.test.ts",
+    "src/features/search/fix333-m4.contract.test.ts",
+    "src/features/search/multiSourceSearch.ts",
+    "src/features/sources/AlbumViewer.tsx",
+    "src/features/sources/EpisodePicker.tsx",
+    "src/features/sources/SourceBrowse.tsx",
+    "src/features/sources/SourceGallery.tsx",
+    "src/features/sources/SourcePosts.tsx",
+    "src/features/sources/SourceSwitcher.tsx",
+    "src/features/sources/adapterParams.ts",
+    "src/features/sources/adapters/adapters.contract.test.ts",
+    "src/features/sources/adapters/fetchErrorClassify.ts",
+    "src/features/sources/adapters/fetchHealth.ts",
+    "src/features/sources/adapters/fetchOrigins.ts",
+    "src/features/sources/adapters/fetchPage.ts",
+    "src/features/sources/adapters/fetchPost.ts",
+    "src/features/sources/adapters/fixtures/chigua-detail.html",
+    "src/features/sources/adapters/fixtures/chigua-heiliao-detail.html",
+    "src/features/sources/adapters/fixtures/chigua-list-banner-script.html",
+    "src/features/sources/adapters/fixtures/chigua-list-nav-footer.html",
+    "src/features/sources/adapters/fixtures/chigua-list-promo-mrds.html",
+    "src/features/sources/adapters/fixtures/chigua-list-promo.html",
+    "src/features/sources/adapters/fixtures/chigua-list.html",
+    "src/features/sources/adapters/fixtures/chigua-search.html",
+    "src/features/sources/adapters/fixtures/danbooru-list.json",
+    "src/features/sources/adapters/fixtures/hanime-search-hvs.json",
+    "src/features/sources/adapters/fixtures/hanime1-download.html",
+    "src/features/sources/adapters/fixtures/hanime1-search.html",
+    "src/features/sources/adapters/fixtures/hanime1-watch-nosource.html",
+    "src/features/sources/adapters/fixtures/hanime1-watch.html",
+    "src/features/sources/adapters/fixtures/heiliao-list-footer-ssp.html",
+    "src/features/sources/adapters/fixtures/hentaihaven-episode.html",
+    "src/features/sources/adapters/fixtures/hentaihaven-list.json",
+    "src/features/sources/adapters/fixtures/hentaihaven-watch.html",
+    "src/features/sources/adapters/fixtures/hls-detail-entity.html",
+    "src/features/sources/adapters/fixtures/hls-detail-gallery.html",
+    "src/features/sources/adapters/fixtures/hls-detail.html",
+    "src/features/sources/adapters/fixtures/hls-list-entity.html",
+    "src/features/sources/adapters/fixtures/hls-list.html",
+    "src/features/sources/adapters/fixtures/iwara-list.json",
+    "src/features/sources/adapters/fixtures/iwara-sources.json",
+    "src/features/sources/adapters/fixtures/iwara-video.json",
+    "src/features/sources/adapters/fixtures/pornhub-homepage-trending.html",
+    "src/features/sources/adapters/fixtures/pornhub-shorties-json.html",
+    "src/features/sources/adapters/fixtures/real-51cg-detail.html",
+    "src/features/sources/adapters/fixtures/real-51cg-home.html",
+    "src/features/sources/adapters/fixtures/real-fc2-article.html",
+    "src/features/sources/adapters/fixtures/real-fc2-ranking.html",
+    "src/features/sources/adapters/fixtures/real-hanime-home.html",
+    "src/features/sources/adapters/fixtures/real-heiliao-detail.html",
+    "src/features/sources/adapters/fixtures/real-heiliao-home.html",
+    "src/features/sources/adapters/fixtures/real-pornpics-recent.html",
+    "src/features/sources/adapters/fixtures/real-redgifs-home.html",
+    "src/features/sources/adapters/fixtures/real-redgifs-search.json",
+    "src/features/sources/adapters/fixtures/real-rouvideo-home.html",
+    "src/features/sources/adapters/fixtures/real-swag-feed.json",
+    "src/features/sources/adapters/fixtures/real-swag-home.html",
+    "src/features/sources/adapters/fixtures/real-swag-message.json",
+    "src/features/sources/adapters/fixtures/wp-rest-entity-detail.json",
+    "src/features/sources/adapters/fixtures/wp-rest-entity-list.json",
+    "src/features/sources/adapters/fixtures/wp-rest-list.json",
+    "src/features/sources/adapters/hanimeApi.ts",
+    "src/features/sources/adapters/index.ts",
+    "src/features/sources/adapters/nativeHuangguo.ts",
+    "src/features/sources/adapters/parse.ts",
+    "src/features/sources/adapters/resolveTrace.ts",
+    "src/features/sources/adapters/templateCapabilities.ts",
+    "src/features/sources/adapters/templateSegments.ts",
+    "src/features/sources/adapters/templates.ts",
+    "src/features/sources/allowlist.ts",
+    "src/features/sources/articleBlocks.ts",
+    "src/features/sources/catalog.ts",
+    "src/features/sources/episodes.ts",
+    "src/features/sources/fetchCounts.ts",
+    "src/features/sources/final-d.contract.test.ts",
+    "src/features/sources/fix321-f2-accept.contract.test.ts",
+    "src/features/sources/fix321-f2.contract.test.ts",
+    "src/features/sources/fix321-f2b.contract.test.ts",
+    "src/features/sources/fix321-f2c.contract.test.ts",
+    "src/features/sources/fix321-f7.contract.test.ts",
+    "src/features/sources/fix321-f8.contract.test.ts",
+    "src/features/sources/fix330-chigua.contract.test.ts",
+    "src/features/sources/fix330-hanime-api.contract.test.ts",
+    "src/features/sources/fix330-images.contract.test.ts",
+    "src/features/sources/fix330-new-adapters.contract.test.ts",
+    "src/features/sources/fix331-covers.contract.test.ts",
+    "src/features/sources/fix331-reliability.contract.test.ts",
+    "src/features/sources/fix332-b1.contract.test.ts",
+    "src/features/sources/fix333-list-noise.contract.test.ts",
+    "src/features/sources/fix333-m1-title-fallback.contract.test.ts",
+    "src/features/sources/fix333-m3.contract.test.ts",
+    "src/features/sources/fix333-m7-selfcheck.contract.test.ts",
+    "src/features/sources/fix333-p2.contract.test.ts",
+    "src/features/sources/fix333-promo-004.contract.test.ts",
+    "src/features/sources/fix333-promo-filter.contract.test.ts",
+    "src/features/sources/fix333-selfcheck-trigger.contract.test.ts",
+    "src/features/sources/fix334-g3.contract.test.ts",
+    "src/features/sources/fix334-library.contract.test.ts",
+    "src/features/sources/fix334-surfaces.contract.test.ts",
+    "src/features/sources/healthCheck.ts",
+    "src/features/sources/index.ts",
+    "src/features/sources/manifest.ts",
+    "src/features/sources/postsRoute.ts",
+    "src/features/sources/promoVerify.ts",
+    "src/features/sources/registry.contract.test.ts",
+    "src/features/sources/registry.ts",
+    "src/features/sources/registryDiag.ts",
+    "src/features/sources/selectedSource.ts",
+    "src/features/sources/sourceHealth.ts",
+    "src/features/sources/surfaces.ts",
+    "src/features/sources/titleFallback.ts",
+    "src/features/sources/types.ts",
+    "src/shared/diagnostics/diagnosticReport.ts",
+    "src/shared/diagnostics/eventLedger.ts",
+    "src/shared/diagnostics/fix321-f3b-diagnostic-summary.contract.test.ts",
+    "src/shared/diagnostics/fix330-diag-hold-stall-signals.contract.test.ts",
+    "src/shared/diagnostics/fix330-diag-levels.contract.test.ts",
+    "src/shared/diagnostics/fix331-image-trace.contract.test.ts",
+    "src/shared/diagnostics/fix333-m5-diagnostics.contract.test.ts",
+    "src/shared/diagnostics/flowSegments.ts",
+    "src/shared/diagnostics/gpuProbe.ts",
+    "src/shared/diagnostics/levelFacts.ts",
+    "src/shared/diagnostics/mediaLifecycle.ts",
+    "src/shared/diagnostics/playbackFacts.ts",
+    "src/shared/diagnostics/resolveFailLines.ts",
+    "src/shared/diagnostics/sourceRegistry.ts",
+    "src/shared/lib/contentKind.ts",
+    "src/shared/lib/dedup.contract.test.ts",
+    "src/shared/lib/dedup.ts",
+    "src/shared/lib/detailNext.ts",
+    "src/shared/lib/feedTrace.ts",
+    "src/shared/lib/fix331-image-failure-ledger.contract.test.ts",
+    "src/shared/lib/fullscreen.ts",
+    "src/shared/lib/gestureGate.ts",
+    "src/shared/lib/securityMode.ts",
+    "src/shared/lib/usePaginatedList.ts",
+    "src/shared/lib/withTimeout.ts",
+    "src/shared/model/localLibrary.ts",
+    "src/styles/legacy-webview.css",
+    "tests/article-reader.html",
+    "tests/article-reader.ts",
+    "tests/baselines.html",
+    "tests/baselines.tsx",
+    "tests/channel-header.html",
+    "tests/channel-header.tsx",
+    "tests/fixtures-media/gt-frame.png",
+    "tests/fixtures-media/master-frame.png",
+    "tests/fixtures-media/master320.mp4",
+    "tests/fixtures-media/master720.mp4",
+    "tests/fixtures-media/src160.mp4",
+    "tests/fixtures-media/src360.mp4",
+    "tests/gallery-viewer.html",
+    "tests/gallery-viewer.tsx",
+    "tests/list-covers.html",
+    "tests/list-covers.tsx",
+    "tests/list-lifecycle.html",
+    "tests/list-lifecycle.tsx",
+    "tests/playback-engines.html",
+    "tests/playback-engines.tsx",
+    "tests/post-detail-f9.html",
+    "tests/post-detail-f9.tsx",
+    "tests/post-detail.html",
+    "tests/post-detail.tsx",
+    "tests/webgpu-sr.html",
+    "tests/webgpu-sr.tsx",
+    "tools/source-import/generate_catalog.py",
+    "tools/source-probe/README.md",
+    "tools/source-probe/fixtures/hanime1-list.html",
+    "tools/source-probe/fixtures/iwara-list.html",
+    "tools/source-probe/fixtures/jabletv-list.html",
+    "tools/source-probe/fixtures/tikporn-list.html",
+    "tools/source-probe/probe.mjs",
+    "tools/source-probe/results.json",
+    "tools/source-probe/results.md",
+    "tools/wiring-manifest.json",
+    "tsconfig.node.json"
+  ],
+  "deleted": [
+    ".github/workflows/android-build.yml",
+    ".github/workflows/release.yml",
+    "scripts/build-android-tv.mjs",
+    "scripts/test-account-sync-empty-state.mjs",
+    "scripts/test-tv-remote.mjs",
+    "src-tauri/src/lines/jsparse.rs",
+    "src-tauri/tauri.tv.conf.json",
+    "src/app/shell/DesktopChrome.tsx",
+    "src/app/shell/ResizeHandles.tsx",
+    "src/app/startup/LaunchAnimation.tsx",
+    "src/edition.ts",
+    "src/editionEntry.ts",
+    "src/features/account/LoginModal.tsx",
+    "src/features/feed/MobileHoldGuide.tsx",
+    "src/features/feed/commentText.ts",
+    "src/features/feed/useMobileHoldGuide.ts",
+    "src/features/playback/PlaybackLock.tsx",
+    "src/shared/model/accountData.ts",
+    "src/tv/BrowsePage.tsx",
+    "src/tv/DetailPage.tsx",
+    "src/tv/HomePage.tsx",
+    "src/tv/LibraryCard.tsx",
+    "src/tv/LibraryPage.tsx",
+    "src/tv/PlayerPage.tsx",
+    "src/tv/SearchPage.tsx",
+    "src/tv/SettingsPage.tsx",
+    "src/tv/TvApp.tsx",
+    "src/tv/TvProvider.tsx",
+    "src/tv/bootstrap.tsx",
+    "src/tv/catalogCards.ts",
+    "src/tv/display.ts",
+    "src/tv/library.ts",
+    "src/tv/libraryMetadata.ts",
+    "src/tv/model.ts",
+    "src/tv/player/content.ts",
+    "src/tv/player/player.css",
+    "src/tv/postEligibility.ts",
+    "src/tv/preferences.ts",
+    "src/tv/remote.ts",
+    "src/tv/search/catalog.ts",
+    "src/tv/search/index.worker.ts",
+    "src/tv/search/protocol.ts",
+    "src/tv/search/search.css",
+    "src/tv/tv.css",
+    "src/tv/ui.tsx",
+    "tests/tv-library.ts",
+    "tests/tv-remote.html"
+  ],
+  "renamed": [
+    {
+      "from": "src-tauri/src/net/diagnostics.rs",
+      "to": "src-tauri/src/net_diag.rs",
+      "similarity": 62
+    }
+  ],
+  "modified": [
+    {
+      "path": "docs/lessons.md",
+      "commits": 152,
+      "signed": true
+    },
+    {
+      "path": "docs/subsystems/feed-and-detail.md",
+      "commits": 105,
+      "signed": true
+    },
+    {
+      "path": "src/features/feed/Feed.tsx",
+      "commits": 61,
+      "signed": true
+    },
+    {
+      "path": "docs/subsystems/playback.md",
+      "commits": 35,
+      "signed": false
+    },
+    {
+      "path": "src/features/category/Category.tsx",
+      "commits": 30,
+      "signed": true
+    },
+    {
+      "path": "src/features/playback/VideoSurface.tsx",
+      "commits": 27,
+      "signed": true
+    },
+    {
+      "path": "src/features/playback/Player.tsx",
+      "commits": 24,
+      "signed": true
+    },
+    {
+      "path": "src/app/App.tsx",
+      "commits": 17,
+      "signed": true
+    },
+    {
+      "path": "src/main.tsx",
+      "commits": 17,
+      "signed": true
+    },
+    {
+      "path": "package.json",
+      "commits": 16,
+      "signed": false
+    },
+    {
+      "path": "src/features/posts/Posts.tsx",
+      "commits": 16,
+      "signed": true
+    },
+    {
+      "path": "src/features/search/Search.tsx",
+      "commits": 16,
+      "signed": true
+    },
+    {
+      "path": "src/shared/model/store.tsx",
+      "commits": 16,
+      "signed": true
+    },
+    {
+      "path": "scripts/test-playback.mjs",
+      "commits": 14,
+      "signed": true
+    },
+    {
+      "path": "src/features/settings/Settings.tsx",
+      "commits": 13,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/tauri.conf.json",
+      "commits": 12,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/api/lines.rs",
+      "commits": 11,
+      "signed": true
+    },
+    {
+      "path": "src/shared/api/api.ts",
+      "commits": 11,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/Cargo.toml",
+      "commits": 10,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/lib.rs",
+      "commits": 10,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/lines/probe.rs",
+      "commits": 10,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/Cargo.lock",
+      "commits": 9,
+      "signed": false
+    },
+    {
+      "path": "src/shared/diagnostics/playbackDiagnostics.ts",
+      "commits": 9,
+      "signed": true
+    },
+    {
+      "path": "src/shared/ui/ui.tsx",
+      "commits": 8,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/src/lines/mod.rs",
+      "commits": 7,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/src/net/mod.rs",
+      "commits": 7,
+      "signed": true
+    },
+    {
+      "path": "src/features/feed/Panels.tsx",
+      "commits": 7,
+      "signed": false
+    },
+    {
+      "path": "scripts/test-diagnostic-copy.mjs",
+      "commits": 6,
+      "signed": true
+    },
+    {
+      "path": "scripts/test-storage-migration.mjs",
+      "commits": 6,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/src/media_dns.rs",
+      "commits": 6,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/src/net/client.rs",
+      "commits": 6,
+      "signed": true
+    },
+    {
+      "path": "src/features/account/Profile.tsx",
+      "commits": 6,
+      "signed": false
+    },
+    {
+      "path": "src/features/account/User.tsx",
+      "commits": 6,
+      "signed": false
+    },
+    {
+      "path": "src/features/playback/PlayerControls.tsx",
+      "commits": 6,
+      "signed": false
+    },
+    {
+      "path": "src/index.css",
+      "commits": 6,
+      "signed": false
+    },
+    {
+      "path": "src/shared/network/autoLine.ts",
+      "commits": 6,
+      "signed": true
+    },
+    {
+      "path": "scripts/test-line-selection.mjs",
+      "commits": 5,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/src/net/edge.rs",
+      "commits": 5,
+      "signed": true
+    },
+    {
+      "path": "src/features/feed/VideoDetailsPanel.tsx",
+      "commits": 5,
+      "signed": false
+    },
+    {
+      "path": "src/features/search/useSearchResults.ts",
+      "commits": 5,
+      "signed": false
+    },
+    {
+      "path": "tools/size-budgets.json",
+      "commits": 5,
+      "signed": true
+    },
+    {
+      "path": ".github/workflows/build-ios.yml",
+      "commits": 4,
+      "signed": true
+    },
+    {
+      "path": "docs/subsystems/network-proxy-media.md",
+      "commits": 4,
+      "signed": false
+    },
+    {
+      "path": "docs/subsystems/storage-and-preferences.md",
+      "commits": 4,
+      "signed": false
+    },
+    {
+      "path": "src/features/discover/Discover.tsx",
+      "commits": 4,
+      "signed": false
+    },
+    {
+      "path": "src/features/feed/fsIdle.ts",
+      "commits": 4,
+      "signed": true
+    },
+    {
+      "path": "src/features/playback/mediaTransport.ts",
+      "commits": 4,
+      "signed": false
+    },
+    {
+      "path": "src/shared/ui/ios/overlays.tsx",
+      "commits": 4,
+      "signed": false
+    },
+    {
+      "path": "src/styles/video-details.css",
+      "commits": 4,
+      "signed": false
+    },
+    {
+      "path": "tests/player-seek.tsx",
+      "commits": 4,
+      "signed": false
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "commits": 3,
+      "signed": true
+    },
+    {
+      "path": "docs/subsystems/platform-shells.md",
+      "commits": 3,
+      "signed": false
+    },
+    {
+      "path": "scripts/test-api-loading.mjs",
+      "commits": 3,
+      "signed": false
+    },
+    {
+      "path": "scripts/test-network-settings.mjs",
+      "commits": 3,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/api/feed.rs",
+      "commits": 3,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/api/video.rs",
+      "commits": 3,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/logging.rs",
+      "commits": 3,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/src/media/segment.rs",
+      "commits": 3,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/session.rs",
+      "commits": 3,
+      "signed": true
+    },
+    {
+      "path": "src/features/feed/useFeedDetails.ts",
+      "commits": 3,
+      "signed": false
+    },
+    {
+      "path": "src/features/playback/usePlaybackActivity.ts",
+      "commits": 3,
+      "signed": true
+    },
+    {
+      "path": "src/features/playback/useProxyPlaybackRecovery.ts",
+      "commits": 3,
+      "signed": false
+    },
+    {
+      "path": "src/features/search/InplaceSearch.tsx",
+      "commits": 3,
+      "signed": true
+    },
+    {
+      "path": "src/shared/api/types.ts",
+      "commits": 3,
+      "signed": false
+    },
+    {
+      "path": "src/shared/lib/back.ts",
+      "commits": 3,
+      "signed": false
+    },
+    {
+      "path": "src/shared/lib/html.ts",
+      "commits": 3,
+      "signed": true
+    },
+    {
+      "path": "vite.config.ts",
+      "commits": 3,
+      "signed": true
+    },
+    {
+      "path": "docs/architecture.md",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "docs/subsystems/upstream-lines.md",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "index.html",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "scripts/test-inplace-search-back.mjs",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "scripts/test-round-review.mjs",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/api/interact.rs",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/api/mod.rs",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/api/platform.rs",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/api/update.rs",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/media/image.rs",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/media/mod.rs",
+      "commits": 2,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/tauri.ios.conf.json",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src/features/feed/Home.tsx",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src/features/feed/mobileHold.ts",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src/features/playback/index.ts",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src/features/playback/useFsOrientation.ts",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src/features/settings/LinePicker.tsx",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src/shared/diagnostics/netDiagReport.ts",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src/shared/ui/cards.tsx",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "src/styles/ios.css",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "tests/line-selection.tsx",
+      "commits": 2,
+      "signed": false
+    },
+    {
+      "path": "tests/storage-migration.tsx",
+      "commits": 2,
+      "signed": true
+    },
+    {
+      "path": ".github/workflows/playback.yml",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "AGENTS.md",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "docs/code-standards.md",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "docs/investigations/media-cache-audit-20261108.md",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "docs/operations/ios-material-ui.md",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "docs/release-notes/v2.2.0.md",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "docs/subsystems/build-release.md",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "Makefile",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "README.md",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "scripts/check-size-budgets.mjs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "scripts/check-version-sync.mjs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "scripts/patch-android-splash.mjs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "scripts/patch-android-tv.mjs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "scripts/test-ios-native-media.mjs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/Info.ios.plist",
+      "commits": 1,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/src/ios_layout.rs",
+      "commits": 1,
+      "signed": true
+    },
+    {
+      "path": "src-tauri/src/lines/mirror.rs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/linux_http.rs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/linux_webview.rs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/media/hls.rs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/net/proxy_env.rs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/net/redact.rs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/net/tests.rs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/network_policy.rs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/playback_log.rs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/src/search_hot.rs",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src-tauri/tauri.linux.conf.json",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/features/playback/hlsRecovery.ts",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/features/playback/mediaErrors.ts",
+      "commits": 1,
+      "signed": true
+    },
+    {
+      "path": "src/features/playback/useInlinePlayerFullscreen.tsx",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/features/playback/useSeekInput.ts",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/features/search/SearchTags.tsx",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/features/settings/ProxySettings.tsx",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/legacyRuntime.ts",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/shared/ui/CollectionLink.tsx",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/shared/ui/icons.tsx",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/shared/ui/UsageAgreement.tsx",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/styles/launch.css",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/styles/mobile-hold-guide.css",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/styles/post-player.css",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/styles/usage-agreement.css",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "src/vite-env.d.ts",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "tests/html-security.ts",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "tsconfig.json",
+      "commits": 1,
+      "signed": false
+    },
+    {
+      "path": "tsconfig.tests.json",
+      "commits": 1,
+      "signed": false
+    }
+  ]
+}

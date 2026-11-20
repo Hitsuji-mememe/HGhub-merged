@@ -36,12 +36,11 @@ CI 是验证记录。命令写了不等于已经运行；报告里必须写清�
 
 ### 前端
 
-- `src/editionEntry.ts`、`src/legacyRuntime.ts`、`src/main.tsx`：加载旧版 WebView 垫片，按构建变体挂载标准版或 `src/tv/`（Android TV 版），并在使用协议确认后装配应用 Provider 和自动选线。
-- `src/app/`：`App.tsx` 负责页面栈、桌面/移动布局和全局交互；`shell/` 放窗口控件，
-  `startup/` 放启动门。
+- `src/legacyRuntime.ts`、`src/main.tsx`：入口先加载旧版 WebView 运行时垫片；`main.tsx` 直挂应用根（AppProvider＋App），并装配自动选线、多源注册表与诊断接线。
+- `src/app/`：`App.tsx` 负责页面栈、桌面/移动布局和全局交互；`gestureChain.ts` 负责
+  手势链判定（旧 `shell/`、`startup/` 目录已随桌面壳与启动门拆除，不再存在）。
 - `src/features/`：按 `account/category/discover/feed/playback/posts/search/settings` 归组页面、
   专属组件与 hooks。Feed 的详情/评论/选集面板、设置页的线路/代理控件都随功能放置。
-- `src/tv/`：独立 Android TV 版页面、焦点导航、本地片库与播放界面。
 - `src/shared/`：`api`（IPC 与响应类型）、`model`（应用/账号/内容偏好状态）、`network`（自动选线）、
   `storage`（存储键与协议版本）、`diagnostics`、`lib`、`ui`（跨功能控件）。
 - `src/shared/model/store.tsx` 仍聚合导航、账号与播放偏好；这次目录迁移没有拆 Provider。

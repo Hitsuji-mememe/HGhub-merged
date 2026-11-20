@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "re
 import { useStore, type Page, type Tab } from "../shared/model/store";
 import { selfTest } from "../shared/api/api";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
-import { runBack, backHeldByStartup, backConsumerActive } from "../shared/lib/back";
+import { runBack, backConsumerActive } from "../shared/lib/back";
 import { runDetailNext } from "../shared/lib/detailNext";
 import { exitDocumentFullscreen, getFullscreenElement } from "../shared/lib/fullscreen";
 import Home from "../features/feed/Home";
@@ -282,10 +282,6 @@ function AppBody() {
         tab, topKind: stack[stack.length - 1]?.kind,
       });
       if (!action) return;
-      /* 启动门（开场动画/协议层）覆盖期：手势整体让行——返回序在
-         持有期被 runBack 闸住只消费不分发，前进类动作不经 runBack，
-         须在此显式让行（fix330/gesture-back）。 */
-      if (backHeldByStartup()) return;
       if (action.type === "back") {
         /* 统一返回序：与硬件返回键/Escape 完全同序（back.ts 注册制
            ＋ App backRef）——弹层/面板先消费 → 退沉浸全屏 → 退文档

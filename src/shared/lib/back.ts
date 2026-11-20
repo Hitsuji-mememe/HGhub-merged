@@ -5,24 +5,6 @@ export type RegisterStartupBack = (handler: () => void) => () => void;
 let handler: Handler | null = null;
 const overlays: { handle: Handler }[] = [];
 
-// The launch overlay owns back while it covers an already-mounted App: back skips
-// the reveal (LaunchAnimation's own listener) and must not navigate beneath it.
-// Reference-counted so StrictMode's mount→cleanup→mount keeps the gate held;
-// each release closure is idempotent.
-let startupHolds = 0;
-export function holdBackForStartup(): () => void {
-  startupHolds += 1;
-  let released = false;
-  return () => { if (!released) { released = true; startupHolds = Math.max(0, startupHolds - 1); } };
-}
-
-/** 启动门持有中（开场动画/协议层覆盖已挂载的 App）：手势层据此
- * 整体让行——runBack 在持有期只消费不分发，前进类手势动作不经
- * runBack，须由手势 glue 显式查此探针（fix330/gesture-back）。 */
-export function backHeldByStartup(): boolean {
-  return startupHolds > 0;
-}
-
 /** Dialogs can nest; dismiss the newest overlay before a player panel or page. */
 export function registerOverlayBack(h: Handler) {
   const entry = { handle: h };
@@ -46,9 +28,6 @@ export function backConsumerActive(): boolean {
 
 /** 返回 true 表示已被消费（不再退栈） */
 export function runBack(): boolean {
-  // Startup gate: consume without touching overlays or the page handler, so the
-  // App mounted behind the launch overlay stays put until the reveal is done.
-  if (startupHolds > 0) return true;
   // A handler can synchronously unregister itself. Snapshot registrations to avoid
   // calling another handler twice or dismissing an overlay opened during this event.
   for (const entry of [...overlays].reverse()) {

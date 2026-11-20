@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import type Hls from "hls.js";
 import type { FragBufferedData, FragLoadedData, FragLoadingData, HlsListeners } from "hls.js";
 import { copyText } from "../lib/clipboard";
@@ -36,7 +36,6 @@ function publish(next: Partial<Snapshot>) {
   listeners.forEach(fn => fn());
 }
 const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
-export const usePlaybackLog = () => useSyncExternalStore(subscribe, () => state);
 export const playbackLogEnabled = () => state.enabled && !state.pending && !state.error;
 
 export function tracePlayback(event: string, data: Data = {}) {
