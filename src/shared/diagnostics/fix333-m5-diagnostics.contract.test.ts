@@ -98,7 +98,8 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8"
    * 五参调用只在类型层过期，O2 断言内容不变）。 */
   const fixture: SourceSelfCheckResult = {
     sourceId: "fixture", at: 1_700_000_000_000, listOk: true, itemCount: 7,
-    listFailure: null, detail: "ok", detailFailure: null,
+    listFailure: null, paging: "skipped", pagingFailure: null,
+    detail: "ok", detailFailure: null,
     tail: "ok", tailKind: "stream", tailFailure: null,
     protocolVersion: 1, adapterEpoch: 1, sourceScope: "fixture-scope", requests: 3,
   };

@@ -47,12 +47,15 @@ import { Empty } from "../../shared/ui/ui";
 import { IBack, IFilm, IStar, IStarF } from "../../shared/ui/icons";
 import { Player } from "../playback";
 import { registerOverlayBack } from "../../shared/lib/back";
+import { useScrollKeeper } from "../../shared/lib/useScrollKeeper";
 import { useStore } from "../../shared/model/store";
 import { externalHashId } from "../../shared/model/localLibrary";
 import { createAdapter } from "./adapters/index.ts";
 import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import { episodeChoicesForSurface, episodeOrdinal, type EpisodeChoice } from "./episodes.ts";
 import { EpisodePicker } from "./EpisodePicker";
+import DiscoveryBar from "./DiscoveryBar";
+import { discFingerprint, EMPTY_LIST_DISCOVERY, type ListDiscovery } from "./types.ts";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
 type DetailState =
@@ -66,8 +69,11 @@ type DetailState =
     }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, openExternalEp }: {
+export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, openExternalEp, scrollerRef }: {
   def: SourceDef;
+  /** 宿主 scroller 下传（fix335/d-scroll）：滚动恢复 hook 据此读写
+   * 宿主滚动容器；未传时恢复静默不生效。 */
+  scrollerRef?: { current: HTMLElement | null };
   /** 详情开合回报（Muse 2026-11-20 fix331/covers-header，3.3.1 真机
    * 首验问题②）：本组件挂在 ChannelPage 内，详情自带一层页头（返回
    * 列表＋标题）；详情打开时宿主必须让位自己的页头，否则双层标题
@@ -104,6 +110,20 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
   const detailSeq = useRef(0);
   const failAt = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  /* 发现维度（fix335/f-discovery）：disc 按源 id 隔离存放（换源不
+   * 串维度）；指纹进滚动恢复 key——切换维度后位置按新指纹隔离，
+   * 空 disc 时 key 与 D 线逐字一致。 */
+  const [discMap, setDiscMap] = useState<Record<string, ListDiscovery>>({});
+  const disc = discMap[def.id] ?? EMPTY_LIST_DISCOVERY;
+  const discFp = discFingerprint(disc);
+  const discArg = discFp ? disc : undefined;
+  const applyDisc = useCallback((next: ListDiscovery) => {
+    setDiscMap((m) => ({ ...m, [def.id]: next }));
+  }, [def.id]);
+  /* 滚动恢复（fix335/d-scroll）：详情分支替换列表期间宿主 scroller
+   * 高度塌缩、scrollTop 被钳 0——打开详情前 capture、回列表且数据
+   * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
+  const { captureScroll } = useScrollKeeper(`browse:${def.id}${discFp ? `:${discFp}` : ""}`, scrollerRef, detail === null && items.length > 0);
 
   const load = useCallback(async (reset: boolean) => {
     if (busy.current) return;
@@ -119,7 +139,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
     const mySeq = ++seq.current;
     try {
       const next = reset ? 1 : page + 1;
-      const res = await adapter.list(next, 20);
+      const res = await adapter.list(next, 20, discArg);
       if (mySeq !== seq.current) return;
       const fresh = reset ? res.items : res.items.filter((x) => !items.some((y) => y.externalId === x.externalId));
       setItems(reset ? res.items : [...items, ...fresh]);
@@ -139,7 +159,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
       if (mySeq === seq.current) { busy.current = false; setLoading(false); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def, page, pages, items]);
+  }, [def, page, pages, items, discArg]);
 
   /* 自动续页（3.2.2 集成批＋fix335/a-pagination）：哨兵接近底部自动
    * 拉下一页（rootMargin 300px 近底预取、busy 单飞防并发重复拉）；
@@ -164,6 +184,12 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
   /* 历史写入去重键（条目:当前集）：同集反复 playing（暂停续播/寻址）
    * 不重复记，换集才以新 ordinal 再记一行。 */
   const historyKeyRef = useRef("");
+  /* 维度切换重置（fix335/f-discovery）：重置 effect 依赖扩为
+   * [源, 指纹]——同源内切换维度走同一重置路径（seq 作废在飞 load、
+   * 列表清空重拉），且滚动置顶：新维度是新列表、旧位置无意义；
+   * 位置恢复只在同指纹内经详情往返发生（keeper 语义）。换源时
+   * 不在此置顶（宿主滚动由换源路径自理，与 D 线口径一致）。 */
+  const prevFaceKey = useRef<{ id: string; fp: string } | null>(null);
   useEffect(() => {
     seq.current++;
     detailSeq.current++;
@@ -171,9 +197,14 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
     openExternalConsumed.current = null;
     historyKeyRef.current = "";
     setItems([]); setPage(0); setPages(1); setDetail(null);
+    const prev = prevFaceKey.current;
+    if (prev && prev.id === def.id && prev.fp !== discFp && scrollerRef?.current) {
+      scrollerRef.current.scrollTop = 0;
+    }
+    prevFaceKey.current = { id: def.id, fp: discFp };
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def.id]);
+  }, [def.id, discFp]);
 
   /* 关闭详情＝作废在飞 detail（与切源同列为作废触发点）：先行
    * detailSeq++ 再清状态，迟到响应落地时比对不过、直接丢弃，不
@@ -194,6 +225,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
   }, [detailOpen, closeDetail]);
 
   const openItem = useCallback(async (item: SourceItem, startEpOrdinal?: number) => {
+    captureScroll();
     historyKeyRef.current = "";
     /* 代次守卫（fix335/detail-guard）：旧码 await 后无条件
      * setDetail——切源后旧源迟到响应把详情复活到新源列表之上、
@@ -252,7 +284,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
       currentEpExternalId: choices[0]?.externalId ?? item.externalId,
       ...(wantEp ? { epError: `未能恢复到第 ${wantEp} 集，已从第一集播放` } : {}),
     });
-  }, [def]);
+  }, [def, captureScroll]);
 
   /* 回访直达消费（G4）：目标条目出现在已加载列表中才打开，消费
    * 一次；不在列表（含未加载完）不做任何强求动作。历史回访另带
@@ -324,28 +356,37 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
           <Empty icon={<IFilm size={26} />} title="播放地址获取失败" sub={detail.message} action="重试" onAction={() => void openItem(detail.item)} />
         )}
         {detail.phase === "ready" && (
-          <div className="px-4">
-            <Player src={detail.streamUrl} poster={cover(detail.item.cover)} autoPlay active controls
-              scopeKey={`${def.id}:${detail.currentEpExternalId}`}
-              onPlaying={() => {
-                /* G4 历史写入（fix334/L3）：真起播首帧才记，集数＝
-                 * 当前集 ordinal；同集重复 playing 不重复记（去重
-                 * 键含当前集，换集自动再记）。 */
-                const key = `${detail.item.externalId}:${detail.currentEpExternalId}`;
-                if (historyKeyRef.current === key) return;
-                historyKeyRef.current = key;
-                addExternalHistory(detail.item,
-                  detail.detail ? episodeOrdinal(detail.detail, detail.currentEpExternalId) : 1,
-                  choices.length || undefined);
-              }}
-              diagnosticContext={{ view: "source_browse", source_id: def.id }}
-              className="w-full aspect-video" />
-            <p className="mt-3 text-[12px] text-mut">数据源：{def.displayName}（经适配器实时取数，非黄果数据）</p>
-            {choices.length > 1 && (
-              <EpisodePicker choices={choices} currentKey={detail.currentEpExternalId}
-                onPick={(c) => void pickEpisode(c)} />
-            )}
-            {detail.epError && <p role="alert" className="mt-2 text-[12px] text-danger">{detail.epError}</p>}
+          <div>
+            {/* 呈现对齐（fix335/c-presentation）：播放器与 SourcePosts
+             * 同规格——脱详情自带 px-4、套同款定高容器、Player 填满
+             * 容器，不再是 aspect-video 小格子（审计
+             * audit-player-size 头条）；数据源注记与选集留在 px-4
+             * 块内，scopeKey/起播记史口径逐字不变。 */}
+            <div className="relative w-full bg-black" style={{ height: "min(48vh, 420px)" }}>
+              <Player src={detail.streamUrl} poster={cover(detail.item.cover)} autoPlay active controls
+                scopeKey={`${def.id}:${detail.currentEpExternalId}`}
+                onPlaying={() => {
+                  /* G4 历史写入（fix334/L3）：真起播首帧才记，集数＝
+                   * 当前集 ordinal；同集重复 playing 不重复记（去重
+                   * 键含当前集，换集自动再记）。 */
+                  const key = `${detail.item.externalId}:${detail.currentEpExternalId}`;
+                  if (historyKeyRef.current === key) return;
+                  historyKeyRef.current = key;
+                  addExternalHistory(detail.item,
+                    detail.detail ? episodeOrdinal(detail.detail, detail.currentEpExternalId) : 1,
+                    choices.length || undefined);
+                }}
+                diagnosticContext={{ view: "source_browse", source_id: def.id }}
+                className="w-full h-full" />
+            </div>
+            <div className="px-4">
+              <p className="mt-3 text-[12px] text-mut">数据源：{def.displayName}（经适配器实时取数，非黄果数据）</p>
+              {choices.length > 1 && (
+                <EpisodePicker choices={choices} currentKey={detail.currentEpExternalId}
+                  onPick={(c) => void pickEpisode(c)} />
+              )}
+              {detail.epError && <p role="alert" className="mt-2 text-[12px] text-danger">{detail.epError}</p>}
+            </div>
           </div>
         )}
       </div>
@@ -354,6 +395,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
 
   return (
     <div className="px-4 pt-2">
+      <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc} />
       {items.length > 0 && err && (
         <div role="status" className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-mut">
           <span>{err}</span><Button className="px-3 text-primary" onClick={() => void load(false)}>重试</Button>

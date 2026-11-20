@@ -13,11 +13,14 @@ import { SearchTags } from "./SearchTags";
 import { IBack, IChevR, IClose, IFilm, IFireF, IPlayF, IRefresh, ISearch, IStar, IStarF, ITrophy } from "../../shared/ui/icons";
 import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import { registerOverlayBack } from "../../shared/lib/back";
+import { copyText } from "../../shared/lib/clipboard";
+import { handleArticleClick, sanitizeHtml } from "../../shared/lib/html";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 
 /* 资料库作用域（账号体系拆除后恒定）：代次键的前缀成分。 */
 const scope = LOCAL_SCOPE;
 import { AlbumViewer } from "../sources/AlbumViewer";
+import { extractArticleBlocks } from "../sources/articleBlocks.ts";
 import { getActiveRegistry } from "../sources/manifest";
 import { createAdapter } from "../sources/adapters/index.ts";
 import { sourceStableId } from "../sources/registryDiag";
@@ -181,6 +184,13 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     extDetailSeq.current++;
     setExtDetail(null);
   }, []);
+  /* 正文外链打开（与 SourcePosts openSafeLink 同实现同口径）：
+   * 系统打开失败回落复制链接＋toast。 */
+  const openSafeLink = (url: string) => {
+    api.openUrl(url).catch(() => {
+      copyText(url).then(() => toast("链接已复制", "ok")).catch(() => toast("复制失败", "info"));
+    });
+  };
   const [imgIdx, setImgIdx] = useState(0);
   /* 嵌套返回语义（fix331/gesture-precedence）：外部详情层虽带
    * role="dialog"（手势链 inOverlay 只许 back），此前却未登记返
@@ -746,37 +756,47 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
               const currentEpId = data.epExternalId ?? choices[0]?.externalId ?? data.active.item.externalId;
               const currentChoice = choices.find((c) => c.externalId === currentEpId);
               return (
-                <div className="px-4 pt-2">
+                <div className="pt-2">
+                  {/* 呈现对齐（fix335/c-presentation）：与 SourceBrowse
+                   * 同治——播放器脱 px-4、套 SourcePosts 同款定高
+                   * 容器填满，不再 aspect-video 小格子（审计
+                   * audit-player-size S1）；注记/选集/简介留 px-4。 */}
                   {data.streamUrl ? (
-                    <Player src={data.streamUrl} poster={cover(data.active.item.cover)} autoPlay active controls
-                      scopeKey={`search:${data.active.sourceId}:${currentEpId}`}
-                      onPlaying={() => {
-                        /* G4 历史写入（fix334/L3）：真起播首帧才记，
-                         * 集数＝当前集 ordinal（无 detail 时以选集序
-                         * 位兜底）；去重键含当前集，换集再记。 */
-                        const key = `${data.active.sourceId}:${data.active.item.externalId}:${currentEpId}`;
-                        if (extHistoryKeyRef.current === key) return;
-                        extHistoryKeyRef.current = key;
-                        addExternalHistory({ ...data.active.item, title: merged.title || data.active.item.title },
-                          data.detail ? episodeOrdinal(data.detail, currentEpId)
-                            : Math.max(1, choices.findIndex((c) => c.externalId === currentEpId) + 1),
-                          choices.length || undefined);
-                      }}
-                      diagnosticContext={{ view: "search_external", source_id: data.active.sourceId }}
-                      className="w-full aspect-video" />
+                    <div className="relative w-full bg-black" style={{ height: "min(48vh, 420px)" }}>
+                      <Player src={data.streamUrl} poster={cover(data.active.item.cover)} autoPlay active controls
+                        scopeKey={`search:${data.active.sourceId}:${currentEpId}`}
+                        onPlaying={() => {
+                          /* G4 历史写入（fix334/L3）：真起播首帧才记，
+                           * 集数＝当前集 ordinal（无 detail 时以选集序
+                           * 位兜底）；去重键含当前集，换集再记。 */
+                          const key = `${data.active.sourceId}:${data.active.item.externalId}:${currentEpId}`;
+                          if (extHistoryKeyRef.current === key) return;
+                          extHistoryKeyRef.current = key;
+                          addExternalHistory({ ...data.active.item, title: merged.title || data.active.item.title },
+                            data.detail ? episodeOrdinal(data.detail, currentEpId)
+                              : Math.max(1, choices.findIndex((c) => c.externalId === currentEpId) + 1),
+                            choices.length || undefined);
+                        }}
+                        diagnosticContext={{ view: "search_external", source_id: data.active.sourceId }}
+                        className="w-full h-full" />
+                    </div>
                   ) : (
-                    <Empty icon={<IFilm size={26} />} title="播放地址获取失败" />
+                    <div className="px-4">
+                      <Empty icon={<IFilm size={26} />} title="播放地址获取失败" />
+                    </div>
                   )}
-                  <p className="mt-3 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>
-                  {choices.length > 1 && currentChoice && (
-                    <p className="mt-1 text-[12px] text-mut">当前播放：{currentChoice.label}</p>
-                  )}
-                  {choices.length > 1 && (
-                    <EpisodePicker choices={choices} currentKey={currentEpId}
-                      onPick={(c) => void switchEpisode(merged, data, c)} />
-                  )}
-                  {data.epError && <p role="alert" className="mt-2 text-[12px] text-danger">{data.epError}</p>}
-                  {data.detail?.description && <p className="mt-2 text-[13px] text-on/85 leading-relaxed">{data.detail.description}</p>}
+                  <div className="px-4">
+                    <p className="mt-3 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>
+                    {choices.length > 1 && currentChoice && (
+                      <p className="mt-1 text-[12px] text-mut">当前播放：{currentChoice.label}</p>
+                    )}
+                    {choices.length > 1 && (
+                      <EpisodePicker choices={choices} currentKey={currentEpId}
+                        onPick={(c) => void switchEpisode(merged, data, c)} />
+                    )}
+                    {data.epError && <p role="alert" className="mt-2 text-[12px] text-danger">{data.epError}</p>}
+                    {data.detail?.description && <p className="mt-2 text-[13px] text-on/85 leading-relaxed">{data.detail.description}</p>}
+                  </div>
                 </div>
               );
             }
@@ -801,6 +821,21 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
                 </div>
               );
             }
+            /* 正文全文（fix335/c-presentation S2）：副本页此前只消费
+             * cover/description/images，detail.contentHtml 在手却不
+             * 渲染——与正身 SourcePosts 同一提取—重构链补齐（判据/
+             * 过滤单一出处 extractArticleBlocks，不另起一套）。降级
+             * 链与正身同构：提取到块→块渲染（块已按文档序含正文
+             * 图）；定位到内容但段级全杀→显简介；提取不到→
+             * sanitizeHtml 旧渲染；再无→简介。 */
+            const postDetail = data.detail;
+            const postExtraction = postDetail?.contentHtml
+              ? extractArticleBlocks(postDetail.contentHtml, {
+                  base: postDetail.href,
+                  title: postDetail.title || merged.title,
+                })
+              : null;
+            const postBlocks = postExtraction && postExtraction.blocks.length ? postExtraction.blocks : null;
             return (
               <div className="px-4 pt-2">
                 {data.detail?.cover || data.active.item.cover ? (
@@ -808,8 +843,31 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
                     <Img src={data.detail?.cover || data.active.item.cover} alt={merged.title} eager />
                   </div>
                 ) : null}
-                {data.detail?.description && <p className="mt-3 text-[13px] text-on/85 leading-relaxed">{data.detail.description}</p>}
-                {(data.detail?.images ?? []).length > 0 && (
+                {postBlocks ? (
+                  <div className="article-body mt-3.5">
+                    {postBlocks.map((b, i) => (b.type === "image" ? (
+                      <img key={i} src={b.src} alt={b.alt} loading="lazy" />
+                    ) : b.heading ? (
+                      <h3 key={i}>{b.text}</h3>
+                    ) : (
+                      <p key={i}>{b.text}</p>
+                    )))}
+                  </div>
+                ) : postExtraction?.located && postDetail?.description ? (
+                  /* 定位到内容但段级过滤全杀（正文全是垃圾段）：显
+                   * 简介，不回旧渲染把垃圾端上来（正身同口径）。 */
+                  <p className="mt-3.5 text-[14px] leading-relaxed text-on/80 whitespace-pre-wrap">{postDetail.description}</p>
+                ) : postDetail?.contentHtml ? (
+                  /* 提取不到内容（结构未知）：维持旧清洗渲染，如实降级。 */
+                  <div className="article-body mt-3.5" onClick={(e) => handleArticleClick(e, openSafeLink, postDetail.href)}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(postDetail.contentHtml, postDetail.href) }} />
+                ) : postDetail?.description ? (
+                  <p className="mt-3.5 text-[14px] leading-relaxed text-on/80 whitespace-pre-wrap">{postDetail.description}</p>
+                ) : null}
+                {/* 图片纵列：提取块已按文档序含正文图，块渲染时不
+                 * 重复；仅降级路径保留（只有 images 字段的帖子不
+                 * 丢图）。 */}
+                {!postBlocks && (data.detail?.images ?? []).length > 0 && (
                   <div className="mt-3 flex flex-col gap-2">
                     {data.detail!.images.map((src, i) => (
                       <div key={`${src}-${i}`} className="relative w-full overflow-hidden rounded-[12px] bg-s2">

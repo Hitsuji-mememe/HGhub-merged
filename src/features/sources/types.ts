@@ -51,9 +51,52 @@ export interface SourceItem {
   cover: string;
   href: string;
   tags: string[];
+  /* 源内分类/栏目名（Muse 2026-11-20 fix335/f-discovery）：站方分类
+   * 体系给出的归属，与 tags（真标签）分开——分类进 cats、真标签才
+   * 进 tags，互不冒充。 */
+  cats?: string[];
   hot?: number;
   duration?: string;
   previewOnly?: boolean;
+}
+
+/* 发现维度选择（Muse 2026-11-20 fix335/f-discovery）：list() 的可选
+ * 参数，缺省＝各适配器现行写死行为逐字不变。字段只存非默认选择
+ * （DiscoveryBar 点选默认值即删字段），保证滚动指纹规范。
+ * category/tag 的取值形态由各源 DiscoverySpec 登记决定（栏目 slug
+ * 或 taxonomy id 字符串）。 */
+export interface ListDiscovery {
+  category?: string;
+  sort?: string;
+  period?: string;
+  tag?: string;
+}
+
+/** 空 disc 的共享缺省（只读使用：变更一律经新对象，不许原地改）。 */
+export const EMPTY_LIST_DISCOVERY: ListDiscovery = {};
+
+/* 滚动恢复指纹（fix335/f-discovery）：disc 非空字段按固定序序列化，
+ * 与 useScrollKeeper 的 key 组合成「面:源:指纹」——切换发现维度后
+ * 位置按新指纹隔离，不串位。空 disc 返回空串（key 与 D 线逐字一致）。 */
+export function discFingerprint(disc: ListDiscovery): string {
+  const parts: string[] = [];
+  if (disc.category) parts.push(`cat=${encodeURIComponent(disc.category)}`);
+  if (disc.sort) parts.push(`sort=${encodeURIComponent(disc.sort)}`);
+  if (disc.period) parts.push(`period=${encodeURIComponent(disc.period)}`);
+  if (disc.tag) parts.push(`tag=${encodeURIComponent(disc.tag)}`);
+  return parts.join("&");
+}
+
+/* taxonomy 选项（fix335/f-discovery）：分类/标签的可选项与计数；
+ * id 为适配器过滤参数的实际取值（WP 为数字 id 字符串，002 为原值）。 */
+export interface TaxonEntry {
+  id: string;
+  name: string;
+  count?: number;
+}
+export interface SourceTaxonomy {
+  categories: TaxonEntry[];
+  tags: TaxonEntry[];
 }
 
 export interface SourceDetail extends SourceItem {
@@ -71,10 +114,15 @@ export interface SourceStream {
 
 export interface SourceAdapter {
   sourceId: string;
-  list: (page: number, size: number) => Promise<Paged<SourceItem>>;
+  /* disc 缺省＝现行写死行为（fix335/f-discovery）；只有 DiscoverySpec
+   * 已登记维度的源消费对应字段，未登记字段一律忽略。 */
+  list: (page: number, size: number, disc?: ListDiscovery) => Promise<Paged<SourceItem>>;
   detail: (externalId: string) => Promise<SourceDetail>;
   resolve: (externalId: string) => Promise<{ streams: SourceStream[] }>;
   search?: (q: string, page: number, size: number) => Promise<Paged<SourceItem>>;
+  /* 发现维度的选项来源（fix335/f-discovery）：仅登记了 taxonomy 型
+   * 维度（WP 四源）或客户端型维度（002）的适配器实现。 */
+  taxonomy?: () => Promise<SourceTaxonomy>;
 }
 
 /** 稳定数值 id：外部字符串 id → 既有模型要求的 number（FNV-1a，稳定可复现）。 */

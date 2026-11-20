@@ -8,7 +8,7 @@
  * （selfCheckDiagLines/selfCheckSegmentText）输出含该源自检行与
  * 失败形态，registryDiag 两条呈现路径文本接线；(c) 预算/资格——
  * 未启用/blocked/preview 源不进探测名单、结果未过期不重探、每源
- * 请求数 ≤ SELF_CHECK_MAX_REQUESTS_PER_SOURCE（硬预算 3）。
+ * 请求数 ≤ SELF_CHECK_MAX_REQUESTS_PER_SOURCE（硬预算 4）。
  * 断言适配（2026-11-20 fix331/source-reliability）：自检补全链
  * （视频类详情后抽 1 条目续探取流）后硬预算 2→3、结果格式新增
  * 末段三字段＋清单版本指纹，本文件假适配器 resolve 改回真流、
@@ -18,6 +18,11 @@
  * （协议版本/适配器纪元/源切片），夹具改按对应 def 盖指纹
  * （selfCheckFingerprintFor）；资格/TTL/落盘/诊断口径不变、
  * 覆盖不降，指纹逐维口径由 fix333-m7-selfcheck 契约承接。
+ * 断言适配（2026-11-20 fix335/selfcheck-paging）：自检协议 v2
+ * 新增分页抽查段、硬预算 3→4，全部结果夹具补齐 paging 两字段
+ * （本文件假适配器信号恒单页、抽查标不适用不多取页，计数断言
+ * 不变）；资格/TTL/落盘/诊断口径不变、覆盖不降，抽查段口径由
+ * fix335-selfcheck-paging 契约承接。
  * 不访问真实网络：适配器经注入接缝（createAdapterFor）以假适配器
  * 隔离；registryDiag.ts 本体不在 node 直导入（其 fetchHealth→
  * playbackDiagnostics 链含 Tauri/react 导入，为既有约束），其消费
@@ -145,7 +150,8 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   const hanimeDef = getBuiltinRegistry().find((s) => s.id === "hanime-tv")!;
   const fresh: SourceSelfCheckResult = {
     sourceId: "hanime-tv", at: NOW - 1000, listOk: true, itemCount: 3,
-    listFailure: null, detail: "ok", detailFailure: null, requests: 3,
+    listFailure: null, paging: "skipped", pagingFailure: null,
+    detail: "ok", detailFailure: null, requests: 3,
     tail: "ok", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(hanimeDef),
   };
   const stale = { ...fresh, at: NOW - SELF_CHECK_TTL_MS - 1 };
@@ -153,9 +159,10 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   assert.ok(buildSelfCheckPlan(getBuiltinRegistry(), { "hanime-tv": stale }, NOW).some((s) => s.id === "hanime-tv"), "过期后重探");
 }
 
-/* ── (c) 预算：每源最多 3 请求（列表 1＋详情 1＋视频类取流 1），失败形态分开记 ── */
+/* ── (c) 预算：每源最多 4 请求（列表 1＋分页抽查 1＋详情 1＋视频类取流 1），失败形态分开记；
+ * 本文件假适配器信号恒单页、抽查标不适用不多取，下列计数断言不变 ── */
 {
-  assert.equal(SELF_CHECK_MAX_REQUESTS_PER_SOURCE, 3, "硬预算常量 = 3（fix331 补取流段后）");
+  assert.equal(SELF_CHECK_MAX_REQUESTS_PER_SOURCE, 4, "硬预算常量 = 4（fix335 补分页抽查段后）");
   const def = fakeDef("budget");
 
   const c1 = { calls: 0 };
@@ -203,7 +210,8 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
   bindSelfCheckStorage(storage);
   const r: SourceSelfCheckResult = {
     sourceId: "swag", at: NOW, listOk: false, itemCount: 0,
-    listFailure: "解析为空", detail: "skipped", detailFailure: null, requests: 1,
+    listFailure: "解析为空", paging: "skipped", pagingFailure: null,
+    detail: "skipped", detailFailure: null, requests: 1,
     tail: "skipped", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(fakeDef("swag")),
   };
   saveSelfCheckResult(r);
@@ -225,8 +233,8 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
     { id: "91video", stableId: "source-003", def: fakeDef("91video") },
   ];
   const results: Record<string, SourceSelfCheckResult> = {
-    swag: { sourceId: "swag", at: NOW, listOk: false, itemCount: 0, listFailure: "解析为空", detail: "skipped", detailFailure: null, requests: 1, tail: "skipped", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(fakeDef("swag")) },
-    huangguo: { sourceId: "huangguo", at: NOW, listOk: true, itemCount: 12, listFailure: null, detail: "ok", detailFailure: null, requests: 3, tail: "ok", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(huangguoDef) },
+    swag: { sourceId: "swag", at: NOW, listOk: false, itemCount: 0, listFailure: "解析为空", paging: "skipped", pagingFailure: null, detail: "skipped", detailFailure: null, requests: 1, tail: "skipped", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(fakeDef("swag")) },
+    huangguo: { sourceId: "huangguo", at: NOW, listOk: true, itemCount: 12, listFailure: null, paging: "skipped", pagingFailure: null, detail: "ok", detailFailure: null, requests: 3, tail: "ok", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(huangguoDef) },
   };
   const lines = selfCheckDiagLines(sources, results);
   const joined = lines.join("\n");

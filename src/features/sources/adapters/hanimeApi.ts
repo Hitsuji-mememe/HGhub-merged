@@ -221,6 +221,9 @@ export function createHanimeApiAdapter(def: SourceDef): SourceAdapter {
 
   const toItem = (row: HanimeRow): SourceItem => {
     const slug = String(row.slug);
+    /* 分类进 cats（Muse 2026-11-20 fix335/f-discovery）：brand 是
+     * 厂牌归属（分类性质）、tags 才是真标签，两者不混。 */
+    const brand = typeof row.brand === "string" && row.brand ? row.brand : "";
     return {
       sourceId: def.id,
       externalId: slug,
@@ -228,12 +231,19 @@ export function createHanimeApiAdapter(def: SourceDef): SourceAdapter {
       cover: absUrl(base, String(row.cover_url ?? "")),
       href: `${base}/videos/hentai/${slug}`,
       tags: tagNames(row.tags),
+      ...(brand ? { cats: [brand] } : {}),
       hot: typeof row.views === "number" ? row.views : undefined,
     };
   };
 
   const byNewest = (rows: HanimeRow[]): HanimeRow[] =>
     [...rows].sort((a, b) => Number(b.created_at_unix ?? 0) - Number(a.created_at_unix ?? 0));
+
+  /* 客户端重排（fix335/f-discovery）：目录本就全量在本地缓存，
+   * views 排序与 brand/tag 过滤全在内存完成（探针实证服务端无
+   * 对应参数、目录行自带三字段）。 */
+  const byViews = (rows: HanimeRow[]): HanimeRow[] =>
+    [...rows].sort((a, b) => Number(b.views ?? 0) - Number(a.views ?? 0));
 
   const pageSlice = (rows: HanimeRow[], page: number, size: number) => ({
     items: rows.slice((page - 1) * size, page * size).map(toItem),
@@ -247,10 +257,34 @@ export function createHanimeApiAdapter(def: SourceDef): SourceAdapter {
 
   return {
     sourceId: def.id,
-    async list(page, size) {
-      const rows = byNewest(await loadCatalog());
-      if (rows.length === 0) throw new SourceParseEmptyError(def.id);
-      return pageSlice(rows, page, size);
+    /* 发现维度（fix335/f-discovery）：disc 缺省＝现行行为逐字不变
+     * （全目录 created_at 降序切片）；disc.category＝brand 精确过滤、
+     * disc.tag＝标签精确过滤、disc.sort＝"views" 时按 views 降序
+     * （其余值/缺省＝最新序）。目录本身为空仍抛解析为空（站方故障
+     * 不许冒充过滤无结果）；过滤后为空是合法空结果、走空页。 */
+    async list(page, size, disc) {
+      const all = await loadCatalog();
+      if (all.length === 0) throw new SourceParseEmptyError(def.id);
+      let rows = all;
+      const wantBrand = disc?.category;
+      const wantTag = disc?.tag;
+      if (wantBrand) rows = rows.filter((r) => typeof r.brand === "string" && r.brand === wantBrand);
+      if (wantTag) rows = rows.filter((r) => tagNames(r.tags).includes(wantTag));
+      return pageSlice(disc?.sort === "views" ? byViews(rows) : byNewest(rows), page, size);
+    },
+    /* 选项来源（fix335/f-discovery）：由本地目录聚合 brand（分类）
+     * 与 tags 的计数、按计数降序——与 list 的过滤同数据同口径。 */
+    async taxonomy() {
+      const rows = await loadCatalog();
+      const agg = (values: string[]) => {
+        const m = new Map<string, number>();
+        for (const v of values) m.set(v, (m.get(v) ?? 0) + 1);
+        return [...m.entries()].map(([name, count]) => ({ id: name, name, count })).sort((a, b) => b.count - a.count);
+      };
+      return {
+        categories: agg(rows.map((r) => (typeof r.brand === "string" ? r.brand : "")).filter(Boolean)),
+        tags: agg(rows.flatMap((r) => tagNames(r.tags))),
+      };
     },
     async search(q, page, size) {
       const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);

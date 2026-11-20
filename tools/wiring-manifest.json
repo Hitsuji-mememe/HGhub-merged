@@ -2190,6 +2190,70 @@
       "item": "fix335/a-pagination 收敛审计 SWAG 逐条取数失败留痕：resolveTrace 定义 traceListItemSkips（与 traceResolveFailure 同共享发射通道）＋templates SWAG list 失败计数消费，落 source.list_skip 进诊断导出账本",
       "min": 2,
       "symbol": "traceListItemSkips"
+    },
+    {
+      "files": [
+        "src/features/sources/SourceGallery.tsx",
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourcePosts.tsx"
+      ],
+      "id": "fix335-d-scroll-capture",
+      "item": "fix335/d-scroll 滚动恢复：三浏览组件打开详情/图集前经 useScrollKeeper 的 captureScroll 存宿主 scrollTop（key＝面＋源），回列表后 hook 写回；摘除任一面的 capture 调用即红",
+      "min": 3,
+      "symbol": "captureScroll"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/category/Category.tsx",
+        "src/features/posts/Posts.tsx"
+      ],
+      "id": "fix335-d-scroll-host-ref",
+      "item": "fix335/d-scroll 宿主 scroller 下传：ChannelPage 三分支与 PostsPage 非原生分支各自持 ref 并经 scrollerRef 传给浏览组件（滚动恢复的读写通道）；任一宿主摘除即红",
+      "min": 1,
+      "symbol": "scrollerRef"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourceGallery.tsx",
+        "src/features/sources/SourcePosts.tsx"
+      ],
+      "id": "fix335-f-discovery-bar",
+      "item": "fix335/f-discovery 发现维度条：三浏览组件列表态顶部共用 DiscoveryBar（只渲染 DiscoverySpec 已登记维度）；摘除任一面的渲染即红",
+      "min": 1,
+      "symbol": "<DiscoveryBar"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourceGallery.tsx",
+        "src/features/sources/SourcePosts.tsx"
+      ],
+      "id": "fix335-f-discovery-keeper-key",
+      "item": "fix335/f-discovery 滚动指纹隔离：三浏览组件的 useScrollKeeper key 由 discFingerprint 扩为「面:源:指纹」，切换发现维度后位置按新指纹隔离；摘除任一面的指纹接线即红",
+      "min": 1,
+      "symbol": "discFingerprint"
+    },
+    {
+      "files": [
+        "src/features/sources/DiscoveryBar.tsx"
+      ],
+      "id": "fix335-f-discovery-degrade",
+      "item": "fix335/f-discovery 自检降级：DiscoveryBar 经 classifySelfCheckResult 派生，该源 down（列表段失败）时维度禁用并明示、随健康恢复自动可用；摘除派生接线即红",
+      "min": 1,
+      "symbol": "classifySelfCheckResult"
+    },
+    {
+      "files": [
+        "src/features/sources/healthCheck.ts"
+      ],
+      "id": "fix335-selfcheck-paging-probe",
+      "item": "fix335/selfcheck-paging 自检分页信号一致性抽查：healthCheck 引擎在第 1 页信号称有下一页时多取第 2 页核对（可达/非空/与第 1 页不全同），失败经 classifySelfCheckResult 单一派生降级部分可用（段名「分页」）；摘除第 2 页调用点即红",
+      "min": 1,
+      "symbol": "adapter.list(2,"
     }
   ]
 }

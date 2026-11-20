@@ -15,11 +15,14 @@ import { Empty } from "../../shared/ui/ui";
 import { IBack, IGrid, IStar, IStarF } from "../../shared/ui/icons";
 import { AlbumViewer } from "./AlbumViewer.tsx";
 import { registerOverlayBack } from "../../shared/lib/back";
+import { useScrollKeeper } from "../../shared/lib/useScrollKeeper";
 import { useStore } from "../../shared/model/store";
 import { externalHashId } from "../../shared/model/localLibrary";
 import { setImageTraceSurface } from "../../shared/lib/feedTrace";
 import { createAdapter } from "./adapters/index.ts";
 import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
+import DiscoveryBar from "./DiscoveryBar";
+import { discFingerprint, EMPTY_LIST_DISCOVERY, type ListDiscovery } from "./types.ts";
 import type { SourceDef, SourceItem } from "./types.ts";
 
 type AlbumState =
@@ -27,11 +30,14 @@ type AlbumState =
   | { phase: "ready"; item: SourceItem; images: string[]; index: number }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourceGallery({ def, openExternalId }: {
+export default function SourceGallery({ def, openExternalId, scrollerRef }: {
   def: SourceDef;
   /** G4 回访直达（fix334/L3）：同 SourceBrowse 口径——已加载列表
    * 含目标相册才自动打开、消费一次，不在列表不强求。 */
   openExternalId?: string;
+  /** 宿主 scroller 下传（fix335/d-scroll）：滚动恢复 hook 据此读写
+   * 宿主滚动容器；未传（分类总览 compact 等形态）时恢复静默不生效。 */
+  scrollerRef?: { current: HTMLElement | null };
 }) {
   /* 进入浏览面补探（fix331/source-reliability）：同 SourceBrowse 口径。 */
   useSourceSelfCheckOnView(def);
@@ -51,6 +57,19 @@ export default function SourceGallery({ def, openExternalId }: {
   const albumSeq = useRef(0);
   const failAt = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  /* 发现维度（fix335/f-discovery）：同 SourceBrowse 口径——disc 按
+   * 源 id 隔离、指纹进滚动恢复 key，空 disc 时 key 与 D 线逐字一致。 */
+  const [discMap, setDiscMap] = useState<Record<string, ListDiscovery>>({});
+  const disc = discMap[def.id] ?? EMPTY_LIST_DISCOVERY;
+  const discFp = discFingerprint(disc);
+  const discArg = discFp ? disc : undefined;
+  const applyDisc = useCallback((next: ListDiscovery) => {
+    setDiscMap((m) => ({ ...m, [def.id]: next }));
+  }, [def.id]);
+  /* 滚动恢复（fix335/d-scroll）：相册分支替换列表期间宿主 scroller
+   * 高度塌缩、scrollTop 被钳 0——打开相册前 capture、回列表且数据
+   * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
+  const { captureScroll } = useScrollKeeper(`gallery:${def.id}${discFp ? `:${discFp}` : ""}`, scrollerRef, album === null && items.length > 0);
 
   const load = useCallback(async (reset: boolean) => {
     if (busy.current) return;
@@ -62,7 +81,7 @@ export default function SourceGallery({ def, openExternalId }: {
     const mySeq = ++seq.current;
     try {
       const next = reset ? 1 : page + 1;
-      const res = await adapter.list(next, 20);
+      const res = await adapter.list(next, 20, discArg);
       if (mySeq !== seq.current) return;
       const fresh = reset ? res.items : res.items.filter((x) => !items.some((y) => y.externalId === x.externalId));
       setItems(reset ? res.items : [...items, ...fresh]);
@@ -82,7 +101,7 @@ export default function SourceGallery({ def, openExternalId }: {
       if (mySeq === seq.current) { busy.current = false; setLoading(false); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def, page, pages, items]);
+  }, [def, page, pages, items, discArg]);
 
   /* 自动续页（3.2.2 集成批＋fix335/a-pagination）：哨兵接近底部自动
    * 拉下一页（rootMargin 300px 近底预取、busy 单飞防并发重复拉）；
@@ -104,15 +123,23 @@ export default function SourceGallery({ def, openExternalId }: {
   }, [loading, err, page, pages, items.length, load]);
 
   const openExternalConsumed = useRef<string | null>(null);
+  /* 维度切换重置（fix335/f-discovery）：同 SourceBrowse 口径——依赖
+   * 扩为 [源, 指纹]，同源切换维度重置重拉并置顶，新指纹位置隔离。 */
+  const prevFaceKey = useRef<{ id: string; fp: string } | null>(null);
   useEffect(() => {
     seq.current++;
     albumSeq.current++;
     busy.current = false;
     openExternalConsumed.current = null;
     setItems([]); setPage(0); setPages(1); setAlbum(null);
+    const prev = prevFaceKey.current;
+    if (prev && prev.id === def.id && prev.fp !== discFp && scrollerRef?.current) {
+      scrollerRef.current.scrollTop = 0;
+    }
+    prevFaceKey.current = { id: def.id, fp: discFp };
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def.id]);
+  }, [def.id, discFp]);
 
   /* 关相册＝同时作废在飞 detail（fix335/a-album-guard）：加载中
    * 返回/关闭后迟到响应不得把已关覆层复活（同切源复活一病）。 */
@@ -141,6 +168,7 @@ export default function SourceGallery({ def, openExternalId }: {
   useEffect(() => () => setImageTraceSurface("app"), []);
 
   const openAlbum = useCallback(async (item: SourceItem) => {
+    captureScroll();
     const adapter = createAdapter(def);
     if (!adapter) { setAlbum({ phase: "error", item, message: "该源未注册可用适配器" }); return; }
     /* 代次守卫（fix335/a-album-guard，照 load 的 seq 既有形态）：
@@ -159,7 +187,7 @@ export default function SourceGallery({ def, openExternalId }: {
     } catch (e) {
       if (mySeq === albumSeq.current) { setAlbum({ phase: "error", item, message: (e as Error).message || "图集加载失败" }); }
     }
-  }, [def]);
+  }, [def, captureScroll]);
 
   /* 回访直达消费（G4）：目标相册在已加载列表中才打开，消费一次。 */
   useEffect(() => {
@@ -217,6 +245,7 @@ export default function SourceGallery({ def, openExternalId }: {
 
   return (
     <div className="px-4 pt-2">
+      <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc} />
       {items.length > 0 && err && (
         <div role="status" className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-mut">
           <span>{err}</span><Button className="px-3 text-primary" onClick={() => void load(false)}>重试</Button>
