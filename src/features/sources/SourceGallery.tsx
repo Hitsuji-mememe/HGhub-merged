@@ -241,6 +241,7 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
       return (
         <div className="fixed inset-0 z-40 bg-black">
           <AlbumViewer title={album.item.title} images={album.images} index={album.index}
+            page={album.item.href}
             onIndexChange={(i) => setAlbum({ ...album, index: i, item: album.galleryItems?.[i] ?? album.item })}
             onBack={closeAlbum} backLabel="返回相册列表"
             onClose={closeAlbum} immersive

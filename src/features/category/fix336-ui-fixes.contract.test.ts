@@ -90,7 +90,10 @@ const ctx = { active: R1, builtin: R1 };
 /* ── (C) 频道名单派生定点 ── */
 {
   assert.deepEqual(sourcesForSurface("channel-image", R1).map((d) => d.id),
-    ["xiuren", "cosplaytele", "danbooru", "pixibb", "nudecosplay", "yandere", "konachan"],
+    ["xiuren", "cosplaytele", "danbooru", "pixibb", "nudecosplay", "yandere", "konachan",
+      /* 断言适配（fix338/realphoto-add）：真人图片新源 everia/
+       * xsnvshen 启用入册、按注册表序居末（order 122/123）。 */
+      "everia", "xsnvshen"],
     "图片频道名单＝已启用图片源（注册表序）");
   assert.deepEqual(sourcesForSurface("channel-video", R1).map((d) => d.id),
     ["hanime-tv", "hanime1", "iwara", "hentaihaven"],

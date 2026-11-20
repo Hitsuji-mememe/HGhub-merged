@@ -120,7 +120,7 @@ export function ToastHost() {
 }
 
 /* ——— 图片（骨架 + 渐显，自动走本地解密协议） ——— */
-export function Img({ src, alt = "", className = "", eager = false, raw = false, loadingIndicator = false, fit = "cover", surface }: {
+export function Img({ src, alt = "", className = "", eager = false, raw = false, loadingIndicator = false, fit = "cover", surface, page }: {
   src: string; alt?: string; className?: string; eager?: boolean; raw?: boolean; loadingIndicator?: boolean;
   /* fit（Muse 2026-11-19 3.2.1修复F6线）：默认 cover 与既有封面口径
    * 不变；全屏图集查看器传 contain——照片完整贴边、不裁切。 */
@@ -129,8 +129,12 @@ export function Img({ src, alt = "", className = "", eager = false, raw = false,
    * 面（如 source-posts/source-browse/posts-native），进 feedTrace
    * 聚合分桶与逐图失败事件；不传归「未标注」。见 feedTrace 段位注。 */
   surface?: string;
+  /* 页面上下文（Muse 2026-11-20 fix338/realphoto-add）：承载该图
+   * 的详情页地址，透传 cover() 的 page 参进 /img Referer 候选链；
+   * 列表封面等无页面上下文的面不传、行为不变。 */
+  page?: string;
 }) {
-  const url = raw ? src : cover(src);
+  const url = raw ? src : cover(src, 480, page);
   // 每个地址独立持有状态，避免换图后的 effect 把缓存命中的 onLoad 重置掉。
   return <ImageLoad key={url} url={url} alt={alt} className={className} eager={eager} raw={raw} loadingIndicator={loadingIndicator} fit={fit} surface={surface} origin={urlFingerprint(src)} />;
 }

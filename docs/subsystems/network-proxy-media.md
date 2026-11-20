@@ -78,6 +78,13 @@
    200＋HTML 文档（source-014 图床实证），不是错误状态——响应体经 `is_html_document`
    判别为 HTML 文档时与 403 同等换候选，末候选仍是 HTML 则报错、不把文档冒充媒体
    字节（旧形态下详情图字节数像成功、查看器解不出图而空白）。
+   页面级候选（fix338/realphoto-add）：防盗链判据细到页面路径前缀的图床（source-019
+   图床实测：Referer 须本站域且路径以 /album/ 开头，站点根、图床自身 origin、无
+   Referer 均 403）——`/img` 新增 `p=` 参数（前端从当前条目详情页 href 派生，仅
+   图集大图面经 AlbumViewer→Img→`cover()` 线程），候选链在 base 之后、目标 origin
+   之前插入该页面 URL（形态校验：http/https 可解析、长度 ≤2048，不过则忽略）；
+   未带 `p=` 的请求候选链与旧形态逐字一致。`p=` 只作 Referer 头值、不作抓取目标，
+   目标校验与 SSRF 链不变（不变量 5/6）。
 6. `media::handle()` 接受 `/img?u=`、`/hls?u=`、`/seg?u=`。`/img` 下载 AES-128-CBC 封面并
    校验图片魔数；`/hls` 拉清单并把 variant、key、init、part、media 等 URI 改写到本地
    `LOCAL_ORIGIN`，移除可派生的 URI 字段；`/seg` 下载分片或 Key，若返回 `#EXTM3U` 则继续改写，

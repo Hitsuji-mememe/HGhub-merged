@@ -386,11 +386,18 @@ pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String>
 
 /// 同 fetch_bytes，按调用方资源类指定流式上限（如图片 8MB）。
 pub async fn fetch_bytes_capped(url: &str, max_bytes: usize) -> Result<(Option<String>, Vec<u8>), String> {
-    fetch_bytes_with_url_cap(url, max_bytes).await.map(|(_, ctype, bytes)| (ctype, bytes))
+    fetch_bytes_with_url_cap(url, max_bytes, None).await.map(|(_, ctype, bytes)| (ctype, bytes))
+}
+
+/// 同 fetch_bytes_capped，附带页面 Referer 候选（/img 的 p= 通道，
+/// fix338/realphoto-add）：page 透传到候选链第二位，未给时与
+/// fetch_bytes_capped 逐字同行为。
+pub async fn fetch_bytes_capped_with_page(url: &str, max_bytes: usize, page: Option<&str>) -> Result<(Option<String>, Vec<u8>), String> {
+    fetch_bytes_with_url_cap(url, max_bytes, page).await.map(|(_, ctype, bytes)| (ctype, bytes))
 }
 
 pub async fn fetch_bytes_with_url(url: &str) -> Result<(String, Option<String>, Vec<u8>), String> {
-    fetch_bytes_with_url_cap(url, FETCH_BYTES_MAX).await
+    fetch_bytes_with_url_cap(url, FETCH_BYTES_MAX, None).await
 }
 
 /// 媒体字节抓取的 Referer 候选链（Muse 2026-11-20 fix331/gallery-device，
@@ -410,17 +417,41 @@ pub async fn fetch_bytes_with_url(url: &str) -> Result<(String, Option<String>, 
 /// 收下（详情图查看器空白、字节数却像成功）。故响应体为 HTML
 /// 文档时与 403 同等对待：换下一候选；末候选仍是 HTML 则如实
 /// 报错，不把文档冒充媒体字节交给调用方。
-pub(super) fn media_referer_candidates(raw: &str) -> Vec<Option<String>> {
+pub(super) fn media_referer_candidates(raw: &str, page: Option<&str>) -> Vec<Option<String>> {
     let base_ref = format!("{}/", base());
     let mut out: Vec<Option<String>> = vec![Some(base_ref.clone())];
+    /* 页面级候选（Muse 2026-11-20 fix338/realphoto-add，source-
+     * xsnvshen 校准）：部分图床的防盗链判据细到页面路径前缀（实测：
+     * Referer 须为目标站域且路径以 /album/ 开头——站点根、图床自身
+     * origin、无 Referer 全部 403，只有承载该图的详情页放行）。调用
+     * 方（/img 的 p= 参数，值由前端从当前条目详情页 href 派生）给出
+     * 页面 URL 时插入为第二候选——比目标 origin 更具体、排其之前；
+     * 未给 page 时候选链与旧形态逐字一致。page 只作 Referer 头值、
+     * 不作抓取目标：须为可解析的 http/https URL 且长度受限，校验
+     * 不过直接忽略（不许借 Referer 通道把任意串塞进请求头）。 */
+    if let Some(page) = page.filter(|p| valid_page_referer(p)) {
+        if page != base_ref {
+            out.push(Some(page.to_string()));
+        }
+    }
     if let Ok(parsed) = url::Url::parse(raw) {
         let own = format!("{}/", parsed.origin().ascii_serialization());
-        if own != base_ref {
+        if own != base_ref && !out.contains(&Some(own.clone())) {
             out.push(Some(own));
         }
     }
     out.push(None);
     out
+}
+
+/// /img 页面 Referer 的形态校验：http/https、可解析、带主机、
+/// 长度 ≤2048。只判形态不判归属——Referer 本就是声明来源的头，
+/// 目标校验仍由 fetch 本体的 SSRF 链负责（不变量 5/6 不变）。
+fn valid_page_referer(page: &str) -> bool {
+    page.len() <= 2048
+        && url::Url::parse(page)
+            .map(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some())
+            .unwrap_or(false)
 }
 
 /// 响应体是否为 HTML 文档：跳过 BOM 与前导空白后以 `<!doctype`
@@ -452,8 +483,8 @@ fn is_http_403(error: &str) -> bool {
         == Some(403)
 }
 
-async fn fetch_bytes_with_url_cap(url: &str, max_bytes: usize) -> Result<(String, Option<String>, Vec<u8>), String> {
-    let candidates = media_referer_candidates(url);
+async fn fetch_bytes_with_url_cap(url: &str, max_bytes: usize, page: Option<&str>) -> Result<(String, Option<String>, Vec<u8>), String> {
+    let candidates = media_referer_candidates(url, page);
     let last_index = candidates.len() - 1;
     for (i, referer) in candidates.iter().enumerate() {
         match fetch_bytes_with_referer(url, max_bytes, referer.as_deref()).await {
@@ -596,22 +627,50 @@ mod tests {
     #[test]
     fn media_referer_candidates_cover_anti_hotlink_shapes() {
         let base_ref = format!("{}/", base());
-        let foreign = media_referer_candidates("https://images.example.net/a/b.jpg");
+        let foreign = media_referer_candidates("https://images.example.net/a/b.jpg", None);
         assert_eq!(
             foreign,
             vec![Some(base_ref.clone()), Some("https://images.example.net/".to_string()), None],
             "外站目标：base → 自身 origin → 空，三候选齐备且顺序固定"
         );
-        let own = media_referer_candidates(&format!("{base_ref}cover/x.jpg"));
+        let own = media_referer_candidates(&format!("{base_ref}cover/x.jpg"), None);
         assert_eq!(own.first(), Some(&Some(base_ref)), "同源目标首候选仍是 base");
         assert_eq!(own.iter().filter(|c| c.is_some()).count(), 1, "同源不重复加自身 origin 候选");
         assert_eq!(own.last(), Some(&None), "末候选恒为不带 Referer");
-        let invalid = media_referer_candidates("not a url");
+        let invalid = media_referer_candidates("not a url", None);
         assert_eq!(invalid, vec![Some(format!("{}/", base())), None], "不可解析目标只留 base＋空");
         assert!(is_http_403("HTTP 403"));
         assert!(!is_http_403("HTTP 404"));
         assert!(!is_http_403("HTTP 503"));
         assert!(!is_http_403("请求超时"));
+    }
+
+    /* fix338/realphoto-add：页面级 Referer 候选——给出合法页面 URL
+     * 时插入第二位（先于目标 origin）；非法形态（相对串/非 http
+     * scheme/超长）忽略、候选链回落旧形态。旧签名无 page 参数、
+     * 此用例在旧码上不成立。 */
+    #[test]
+    fn media_referer_candidates_include_page_candidate() {
+        let base_ref = format!("{}/", base());
+        let page = "https://www.example.com/album/13080";
+        let with_page = media_referer_candidates("https://img.example.com/album/1/13080/000.jpg", Some(page));
+        assert_eq!(
+            with_page,
+            vec![
+                Some(base_ref.clone()),
+                Some(page.to_string()),
+                Some("https://img.example.com/".to_string()),
+                None,
+            ],
+            "页面候选居第二位：base → 页面 → 目标 origin → 空"
+        );
+        let bad_scheme = media_referer_candidates("https://img.example.com/a.jpg", Some("file:///etc/passwd"));
+        assert_eq!(bad_scheme.len(), 3, "非 http(s) 页面值忽略、回落三候选");
+        let relative = media_referer_candidates("https://img.example.com/a.jpg", Some("/album/13080"));
+        assert_eq!(relative.len(), 3, "相对串页面值忽略、回落三候选");
+        let long = format!("https://www.example.com/{}", "a".repeat(2100));
+        let too_long = media_referer_candidates("https://img.example.com/a.jpg", Some(&long));
+        assert_eq!(too_long.len(), 3, "超长页面值忽略、回落三候选");
     }
 
     /* fix336/014-image：HTML 文档判别真值——防盗链 307 跳回的帖子页

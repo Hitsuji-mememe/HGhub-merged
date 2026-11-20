@@ -50,7 +50,9 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
    * 注册表（18→17 源），本文件原以其为「中性权重已启用视频源」样本的
    * 断言改由 iwara 接替（同为总表未覆盖、已启用、具备搜索段的 video
    * 源，覆盖口径不变）；源数断言随之 18→17。 */
-  assert.equal(getBuiltinRegistry().length, 17, "注册表 17 源（摘 rule34video/pornpics、加 konachan 后仍 17）下页签仍封顶四类（上一断言即证据）");
+  /* 断言适配（fix338/realphoto-add，2026-11-20）：真人图片新源
+   * everia/xsnvshen 入册，注册表 17→19 源；页签封顶四类的口径不变。 */
+  assert.equal(getBuiltinRegistry().length, 19, "注册表 19 源（摘 rule34video/pornpics、加 konachan 后 17；fix338 再加 everia/xsnvshen）下页签仍封顶四类（上一断言即证据）");
   const groups = aggregateHits([]);
   assert.deepEqual(Object.keys(groups).sort(), ["drama", "image", "post", "video"], "聚合分组恒四键");
 }

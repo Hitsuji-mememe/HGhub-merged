@@ -46,9 +46,13 @@ export const isMobile = isAndroid || isIos;
 export const LOCAL =
   isMacos || isIos ? "hg://localhost" : isLinux ? "http://127.0.0.1:17650" : "http://hg.localhost";
 
-/** 封面：经本地协议解密（站点封面是 AES 密文）。 */
-export const cover = (url?: string, _w = 480) =>
-  url ? `${LOCAL}/img?u=${encodeURIComponent(url)}` : "";
+/** 封面：经本地协议解密（站点封面是 AES 密文）。
+ * page（Muse 2026-11-20 fix338/realphoto-add）：承载该图的详情页
+ * 地址——仅在图集大图等已知页面上下文的面传入，经 /img 的 p= 参数
+ * 进 Rust 侧 Referer 候选链（页面级防盗链）；不传时 URL 与旧形态
+ * 逐字一致。 */
+export const cover = (url?: string, _w = 480, page?: string) =>
+  url ? `${LOCAL}/img?u=${encodeURIComponent(url)}${page ? `&p=${encodeURIComponent(page)}` : ""}` : "";
 
 /** 播放列表：经本地协议改写分片地址，规避 CORS 与防盗链。 */
 export const playlist = (url: string) => `${LOCAL}/hls?u=${encodeURIComponent(url)}`;

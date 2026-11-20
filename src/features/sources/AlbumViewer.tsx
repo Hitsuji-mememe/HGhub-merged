@@ -61,7 +61,7 @@ import { IBack, IClose } from "../../shared/ui/icons";
 
 export const ALBUM_CHROME_IDLE_MS = 3000;
 
-export function AlbumViewer({ title, images, index, onIndexChange, onBack, backLabel, onClose, closeLabel = "关闭大图", footerNote, immersive = false, headerAction }: {
+export function AlbumViewer({ title, images, index, onIndexChange, onBack, backLabel, onClose, closeLabel = "关闭大图", footerNote, immersive = false, headerAction, page }: {
   title: string;
   images: string[];
   index: number;
@@ -71,6 +71,10 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
   onClose?: () => void;
   closeLabel?: string;
   footerNote?: string;
+  /* 页面上下文（Muse 2026-11-20 fix338/realphoto-add）：本组图片
+   * 所在的详情页地址，透传给每张 Img 的 page 参（/img Referer 候
+   * 选链）；宿主不知/不适用时不传、行为不变。 */
+  page?: string;
   /** 顶栏动作槽（fix334/L3）：宿主可选注入（如图集收藏钮），渲染
    * 在计数与关闭之间、随 chrome 一同淡出；不传则顶栏与旧形态逐字
    * 一致（Search 图片详情不传、不受影响）。 */
@@ -205,7 +209,7 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
         return (
           <div key={i} data-album-frame={i} className="absolute inset-0"
             style={{ opacity: i === idx ? 1 : 0, pointerEvents: "none" }} aria-hidden={i !== idx}>
-            <Img src={src} alt={i === idx ? title : ""} eager fit="contain" />
+            <Img src={src} alt={i === idx ? title : ""} eager fit="contain" page={page} />
           </div>
         );
       })}
@@ -241,7 +245,7 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
                   {/* 闩锁进窗才挂图（nearThumbs，见文件头注）：窗外
                       只占位，点选跳张不依赖图已挂载、照常可用。 */}
                   {nearThumbs.has(i)
-                    ? <Img src={src} alt="" eager />
+                    ? <Img src={src} alt="" eager page={page} />
                     : <span aria-hidden className="absolute inset-0 bg-white/10" />}
                 </Button>
               ))}
