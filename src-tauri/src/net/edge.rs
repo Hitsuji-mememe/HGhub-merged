@@ -426,7 +426,9 @@ pub(super) fn media_referer_candidates(raw: &str) -> Vec<Option<String>> {
 /// 响应体是否为 HTML 文档：跳过 BOM 与前导空白后以 `<!doctype`
 /// 或 `<html` 开头（不分大小写）。媒体字节（图片魔数、#EXTM3U
 /// 清单、TS 分片 0x47）恒不命中；空体不命中（维持既有语义）。
-pub(super) fn is_html_document(bytes: &[u8]) -> bool {
+/// pub(crate)（fix337/video-resolve 起）：media 层 /seg 整形与
+/// range 直拉路径共用同一判别，不另写第二份。
+pub(crate) fn is_html_document(bytes: &[u8]) -> bool {
     let mut s = bytes;
     if s.starts_with(&[0xEF, 0xBB, 0xBF]) {
         s = &s[3..];

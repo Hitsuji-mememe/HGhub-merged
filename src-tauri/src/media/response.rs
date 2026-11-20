@@ -106,6 +106,22 @@ pub(super) fn segment_response(
     bytes: Vec<u8>,
     origin: &str,
 ) -> Response<Vec<u8>> {
+    /* 内容形态守卫（fix337/video-resolve，3.3.6 真机 source-011
+     * 形态乙）：/seg 目标回 200＋HTML 文档（防盗链落地页/挑战页）
+     * 时，旧实现按上游 ctype 原样以媒体 200 返回——变体清单位
+     * 置上 hls.js 报 levelParsingError「Missing format
+     * identifier #EXTM3U」、分片位置上下载成功却永不入缓冲。
+     * HTML 文档恒不是清单/分片/Key，先于 ctype 判读直接 502，
+     * 与 /hls 的 #EXTM3U 校验、fetch_bytes 的 HTML 候选链同口径：
+     * 非播放列表不当成功。 */
+    if crate::net::is_html_document(&bytes) {
+        return respond(
+            502,
+            "text/plain",
+            "响应为 HTML 文档而非媒体字节".as_bytes().to_vec(),
+            "no-store",
+        );
+    }
     let playlist = ctype.is_some_and(|t| t.to_ascii_lowercase().contains("mpegurl"))
         || bytes.starts_with(b"#EXTM3U")
         || bytes.starts_with(b"\xef\xbb\xbf#EXTM3U");
@@ -249,6 +265,40 @@ mod tests {
             LOCAL_ORIGIN,
         );
         assert!(bom.body().starts_with(b"#EXTM3U\n"));
+    }
+
+    /* fix337/video-resolve（3.3.6 真机 source-011 形态乙）：/seg 目标
+     * 回 200＋HTML 文档（防盗链落地页/挑战页）时旧实现原样以媒体
+     * 200 返回，hls.js 拿到 HTML 报 levelParsingError「Missing
+     * format identifier #EXTM3U」——非播放列表/非媒体字节不得以
+     * 成功形态交给播放器，必须 502 如实失败（与 /hls 的 #EXTM3U
+     * 校验、fetch_bytes 的 HTML 候选链同口径）。 */
+    #[test]
+    fn html_document_bodies_are_not_served_as_media() {
+        for ctype in [Some("video/mp2t"), Some("application/vnd.apple.mpegurl"), None] {
+            let response = segment_response(
+                "https://cdn.example/seg-1.ts",
+                ctype,
+                b"<!DOCTYPE html><html><body>landing</body></html>".to_vec(),
+                LOCAL_ORIGIN,
+            );
+            assert_eq!(response.status(), 502, "HTML 文档必须 502，ctype={ctype:?}");
+        }
+        // 真分片（TS 同步字节）与真清单不受影响。
+        let segment = segment_response(
+            "https://cdn.example/seg-1.ts",
+            Some("video/mp2t"),
+            vec![0x47, 0x40, 0x11, 0x10],
+            LOCAL_ORIGIN,
+        );
+        assert_eq!(segment.status(), 200);
+        let playlist = segment_response(
+            "https://cdn.example/list.m3u8",
+            None,
+            b"#EXTM3U\nseg-1.ts\n".to_vec(),
+            LOCAL_ORIGIN,
+        );
+        assert_eq!(playlist.status(), 200);
     }
 
     #[test]

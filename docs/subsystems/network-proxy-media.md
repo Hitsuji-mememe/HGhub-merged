@@ -57,7 +57,9 @@
    错误可重试，401、404、403、地址策略拒绝和重定向错误一次即终止。重试前 `heal_client()` 会在
    3 秒节流内重建客户端，解决代理软件开关后的 tunnel error。
 3. `client_for_dns()` 先做 `parse_target()`，再按严格模式、主机、端口、公网 DNS 标志和
-   `ProxyRoute` 生成缓存键。直连时解析全部地址并 `check_addresses()`，把结果通过
+   `ProxyRoute` 生成缓存键。直连时 `resolve_target()` 解析全部地址：严格模式只保留
+   `allowed_ip()` 允许的子集固定进客户端（`strict_allowed_subset`，fix337/video-resolve；
+   子集为空才整组拒绝——旧整组拒绝让一条污染记录把同组好地址一并否决），把结果通过
    `resolve_to_addrs()` 固定进客户端；有代理时把域名交给代理解析。缓存 30 秒，命中不延长
    TTL，最多 64 项，配置/代理/安全模式变化会推进 generation 并清空。
 4. `get_with_dns()` 关闭自动重定向，最多跟 5 跳。每一跳都重新 `parse_target()`、重新选客户端和
@@ -79,7 +81,10 @@
 6. `media::handle()` 接受 `/img?u=`、`/hls?u=`、`/seg?u=`。`/img` 下载 AES-128-CBC 封面并
    校验图片魔数；`/hls` 拉清单并把 variant、key、init、part、media 等 URI 改写到本地
    `LOCAL_ORIGIN`，移除可派生的 URI 字段；`/seg` 下载分片或 Key，若返回 `#EXTM3U` 则继续改写，
-   保证嵌套清单不泄漏原始地址。
+   保证嵌套清单不泄漏原始地址。`/seg` 有内容形态守卫（fix337/video-resolve）：Range 直拉
+   （`fetch_segment_bytes`）拿到 HTML 文档时整段改走 `fetch_bytes()` 的 Referer 候选链，
+   整形层（`segment_response`）对 HTML 文档一律回 502——200＋HTML 不得以媒体形态交给
+   播放器（旧形态为 hls.js 的 levelParsingError 与「下载成功却永不入缓冲」）。
 7. `apply_byte_range()` 只处理单段 `bytes=`，支持 `start-end`、`start-`、`-suffix`；无效/多段
    范围退回完整 200，越界返回 416。m3u8 永远完整返回，避免原生播放器的 0-1 字节探测把
    `#EXTM3U` 截掉。Linux 的 loopback HTTP 还支持 HEAD，并只发送一份 `Content-Length`/CORS 头。
@@ -108,7 +113,9 @@
   FakeIP 只由本机透明代理核心合成、映射也在其数据面持有；旁路 UDP 直查走同一
   不可信网络，被墙域名必然拿到污染答案。备用 DNS（UDP/DoH）的卫生否决是整轮/
   整份语义：任一族答案被否决，或整份含 Teredo（2001::/32），整轮作废，不许把
-  另一族的「公网形态」答案摘出来采用。
+  另一族的「公网形态」答案摘出来采用。系统解析（`resolve_target`）口径不同
+  （fix337/video-resolve）：混合答案集只丢被拒的单条、保留允许子集继续——连接器
+  钉住的地址仍逐个过 `allowed_ip()`、永不连被拒地址；子集为空才整组拒绝。
 - 不使用自动重定向。每一跳都要重新检查 scheme、主机/IP、DNS 和固定地址；发布页/脚本额外
   要求同源，代理路径也必须保留逐跳检查，不能把安全判断交给代理。
 - 只有 `reqwest` 的 `system-proxy` feature 能读取 Windows/macOS 固定系统代理；PAC 不支持。

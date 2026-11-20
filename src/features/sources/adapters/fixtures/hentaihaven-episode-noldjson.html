@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<!-- 合成夹具（Muse 2026-11-20 fix337/video-resolve）：现行集页形态——
+     播放器为 iframe（player-logic），页内无 ld+json contentUrl，只有
+     脚本里一处非权威 .m3u8 字面（预告/嵌入残留形态）。resolve 不许
+     把这种整页首个 .m3u8 当流返回（真机 3.3.6 source-011 即此形态：
+     取到非权威清单、子级全灭）。占位内容、非真站抓取。 -->
+<html><head>
+<script>window.__preview = "https://cdn.example.com/hh-stray-preview.m3u8";</script>
+</head><body>
+<div class="player_logic_item"><iframe src="https://player.example.com/embed/fixture"></iframe></div>
+</body></html>
