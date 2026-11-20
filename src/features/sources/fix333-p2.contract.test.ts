@@ -10,9 +10,10 @@
  * image:/video: 分支）与频道外源分支是同型：缺失时 maturity 强制
  * "blocked" 落错分支、或页头回落 id 原文。
  * 本契约钉死：①选中态三态唯一派生（active/disabled/gone，判定只认
- * 调用方给的 active 表，内置查表只给已知源找回显示名）；②disabled/gone
- * 的提示含停用口径、不含「尚未接通」、不外显内部 id；③pending 原口径
- * 逐字保留（真未接线时仍是那句话）；④四处页头/提示回落不再用 id 原文。
+ * 调用方给的 active 表，内置查表只给已知源找回显示名）；②disabled 的
+ * 提示含停用口径、gone 的提示含移除口径（fix333-M3 拆分，此前共用
+ * 停用一句对已删源字面不实），两态均不含「尚未接通」、不外显内部
+ * id；③pending 原口径逐字保留（真未接线时仍是那句话）；④四处页头/提示回落不再用 id 原文。
  * 夹具为注册表本身（内置表＋按清单停用模拟裁剪的 active 表），不访问
  * 真实网络、不读 localStorage（判定函数取显式 active 表为入参，内置
  * 查表在函数内对全量内置注册表做——不按 enabled/分类过滤，见
@@ -72,17 +73,35 @@ const builtinImages = sourcesForCategory("image", getBuiltinRegistry());
   assert.equal(r.label, "Hanime.tv", "跨分类已知源显示内置显示名");
 }
 
-/* ── 文案钉死：disabled 分支含停用口径、不含假文案；pending 原口径逐字保留 ── */
+/* ── 文案钉死：disabled 分支含停用口径、不含假文案；pending 原口径逐字保留 ──
+ * 断言适配（Muse 2026-11-20 fix333-M3，不削弱覆盖）：M3 把共用布尔
+ * disabled 拆成三态 selectedKind，disabled/gone 各一份字面精确文案
+ * （gone 不再谎称「被清单停用」）。分支锚点随签名更新，并新增 gone
+ * 分支断言组：含「已被移除/已下线」、不含「清单停用」。 */
 {
   const src = readFileSync(new URL("./SourceSwitcher.tsx", import.meta.url), "utf8");
-  /* 只取 if (disabled) 分支体（到下一分支为止），注释不算在内。 */
-  const disStart = src.indexOf("if (disabled) {");
-  const disEnd = src.indexOf('if (maturity === "blocked")', disStart);
+  /* 只取 selectedKind === "disabled" 分支体（到 gone 分支为止），注释不算在内。 */
+  const disStart = src.indexOf('if (selectedKind === "disabled") {');
+  const disEnd = src.indexOf('if (selectedKind === "gone")', disStart);
   assert.ok(disStart > 0 && disEnd > disStart, "disabled 分支在位");
   const disBlock = src.slice(disStart, disEnd);
   assert.ok(disBlock.includes("已被清单停用"), "disabled 文案在位");
   assert.ok(!disBlock.includes("尚未接通"), "disabled 分支不含假文案");
+  assert.ok(!disBlock.includes("已下线"), "disabled 分支不串 gone 文案");
+  /* gone 分支（到 blocked 分支为止）：文案写「已被移除」、不冒充清单停用。 */
+  const goneEnd = src.indexOf('if (maturity === "blocked")', disEnd);
+  assert.ok(goneEnd > disEnd, "gone 分支在位");
+  const goneBlock = src.slice(disEnd, goneEnd);
+  assert.ok(goneBlock.includes("已被移除"), "gone 文案写移除事实");
+  assert.ok(goneBlock.includes("已下线"), "gone 标题为已下线");
+  assert.ok(!goneBlock.includes("清单停用"), "gone 分支不谎称清单停用");
+  assert.ok(!goneBlock.includes("尚未接通"), "gone 分支不含假文案");
   assert.ok(src.includes("本分类的外部源浏览页尚未接通"), "pending 原口径逐字保留");
+  /* 五面调用点一律传三态 kind，不再压成布尔（压扁即两态同文案的根源）。 */
+  const posts = readFileSync(new URL("../posts/Posts.tsx", import.meta.url), "utf8");
+  assert.ok(posts.includes("selectedKind={selectedSource.kind}"), "Posts 面传三态 kind");
+  const cat = readFileSync(new URL("../category/Category.tsx", import.meta.url), "utf8");
+  assert.equal(cat.split("selectedKind={").length - 1, 4, "Category 四面传三态 kind");
 }
 
 /* ── 调用点不再用内部 id 作页头/提示回落 ── */

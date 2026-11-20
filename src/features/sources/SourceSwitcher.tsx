@@ -18,6 +18,7 @@ import { sourcesForCategory, sourcesForChannel } from "./registry.ts";
 import { getActiveRegistry, getRegistryInfo } from "./manifest.ts";
 import { getSelfCheckResults, sourceHealthBadgeText } from "./healthCheck.ts";
 import { useSourceHealthResults, useSourceSelfCheckOnShow } from "./sourceHealth.ts";
+import type { SelectedSourceKind } from "./selectedSource.ts";
 import type { SourceCategory, SourceDef, SourceMaturity } from "./types.ts";
 
 export interface SourceOption { id: string; label: string; badge?: string }
@@ -100,17 +101,30 @@ export function SourceSwitcher({ options, value, onChange, ariaLabel }: {
  * 最终版 D 线接通 SourceBrowse/SourceGallery、吃瓜帖分类已于
  * 3.3.0 接通批接通 SourcePosts，三分类均不再走本提示；
  * 本提示现行只用于 blocked 全部）。
- * disabled（fix333-P2，结构审计 G5）：选中源不在 active 注册表
- * （已被清单停用或下线）——优先于 maturity 分支，文案写停用原
- * 因、不再谎称「尚未接通」；displayName 由调用方经
- * resolveSelectedSource 给显示名或通用名，内部 id 永不进本组件。 */
-export function SourcePendingNotice({ displayName, maturity, note, disabled }: { displayName: string; maturity?: SourceMaturity; note?: string; disabled?: boolean }) {
-  if (disabled) {
+ * selectedKind（fix333-P2 立、fix333-M3 拆文案，结构审计 G5）：
+ * 选中源不在 active 注册表时优先于 maturity 分支，且按
+ * resolveSelectedSource 的三态分叉字面精确的文案——disabled＝源
+ * 还在应用内、只是被清单停用；gone＝源已自应用移除、两表皆无。
+ * 两态此前共用「已被清单停用」一句，对已删源字面不实（M3 拆分）；
+ * displayName 由调用方经 resolveSelectedSource 给显示名或通用名，
+ * 内部 id 永不进本组件。 */
+export function SourcePendingNotice({ displayName, maturity, note, selectedKind }: { displayName: string; maturity?: SourceMaturity; note?: string; selectedKind?: SelectedSourceKind }) {
+  if (selectedKind === "disabled") {
     return (
       <div role="status" className="mx-4 mt-6 rounded-[18px] bg-s2 px-4 py-5 text-center">
         <div className="text-[14px] font-semibold text-on">{displayName}（已停用）</div>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-mut">
           该源已被清单停用，不在当前可用列表中，暂不展示内容。请切换到其他源继续浏览。
+        </p>
+      </div>
+    );
+  }
+  if (selectedKind === "gone") {
+    return (
+      <div role="status" className="mx-4 mt-6 rounded-[18px] bg-s2 px-4 py-5 text-center">
+        <div className="text-[14px] font-semibold text-on">{displayName}（已下线）</div>
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-mut">
+          该源已被移除，不在应用的源列表中，无法展示内容。请切换到其他源继续浏览。
         </p>
       </div>
     );

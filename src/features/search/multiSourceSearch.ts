@@ -29,6 +29,7 @@
  *   单源失败静默隔离、副本失败留痕（回调接 tracePlayback）。
  */
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../sources/types.ts";
+import { templateHasAdapter, templateHasSearch } from "../sources/adapters/templateSegments.ts";
 /* 黄果条目性质判定唯一出处在 shared/lib/contentKind（浏览面共用，
  * 3.2.1 修复 F4 线抽共用）；此处只 re-export 保持既有导入路径。 */
 export { kindForHuangguoVideo, searchKindForHuangguoVideo, hasEpisodeStructureSignal, resolveHuangguoKind, kindSignalOfDetail, needsCanonicalKindLookup } from "../../shared/lib/contentKind.ts";
@@ -62,29 +63,31 @@ export const NEUTRAL_WEIGHT = 40;
 /* ── 扇出资格：搜索段结构门（用户 2026-11-19 20:48 裁定，取代
  * 3.2.1 F5 三段齐全门） ──
  * 资格＝具备搜索段：适配器模板真有 search 方法（工厂结构事实，
- * 见 SEARCH_TEMPLATES）且注册表 capabilities.search 声明为真。
+ * 由 adapters/templateSegments.ts 探针派生）且注册表
+ * capabilities.search 声明为真。
  * 不再要求 maturity=stable／参数已校准等验通条件——源已砍到保留
  * 集、重复压力低，可播性改在详情/起播时解析与兜底（线路故障转
  * 移已有），不在搜索入口预先扣留。验通状态仍如实记在 maturity
  * 与 F7 自检里（展示口径不变，不把未验通标成已验通）；频道浏览
  * 不受此门影响。 */
 export type SearchSegment = "search" | "detail" | "play";
-/** 工厂真有 search 方法的模板（adapters/templates.ts 结构事实：
- * native-huangguo/chigua/hls-site/wp-rest/danbooru-api/redgifs-api
- * 有 search；fix330 接通批新增 iwara-api/hanime1/hentaihaven-api
- * 三模板均有 search；swag-api 只有 list/detail/resolve；preview-only 无
- * search 且 resolve 明确拒绝；none 无适配器）。 */
-const SEARCH_TEMPLATES = new Set(["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "hentaihaven-api"]);const DETAIL_PLAY_TEMPLATES = new Set([...SEARCH_TEMPLATES, "swag-api"]);
+/* 模板段事实的唯一出处＝工厂本身（fix333-M3 收口清扫 P9）：此前
+ * 本文件手抄 SEARCH_TEMPLATES/DETAIL_PLAY_TEMPLATES 两份副本集合，
+ * 与工厂双口径并存、新模板接通须两处同步。现一律经
+ * templateSegments 的探针派生（逐模板实例化按方法存在性判定）：
+ * search 是 SourceAdapter 唯一可选段；detail/resolve 类型必填，
+ * 适配器存在即两段皆在。 */
 
-/** 结构上缺失的段（只判实现存在性、不判验通）：none 三段全缺；
- * preview-only 缺 search/play；其余模板 detail/play 恒有，search
+/** 结构上缺失的段（只判实现存在性、不判验通）：none/未知模板三段
+ * 全缺；preview-only 缺 search/play（resolve 按产品口径明确拒绝，
+ * 非结构事实、单独分叉）；其余模板 detail/play 恒有，search
  * 缺 iff 模板无 search 方法或注册表未声明 capabilities.search。 */
 export function missingSearchSegments(def: SourceDef): SearchSegment[] {
   const t = def.adapter.template;
   if (t === "preview-only") return ["search", "play"];
   const missing: SearchSegment[] = [];
-  if (!SEARCH_TEMPLATES.has(t) || !def.capabilities.search) missing.push("search");
-  if (!DETAIL_PLAY_TEMPLATES.has(t)) missing.push("detail", "play");
+  if (!templateHasSearch(t) || !def.capabilities.search) missing.push("search");
+  if (!templateHasAdapter(t)) missing.push("detail", "play");
   return missing;
 }
 

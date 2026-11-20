@@ -91,7 +91,7 @@ export function PostsPage({ onBack, wide }: { onBack: () => void; wide: boolean 
           {postsRoute === "browse" && activeSource ? (
             <SourcePosts def={activeSource} />
           ) : (
-            <SourcePendingNotice displayName={selectedSource.label} maturity={activeSource?.maturity} note={activeSource?.note} disabled={selectedSource.kind !== "active"} />
+            <SourcePendingNotice displayName={selectedSource.label} maturity={activeSource?.maturity} note={activeSource?.note} selectedKind={selectedSource.kind} />
           )}
         </div>
       </div>

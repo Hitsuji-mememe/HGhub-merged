@@ -37,6 +37,23 @@ export class SourceParseEmptyError extends Error {
   }
 }
 
+/** JSON 列表响应形状守卫（Muse 2026-11-20 fix333-M3，3.3.2 清扫
+ * P3）：JSON 模板与 HTML 模板的「空」语义不同——HTML 解析出 0 锚点
+ * 几乎必然是结构漂移（抛 SourceParseEmptyError），JSON API 的 []
+ * 则是上游明示的真空（列表真空/搜索无结果），必须正常返回空列表、
+ * 不抛错、自检不记失败。但响应形状漂移（上游改版成对象包裹、错误
+ * 页冒充 200、非 JSON 文本）不能冒充真空：解析不出数组即按解析为
+ * 空抛 SourceParseEmptyError，与 HTML 口径一致——界面「解析不到条
+ * 目时已按加载失败处理」的空态文案对 JSON 模板由此成立。此前
+ * wp-rest/danbooru 对响应直接 JSON.parse 后 .map：[] 静默当真空、
+ * 非数组则抛 TypeError 裸奔，两头都不对。 */
+function parseJsonArray<T>(raw: string, sourceId: string): T[] {
+  let data: unknown;
+  try { data = JSON.parse(raw); } catch { throw new SourceParseEmptyError(sourceId); }
+  if (!Array.isArray(data)) throw new SourceParseEmptyError(sourceId);
+  return data as T[];
+}
+
 /** 标题兜底（fix321-F2）：锚点无 title/alt/文本时（如 PornPics 图集
  * tile 的 img alt 为空）由 href 末段 slug 还原（去尾部数字 id）。 */
 function titleFromHref(href: string): string {
@@ -238,7 +255,7 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
     sourceId: def.id,
     async list(page, size) {
       const raw = await fetchPage(`${apiUrl(listPath)}?page=${page}&per_page=${size}`);
-      const posts = JSON.parse(raw) as WpPost[];
+      const posts = parseJsonArray<WpPost>(raw, def.id);
       return { items: posts.map(toItem), pagination: pageOf(posts.length, page, size) };
     },
     async detail(id) {
@@ -269,7 +286,7 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
     },
     async search(q, page, size) {
       const raw = await fetchPage(`${apiUrl(listPath)}?search=${encodeURIComponent(q)}&page=${page}&per_page=${size}`);
-      const posts = JSON.parse(raw) as WpPost[];
+      const posts = parseJsonArray<WpPost>(raw, def.id);
       return { items: posts.map(toItem), pagination: pageOf(posts.length, page, size) };
     },
   };
@@ -288,7 +305,7 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
   return {
     sourceId: def.id,
     async list(page, size) {
-      const posts = JSON.parse(await fetchPage(`${def.baseUrls[0]}${listPath}?page=${page}&limit=${size}`)) as DbPost[];
+      const posts = parseJsonArray<DbPost>(await fetchPage(`${def.baseUrls[0]}${listPath}?page=${page}&limit=${size}`), def.id);
       return { items: posts.map(toItem), pagination: pageOf(posts.length, page, size) };
     },
     async detail(id) {
@@ -302,7 +319,7 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
       return { streams: url ? [{ url, kind: "file" as const }] : [] };
     },
     async search(q, page, size) {
-      const posts = JSON.parse(await fetchPage(`${def.baseUrls[0]}${listPath}?tags=${encodeURIComponent(q)}&page=${page}&limit=${size}`)) as DbPost[];
+      const posts = parseJsonArray<DbPost>(await fetchPage(`${def.baseUrls[0]}${listPath}?tags=${encodeURIComponent(q)}&page=${page}&limit=${size}`), def.id);
       return { items: posts.map(toItem), pagination: pageOf(posts.length, page, size) };
     },
   };

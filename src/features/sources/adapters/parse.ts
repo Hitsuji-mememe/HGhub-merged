@@ -272,10 +272,19 @@ function mainContentRegion(html: string): string | null {
  * 真站详情页实测每册恒定混入 5 张、全在内容区地标之外，地标内
  * 43/43 张为内容图（含列表内 banner tile 的头像）。页面有内容区
  * 地标时只在地标内采集（顺序与重复保留、与 allImgSrcs 同口径）；
- * 无地标或未配平时回落整页采集，旧行为逐字不变。 */
+ * 无地标或未配平时回落整页采集，旧行为逐字不变。
+ * 空集守卫（Muse 2026-11-20 fix333-M3，B1 独立复验记账）：地标
+ * 深度扫描会被地标内 <script> 字符串里的同名闭标签提前截断，截断
+ * 点恰在内容图之前时限定采集为空集——「被截断」与「内容区真无图」
+ * 在正则级不可分，按「未知不是空」回落整页采集（与无地标回落同
+ * 口径、最坏退化为 B1 前行为），不让图集静默归零。007 现行页型
+ * 不可达（脚本不在地标内），属预防性守卫，合成形态由 fix333-m3
+ * 契约钉死。 */
 export function contentImgSrcs(html: string): string[] {
   const region = mainContentRegion(html);
-  return allImgSrcs(region ?? html);
+  if (region === null) return allImgSrcs(html);
+  const scoped = allImgSrcs(region);
+  return scoped.length > 0 ? scoped : allImgSrcs(html);
 }
 
 export function metaContent(html: string, property: string): string {
