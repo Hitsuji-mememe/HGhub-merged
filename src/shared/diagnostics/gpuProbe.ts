@@ -165,10 +165,6 @@ export function getSrProbeResult(): SrProbeResult | null {
   return srProbeCached;
 }
 
-export function srProbeRegistered(): boolean {
-  return srProbeRunner !== null;
-}
-
 /** 跑 v2（幂等、永不 reject）。持久化命中（成功 <30 天／失败 <1 天，
  * 读时重判门禁，见 readPersistedSrProbe）直接用，不重跑——探针是
  * 分钟级开销，不许每次启动付一遍；失败条目过期即重探。 */

@@ -48,9 +48,6 @@ import {
 
 /** 兼容既有消费方命名（App.tsx 胶水的过程方向锁采样）。 */
 export const chainMoveVerticalClaim = gestureVerticalClaim;
-/** 兼容既有消费方命名。 */
-export const CHAIN_EDGE_PX = GESTURE_EDGE_PX;
-
 export interface ChainAncestor {
   tagName?: string;
   role?: string | null;

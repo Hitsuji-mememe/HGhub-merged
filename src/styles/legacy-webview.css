@@ -5,9 +5,6 @@ body { margin:0; }
 
 @supports not (width:min(100%,680px)) {
   :root { --ios-page-inset:18px; }
-  .hg-launch-mark { width:132px; height:132px; }
-  .hg-launch-wordmark { font-size:32px; }
-  .hg-launch-footnote { bottom:36px; }
   .hg-agreement-header h1 { font-size:24px; }
   .ios-overlay { --sab:var(--native-sab,0px); }
   .ios-dialog { width:100%; max-width:var(--ios-dialog-width,440px); max-height:calc(100vh - 48px); }
@@ -18,9 +15,6 @@ body { margin:0; }
   .video-details-sheet { height:72vh; max-height:680px; }
   .content-tag-menu { max-height:55vh; }
   .content-tag-menu[data-expanded=true] { max-height:70vh; }
-  .mobile-hold-guide-heading, .mobile-hold-guide[data-compact=true] .mobile-hold-guide-heading { top:calc(var(--native-sat,0px) + 16px); }
-  .mobile-hold-guide-footer, .mobile-hold-guide[data-compact=true] .mobile-hold-guide-footer { bottom:calc(var(--native-sab,0px) + 18px + var(--hold-guide-bottom,0px)); }
-  .mobile-hold-guide .mobile-hold-guide-done.ios-button { width:100%; max-width:280px; }
   .video-details-scroll { padding-bottom:calc(var(--native-sab,0px) + 24px); }
 }
 @supports not (height:100dvh) {
@@ -31,10 +25,8 @@ body { margin:0; }
   .content-tag-menu[data-expanded=true] { max-height:70vh; }
 }
 @supports not (aspect-ratio:1) {
-  .hg-launch-mark { width:132px; height:132px; }
   .ios-poster-art { height:0; padding-top:133.333333%; }
   .video-details-cover { height:102px; }
-  @media(max-height:440px) { .hg-launch-mark { width:92px; height:92px; } }
 }
 @supports not (color:color-mix(in srgb,red,blue)) {
   body { background:var(--p-canvas); }
