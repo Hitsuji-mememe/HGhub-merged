@@ -750,6 +750,17 @@ mod tests {
         assert!(!is_teredo("104.26.10.39".parse().unwrap()));
     }
 
+    // fix338 签名②：ip_kind 把 v6 合成池（ULA）与 v4 FakeIP 同标
+    // fake_ip——解析观测与 fake 分支判读才认得出 AAAA-only 合成
+    // 集；旧码 v6 分支除回环/未指定/映射外一律标 public，合成集
+    // 在观测里冒充公网、all_fake 判读恒假。
+    #[test]
+    fn ip_kind_labels_v6_synthetic_pool_as_fake_ip() {
+        assert_eq!(ip_kind("fc00::abcd".parse().unwrap()), "fake_ip");
+        assert_eq!(ip_kind("fdfe:dcba:9876::1".parse().unwrap()), "fake_ip");
+        assert_eq!(ip_kind("2001:4860:4860::8888".parse().unwrap()), "public");
+    }
+
     // fix335 回归：strict 链在系统答案全为 FakeIP 时信任系统答案、
     // 不触发任何旁路重解析（新码此分支无网络 I/O，本测试可离线跑）。
     #[tokio::test]
@@ -796,9 +807,25 @@ pub fn ip_kind(ip: std::net::IpAddr) -> &'static str {
         std::net::IpAddr::V4(v4) => ipv4_kind(v4.octets()),
         std::net::IpAddr::V6(v6) => {
             if v6.is_loopback() { "loopback" } else if v6.is_unspecified() { "unspecified" }
-            else if let Some(v4) = v6.to_ipv4_mapped() { ipv4_kind(v4.octets()) } else { "public" }
+            else if let Some(v4) = v6.to_ipv4_mapped() { ipv4_kind(v4.octets()) }
+            // FakeIP 的 v6 合成池（ULA）与 v4 同标 fake_ip（fix338
+            // 签名②）：旧判读一律 public，AAAA-only 合成集在解析
+            // 观测里冒充公网、strict_reresolve 的 all_fake 恒假。
+            else if network_policy::is_synthetic_fake_ip(ip) { "fake_ip" }
+            else { "public" }
         }
     }
+}
+
+/// fake 分支「不钉死」形态的解析观测（fix338 签名②）：
+/// client_for_dns 对全合成集按主机名连接、不把合成地址钉入
+/// 客户端，此处与 strict_reresolve 的 fake_trusted 行同格式落
+/// 观测，另标 pinned=false 以分钉死/不钉死两种 fake 信任。
+pub fn record_fake_trusted_unpinned(host: &str, addrs: &[SocketAddr]) {
+    crate::playback_log::record(
+        "network.resolve",
+        serde_json::json!({"host": host, "kinds": resolve_kinds(addrs), "count": addrs.len(), "all_fake": true, "branch": "fake_trusted", "pinned": false}),
+    );
 }
 
 /// 阿里 DoH 的解析客户端：bootstrap 地址已钉死，且强制直连（mode=Off → no_proxy）。

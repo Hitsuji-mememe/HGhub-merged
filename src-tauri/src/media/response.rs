@@ -2,7 +2,14 @@
 
 use tauri::http::{Response, StatusCode};
 
-use super::hls::rewrite_playlist;
+use super::hls::{is_playlist_bytes, rewrite_playlist};
+
+/// 目标 URL 的路径是否声称为播放列表（.m3u8 结尾，忽略查询串/
+/// 片段与大小写）：与 ctype 并列的「声称清单」判据（fix338 签名①）。
+fn target_claims_playlist(target: &str) -> bool {
+    let path = target.split(['?', '#']).next().unwrap_or(target);
+    path.to_ascii_lowercase().ends_with(".m3u8")
+}
 
 // Linux can selectively clear WebKit's durable cache, so proxied media must not
 // regrow it without bound. Other platforms lack that safe clearing path here;
@@ -122,9 +129,27 @@ pub(super) fn segment_response(
             "no-store",
         );
     }
-    let playlist = ctype.is_some_and(|t| t.to_ascii_lowercase().contains("mpegurl"))
-        || bytes.starts_with(b"#EXTM3U")
-        || bytes.starts_with(b"\xef\xbb\xbf#EXTM3U");
+    /* 魔数复验（fix338 签名①，调查 fix338/investigation-338.md）：
+     * 旧 playlist 判定是「ctype 含 mpegurl 或魔数命中」二选一、
+     * 分支内从不复验——非 doctype 前缀的网页体（脚本页/<head>
+     * 页/纯文本/JSON 错误体）绕过上面的窄前缀 HTML 判别后，
+     * 只要上游 ctype 标 mpegurl 就被当清单改写成一条代理 URL
+     * 以 200 返回，hls.js 在变体清单位上必然 levelParsingError
+     * （3.3.7 真机 source-011）。现凡「声称清单」（ctype 含
+     * mpegurl 或目标路径以 .m3u8 结尾）而 #EXTM3U 魔数不符 →
+     * 502；魔数判别与 load_playlist 共用 hls::is_playlist_bytes，
+     * 全仓一份实现。未声称清单的普通媒体体行为不变。 */
+    let claims_playlist = ctype.is_some_and(|t| t.to_ascii_lowercase().contains("mpegurl"))
+        || target_claims_playlist(target);
+    if claims_playlist && !is_playlist_bytes(&bytes) {
+        return respond(
+            502,
+            "text/plain",
+            "响应声称为 HLS 播放列表但内容不是播放列表".as_bytes().to_vec(),
+            "no-store",
+        );
+    }
+    let playlist = is_playlist_bytes(&bytes);
     if playlist {
         return match std::str::from_utf8(&bytes) {
             Ok(text) => respond(
@@ -299,6 +324,92 @@ mod tests {
             LOCAL_ORIGIN,
         );
         assert_eq!(playlist.status(), 200);
+    }
+
+    /* fix338 签名①（3.3.7 真机 source-011 点播 levelParsingError，
+     * 调查 fix338/investigation-338.md）：变体清单腿的唯一内容判别
+     * 是窄前缀 is_html_document（只认 doctype/<html 两前缀），且
+     * playlist 分支只凭 ctype 含 mpegurl 即入、从不复验 #EXTM3U
+     * 魔数——非 doctype 前缀的网页体（脚本页/<head> 页/纯文本/
+     * JSON 错误体）只要上游标 mpegurl、或目标是 .m3u8，就以 200
+     * 到达 hls.js。承重判据改为魔数复验：凡「声称清单」（ctype
+     * 含 mpegurl 或目标路径以 .m3u8 结尾）而魔数不符 → 502。
+     * 调查探针四组体在旧码上全 200（红），修复后全 502。 */
+    #[test]
+    fn claimed_playlist_without_magic_is_rejected() {
+        let bodies: [&[u8]; 4] = [
+            b"<script type=\"text/javascript\">var a=1;</script>",
+            b"<head><title>blocked</title></head>",
+            b"Access Denied",
+            b"{\"error\":\"upstream unavailable\"}",
+        ];
+        for body in bodies {
+            // 形态甲：ctype 标 mpegurl（目标为分片名也一样）。
+            let by_ctype = segment_response(
+                "https://cdn.example/seg-1.ts",
+                Some("application/vnd.apple.mpegurl"),
+                body.to_vec(),
+                LOCAL_ORIGIN,
+            );
+            assert_eq!(
+                by_ctype.status(),
+                502,
+                "ctype 声称清单而魔数不符必须 502，体={:?}",
+                String::from_utf8_lossy(body)
+            );
+            // 形态乙：无 ctype、目标路径以 .m3u8 结尾。
+            let by_target = segment_response(
+                "https://cdn.example/variant.m3u8",
+                None,
+                body.to_vec(),
+                LOCAL_ORIGIN,
+            );
+            assert_eq!(
+                by_target.status(),
+                502,
+                "目标声称清单而魔数不符必须 502，体={:?}",
+                String::from_utf8_lossy(body)
+            );
+        }
+        // 对照组：doctype 网页体＋mpegurl 在旧码上本就 502，不回退。
+        let doctype = segment_response(
+            "https://cdn.example/variant.m3u8",
+            Some("application/vnd.apple.mpegurl"),
+            b"<!DOCTYPE html><html><body>landing</body></html>".to_vec(),
+            LOCAL_ORIGIN,
+        );
+        assert_eq!(doctype.status(), 502);
+        // 真变体清单（可带 BOM）声称与魔数俱在 → 200 且改写不变。
+        for body in [
+            b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv2.m3u8\n".to_vec(),
+            b"\xef\xbb\xbf#EXTM3U\nseg-1.ts\n".to_vec(),
+        ] {
+            let ok = segment_response(
+                "https://cdn.example/variant.m3u8",
+                Some("application/vnd.apple.mpegurl"),
+                body,
+                LOCAL_ORIGIN,
+            );
+            assert_eq!(ok.status(), 200, "真清单必须放行");
+            assert!(ok.body().starts_with(b"#EXTM3U"));
+        }
+        // TS 分片被上游误标 mpegurl：旧码送 playlist 分支改写损坏，
+        // 新码 502 如实失败（修复报告记账项，非回归）。
+        let ts = segment_response(
+            "https://cdn.example/seg-1.ts",
+            Some("application/vnd.apple.mpegurl"),
+            vec![0x47, 0x40, 0x11, 0x10],
+            LOCAL_ORIGIN,
+        );
+        assert_eq!(ts.status(), 502, "误标 mpegurl 的分片字节不得再被改写损坏");
+        // 未声称清单的普通媒体（无 ctype、.ts 目标、TS 字节）行为不变。
+        let media = segment_response(
+            "https://cdn.example/seg-1.ts",
+            None,
+            vec![0x47, 0x40, 0x11, 0x10],
+            LOCAL_ORIGIN,
+        );
+        assert_eq!(media.status(), 200);
     }
 
     #[test]

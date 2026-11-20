@@ -23,6 +23,9 @@ const RESOLVE_SEGMENT_LABELS: Record<string, string> = {
   watch: "详情页取数",
   download: "下载页取数",
   episode: "集页取数",
+  // 清单腿（Rust 媒体层 load_playlist，fix338 签名③）：/hls 总截止/
+  // 取数/解析失败与适配器 resolve 段同节呈现。
+  manifest: "清单取数",
 };
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");

@@ -107,7 +107,9 @@ where
 /// Run one in-progress request per key. Every waiter clones the same result,
 /// including an error. Failed cells are removed immediately so a later request
 /// can retry instead of inheriting a short-lived failed flight.
-async fn coalesce<T, F, Fut>(
+/// pub(super)（fix338 签名③）：清单腿（media::hls）共用同一合并
+/// 实现，不另写第二份 single-flight。
+pub(super) async fn coalesce<T, F, Fut>(
     registry: &Mutex<HashMap<String, Weak<tokio::sync::OnceCell<Result<T, String>>>>>,
     key: String,
     fetch: F,
