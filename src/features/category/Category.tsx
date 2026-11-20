@@ -28,7 +28,7 @@ import { firstEnabledSource, sourcesForCategory, sourcesForChannel } from "../so
 import { getActiveRegistry, getRegistryInfo } from "../sources/manifest";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory, sourceOptionsForChannel } from "../sources/SourceSwitcher";
 import { sourceHealthBadgeText } from "../sources/healthCheck";
-import { useSourceHealthResults } from "../sources/sourceHealth";
+import { useSourceHealthResults, useSourceSelfCheckOnShow } from "../sources/sourceHealth";
 import type { SourceDef } from "../sources/types";
 import SourceBrowse from "../sources/SourceBrowse";
 import SourceGallery from "../sources/SourceGallery";
@@ -226,6 +226,12 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
    * 源、probe 带「未实测」标），点开推 cate="video:<源id>" 深链页
    * （ChannelPage 镜像 image: 约定渲染 SourceBrowse）。 */
   const videoSources = sourcesForCategory("video", activeSources);
+  /* 总览展示面补探（fix333/selfcheck-trigger，3.3.2 真机验收缺
+   * 口）：图片/视频源行此前只读派生、不触发补探——刚升级（旧结
+   * 果指纹失效）或从未点开过的源在本面长期挂「未实测」。挂载
+   * 时对本面展示的行源批量补探（healthCheck 串行队列、后台不
+   * 阻塞渲染）；吃瓜切源片由 SourceSwitcher 自身同口径触发。 */
+  useSourceSelfCheckOnShow([...imageSources, ...videoSources]);
 
   return (
     <div className="ios-page absolute inset-0 bg-bg flex flex-col">
