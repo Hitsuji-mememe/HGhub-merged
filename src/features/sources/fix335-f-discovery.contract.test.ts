@@ -14,8 +14,14 @@
  *     吃瓜三源分类轴整体下线（栏目表保留在注册表 params 作
  *     categoryPath 路径校验全集、不再作发现入口），发现只剩榜单
  *     （period 承载榜单 slug、复用 categoryPath 机制；子集以栏目
- *     表 rank 标记为唯一出处）＋最新默认档；001 登记最新/最热
+ *     表 rank 标记为唯一出处）＋缺省默认档；001 登记最新/最热
  *     （上游 sort=hot 热度序实证）。
+ *     fix338/chigua-pill 标签修订（实证
+ *     fix338/evidence/chigua-pill.md，2026-11-20）：三源缺省流
+ *     经生产路径实测非时间序（id/日期序非单调），缺省档标
+ *     「全部」不标「最新」；栏目表 hot 标记的站方热门栏目
+ *     （003 rdsj/004 rstt/005 jqrm，每源至多一个）标「最热」，
+ *     其余榜单保留站方名。
  * (B) 适配器行为（setFetchPage 录制 URL＋夹具）：逐源断言 disc
  *     切换后请求形态与返回集变化合登记口径，且缺省路径 URL 与条
  *     件逐字不变（对照 @ea0d431 现行写死值）；未登记/非法 disc 值
@@ -71,23 +77,38 @@ const recorder = (body: string | ((url: string) => string)) => {
     assert.equal(hasDiscovery(spec), expectDiscovery[d.id], `${d.id} 登记有无`);
     if (expectDiscovery[d.id]) assert.ok(spec.evidence.length > 0, `${d.id} 登记带证据`);
   }
-  /* fix337/chigua-surface：吃瓜三源分类轴下线、榜单＋最新登场
+  /* fix337/chigua-surface：吃瓜三源分类轴下线、榜单登场
    * （口径见文件头）。栏目表全集保留在注册表 params（路径校验
    * 出处），公告存档（51hd/ztds 本就不在表内）与非榜单栏目一律
-   * 不进发现登记。 */
+   * 不进发现登记。
+   * fix338/chigua-pill：缺省档标「全部」（缺省流非时间序、
+   * 不贴「最新」假标签）；hot 标记栏目（每源一个）标「最热」。 */
   for (const id of ["51chigua", "meiridasai", "feedheiliao"]) {
     const s = discoverySpecFor(def(id));
     assert.equal(s.categories, undefined, `${id} 分类轴下线、不登记 categories`);
-    assert.equal(s.sorts, undefined, `${id} 不登记 sorts（无第二时间序、单项行是无操作噪声；最新由榜单行首项承载）`);
+    assert.equal(s.sorts, undefined, `${id} 不登记 sorts（站方无排序参数面；最热走 disc.period 榜单机制、不伪造 sort 值）`);
     assert.equal(s.periodDefault, "", `${id} periodDefault 为缺省流`);
     assert.equal(s.rankPeriods?.[0]?.value, "", `${id} 榜单行首项＝缺省流（退出榜单的路径）`);
+    assert.equal(s.rankPeriods?.[0]?.label, "全部", `${id} 缺省档标「全部」（fix338 实测缺省流非时间序、不标「最新」）`);
   }
   assert.deepEqual(discoverySpecFor(def("51chigua")).rankPeriods?.map((o) => o.value),
     ["", "mrdg", "rdsj"], "003 榜单＝吃瓜榜单＋热门大瓜（站方编辑栏目形态）");
+  assert.deepEqual(discoverySpecFor(def("51chigua")).rankPeriods?.map((o) => o.label),
+    ["全部", "吃瓜榜单", "最热"], "003 标签＝全部＋吃瓜榜单＋最热（rdsj）");
   assert.deepEqual(discoverySpecFor(def("meiridasai")).rankPeriods?.map((o) => o.value),
     ["", "rstt"], "004 榜单＝热搜吃瓜（站方编辑栏目形态）");
+  assert.deepEqual(discoverySpecFor(def("meiridasai")).rankPeriods?.map((o) => o.label),
+    ["全部", "最热"], "004 标签＝全部＋最热（rstt）");
   assert.deepEqual(discoverySpecFor(def("feedheiliao")).rankPeriods?.map((o) => o.value),
     ["", "mrrb", "zbjx", "ybrg", "jqrm"], "005 榜单＝日/周/月/热门四周期榜（站方真周期榜）");
+  assert.deepEqual(discoverySpecFor(def("feedheiliao")).rankPeriods?.map((o) => o.label),
+    ["全部", "日榜黑料", "周榜精选", "月榜热瓜", "最热"], "005 标签＝全部＋日/周/月榜站方名＋最热（jqrm）");
+  assert.deepEqual(readDiscoveryRanks(def("51chigua")).filter((c) => c.hot).map((c) => c.slug),
+    ["rdsj"], "003 hot 标记唯一＝rdsj");
+  assert.deepEqual(readDiscoveryRanks(def("meiridasai")).filter((c) => c.hot).map((c) => c.slug),
+    ["rstt"], "004 hot 标记唯一＝rstt");
+  assert.deepEqual(readDiscoveryRanks(def("feedheiliao")).filter((c) => c.hot).map((c) => c.slug),
+    ["jqrm"], "005 hot 标记唯一＝jqrm");
   const chiguaRankValues = ["51chigua", "meiridasai", "feedheiliao"]
     .flatMap((id) => discoverySpecFor(def(id)).rankPeriods?.map((o) => o.value) ?? []);
   for (const banned of ["51hd", "ztds", "whhl", "ysdj", "mrds"]) {
