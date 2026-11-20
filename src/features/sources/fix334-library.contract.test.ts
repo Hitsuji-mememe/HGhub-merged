@@ -162,6 +162,18 @@ assert.equal(typeof lib.applyExternalHistory, "function", "L3 须暴露 applyExt
   assert.ok(both.favs.includes(videoHash) && both.history.some((r) => r.id === videoHash), "收藏∩历史同 id 共存");
   const unfavKeepHistory = lib.applyExternalCollected(both, "video", videoItem, false);
   assert.ok(unfavKeepHistory.extRefs[videoHash], "取消收藏但历史仍引用 → 快照保留");
+  /* 集序位 0＝未知（episodeOrdinal 口径：externalId 不在 choices
+   * 内回 0、不冒充第一集）不得整行静默吞：按未提供集数处理——
+   * 历史行与快照照常写入，无原行回 1、有原行保留原集数（与原生
+   * 共用的 historyRowState 口径）。此为 fix334 清扫已坏-1 的放大
+   * 器（§4 记账 2），断言由清扫修复线任务书授权。 */
+  const unknownEp = lib.applyExternalHistory(empty, videoItem, 0, 12);
+  const unknownRow = unknownEp.history.find((r) => r.id === videoHash);
+  assert.ok(unknownRow, "ordinal=0（未知）时历史行照常写入、不静默吞");
+  assert.equal(unknownRow.ep, 1, "无原行时集数回 1（historyRowState 既有口径）");
+  assert.equal(unknownEp.extRefs[videoHash]?.kind, "video", "ordinal=0 时快照同写");
+  const keepEp = lib.applyExternalHistory(h2, videoItem, 0);
+  assert.equal(keepEp.history.find((r) => r.id === videoHash)?.ep, 3, "有原行时 ordinal=0 保留原集数、不回落不吞行");
 }
 
 /* ══ 6. surfaces library 派生转正（替代 g4-pending 在途声明） ══ */

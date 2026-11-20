@@ -560,7 +560,12 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     try {
       const value = await loadCopy(merged, copy);
       setImgIdx(0);
-      setExtDetail({ phase: "ready", data: { ...current, active: copy, ...value } });
+      /* 副本切换不带选集状态（ExtReady 类型口径、fix334 清扫已
+       * 坏-1）：上一副本的 epExternalId/epError 显式剔除、新副本
+       * 回落默认集——带过去会让新副本当前集标注/scopeKey 串集，
+       * 且 onPlaying 写历史时 ordinal 对不上新副本 choices、整行
+       * 静默丢失。 */
+      setExtDetail({ phase: "ready", data: { ...current, active: copy, ...value, epExternalId: undefined, epError: undefined } });
     } catch {
       /* 切换失败静默保持当前副本（不弹窗、不打断），留痕即可。 */
       const defs = getActiveRegistry().sources;

@@ -228,10 +228,16 @@ export function applyExternalCollected(state: LibraryState, kind: ExternalKind, 
  * 外部历史写入的纯形态：行 t=0/dur=0（外部无秒级进度事实，「续播」
  * 只恢复到集、不到秒），集数＝写入时 ordinal；快照同写（已有快照
  * 的 kind 优先，历史首写默认 video——历史只来自播放面）。
+ * ordinal 口径：episodeOrdinal 的 0＝未知（externalId 不在 choices
+ * 内），不是「第 0 集」——按未提供集数处理（historyRowState 既有
+ * 口径：保留原行集数、无原行回 1），历史行与快照照常写入；不许
+ * 因集数未知把一次真实观看整行静默吞掉（fix334 清扫已坏-1 放大
+ * 器、§4 记账 2 的显式口径）。
  */
 export function applyExternalHistory(state: LibraryState, item: ExternalItemRef, epOrdinal?: number, epCount?: number): LibraryState {
   const id = externalHashId(item);
-  const withRow = historyRowState(state, id, epOrdinal, 0, 0);
+  const ep = epOrdinal !== undefined && epOrdinal >= 1 ? epOrdinal : undefined;
+  const withRow = historyRowState(state, id, ep, 0, 0);
   if (!withRow) return state;
   const prev = state.extRefs[id];
   return pruneExtRefs({

@@ -156,6 +156,14 @@ const hhDetail = await hhAdapter.detail("fixture-slug-001");
   assert.ok(search.includes("\"search-external-detail\""), "Search 宿主面＝search-external-detail");
   assert.ok(search.includes("EpisodePicker"), "Search 详情层渲染 EpisodePicker");
   assert.ok(search.includes("switchEpisode"), "Search 有切集动作");
+  /* 副本切换不带选集状态（fix334 清扫已坏-1）：switchCopy 构造新
+   * 副本 data 时须显式剔除上一副本的 epExternalId/epError（ExtReady
+   * 类型注释口径：不带此字段、回落默认集）。断言作用域限于
+   * switchCopy 函数体——同文件 switchEpisode 本就有 epError:
+   * undefined，全文子串断言抓不住本处缺失。 */
+  const switchCopyBody = search.slice(search.indexOf("const switchCopy"), search.indexOf("const openMerged"));
+  assert.ok(switchCopyBody.includes("epExternalId: undefined"), "switchCopy 剔除上一副本 epExternalId（回落默认集）");
+  assert.ok(switchCopyBody.includes("epError: undefined"), "switchCopy 剔除上一副本 epError（不在新副本残留）");
 
   const loader = src("../search/copyLoader.ts");
   assert.ok(loader.includes("episodeExternalId"), "copyLoader 有按集参数");
