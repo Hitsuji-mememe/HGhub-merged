@@ -70,18 +70,22 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
   assert.ok(category.includes("<SourceGallery def={imageSource}"), "图集页在 ChannelPage 挂载");
   const imageSources = sourcesForCategory("image", getBuiltinRegistry());
   const ids = imageSources.map((s) => s.id);
-  for (const id of ["xiuren", "cosplaytele", "danbooru", "yandere", "konachan"]) {
+  for (const id of ["xiuren", "cosplaytele", "yandere"]) {
     assert.ok(ids.includes(id), `active 图片源含 ${id}`);
   }
   assert.ok(!ids.includes("pornpics"), "PornPics 已退役摘除、不在 active 图片源（fix335/g-sources）");
+  /* 断言适配（fix338/registry-cut）：danbooru/konachan 已摘除（负向
+   * 断言接棒），图片频道保留集＝006/007/012/013/014。 */
+  for (const id of ["danbooru", "konachan"]) {
+    assert.ok(!ids.includes(id), `${id} 已摘除、不在 active 图片源（fix338）`);
+  }
+  assert.deepEqual([...ids].sort(), ["cosplaytele", "nudecosplay", "pixibb", "xiuren", "yandere"], "active 图片源全集恰为保留 5 源");
   /* 断言适配（fix330 图片线，2026-11-19）：xiuren 改走 xiuren.biz 本机
-   * 四级全通解 blocked、danbooru 住宅四级全通翻案（旧 blocked 系机房
-   * CF 假象），两源均改判 probe（App 未真机验），证据 fix330/evidence/images.md。 */
+   * 四级全通解 blocked（旧 blocked 系机房 CF 假象），改判 probe
+   * （App 未真机验），证据 fix330/evidence/images.md。 */
   assert.equal(imageSources.find((s) => s.id === "xiuren")!.maturity, "probe", "秀人网 fix330 解 blocked 为 probe");
-  assert.equal(imageSources.find((s) => s.id === "danbooru")!.maturity, "probe", "Danbooru fix330 翻案为 probe");
   assert.equal(imageSources.find((s) => s.id === "cosplaytele")!.maturity, "stable", "CosplayTele 如实 stable");
   assert.equal(imageSources.find((s) => s.id === "yandere")!.maturity, "probe", "yandere moebooru 校准启用如实 probe（fix335/g-sources）");
-  assert.equal(imageSources.find((s) => s.id === "konachan")!.maturity, "probe", "Konachan 新增启用如实 probe（fix335/g-sources）");
 }
 
 /* ── 外部源接通：createAdapter 生产调用者 >0（接线断言） ── */
@@ -106,21 +110,22 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
    * 再移交参数同形态的目录源 hentaihaven def，断言内容不变。
    * 再适配（fix330 接通批）：hentaihaven 已改专用模板
    * hentaihaven-api，通用骨架数据流改用与原目录条目功能字段逐字
-   * 一致的合成 def（id 仍 hentaihaven），断言内容不变；专用模板
-   * 的数据流由 fix330-new-adapters 契约承接。 */
+   * 一致的合成 def，断言内容不变。
+   * 再适配（fix338/registry-cut）：hentaihaven 源与专用模板已同批
+   * 删除，合成 def 的 id/域名改中性占位（参数形态不变、断言不变）。 */
   const def = {
-    id: "hentaihaven", displayName: "HentaiHaven", kind: "video", category: "video",
+    id: "hls-synthetic", displayName: "HLS 合成源", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
-    baseUrls: ["https://hentaihaven.xxx/"], enabled: false, order: 105, maturity: "probe",
+    baseUrls: ["https://hls.example.com/"], enabled: false, order: 105, maturity: "probe",
     capabilities: { search: false, episodes: false, hevc: false, comments: false },
-    network: { mode: "probe-required" }, note: "历史目录条目参数（fix330 适配合成 def）",
+    network: { mode: "probe-required" }, note: "历史目录条目参数（fix330 适配合成 def、fix338 改中性 id）",
   } as unknown as Parameters<typeof createHlsSiteAdapter>[0];
   assert.equal(def.adapter.template, "hls-site", "合成 def 模板为 hls-site（createAdapter 分发目标即下方工厂）");
   assert.ok(read("./adapters/index.ts").includes('case "hls-site": return createHlsSiteAdapter(def)'), "createAdapter 分发 hls-site → createHlsSiteAdapter");
   const adapter = createHlsSiteAdapter(def);
   const list = await adapter.list(1, 20);
   assert.equal(list.items.length, 2, "video 夹具列表 2 条");
-  assert.equal(list.items[0].sourceId, "hentaihaven", "条目带源 id、不冒充黄果");
+  assert.equal(list.items[0].sourceId, "hls-synthetic", "条目带源 id、不冒充黄果");
   const res = await adapter.resolve(list.items[0].externalId);
   assert.equal(res.streams[0].kind, "hls");
   assert.ok(res.streams[0].url.includes("master.m3u8"), "video resolve 出 HLS 地址供 Player 消费");

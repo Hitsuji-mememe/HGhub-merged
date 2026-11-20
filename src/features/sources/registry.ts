@@ -2,9 +2,10 @@
  * 内置源注册表（Muse 2026-11-19 根治包·多源线 条目2；2026-11-19
  * 用户新口径修订：保留＋全目录导入）。
  *
- * 构成：命名源 11＋目录导入源 6（catalog.ts；fix330 接通批
+ * 构成：命名源 9＋目录导入源 5（catalog.ts；fix330 接通批
  * HentaiHaven 自目录毕业、Hanime1/Iwara 接通启用；fix335/g-sources
- * 摘 PornPics、目录加 Konachan 并启用 yandere，总数仍 17）。
+ * 摘 PornPics、目录加 Konachan 并启用 yandere；fix338/registry-cut
+ * 再摘三源后总数 17→14，见下方 3.3.8 摘除注记）。
  * 2026-11-19 20:22 用户产品瘦身定版（3.2.2 集成批执行）：定位收窄为
  * 短剧为主、吃瓜其次、图片顺带、视频只留里番——普通视频源全部、
  * myfans 预览专区与其余停用杂源已自注册表摘除（App 内不得出现；
@@ -20,6 +21,19 @@
  * （用户裁定退役：站方无分页、库存恒 20 册且单册最薄，审计
  * fix335/audit-007-inventory.md；清单 v4 同步已摘；hls-site 适配
  * 器模板留仓不删，与既有瘦身口径一致）。
+ * 2026-11-20 fix338/registry-cut（3.3.8）追加摘除三源（用户定案：
+ * 留在 App 里的必须保证能看、保证不了就删）：Danbooru（用户裁
+ * 定单图帖不算资源、删除已定）、HentaiHaven（3.3.7 真机点播全
+ * 灭、真播放需新开加密 POST 通道、调查裁定不值得搭，见
+ * fix338/investigation-338.md）、Konachan（CF JS 验证拦非浏览
+ * 器客户端、无解）。清单 v5 同步已摘（仓外 remote-manifest）。
+ * 本批新口径（用户 23:26 结构精简授权，supersede 上文各批「适
+ * 配器留仓」口径、仅限本轮删除牵连面）：被删源独占的适配器与
+ * 专属接线同批删码（hentaihaven-api 模板全删、Danbooru 专属排
+ * 序预设与发现登记删）；共享模板/机制被保留源复用的只摘注册
+ * （danbooru-api 模板由 yandere/gelbooru 共用、单图组装画廊由
+ * yandere 继续承接，均保留）。盘点与证据 fix338/evidence/
+ * registry-cut.md。
  *
  * 成熟度口径（诚实标注，2026-11-19 真站实测后更新）：
  * - 黄果 stable：仓内既有 native 通道、现行生产源；
@@ -96,17 +110,10 @@ export const NAMED_SOURCES: SourceDef[] = [
     enabled: true, order: 42, maturity: "stable",
     capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：本站为 WP 站、/wp-json/wp/v2/posts 列表实测可达、详情正文实测 103 张图（图集型、wp-rest detail.images 承接）；原 HTML slug 列表参数作废",
   },
-  {
-    id: "danbooru", displayName: "Danbooru", kind: "image", category: "image",
-    adapter: { template: "danbooru-api", params: { listPath: "/posts.json" } },
-    baseUrls: ["https://danbooru.donmai.us"],
-    enabled: true, order: 43, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
-    network: PROBE_NET, note: "fix330 图片线翻案（2026-11-19）：旧 blocked 系本机机房出口 CF 假象——住宅出口四级验收全通在案（source-verify-20261119 第二轮）；本机出口复核仍 CF 拦截（/posts.json 403 challenge、另一次连接中断），两出口事实分开记录（证据 fix330/evidence/images.md）；danbooru-api 适配器就绪、住宅实证全通、App 侧未真机验 → probe。搜索与列表同端点（tags 参数）、随住宅实证列入、search 属实 true",
-  },
   /* ── 里番接通批（fix330，2026-11-19）：Hanime1/Iwara 自探路保留
-   * 转专用适配器启用、HentaiHaven 自目录导入毕业（见 catalog.ts
-   * 毕业注记）；三源 maturity 均 probe（App 未真机验、口径同 F2b）。 */
+   * 转专用适配器启用；两源 maturity 均 probe（App 未真机验、口径
+   * 同 F2b）。同批的 HentaiHaven 已于 fix338/registry-cut 摘除
+   * （见文件头 3.3.8 注记）。 */
   {
     id: "hanime1", displayName: "Hanime1", kind: "video", category: "video",
     adapter: { template: "hanime1", params: {} }, baseUrls: ["https://hanime1.me"],
@@ -119,12 +126,6 @@ export const NAMED_SOURCES: SourceDef[] = [
     adapter: { template: "iwara-api", params: {} }, baseUrls: ["https://www.iwara.tv", "https://api.iwara.tv"],
     enabled: true, order: 54, maturity: "probe", capabilities: HLS_CAPS, network: PROBE_NET,
     note: "fix330 接通批启用：专用 API 适配器（api.iwara.tv /videos 列表、/search 搜索段、/video/<id> 详情、fileUrl＋X-Version 签名取流，结构据公开插件 iwara.js 协议事实＋解析夹具实证）；住宅出口四级验收全通在案（source-verify-20261119，引存档）；本机机房出口为 CF 403（出口形态、非站点结论）；App 侧未真机验 → probe",
-  },
-  {
-    id: "hentaihaven", displayName: "HentaiHaven", kind: "video", category: "video",
-    adapter: { template: "hentaihaven-api", params: {} }, baseUrls: ["https://hentaihaven.xxx"],
-    enabled: true, order: 55, maturity: "probe", capabilities: HLS_CAPS, network: PROBE_NET,
-    note: "fix330 接通批自目录导入毕业为命名源并启用：专用适配器（/api/manga/ 目录与搜索段 JSON、/watch/<slug>/ 详情与分集、集页 ld+json 取 HLS，结构据公开插件 hentaihaven.js 协议事实＋解析夹具实证）；住宅出口两级筛查正常在案（①首页②列表，source-verify-20261119 第二轮 B 组）、③④级住宅未复核；本机机房出口为 CF 403（出口形态、非站点结论）；App 侧未真机验 → probe。2026-11-20 fix334/L2 裁定：capabilities.episodes 维持 false——该字段是短剧频道（ai-duanju）品类映射门（sourcesForChannel 只认它），翻 true 会让本源（里番分集、非短剧品类）进短剧频道切源名单、且与 surfaces 声明 e（no-drama-mapping）冲突；集数产出事实以 templateCapabilities 的 multi 为唯一出处，选集面（episodes.ts）只读模板事实不读 caps，两层分工不许混用",
   },
 ];
 

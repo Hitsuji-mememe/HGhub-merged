@@ -90,11 +90,11 @@ const ctx = { active: R1, builtin: R1 };
 /* ── (C) 频道名单派生定点 ── */
 {
   assert.deepEqual(sourcesForSurface("channel-image", R1).map((d) => d.id),
-    ["xiuren", "cosplaytele", "danbooru", "pixibb", "nudecosplay", "yandere", "konachan"],
-    "图片频道名单＝已启用图片源（注册表序）");
+    ["xiuren", "cosplaytele", "pixibb", "nudecosplay", "yandere"],
+    "图片频道名单＝已启用图片源（注册表序；fix338 后 5 源）");
   assert.deepEqual(sourcesForSurface("channel-video", R1).map((d) => d.id),
-    ["hanime-tv", "hanime1", "iwara", "hentaihaven"],
-    "视频频道名单＝已启用外部视频源（原生不在名单）");
+    ["hanime-tv", "hanime1", "iwara"],
+    "视频频道名单＝已启用外部视频源（原生不在名单；fix338 后 3 源）");
   const native = R1.find((s) => s.id === "huangguo")!;
   assert.deepEqual(routeForSurface("channel-video", native, ctx),
     { kind: "not-applicable", declaration: "native-not-in-video-channel" },
@@ -180,7 +180,7 @@ const ctx = { active: R1, builtin: R1 };
  * （图集源 detail 多图永不触发、行为逐字不变）。 */
 {
   const item = (id: string, largeImage?: string): SourceItem => ({
-    sourceId: "danbooru", externalId: id, title: `t-${id}`, cover: `https://cdn.example.com/p${id}.jpg`,
+    sourceId: "yandere", externalId: id, title: `t-${id}`, cover: `https://cdn.example.com/p${id}.jpg`,
     href: "", tags: [], ...(largeImage ? { largeImage } : {}),
   });
   const a = item("1", "https://cdn.example.com/l1.jpg");

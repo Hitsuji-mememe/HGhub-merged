@@ -161,15 +161,19 @@ assert.deepEqual(templateFetchOrigins("none"), [], "none 模板无取页 origin"
 {
   const allow = new Set(sourceFetchAllowlistOrigins(builtin));
   /* 契约适配（3.3.0 接通批集成，2026-11-19）：pixibb 已实证启用、
-   * hanime1 已写适配器启用、meiridasai（mrds66）/xiuren（xiuren.biz）/
-   * danbooru 三源已解 blocked——五源 origin 按「已启用∧非 blocked」
-   * 派生口径入名单，改验新事实；「未启用/blocked 不放行」由下方合成
-   * 停用/blocked def 断言接棒，覆盖不降。 */
+   * hanime1 已写适配器启用、meiridasai（mrds66）/xiuren（xiuren.biz）
+   * 已解 blocked——四源 origin 按「已启用∧非 blocked」派生口径入
+   * 名单，改验新事实；「未启用/blocked 不放行」由下方合成停用/
+   * blocked def 断言接棒，覆盖不降。
+   * 断言适配（fix338/registry-cut）：danbooru 已摘除，其 origin 改
+   * 验负向——不在册源不派生任何 origin（同批 konachan 同口径）。 */
   assert.ok(allow.has("https://sexy.pixibb.com"), "已启用目录源（pixibb）origin 在白名单内");
   assert.ok(allow.has("https://hanime1.me"), "已启用源（hanime1）origin 在白名单内");
   assert.ok(allow.has("https://www.mrds66.com"), "meiridasai 已解 blocked：mrds66 origin 入白名单");
   assert.ok(allow.has("https://xiuren.biz"), "xiuren 已解 blocked：xiuren.biz origin 入白名单");
-  assert.ok(allow.has("https://danbooru.donmai.us"), "danbooru 已翻案：origin 入白名单");
+  assert.ok(!allow.has("https://danbooru.donmai.us"), "danbooru 已摘除：origin 不入白名单（fix338）");
+  assert.ok(!allow.has("https://konachan.com"), "konachan 已摘除：origin 不入白名单（fix338）");
+  assert.ok(!allow.has("https://hentaihaven.xxx"), "hentaihaven 已摘除：origin 不入白名单（fix338）");
   /* 清单远程下线 swag（enabled=false）→ 其根域与 API origin 一并退出白名单 */  const off = validateManifest({
     manifestVersion: 9, minAppVersion: "3.0.0",
     sources: [{ id: "swag", enabled: false, baseUrls: ["https://swag.live"] }],

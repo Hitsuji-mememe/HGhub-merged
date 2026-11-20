@@ -11,16 +11,15 @@
  * 本仓旧夹具把地址写成绝对 https，契约全绿而真机全灭——夹具形态
  * 与真实响应脱节。本文件断言：
  * ① 协议相对候选经规范化后成为可播流（旧码 ^https:// 过滤全杀→红）；
- * ② 首盐签名被站方回空表时自动换备用盐重试（旧码单盐→红）；
- * ③ HentaiHaven 集页无 ld+json 时，页内非权威 .m3u8 字面不作流
- *    返回（旧码整页首个 .m3u8 兜底→红）；有 ld+json 的既有形态由
- *    fix330 契约继续钉住。不访问真实网络。
+ * ② 首盐签名被站方回空表时自动换备用盐重试（旧码单盐→红）。
+ * 原 ③（HentaiHaven 无 ld+json 不取非权威字面）已随 011 源与适
+ * 配器于 fix338/registry-cut 同删退役。不访问真实网络。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { getBuiltinRegistry } from "./registry.ts";
-import { createHentaihavenAdapter, createIwaraAdapter } from "./adapters/templates.ts";
+import { createIwaraAdapter } from "./adapters/templates.ts";
 import { setFetchPage } from "./adapters/fetchPage.ts";
 
 const fx = (name: string) => readFileSync(new URL(`./adapters/fixtures/${name}`, import.meta.url), "utf8");
@@ -66,21 +65,6 @@ const LEGACY_SALT_HASH = sha1("fixturefile001_1893456000_5nFp9kmbNnHdAFhaqMvt");
   const r = await a.resolve("Ab12Cd34Ef56");
   assert.equal(r.streams.length, 1, "首盐回空表必须换备用盐重试（旧码零流）");
   assert.deepEqual(seenVersions, [NEW_SALT_HASH, LEGACY_SALT_HASH], "盐序＝现行盐先、备用盐后，各试一次");
-}
-
-/* ── ③ HentaiHaven 无 ld+json 集页：页内只有 iframe 播放器与一处
- * 非权威 .m3u8 字面时 resolve 必须回空（诚实失败），不许把字面
- * 当流交给播放器；旧码 extractM3u8 整页兜底会返回该字面。 ── */
-{
-  setFetchPage(async (url) => {
-    if (url.includes("/api/manga/")) return fx("hentaihaven-list.json");
-    if (url.includes("/episode-")) return fx("hentaihaven-episode-noldjson.html");
-    if (url.includes("/watch/")) return fx("hentaihaven-watch.html");
-    throw new Error(`unexpected fetch ${url}`);
-  });
-  const a = createHentaihavenAdapter(def("hentaihaven"));
-  const r = await a.resolve("fixture-slug-001");
-  assert.deepEqual(r.streams, [], "无 ld+json 时非权威 .m3u8 字面不得作流返回（旧码会返回预告字面）");
 }
 
 console.log("fix337-video-resolve.contract: all assertions passed");

@@ -2,22 +2,22 @@
  * 3.3.0 接通批·新适配器线契约测试（Muse 2026-11-19 fix330；本批
  * 任务书即维护者对新增测试的授权，AGENTS 不变量 11）：
  * 运行：node src/features/sources/fix330-new-adapters.contract.test.ts
- * 背景：保留源接通批——Iwara/Hanime1 自探路保留转专用适配器启用、
- * HentaiHaven 自目录导入毕业为命名源并启用。结构依据为 Hentai-Park
- * 公开插件（iwara.js/hanime1.js/hentaihaven.js）的协议事实（只借
+ * 背景：保留源接通批——Iwara/Hanime1 自探路保留转专用适配器启用
+ * （同批的 HentaiHaven 已于 fix338/registry-cut 摘除、其断言块与
+ * 夹具随适配器同删，本文件头保留其历史出处）。结构依据为
+ * Hentai-Park 公开插件（iwara.js/hanime1.js）的协议事实（只借
  * 协议/结构、代码原创）；夹具为按声明形态构造的合成样本（占位
- * 标题/编号、非真站内容），本机机房出口三源均 CF 403、无真站抓取
+ * 标题/编号、非真站内容），本机机房出口两源均 CF 403、无真站抓取
  * （出口形态与住宅验收分开记录，见 fix330/evidence/new-adapters.md）。
- * 覆盖：三源注册表启用口径、工厂分发、list/search/detail/resolve
+ * 覆盖：两源注册表启用口径、工厂分发、list/search/detail/resolve
  * 四段夹具实证、Iwara X-Version 签名值对照（Node createHash）、
- * 取页白名单含三源所需 origin、搜索扇出纳入。不访问真实网络。
+ * 取页白名单含两源所需 origin、搜索扇出纳入。不访问真实网络。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { NAMED_SOURCES, getBuiltinRegistry } from "./registry.ts";
-import { CATALOG_SOURCES } from "./catalog.ts";
-import { createHanime1Adapter, createHentaihavenAdapter, createIwaraAdapter } from "./adapters/templates.ts";
+import { getBuiltinRegistry } from "./registry.ts";
+import { createHanime1Adapter, createIwaraAdapter } from "./adapters/templates.ts";
 import { setFetchPage } from "./adapters/fetchPage.ts";
 import { templateFetchOrigins } from "./adapters/fetchOrigins.ts";
 import { sourceFetchAllowlistOrigins } from "./allowlist.ts";
@@ -30,9 +30,8 @@ const def = (id: string) => {
   return d;
 };
 
-/* ── 注册表启用口径：三源 enabled=true、专用模板、search 声明、
- * maturity=probe（App 未真机验不上调）；Hanime1 非日出口标记保留；
- * HentaiHaven 毕业（命名在册、目录无同 id 双注册）。 ── */
+/* ── 注册表启用口径：两源 enabled=true、专用模板、search 声明、
+ * maturity=probe（App 未真机验不上调）；Hanime1 非日出口标记保留。 ── */
 {
   const iwara = def("iwara");
   assert.equal(iwara.adapter.template, "iwara-api", "Iwara 专用 API 模板");
@@ -48,32 +47,24 @@ const def = (id: string) => {
   assert.equal(hanime1.maturity, "probe", "Hanime1 probe（未真机验）");
   assert.equal(hanime1.network.needsNonJpExit, true, "Hanime1 封日本 IP 标记保留");
 
-  const hh = def("hentaihaven");
-  assert.equal(hh.adapter.template, "hentaihaven-api", "HentaiHaven 专用 API 模板（代通用 hls-site 骨架）");
-  assert.equal(hh.enabled, true, "HentaiHaven 启用");
-  assert.equal(hh.capabilities.search, true, "HentaiHaven 声明搜索段（/api/manga/ search 参数）");
-  assert.equal(hh.maturity, "probe", "HentaiHaven probe（未真机验）");
-  assert.ok(NAMED_SOURCES.some((s) => s.id === "hentaihaven"), "HentaiHaven 在命名源（毕业）");
-  assert.ok(!CATALOG_SOURCES.some((s) => s.id === "hentaihaven"), "HentaiHaven 目录条目已摘（无双注册）");
-
   /* 工厂分发以文本断言守（adapters/index.ts 为无扩展名导入、契约
    * 环境不直引；与 final-d 的 hls-site 分发断言同口径），适配器
    * 本体经 templates.ts 直引实跑（下方四段）。 */
   const factory = readFileSync(new URL("./adapters/index.ts", import.meta.url), "utf8");
-  for (const [id, factoryFn] of [["iwara", "createIwaraAdapter"], ["hanime1", "createHanime1Adapter"], ["hentaihaven", "createHentaihavenAdapter"]] as const) {
+  for (const [id, factoryFn] of [["iwara", "createIwaraAdapter"], ["hanime1", "createHanime1Adapter"]] as const) {
     assert.ok(factory.includes(`return ${factoryFn}(def)`), `${id} 工厂分发 → ${factoryFn}`);
     assert.equal(searchPolicyFor(def(id)).include, true, `${id} 进搜索扇出（已启用∧具备搜索段）`);
   }
-  for (const [id, a] of [["iwara", createIwaraAdapter(def("iwara"))], ["hanime1", createHanime1Adapter(def("hanime1"))], ["hentaihaven", createHentaihavenAdapter(def("hentaihaven"))]] as const) {
+  for (const [id, a] of [["iwara", createIwaraAdapter(def("iwara"))], ["hanime1", createHanime1Adapter(def("hanime1"))]] as const) {
     assert.equal(typeof a.search, "function", `${id} 适配器真有 search 方法`);
   }
 }
 
-/* ── 取页白名单：三源经生产派生都在名单内；iwara-api 模板声明
+/* ── 取页白名单：两源经生产派生都在名单内；iwara-api 模板声明
  * 含 API 与两文件 host（清单覆盖 baseUrls 削不掉）。 ── */
 {
   const allow = new Set(sourceFetchAllowlistOrigins(getBuiltinRegistry()));
-  for (const o of ["https://www.iwara.tv", "https://api.iwara.tv", "https://files.iwara.tv", "https://filesq.iwara.tv", "https://hanime1.me", "https://hentaihaven.xxx"]) {
+  for (const o of ["https://www.iwara.tv", "https://api.iwara.tv", "https://files.iwara.tv", "https://filesq.iwara.tv", "https://hanime1.me"]) {
     assert.ok(allow.has(o), `生产白名单含 ${o}`);
   }
   assert.deepEqual(templateFetchOrigins("iwara-api"), ["https://api.iwara.tv", "https://files.iwara.tv", "https://filesq.iwara.tv"], "iwara-api 模板声明 = API＋两文件 host");
@@ -140,34 +131,6 @@ const def = (id: string) => {
   assert.ok(r1.streams[0]?.url.includes("-1080p.mp4"), "Hanime1 resolve 取 watch 页最高档（1080）");
   const r2 = await a.resolve("100002");
   assert.ok(r2.streams[0]?.url.includes("-720p.mp4"), "Hanime1 watch 无档时回落 /download 页取最高档（720）");
-}
-
-/* ── HentaiHaven：四段夹具实证（/api/manga/ JSON、watch 详情与
- * 分集、集页 ld+json 取 HLS） ── */
-{
-  setFetchPage(async (url) => {
-    if (url.includes("/api/manga/")) return fx("hentaihaven-list.json");
-    if (url.includes("/episode-")) return fx("hentaihaven-episode.html");
-    if (url.includes("/watch/")) return fx("hentaihaven-watch.html");
-    throw new Error(`unexpected fetch ${url}`);
-  });
-  const a = createHentaihavenAdapter(def("hentaihaven"));
-  const list = await a.list(1, 20);
-  assert.equal(list.items.length, 2, "HentaiHaven 列表经目录 API 出条目");
-  assert.equal(list.items[0].externalId, "fixture-slug-001", "HentaiHaven 条目 id 为 slug");
-  assert.equal(list.items[0].cover, "https://img.hentaihaven.xxx/fixture/001.jpg", "HentaiHaven 封面拼 img host＋meta 缩略路径");
-  const search = await a.search!("夹具", 1, 20);
-  assert.equal(search.items.length, 2, "HentaiHaven 搜索段经目录 API search 参数出条目");
-
-  const detail = await a.detail("fixture-slug-001");
-  assert.equal(detail.title, "夹具条目一", "HentaiHaven 详情标题取 watch 页 h1");
-  assert.deepEqual(detail.episodes.map((e) => e.externalId), ["fixture-slug-001/episode-1", "fixture-slug-001/episode-2"], "HentaiHaven 详情分集取 episode 链接");
-
-  const r = await a.resolve("fixture-slug-001");
-  assert.equal(r.streams[0]?.kind, "hls", "HentaiHaven 流为 HLS");
-  assert.ok(r.streams[0]?.url.endsWith(".m3u8"), "HentaiHaven resolve 取集页 ld+json contentUrl");
-  const r2 = await a.resolve("fixture-slug-001/episode-2");
-  assert.ok(r2.streams[0]?.url.endsWith(".m3u8"), "HentaiHaven resolve 接受分集形态 id 直达集页");
 }
 
 console.log("fix330-new-adapters.contract: all assertions passed");

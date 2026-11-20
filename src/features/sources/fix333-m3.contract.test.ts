@@ -46,17 +46,19 @@ const def = (id: string) => {
   await assert.rejects(() => a.list(1, 20), SourceParseEmptyError, "wp-rest 非 JSON 响应 → 解析为空（非 TypeError 裸奔）");
 }
 
-/* ── ① P3：danbooru 同口径 ── */
+/* ── ① P3：danbooru-api 模板同口径（断言适配 fix338/registry-cut：
+ * danbooru 源已摘除，模板由 yandere 在用——改挂 yandere def，守卫
+ * 行为断言不变） ── */
 {
-  const a = createDanbooruAdapter(def("danbooru"));
+  const a = createDanbooruAdapter(def("yandere"));
   setFetchPage(async () => "[]");
   const list = await a.list(1, 20);
-  assert.deepEqual(list.items, [], "danbooru [] → 空列表正常返回、不抛错");
+  assert.deepEqual(list.items, [], "danbooru-api [] → 空列表正常返回、不抛错");
   const search = await a.search!("nohits", 1, 20);
-  assert.deepEqual(search.items, [], "danbooru 搜索 [] → 真空正常返回");
+  assert.deepEqual(search.items, [], "danbooru-api 搜索 [] → 真空正常返回");
   setFetchPage(async () => JSON.stringify({ error: "shape changed" }));
-  await assert.rejects(() => a.list(1, 20), SourceParseEmptyError, "danbooru 非数组响应 → 解析为空");
-  await assert.rejects(() => a.search!("x", 1, 20), SourceParseEmptyError, "danbooru 搜索非数组 → 解析为空");
+  await assert.rejects(() => a.list(1, 20), SourceParseEmptyError, "danbooru-api 非数组响应 → 解析为空");
+  await assert.rejects(() => a.search!("x", 1, 20), SourceParseEmptyError, "danbooru-api 搜索非数组 → 解析为空");
 }
 
 /* ── ② B1 守卫：script 字符串同名闭标签截断地标 → 回落整页不丢图 ── */
@@ -95,7 +97,6 @@ const EXPECT: Record<string, { adapter: boolean; search: boolean; missing: strin
   "hanime-api": { adapter: true, search: true, missing: [] },
   "iwara-api": { adapter: true, search: true, missing: [] },
   hanime1: { adapter: true, search: true, missing: [] },
-  "hentaihaven-api": { adapter: true, search: true, missing: [] },
   "preview-only": { adapter: true, search: false, missing: ["search", "play"] },
   none: { adapter: false, search: false, missing: ["search", "detail", "play"] },
 };

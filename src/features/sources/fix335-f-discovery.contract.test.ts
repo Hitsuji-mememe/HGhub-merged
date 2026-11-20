@@ -7,8 +7,12 @@
  * verify.md 住宅终验，2026-11-20）：
  * (A) DiscoverySpec 登记表：逐源断言登记全集与排除项——未实证不
  *     登记（007/未启用的 gelbooru/yandere 恒空）；009 九值逐字
- *     繁体；011 只 monthly/all（weekly/daily 不得出现在登记任何
- *     位置）；008 无 tagFilter（无选项来源）。
+ *     繁体。
+ *     断言适配（fix338/registry-cut）：008/011 已摘除、其发现登记
+ *     （danbooru-api 三预设、hentaihaven-api monthly/all）随源退
+ *     役——(A) 改钉「danbooru-api 家族（014/015）无发现登记」、
+ *     (B) 008 块改合成 def 钉新行为（预设拼参退役、任意 sort 回
+ *     落缺省）、011 块随适配器删码退役。
  *     fix337/chigua-surface 改版（用户裁定＋调查
  *     fix337/evidence/chigua-surface-investigation.md，2026-11-20）：
  *     吃瓜三源分类轴整体下线（栏目表保留在注册表 params 作
@@ -37,7 +41,7 @@ import { getBuiltinRegistry } from "./registry.ts";
 import { discoverySpecFor, hasDiscovery } from "./adapters/templateCapabilities.ts";
 import {
   createChiguaAdapter, createDanbooruAdapter, createHanime1Adapter,
-  createHentaihavenAdapter, createIwaraAdapter, createWpRestAdapter,
+  createIwaraAdapter, createWpRestAdapter,
   readDiscoveryCategories, readDiscoveryRanks,
 } from "./adapters/templates.ts";
 import { createHanimeApiAdapter } from "./adapters/hanimeApi.ts";
@@ -62,7 +66,7 @@ const recorder = (body: string | ((url: string) => string)) => {
   const expectDiscovery: Record<string, boolean> = {
     huangguo: true, "hanime-tv": true, "51chigua": true, meiridasai: true,
     feedheiliao: true, xiuren: true, pornpics: false, cosplaytele: true,
-    danbooru: true, hanime1: true, iwara: true, hentaihaven: true,
+    hanime1: true, iwara: true,
     pixibb: true, nudecosplay: true, yandere: false, gelbooru: false,
   };
   for (const d of getBuiltinRegistry()) {
@@ -110,15 +114,12 @@ const recorder = (body: string | ((url: string) => string)) => {
     "009 九值逐字繁体原值");
   assert.equal(s009.sortDefault, "最新上市");
 
-  const s011 = discoverySpecFor(def("hentaihaven"));
-  assert.deepEqual(s011.rankPeriods?.map((o) => o.value), ["monthly", "all"], "011 只登记 monthly/all");
-  const s012Values = [...(s011.rankPeriods ?? []), ...(s011.sorts ?? []), ...(s011.categories?.options ?? [])].map((o) => o.value);
-  assert.ok(!s012Values.some((v) => ["weekly", "daily", "week", "day"].includes(v)),
-    "011 任何维度选项值不得出现 weekly/daily/week/day（evidence 文案提及拒绝原因不在此列）");
-
-  const s008 = discoverySpecFor(def("danbooru"));
-  assert.deepEqual(s008.sorts?.map((o) => o.value), ["", "order:rank", "order:score", "order:favcount"], "008 三预设");
-  assert.equal(s008.tagFilter, undefined, "008 无 tagFilter（标签走搜索段）");
+  /* fix338：danbooru-api 家族发现登记退役——014 在册源与合成
+   * danbooru-api def 均无登记（008 三预设随源摘除、家族无其他消
+   * 费者）；011 登记随源退役（def 不存在、map 已摘）。 */
+  const s014 = discoverySpecFor(def("yandere"));
+  assert.equal(hasDiscovery(s014), false, "014 无发现登记（danbooru-api 家族登记退役、fix338）");
+  assert.equal(s014.sorts, undefined, "014 无 sorts 登记（008 预设不许以家族名义残留）");
 
   for (const id of ["xiuren", "cosplaytele", "pixibb", "nudecosplay"]) {
     const s = discoverySpecFor(def(id));
@@ -218,15 +219,24 @@ const recorder = (body: string | ((url: string) => string)) => {
   await a.list(1, 20, { category: "abc" });
   assert.equal(urls[urls.length - 1], "https://xiuren.biz/wp-json/wp/v2/posts?page=1&per_page=20", "WP 非数字分类 id 不拼坏参数、回落缺省");
 }
-{ // 008 预设
+{ // danbooru-api 家族缺省形态（fix338 适配：008 已摘除，改合成
+  // def 承接模板级缺省钉；排序预设拼参已随 008 发现登记退役——
+  // 任意 sort 值回落缺省形态，014/015 列表行为逐字不变）
+  const synthDb: SourceDef = {
+    id: "danbooru-synthetic", displayName: "Danbooru 合成", kind: "image", category: "image",
+    adapter: { template: "danbooru-api", params: {} }, baseUrls: ["https://danbooru.donmai.us"],
+    enabled: true, order: 999, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    network: { mode: "probe-required" }, note: "fix338 契约合成 def",
+  };
   const urls = recorder(fx("danbooru-list.json"));
-  const a = createDanbooruAdapter(def("danbooru"));
+  const a = createDanbooruAdapter(synthDb);
   await a.list(1, 20);
-  assert.equal(urls[0], "https://danbooru.donmai.us/posts.json?page=1&limit=20", "008 缺省 URL 逐字不变（无 tags 参数）");
+  assert.equal(urls[0], "https://danbooru.donmai.us/posts.json?page=1&limit=20", "danbooru-api 缺省 URL 逐字不变（无 tags 参数）");
   await a.list(1, 20, { sort: "order:score" });
-  assert.equal(urls[1], "https://danbooru.donmai.us/posts.json?page=1&limit=20&tags=order%3Ascore", "008 高分预设拼 tags 参数");
+  assert.equal(urls[1], urls[0], "预设拼参已退役：order:score 不再入参、回落缺省形态（fix338）");
   await a.list(1, 20, { sort: "order:bogus" });
-  assert.equal(urls[2], urls[0], "008 未登记预设回落缺省");
+  assert.equal(urls[2], urls[0], "未登记值回落缺省");
 }
 { // 010 排序
   const urls = recorder(fx("iwara-list.json"));
@@ -249,16 +259,6 @@ const recorder = (body: string | ((url: string) => string)) => {
   }
   await a.list(1, 20, { sort: "观看次数" });
   assert.equal(urls[urls.length - 1], urls[0], "009 简体拼法不入参、回落默认序（红线）");
-}
-{ // 011 周期（只两值）
-  const urls = recorder(fx("hentaihaven-list.json"));
-  const a = createHentaihavenAdapter(def("hentaihaven"));
-  await a.list(1, 20);
-  assert.equal(urls[0], "https://hentaihaven.xxx/api/manga/?trending_period=monthly&per_page=20&page=1", "011 缺省 monthly 逐字不变");
-  await a.list(1, 20, { period: "all" });
-  assert.equal(urls[1], "https://hentaihaven.xxx/api/manga/?trending_period=all&per_page=20&page=1", "011 全部");
-  await a.list(1, 20, { period: "weekly" });
-  assert.equal(urls[2], urls[0], "011 weekly 不得入参（站方拒绝）、回落 monthly");
 }
 { // 002 客户端重排（构造目录：views 序与最新序故意不同）
   const catalog = JSON.stringify({ data: [

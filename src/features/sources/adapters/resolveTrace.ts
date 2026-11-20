@@ -4,7 +4,8 @@
  * 整份导出却零记录——POST 接缝无取页埋点、GET 侧记录按 host 归属
  * 错位、自检结果是旧账。取流段失败此前只在 002（hanime-api）有段级
  * 留痕，010/011/012 的 resolve 失败只有 fetchHealth 的 host 级兜底、
- * 死在哪一段不可见（fix332 清扫 P5）。现四源同口径：resolve 各段
+ * 死在哪一段不可见（fix332 清扫 P5）。现三源同口径（011 已于
+ * fix338/registry-cut 随源摘除，其段名行退役）：resolve 各段
  * 任一失败落一条 tracePlayback("source.resolve_fail")，只带稳定
  * 编号（active 注册表顺序 source-NNN）、段名、固定错误码、HTTP
  * 状态（有才带）与尝试序——结构上没有能放令牌/签名/正文的位置
@@ -12,7 +13,6 @@
  * - 002 hanime-api：csrf / handshake / decode
  * - 009 hanime1：watch / download / decode
  * - 010 iwara-api：detail / fetch / decode
- * - 011 hentaihaven-api：watch / episode / decode
  * 诊断导出由 diagnosticReport 的「取流失败留痕」节结构化消费，
  * 不再只躺播放日志尾段原文。动态 import 与 manifest.ts 的解析埋点
  * 同模式（避免 adapters → diagnostics/manifest 的静态环）；纯旁路，

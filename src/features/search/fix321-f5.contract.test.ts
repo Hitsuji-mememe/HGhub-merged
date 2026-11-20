@@ -122,7 +122,7 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
  * 契约适配（3.3.0 接通批集成，2026-11-19）：吃瓜线 51chigua/meiridasai
  * 接线搜索段进扇出、feedheiliao 实证无 GET 搜索段维持出局；图片线
  * pixibb/nudecosplay 启用进扇出、pornpics 搜索属实 false 出局；
- * 新适配器线 hanime1/iwara/hentaihaven 三源已写带 search 的专用适配器
+ * 新适配器线 hanime1/iwara 两源已写带 search 的专用适配器
  * 并启用进扇出。名单 7→13 源，判定口径（结构门）不变。
  * 契约适配（fix330/ui-fixes，2026-11-19）：用户 21:51 裁定 Rule34Video
  * 摘除注册表，名单 13→12 源；本断言即「扇出名单由规则派生」的全量
@@ -130,13 +130,15 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
  * 的结果恰等于规则预期（enabled∧模板有 search∧caps.search）。
  * 契约适配（fix335/g-sources，2026-11-20）：pornpics 退役摘除（本就
  * 出局、名单不变），yandere/konachan moebooru 校准有搜索段进扇出，
- * 名单 12→14 源。 */
+ * 名单 12→14 源。
+ * 契约适配（fix338/registry-cut，2026-11-20）：008/011/016 摘除，
+ * 名单 14→11 源；三源改入下方「不在册」负向断言组。 */
 {
   const included = getBuiltinRegistry().filter((d) => searchPolicyFor(d).include).map((d) => d.id);
   assert.deepEqual(
     included,
-    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "danbooru", "hanime1", "iwara", "hentaihaven", "pixibb", "nudecosplay", "yandere", "konachan"],
-    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix335/g-sources 后 14 源）",
+    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "hanime1", "iwara", "pixibb", "nudecosplay", "yandere"],
+    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix338 后 11 源）",
   );
   assert.ok(!getBuiltinRegistry().some((d) => d.id === "rule34video"), "rule34video 已摘除注册表（用户裁定），不进扇出也不在册");
   assert.ok(!getBuiltinRegistry().some((d) => d.id === "pornpics"), "pornpics 已退役摘除注册表（fix335/g-sources），不进扇出也不在册");
@@ -153,15 +155,18 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
     for (const s of segs) assert.ok(missing.includes(s), `${id} 缺段含 ${s}（实际 ${missing.join("/")}）`);
   }
   /* 断言适配（3.3.0 集成）：pixibb/nudecosplay 已启用且具备搜索段、进
-   * 扇出（见上方名单断言）；hentaihaven 已毕业为命名源并进扇出；
-   * 本组只剩未启用目录源。 */
+   * 扇出（见上方名单断言）；本组只剩未启用目录源。 */
   /* 适配（fix335/g-sources）：yandere 已启用且有搜索段进扇出（见上方
    * 名单断言），未启用出局例只剩 gelbooru/pixiv。 */
   for (const id of ["gelbooru", "pixiv"]) {    assert.equal(searchPolicyFor(def(id)).include, false, `目录源 ${id} 未启用出局`);
   }
   /* 出局源注册保留（不删源）：仍在注册表里、频道浏览不受扇出门影响 */
-  for (const id of [...Object.keys(excludedSearch), "pixibb", "nudecosplay", "yandere", "gelbooru", "hentaihaven", "pixiv"]) {
+  for (const id of [...Object.keys(excludedSearch), "pixibb", "nudecosplay", "yandere", "gelbooru", "pixiv"]) {
     assert.ok(def(id), `${id} 注册保留`);
+  }
+  /* 已摘除源不在册（fix338）：不进扇出也不在注册表。 */
+  for (const id of ["danbooru", "hentaihaven", "konachan"]) {
+    assert.ok(!getBuiltinRegistry().some((d) => d.id === id), `${id} 已摘除、不在册（fix338）`);
   }
 }
 

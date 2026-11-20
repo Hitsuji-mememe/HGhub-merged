@@ -189,8 +189,10 @@ assert.equal(typeof lib.applyExternalHistory, "function", "L3 须暴露 applyExt
   const members = sourcesForSurface("library", R1).map((d) => d.id);
   assert.ok(members.includes("hanime-tv") && members.includes("51chigua") && members.includes("xiuren"),
     "M17 成员含已启用外部源（帖/视频/图集）");
-  /* 适配（fix335/g-sources）：yandere/konachan 已启用进成员；未启用例改挂 gelbooru/pixiv。 */
-  assert.ok(members.includes("yandere") && members.includes("konachan"), "M17 成员含新启用图片源（fix335/g-sources）");
+  /* 适配（fix335/g-sources）：yandere 已启用进成员；未启用例改挂 gelbooru/pixiv。
+   * 适配（fix338/registry-cut）：konachan 已摘除，改验不在成员（不在册即不入资料库面）。 */
+  assert.ok(members.includes("yandere"), "M17 成员含新启用图片源（fix335/g-sources）");
+  assert.ok(!members.includes("konachan"), "M17 成员不含已摘除源 konachan（fix338）");
   assert.ok(!members.includes("gelbooru") && !members.includes("pixiv"), "M17 成员不含未启用源");
 }
 

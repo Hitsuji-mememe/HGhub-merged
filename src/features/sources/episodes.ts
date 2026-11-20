@@ -2,12 +2,16 @@
  * 外部源选集纯函数（Muse 2026-11-20 fix334 结构批 L2／G3，设计
  * ~/workspace/hghub/fix334/design-g3g4-surfaces.md §3）。
  *
- * 背景（结构审计 G3）：全仓只有 source-011（hentaihaven）的 detail 产多集
- * episodes、resolve 已支持按集取流，但详情消费者为 0——用户打开
- * 多集条目只能播第一集。本模块把「集数归一」与「选集面适用性」
+ * 背景（结构审计 G3）：当时全仓只有 source-011（hentaihaven）的 detail
+ * 产多集 episodes、resolve 已支持按集取流，但详情消费者为 0——用户
+ * 打开多集条目只能播第一集。本模块把「集数归一」与「选集面适用性」
  * 收敛为纯函数，供 SourceBrowse（宿主面 play-external）与 Search
  * 外部详情（宿主面 search-external-detail）两条路径共用，只接一条
  * 等于没根治（审计 G5 教训）。
+ * 现状（fix338/registry-cut）：011 已摘除、其模板同删，现行注册表
+ * 无 multi 源——本模块与 EpisodePicker 宿主接线保留为通用
+ * machinery（templateCapabilities 再登记 multi 模板即复活），
+ * 当前恒回空、无 UI 呈现。
  *
  * 口径：
  * - episodeChoices/episodeOrdinal 只读 detail 数据：外部集数是
@@ -19,7 +23,7 @@
  *   模板能力事实 episodes="multi"（templateCapabilitiesFor），
  *   组件内不再本地另判。不认注册表 capabilities.episodes：那是
  *   短剧频道（ai-duanju）的品类映射门、与集数产出事实分层
- *   （L2 裁定见 registry hentaihaven 条目 note 与本线报告）。
+ *   （fix334/L2 裁定，见 templateCapabilities 文件头）。
  */
 import { getBuiltinRegistry } from "./registry.ts";
 import { getActiveRegistry } from "./manifest.ts";

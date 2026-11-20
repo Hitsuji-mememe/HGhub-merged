@@ -36,7 +36,7 @@ import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../sour
 import { setFetchPage } from "../sources/adapters/fetchPage.ts";
 import { setFetchPost, type FetchPostResult } from "../sources/adapters/fetchPost.ts";
 import { createHanimeApiAdapter, sealEnvelope } from "../sources/adapters/hanimeApi.ts";
-import { createHanime1Adapter, createHentaihavenAdapter, createIwaraAdapter } from "../sources/adapters/templates.ts";
+import { createHanime1Adapter, createIwaraAdapter } from "../sources/adapters/templates.ts";
 import { loadSearchCopy, copyCacheKey, type CopyLoaderDeps } from "./copyLoader.ts";
 import { assembleSearchGallery } from "./searchGallery.ts";
 import type { CopyRef, MergedHit } from "./multiSourceSearch.ts";
@@ -56,7 +56,6 @@ function makeAdapterDirect(d: SourceDef): SourceAdapter {
     case "hanime-api": return createHanimeApiAdapter(d);
     case "iwara-api": return createIwaraAdapter(d);
     case "hanime1": return createHanime1Adapter(d);
-    case "hentaihaven-api": return createHentaihavenAdapter(d);
     default: throw new Error(`unexpected template ${d.adapter.template}`);
   }
 }
@@ -164,33 +163,16 @@ async function runOpenScenario(
   assert.equal(r.detail?.title, "夹具条目一", "source-010 detail 经 watch 页取数");
 }
 
-/* ── source-011（hentaihaven-api）：目录 API 搜索 → watch
- * detail（分集）→ 集页 ld+json 取 HLS ── */
-{
-  setFetchPage(async (url) => {
-    if (url.includes("/api/manga/")) return fx("hentaihaven-list.json");
-    if (url.includes("/episode-")) return fx("hentaihaven-episode.html");
-    if (url.includes("/watch/")) return fx("hentaihaven-watch.html");
-    throw new Error(`unexpected fetch ${url}`);
-  });
-  const r = await runOpenScenario("hentaihaven", async (a) => {
-    const hit = await a.search!("夹具", 1, 20);
-    assert.ok(hit.items.length >= 1, "source-012 搜索出条目");
-    return hit.items[0];
-  });
-  assert.equal(r.item.externalId, "fixture-slug-001", "source-012 条目 id 为 slug");
-  assert.ok(r.streamUrl?.endsWith(".m3u8"), "source-012 取流产出集页 HLS");
-  assert.equal(r.detail?.episodes?.length, 2, "source-012 detail 带分集（详情面可呈现分集结构）");
-}
 
 /* ── 生产调用点（源码文本断言）：Search 消费加载核、工厂分发
- * 四模板齐全 ── */
+ * 三模板齐全 ── */
 {
   const searchSrc = readFileSync(new URL("./Search.tsx", import.meta.url), "utf8");
   assert.ok(searchSrc.includes("loadSearchCopy("), "Search 副本加载走生产加载核 copyLoader（生产调用点）");
   assert.ok(searchSrc.includes('from "./copyLoader"'), "Search 导入 copyLoader 单一出处");
   const factory = readFileSync(new URL("../sources/adapters/index.ts", import.meta.url), "utf8");
-  for (const [tpl, fn] of [["hanime-api", "createHanimeApiAdapter"], ["iwara-api", "createIwaraAdapter"], ["hanime1", "createHanime1Adapter"], ["hentaihaven-api", "createHentaihavenAdapter"]] as const) {
+  /* 适配（fix338）：hentaihaven-api 已删码，分发断言收口三模板。 */
+  for (const [tpl, fn] of [["hanime-api", "createHanimeApiAdapter"], ["iwara-api", "createIwaraAdapter"], ["hanime1", "createHanime1Adapter"]] as const) {
     assert.ok(factory.includes(`case "${tpl}": return ${fn}(def)`), `工厂分发 ${tpl} → ${fn}`);
   }
 }

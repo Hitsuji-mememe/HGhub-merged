@@ -40,16 +40,17 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { getBuiltinRegistry, sourcesForCategory, sourcesForChannel } from "../sources/registry.ts";
 
-const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara", "hentaihaven"];
+/* 适配（fix338/registry-cut）：011 已摘除，里番列示集合四源→三源。 */
+const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara"];
 
-/* ── 列示选择器口径：四源齐列、全员 probe ── */
+/* ── 列示选择器口径：三源齐列、全员 probe ── */
 {
   const builtin = getBuiltinRegistry();
   const listed = sourcesForCategory("video", builtin);
   assert.deepEqual(
     listed.map((s) => s.id).sort(),
     [...RIBAN_IDS].sort(),
-    "视频源列示集合 = active 注册表 category=video 已启用源，恰为里番四源",
+    "视频源列示集合 = active 注册表 category=video 已启用源，恰为里番三源（fix338 后）",
   );
   for (const s of listed) {
     assert.equal(s.enabled, true, `${s.id} 已启用才入列示`);
@@ -57,11 +58,11 @@ const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara", "hentaihaven"];
     assert.equal(s.maturity, "probe", `${s.id} maturity=probe（总览须带「未实测」标、不得冒充已验通）`);
   }
   /* active 口径：清单覆盖把某源置 enabled=false → 立即退出列示
-   * （v2 清单下 010/011/012 的真机形态即此路径）。 */
+   * （v2 清单下 010/012 的真机形态即此路径）。 */
   const overlaid = builtin.map((s) => (s.id === "iwara" ? { ...s, enabled: false } : s));
   assert.deepEqual(
     sourcesForCategory("video", overlaid).map((s) => s.id).sort(),
-    ["hanime-tv", "hanime1", "hentaihaven"].sort(),
+    ["hanime-tv", "hanime1"].sort(),
     "enabled=false 的源不入列示（active 注册表口径）",
   );
   /* 两条到达路径同集合：频道页切源片（sourcesForChannel）与
@@ -69,7 +70,7 @@ const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara", "hentaihaven"];
   assert.deepEqual(
     sourcesForChannel("original", builtin).map((s) => s.id).sort(),
     [...RIBAN_IDS].sort(),
-    "频道页切源片与列示集合为同一四源集合",
+    "频道页切源片与列示集合为同一三源集合（fix338 后）",
   );
 }
 
@@ -77,7 +78,7 @@ const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara", "hentaihaven"];
 {
   const src = readFileSync(new URL("./Category.tsx", import.meta.url), "utf8");
   /* 列示面（fix336/ui-fixes 适配）：总览「视频源」区段已退场，
-   * 四源列示改由视频频道切源片承接——名单经 sourceOptionsFor
+   * 列示改由视频频道切源片承接——名单经 sourceOptionsFor
    * Channel(cate) 自 sourcesForChannel 派生（与上方选择器口径
    * 段同集合、消费 active 注册表、非写死名单）；总览侧以负断
    * 言守退场（区段与 overview-video-rows 消费不许复活）。 */

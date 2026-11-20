@@ -50,7 +50,7 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
    * 注册表（18→17 源），本文件原以其为「中性权重已启用视频源」样本的
    * 断言改由 iwara 接替（同为总表未覆盖、已启用、具备搜索段的 video
    * 源，覆盖口径不变）；源数断言随之 18→17。 */
-  assert.equal(getBuiltinRegistry().length, 17, "注册表 17 源（摘 rule34video/pornpics、加 konachan 后仍 17）下页签仍封顶四类（上一断言即证据）");
+  assert.equal(getBuiltinRegistry().length, 14, "注册表 14 源（fix338 摘 008/011/016 后）下页签仍封顶四类（上一断言即证据）");
   const groups = aggregateHits([]);
   assert.deepEqual(Object.keys(groups).sort(), ["drama", "image", "post", "video"], "聚合分组恒四键");
 }
@@ -61,7 +61,7 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   assert.equal(kindForHuangguoVideo({ total_episodes: 1, episode_count: 1 }), "video", "单条视频→视频");
   assert.equal(kindForSourceDef(def("feedheiliao")), "post", "文字主体→帖子（带视频也归帖子：post 类不因内容带视频改类）");
   assert.equal(kindForSourceDef(def("cosplaytele")), "image", "图集→图片");
-  assert.equal(kindForSourceDef(def("konachan")), "image", "图片主体→图片（适配 fix335/g-sources：原例 pornpics 已退役、改挂新源 konachan）");
+  assert.equal(kindForSourceDef(def("yandere")), "image", "图片主体→图片（适配 fix338：原例 konachan 已摘除、改挂同族 yandere）");
   /* 断言适配（3.2.2 瘦身）：专用短剧源已全删，短剧只来自黄果分集结构判定（上两断言）与 fix322 标记线；源级 video 判定由保留源承接。 */
   assert.equal(kindForSourceDef(def("hanime-tv")), "video", "独立单条视频源→视频");
   assert.equal(kindForSourceDef(def("51chigua")), "post", "吃瓜图文→帖子");
@@ -83,12 +83,12 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   assert.deepEqual([p("meiridasai").include, p("meiridasai").weight], [true, 50], "每日大赛：权重在黑料网之下落表，搜索段已接线纳入（3.3.0）");
   assert.ok(p("51chigua").weight > p("feedheiliao").weight && p("feedheiliao").weight > p("meiridasai").weight, "吃瓜三层权重严格递减");
   /* 断言适配（fix335/g-sources，2026-11-20）：PornPics 已退役摘除、
-   * 其 PRIMARY 权重条目随源删除（权重表只含在册源）；yandere/konachan
-   * moebooru 校准有搜索段、中性权重纳入。 */
+   * 其 PRIMARY 权重条目随源删除（权重表只含在册源）；yandere
+   * moebooru 校准有搜索段、中性权重纳入。
+   * 适配（fix338/registry-cut）：konachan/danbooru 已摘除，两行随
+   * 源退役（中性权重纳入由 yandere 与下方 iwara 通则行承接）。 */
   assert.deepEqual([p("yandere").include, p("yandere").weight], [true, 40], "yandere：中性权重，具备搜索段纳入（fix335/g-sources）");
-  assert.deepEqual([p("konachan").include, p("konachan").weight], [true, 40], "Konachan：中性权重，具备搜索段纳入（fix335/g-sources）");
   assert.deepEqual([p("xiuren").include, p("xiuren").weight], [true, 40], "秀人网：中性权重，具备搜索段纳入（旧 OFF 表已退役）");
-  assert.deepEqual([p("danbooru").include, p("danbooru").weight], [true, 40], "Danbooru：中性权重，具备搜索段纳入（blocked 只记验通状态）");
   assert.deepEqual([p("iwara").include, p("iwara").weight], [true, 40], "总表未覆盖的已启用源：中性 40 纳入");
   assert.deepEqual([p("cosplaytele").include, p("cosplaytele").weight], [true, 40], "CosplayTele 维持现状：中性纳入");
   /* 断言适配（fix330 接通批）：Hanime1 已写带 search 的专用适配器
