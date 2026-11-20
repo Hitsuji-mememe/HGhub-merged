@@ -47,6 +47,7 @@ import { Empty } from "../../shared/ui/ui";
 import { IBack, IFilm, IStar, IStarF } from "../../shared/ui/icons";
 import { Player } from "../playback";
 import { registerOverlayBack } from "../../shared/lib/back";
+import { useScrollKeeper } from "../../shared/lib/useScrollKeeper";
 import { useStore } from "../../shared/model/store";
 import { externalHashId } from "../../shared/model/localLibrary";
 import { createAdapter } from "./adapters/index.ts";
@@ -66,8 +67,11 @@ type DetailState =
     }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, openExternalEp }: {
+export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, openExternalEp, scrollerRef }: {
   def: SourceDef;
+  /** 宿主 scroller 下传（fix335/d-scroll）：滚动恢复 hook 据此读写
+   * 宿主滚动容器；未传时恢复静默不生效。 */
+  scrollerRef?: { current: HTMLElement | null };
   /** 详情开合回报（Muse 2026-11-20 fix331/covers-header，3.3.1 真机
    * 首验问题②）：本组件挂在 ChannelPage 内，详情自带一层页头（返回
    * 列表＋标题）；详情打开时宿主必须让位自己的页头，否则双层标题
@@ -104,6 +108,10 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
   const detailSeq = useRef(0);
   const failAt = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  /* 滚动恢复（fix335/d-scroll）：详情分支替换列表期间宿主 scroller
+   * 高度塌缩、scrollTop 被钳 0——打开详情前 capture、回列表且数据
+   * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
+  const { captureScroll } = useScrollKeeper(`browse:${def.id}`, scrollerRef, detail === null && items.length > 0);
 
   const load = useCallback(async (reset: boolean) => {
     if (busy.current) return;
@@ -194,6 +202,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
   }, [detailOpen, closeDetail]);
 
   const openItem = useCallback(async (item: SourceItem, startEpOrdinal?: number) => {
+    captureScroll();
     historyKeyRef.current = "";
     /* 代次守卫（fix335/detail-guard）：旧码 await 后无条件
      * setDetail——切源后旧源迟到响应把详情复活到新源列表之上、
@@ -252,7 +261,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
       currentEpExternalId: choices[0]?.externalId ?? item.externalId,
       ...(wantEp ? { epError: `未能恢复到第 ${wantEp} 集，已从第一集播放` } : {}),
     });
-  }, [def]);
+  }, [def, captureScroll]);
 
   /* 回访直达消费（G4）：目标条目出现在已加载列表中才打开，消费
    * 一次；不在列表（含未加载完）不做任何强求动作。历史回访另带

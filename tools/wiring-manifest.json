@@ -2190,6 +2190,28 @@
       "item": "fix335/a-pagination 收敛审计 SWAG 逐条取数失败留痕：resolveTrace 定义 traceListItemSkips（与 traceResolveFailure 同共享发射通道）＋templates SWAG list 失败计数消费，落 source.list_skip 进诊断导出账本",
       "min": 2,
       "symbol": "traceListItemSkips"
+    },
+    {
+      "files": [
+        "src/features/sources/SourceGallery.tsx",
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourcePosts.tsx"
+      ],
+      "id": "fix335-d-scroll-capture",
+      "item": "fix335/d-scroll 滚动恢复：三浏览组件打开详情/图集前经 useScrollKeeper 的 captureScroll 存宿主 scrollTop（key＝面＋源），回列表后 hook 写回；摘除任一面的 capture 调用即红",
+      "min": 3,
+      "symbol": "captureScroll"
+    },
+    {
+      "each": true,
+      "files": [
+        "src/features/category/Category.tsx",
+        "src/features/posts/Posts.tsx"
+      ],
+      "id": "fix335-d-scroll-host-ref",
+      "item": "fix335/d-scroll 宿主 scroller 下传：ChannelPage 三分支与 PostsPage 非原生分支各自持 ref 并经 scrollerRef 传给浏览组件（滚动恢复的读写通道）；任一宿主摘除即红",
+      "min": 1,
+      "symbol": "scrollerRef"
     }
   ]
 }

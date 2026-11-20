@@ -184,6 +184,27 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   的 setExtDetail 落点，已逐个守卫。证据：
   `~/workspace/hghub/fix335/evidence/detail-guard.md`（夹具十
   场景双树实测＋正常路径回归：切副本/手选副本正常落定）。
+  fix335/d-scroll（2026-11-20）：外部源三浏览面滚动恢复——三
+  组件以分支整树替换实现详情，列表卸载期间宿主 scroller 内容
+  高度塌缩、scrollTop 被浏览器钳 0，关闭详情后无人写回、返回
+  恒落顶部（用户 14:12 真机实报，审计
+  `fix335/audit-scroll-restore.md`：9 条返回路径中恰此 3 条不
+  恢复，余 6 条靠栈页/页签保活或覆层并存天然恢复、不接入防双
+  写）。现行口径：`src/shared/lib/useScrollKeeper.ts` 单一机制
+  ——保存值按 key（面＋源 id，如 `gallery:<源id>`）存模块级
+  Map；三组件打开详情/图集前 `captureScroll` 存宿主 scrollTop，
+  回列表且数据就位后 layout effect 写回（照 PostDetail F9
+  playScrollRef 先例：一帧 rAF 后仍小于目标才再写；高度不足时
+  钳到可达位置静默接受，不报错不跳顶）。恢复域收窄：只认本实
+  例 capture 过的 key，切面/切源（key 变）先行作废待恢复标记，
+  def.id 变化的既有 reset 清零语义不变、保存值不串源。scroller
+  由宿主下传：ChannelPage 图片/视频/频道外源三分支与 PostsPage
+  非原生分支各持 ref 经 `scrollerRef` prop 传入；未传的形态
+  （SourcePosts 分类总览 compact）恢复静默不生效。分页追加只
+  向下生长、不触发写回（listReady 不翻转），已加载页数返回后
+  不变。证据：`~/workspace/hghub/fix335/evidence/d-scroll.md`
+  （夹具三面×三场景双树实测：旧码往返全落 0、新码精确回位、
+  切源 B 从 0 起且只恢复 B 自己的位置）。
 - 封面状态机（同批）：`ImageLoad` 状态 loading→decoded→displayed 或
   failed(reason)（http/timeout/decode 分因），每 attempt 20s 超时，
   src 变化自动重试；失败计数与分页证据同节进诊断报告。fix2.1 修正

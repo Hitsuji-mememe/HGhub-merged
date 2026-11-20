@@ -502,6 +502,12 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
   const lastFailAt = useRef(0);
   const sentinel = useRef<HTMLDivElement>(null);
   const scrollContainer = useRef<HTMLDivElement>(null);
+  /* 外部源三分支的宿主 scroller（fix335/d-scroll）：下传给
+   * SourceGallery/SourceBrowse 供滚动恢复 hook 读写——三分支各自
+   * 独立 ref（同一时刻只挂一个分支，互不串扰）。 */
+  const imageScroller = useRef<HTMLDivElement>(null);
+  const videoScroller = useRef<HTMLDivElement>(null);
+  const channelScroller = useRef<HTMLDivElement>(null);
 
   const loadMore = async (reset = false, sortOverride: string = serverSort, originalCateOverride = originalCate) => {
     const seq = reset ? ++requestSeq.current : requestSeq.current;
@@ -640,11 +646,11 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
             </div>
           </div>
         </div>
-        <div className="flex-1 scroll-y pb-8">
+        <div ref={imageScroller} className="flex-1 scroll-y pb-8">
           {!imageSource || imageSource.maturity === "blocked" ? (
             <SourcePendingNotice displayName={imageSelected?.label ?? name} maturity={imageSource?.maturity} note={imageSource?.note} selectedKind={imageSelected?.kind} />
           ) : (
-            <SourceGallery def={imageSource} openExternalId={openExternalId} />
+            <SourceGallery def={imageSource} openExternalId={openExternalId} scrollerRef={imageScroller} />
           )}
         </div>
       </div>
@@ -678,11 +684,11 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
             </div>
           </div>
         )}
-        <div className="flex-1 scroll-y pb-8">
+        <div ref={videoScroller} className="flex-1 scroll-y pb-8">
           {!videoSource || videoSource.maturity === "blocked" ? (
             <SourcePendingNotice displayName={videoSelected?.label ?? name} maturity={videoSource?.maturity} note={videoSource?.note} selectedKind={videoSelected?.kind} />
           ) : (
-            <SourceBrowse def={videoSource} onDetailOpenChange={setBrowseDetailOpen} openExternalId={openExternalId} openExternalEp={openExternalEp} />
+            <SourceBrowse def={videoSource} onDetailOpenChange={setBrowseDetailOpen} openExternalId={openExternalId} openExternalEp={openExternalEp} scrollerRef={videoScroller} />
           )}
         </div>
       </div>
@@ -707,11 +713,11 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
             <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={effectiveChannelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
           </div>
         )}
-        <div className="flex-1 scroll-y pb-8">
+        <div ref={channelScroller} className="flex-1 scroll-y pb-8">
           {!channelSource || channelSource.maturity === "blocked" ? (
             <SourcePendingNotice displayName={channelSelected.label} maturity={channelSource?.maturity} note={channelSource?.note} selectedKind={channelSelected.kind} />
           ) : (
-            <SourceBrowse def={channelSource} onDetailOpenChange={setBrowseDetailOpen} />
+            <SourceBrowse def={channelSource} onDetailOpenChange={setBrowseDetailOpen} scrollerRef={channelScroller} />
           )}
         </div>
       </div>

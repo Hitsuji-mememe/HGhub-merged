@@ -33,6 +33,7 @@ import { IBack, IFireF, IPlayF, IStar, IStarF } from "../../shared/ui/icons";
 import { useStore } from "../../shared/model/store";
 import { externalHashId } from "../../shared/model/localLibrary";
 import { registerOverlayBack } from "../../shared/lib/back";
+import { useScrollKeeper } from "../../shared/lib/useScrollKeeper";
 import { Player } from "../playback";
 import { extractArticleBlocks } from "./articleBlocks.ts";
 import { createAdapter } from "./adapters/index.ts";
@@ -46,8 +47,11 @@ type DetailState =
   | { phase: "ready"; item: SourceItem; detail: SourceDetail; streamUrl: string | null; play: boolean }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourcePosts({ def, compact = false, onShowAll, onSettledEmpty, openExternalId }: {
+export default function SourcePosts({ def, compact = false, onShowAll, onSettledEmpty, openExternalId, scrollerRef }: {
   def: SourceDef;
+  /** 宿主 scroller 下传（fix335/d-scroll）：滚动恢复 hook 据此读写
+   * 宿主滚动容器；未传（分类总览 compact 形态）时恢复静默不生效。 */
+  scrollerRef?: { current: HTMLElement | null };
   /** compact＝分类总览预览形态：只拉第一页少量条目、无哨兵续页，
    * 底部「查看全部」由调用方接（跳吃瓜页）。 */
   compact?: boolean;
@@ -78,6 +82,10 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   const detailSeq = useRef(0);
   const failAt = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  /* 滚动恢复（fix335/d-scroll）：详情分支替换列表期间宿主 scroller
+   * 高度塌缩、scrollTop 被钳 0——打开详情前 capture、回列表且数据
+   * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
+  const { captureScroll } = useScrollKeeper(`posts:${def.id}`, scrollerRef, detail === null && items.length > 0);
   const pageSize = compact ? 8 : 20;
 
   /* 站务型推广帖异步验杀（fix333/promo-004）：仅声明 staffVerify
@@ -202,6 +210,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   }, [detailOpen, closeDetail]);
 
   const openItem = useCallback(async (item: SourceItem) => {
+    captureScroll();
     /* 代次守卫（fix335/detail-guard）：旧码 await 后无条件
      * setDetail——切源后旧源迟到响应把详情复活到新源列表之上、
      * 改开他条被旧响应覆盖、加载中关闭后详情自行复活，夹具三
@@ -221,7 +230,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
     } catch (e) {
       if (mySeq === detailSeq.current) { setDetail({ phase: "error", item, message: (e as Error).message || "详情加载失败" }); }
     }
-  }, [def]);
+  }, [def, captureScroll]);
 
   /* 回访直达消费（G4）：在可见列表（验杀/标题兜底后）中命中才
    * 打开，消费一次。 */

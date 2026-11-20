@@ -78,6 +78,10 @@ export function PostsPage({ onBack, wide, initialSourceId, openExternalId }: {
     getId: (item) => item.id,
     request: (next) => api.postCategory("remen-chigua", next, 20, "latest"),
   });
+  /* 外部源分支的宿主 scroller（fix335/d-scroll）：下传给 SourcePosts
+   * 供滚动恢复 hook 读写（原生分支走 usePaginatedList 的 scroller、
+   * 栈页保活天然恢复，不共用）。 */
+  const extScroller = useRef<HTMLDivElement>(null);
 
   if (!isNativeSource) {
     const postsRoute = resolvePostsBrowse(activeSource);
@@ -94,9 +98,9 @@ export function PostsPage({ onBack, wide, initialSourceId, openExternalId }: {
           </div>
           <div className="px-4 pb-2"><SourceSwitcher options={postSourceOptions} value={sourceId} onChange={setSourceId} ariaLabel="吃瓜数据源切换" /></div>
         </div>
-        <div className="flex-1 scroll-y pb-8">
+        <div ref={extScroller} className="flex-1 scroll-y pb-8">
           {postsRoute === "browse" && activeSource ? (
-            <SourcePosts def={activeSource} openExternalId={openExternalId} />
+            <SourcePosts def={activeSource} openExternalId={openExternalId} scrollerRef={extScroller} />
           ) : (
             <SourcePendingNotice displayName={selectedSource.label} maturity={activeSource?.maturity} note={activeSource?.note} selectedKind={selectedSource.kind} />
           )}

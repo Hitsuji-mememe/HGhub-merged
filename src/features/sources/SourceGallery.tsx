@@ -15,6 +15,7 @@ import { Empty } from "../../shared/ui/ui";
 import { IBack, IGrid, IStar, IStarF } from "../../shared/ui/icons";
 import { AlbumViewer } from "./AlbumViewer.tsx";
 import { registerOverlayBack } from "../../shared/lib/back";
+import { useScrollKeeper } from "../../shared/lib/useScrollKeeper";
 import { useStore } from "../../shared/model/store";
 import { externalHashId } from "../../shared/model/localLibrary";
 import { setImageTraceSurface } from "../../shared/lib/feedTrace";
@@ -27,11 +28,14 @@ type AlbumState =
   | { phase: "ready"; item: SourceItem; images: string[]; index: number }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourceGallery({ def, openExternalId }: {
+export default function SourceGallery({ def, openExternalId, scrollerRef }: {
   def: SourceDef;
   /** G4 回访直达（fix334/L3）：同 SourceBrowse 口径——已加载列表
    * 含目标相册才自动打开、消费一次，不在列表不强求。 */
   openExternalId?: string;
+  /** 宿主 scroller 下传（fix335/d-scroll）：滚动恢复 hook 据此读写
+   * 宿主滚动容器；未传（分类总览 compact 等形态）时恢复静默不生效。 */
+  scrollerRef?: { current: HTMLElement | null };
 }) {
   /* 进入浏览面补探（fix331/source-reliability）：同 SourceBrowse 口径。 */
   useSourceSelfCheckOnView(def);
@@ -51,6 +55,10 @@ export default function SourceGallery({ def, openExternalId }: {
   const albumSeq = useRef(0);
   const failAt = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  /* 滚动恢复（fix335/d-scroll）：相册分支替换列表期间宿主 scroller
+   * 高度塌缩、scrollTop 被钳 0——打开相册前 capture、回列表且数据
+   * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
+  const { captureScroll } = useScrollKeeper(`gallery:${def.id}`, scrollerRef, album === null && items.length > 0);
 
   const load = useCallback(async (reset: boolean) => {
     if (busy.current) return;
@@ -141,6 +149,7 @@ export default function SourceGallery({ def, openExternalId }: {
   useEffect(() => () => setImageTraceSurface("app"), []);
 
   const openAlbum = useCallback(async (item: SourceItem) => {
+    captureScroll();
     const adapter = createAdapter(def);
     if (!adapter) { setAlbum({ phase: "error", item, message: "该源未注册可用适配器" }); return; }
     /* 代次守卫（fix335/a-album-guard，照 load 的 seq 既有形态）：
@@ -159,7 +168,7 @@ export default function SourceGallery({ def, openExternalId }: {
     } catch (e) {
       if (mySeq === albumSeq.current) { setAlbum({ phase: "error", item, message: (e as Error).message || "图集加载失败" }); }
     }
-  }, [def]);
+  }, [def, captureScroll]);
 
   /* 回访直达消费（G4）：目标相册在已加载列表中才打开，消费一次。 */
   useEffect(() => {
