@@ -45,9 +45,12 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
   const category = read("../category/Category.tsx");
   assert.ok(category.includes('{ cate: "original", name: "视频"'), "original 频道显示名改「视频」");
   assert.ok(!category.includes('"ai-manju"'), "Category 代码无 ai-manju 子筛值残留（注释中的撤除说明除外）");
-  const catesBlock = category.slice(category.indexOf("const ORIGINAL_CATES"), category.indexOf("const originalSort"));
-  assert.ok(catesBlock.includes('value: "all"'), "ORIGINAL_CATES 只留全部");
-  assert.ok(!catesBlock.includes("ai-duanju"), "ORIGINAL_CATES 无 ai-duanju 子筛");
+  /* 断言适配（fix336/ui-fixes）：ORIGINAL_CATES/originalSort 随原
+   * 生视频列表（空壳）退场整删——条目7「子筛只留全部」的口径由
+   * 「原生列表不存在、子筛无从谈起」构造性满足，改钉退场事实
+   * （旧码上本段必红）；频道改名与短剧频道两条断言不变。 */
+  assert.ok(!category.includes("const ORIGINAL_CATES"), "ORIGINAL_CATES 已随原生视频退场删除（fix336）");
+  assert.ok(!category.includes("const originalSort"), "originalSort 已随原生视频退场删除（fix336）");
   assert.ok(category.includes('{ cate: "ai-duanju", name: "短剧"'), "短剧频道本身不动");
   const inplace = read("../search/InplaceSearch.tsx");
   assert.ok(inplace.includes('scope === "original" ? "视频"'), "InplaceSearch 显示名一致改「视频」");
@@ -57,7 +60,13 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
 {
   const category = read("../category/Category.tsx");
   assert.ok(category.includes('sourcesForCategory("image"'), "图片分区经 sourcesForCategory(image) 列 active 注册表");
-  assert.ok(category.includes("cate: `image:${s.id}`"), "图片源点开推 channel 栈页 image:<id>");
+  /* 断言适配（fix336/ui-fixes）：总览图片行（原 cate: `image:${s.id}`
+   * 推送点）随总览改四频道行退场——图片源到达改经总览图片行进
+   * 频道页（cate="image"、页内 chips 切源），单源深链由资料库回
+   * 访（Profile 的 `${kind}:${sourceId}` 通式推送）承接，改钉
+   * ChannelPage 两分支识别字面。 */
+  assert.ok(category.includes('cate.startsWith("image:")'), "ChannelPage 识别 image:<id> 深链分支（回访到达不变）");
+  assert.ok(category.includes('if (cate === "image")'), "ChannelPage 有图片频道分支（总览图片行落点）");
   assert.ok(category.includes("<SourceGallery def={imageSource}"), "图集页在 ChannelPage 挂载");
   const imageSources = sourcesForCategory("image", getBuiltinRegistry());
   const ids = imageSources.map((s) => s.id);

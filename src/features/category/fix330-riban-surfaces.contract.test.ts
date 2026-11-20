@@ -18,16 +18,23 @@
  * 的生产调用点文本断言全部失败；本文件在基线即红。
  *
  * 覆盖：
- * - 总览列示的生产选择器口径：sourcesForCategory("video",
+ * - 列示的生产选择器口径：sourcesForCategory("video",
  *   active) 恰为四源（已启用∧category="video"）、全员 probe
- *   （总览须带「未实测」标）；任一源 enabled=false 即退出列示
+ *   （列示须带「未实测」标）；任一源 enabled=false 即退出列示
  *   （active 口径、清单覆盖后自动生效）；
  * - 与频道页切源片口径一致：sourcesForChannel("original") 同含
  *   四源（两条到达路径列同一集合、不许再分叉）；
- * - 生产调用点：总览区段（aria-label/深链 cate 形态）与
- *   ChannelPage 的 video: 分支（SourceBrowse/诚实提示）以源码
- *   文本断言守（与工厂分发文本断言同口径——JSX 渲染层无 Node
- *   契约直驱形态，接线证据另由 check-wiring 清单条目守）。
+ * - 生产调用点：列示面与 ChannelPage 的 video: 分支
+ *   （SourceBrowse/诚实提示）以源码文本断言守（与工厂分发文本
+ *   断言同口径——JSX 渲染层无 Node 契约直驱形态，接线证据另
+ *   由 check-wiring 清单条目守）。
+ *
+ * 断言适配（2026-11-20 fix336/ui-fixes，用户亲定分类逻辑重定）：
+ * 总览「视频源」区段随总览改四频道行整区退场——本契约的列示义
+ * 务由「总览区段」改钉「视频频道切源片」（到达路径＝总览视频
+ * 行→频道页 chips，四源集合断言不变、仍是同一选择器口径）；
+ * video:<id> 深链分支（资料库回访在用）断言不变。总览不得再
+ * 出现视频源区段/源行消费，改以负断言守退场不复活。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -42,7 +49,7 @@ const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara", "hentaihaven"];
   assert.deepEqual(
     listed.map((s) => s.id).sort(),
     [...RIBAN_IDS].sort(),
-    "总览视频源列示 = active 注册表 category=video 已启用源，恰为里番四源",
+    "视频源列示集合 = active 注册表 category=video 已启用源，恰为里番四源",
   );
   for (const s of listed) {
     assert.equal(s.enabled, true, `${s.id} 已启用才入列示`);
@@ -55,27 +62,28 @@ const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara", "hentaihaven"];
   assert.deepEqual(
     sourcesForCategory("video", overlaid).map((s) => s.id).sort(),
     ["hanime-tv", "hanime1", "hentaihaven"].sort(),
-    "enabled=false 的源不入总览列示（active 注册表口径）",
+    "enabled=false 的源不入列示（active 注册表口径）",
   );
   /* 两条到达路径同集合：频道页切源片（sourcesForChannel）与
-   * 总览列示不得分叉。 */
+   * 列示不得分叉。 */
   assert.deepEqual(
     sourcesForChannel("original", builtin).map((s) => s.id).sort(),
     [...RIBAN_IDS].sort(),
-    "频道页切源片与总览列示为同一四源集合",
+    "频道页切源片与列示集合为同一四源集合",
   );
 }
 
 /* ── 生产调用点（Category.tsx 源码文本断言） ── */
 {
   const src = readFileSync(new URL("./Category.tsx", import.meta.url), "utf8");
-  assert.ok(src.includes('aria-label="视频源"'), "总览有「视频源」区段（与图片区同列示形态）");
-  /* 断言适配（fix335/e-category）：总览四区改读 surfaces 派生，
-   * 列示名单由 sourcesForSurface(overview-video-rows) 派生（与
-   * routeForSurface 互为一致、仍消费 active 注册表、非写死名单）；
-   * 上方选择器口径段对 sourcesForCategory 本身的断言不变。 */
-  assert.ok(src.includes("sourcesForSurface(\"overview-video-rows\", activeSources)"), "总览列示消费 surfaces 派生（active 注册表、非内置表、非写死名单）");
-  assert.ok(src.includes("cate: `video:${s.id}`"), "总览条目深链 cate=video:<源id>（与 image:<源id> 同约定）");
+  /* 列示面（fix336/ui-fixes 适配）：总览「视频源」区段已退场，
+   * 四源列示改由视频频道切源片承接——名单经 sourceOptionsFor
+   * Channel(cate) 自 sourcesForChannel 派生（与上方选择器口径
+   * 段同集合、消费 active 注册表、非写死名单）；总览侧以负断
+   * 言守退场（区段与 overview-video-rows 消费不许复活）。 */
+  assert.ok(!src.includes('aria-label="视频源"'), "总览无「视频源」区段（fix336 退场、源不外露）");
+  assert.ok(!src.includes("overview-video-rows"), "总览不再消费 overview-video-rows（面已删）");
+  assert.ok(src.includes("sourceOptionsForChannel(cate)"), "频道切源片消费频道-源映射派生（active 注册表、非写死名单）");
   assert.ok(src.includes('cate.startsWith("video:")'), "ChannelPage 识别 video: 深链（原生频道加载跳过＋专属分支）");
   assert.ok(src.includes("SourceBrowse def={videoSource}"), "video: 分支经 SourceBrowse 走适配器真取数（生产调用点）");
   assert.ok(src.includes("videoSource.maturity === \"blocked\""), "video: 分支 blocked/缺源走诚实提示、不拉数据冒充");

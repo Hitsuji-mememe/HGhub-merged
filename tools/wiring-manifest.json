@@ -733,22 +733,12 @@
     },
     {
       "id": "fix321-f4-browse-partition",
-      "item": "3.2.1修复F4线 分类浏览面按性质分组（定义＋Category 消费）；fix322 升级：最终裁决改标记优先的 partitionCardsByResolvedKind（见 fix322-kind-* 条目），本条改绑新符号",
+      "item": "3.2.1修复F4线 分类浏览面按性质分组（定义＋Category 消费）；fix322 升级：最终裁决改标记优先的 partitionCardsByResolvedKind（见 fix322-kind-* 条目），本条改绑新符号；fix336/ui-fixes 适配：Category 消费者（原生视频频道列表）随空壳退场删除，分组函数保留于 shared（搜索面经 resolveHuangguoKind 同源消费、语义由 fix321-f4/fix322-kind 契约守），本条改钉 shared 定义在位",
       "symbol": "partitionCardsByResolvedKind",
       "files": [
-        "src/shared/lib/contentKind.ts",
-        "src/features/category/Category.tsx"
+        "src/shared/lib/contentKind.ts"
       ],
       "min": 2
-    },
-    {
-      "id": "fix321-f4-channel-kind-filter",
-      "item": "3.2.1修复F4线 视频频道分页 incoming 按性质剔除剧集组再入列表；fix322 升级：补判 Detail 品类标记后经统一裁决只入 video 组，本条改绑新符号；fix330/ui-fixes 再升级：分组改渲染期现算（原始页先落座、补判 effect 非阻塞触发），符号不变、接缝位置由 loadMore 移到 items 计算（device-verdict-322 #10 空转根治）",
-      "symbol": "partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video",
-      "files": [
-        "src/features/category/Category.tsx"
-      ],
-      "min": 1
     },
     {
       "id": "fix321-f4-shared-kind",
@@ -1213,11 +1203,10 @@
     },
     {
       "id": "fix322-kind-marker-extraction",
-      "item": "fix322标记线 Detail 品类标记单点提取 kindSignalOfDetail（shared 定义＋Category/Search/useSearchResults 三面补判共用构造，摘字段不丢 tracking 标记）",
+      "item": "fix322标记线 Detail 品类标记单点提取 kindSignalOfDetail（shared 定义＋Search/useSearchResults 两面补判共用构造，摘字段不丢 tracking 标记）；fix336/ui-fixes 适配：原 Category 补判面随原生视频列表退场，消费者收敛为搜索两面",
       "symbol": "kindSignalOfDetail",
       "files": [
         "src/shared/lib/contentKind.ts",
-        "src/features/category/Category.tsx",
         "src/features/search/Search.tsx",
         "src/features/search/useSearchResults.ts"
       ],
@@ -1597,16 +1586,6 @@
       "min": 3
     },
     {
-      "id": "fix330-ui-overview-empty",
-      "item": "fix330/ui-fixes 分类总览空区隐藏谓词 contentSectionVisible（定义＋总览消费）；fix335/e-category 适配：频道/吃瓜预览区退场后谓词保留给源行区（派生计数口径消费）",
-      "symbol": "contentSectionVisible",
-      "files": [
-        "src/features/category/overviewSections.ts",
-        "src/features/category/Category.tsx"
-      ],
-      "min": 3
-    },
-    {
       "id": "fix330-ui-settled-empty",
       "item": "fix330/ui-fixes SourcePosts 已结空态回报 onSettledEmpty（定义/回报口＋可选 prop 消费形态保留）；fix335/e-category 后总览 compact 消费退场、计数由 SourcePosts 本体落点满足，Posts 页不传不受影响",
       "symbol": "onSettledEmpty",
@@ -1638,8 +1617,8 @@
     },
     {
       "id": "fix330-riban-category-video-sources",
-      "item": "fix330-riban-surfaces 分类总览「视频源」区段（active 注册表 category=video 列示＋probe 未实测标）",
-      "symbol": "aria-label=\"视频源\"",
+      "item": "fix330-riban-surfaces 里番四源列示（active 注册表 category=video 列示＋probe 未实测标）；fix336/ui-fixes 迁面：总览「视频源」区段随总览改四频道行退场，列示改钉视频频道切源片派生（sourceOptionsForChannel，四源同集合、徽标经切换器同一派生）",
+      "symbol": "sourceOptionsForChannel(cate)",
       "files": [
         "src/features/category/Category.tsx"
       ],
@@ -1761,11 +1740,10 @@
     },
     {
       "id": "fix331-reliability-surface-badges",
-      "item": "fix331/source-reliability 展示面徽标改读同一派生 sourceHealthBadgeText：源切换器与分类总览源行各须在位",
+      "item": "fix331/source-reliability 展示面徽标改读同一派生 sourceHealthBadgeText：源切换器与分类总览源行各须在位；fix336/ui-fixes 适配：总览源行退场后徽标展示面收敛为切换器 chips 单面（图片/视频/吃瓜三频道共用同一派生，口径不变）",
       "symbol": "sourceHealthBadgeText",
       "files": [
-        "src/features/sources/SourceSwitcher.tsx",
-        "src/features/category/Category.tsx"
+        "src/features/sources/SourceSwitcher.tsx"
       ],
       "each": true
     },
@@ -2257,12 +2235,12 @@
     },
     {
       "id": "fix335-e-overview-derivation",
-      "item": "fix335/e-category 分类总览索引化：四区改读 surfaces 派生 sourcesForSurface（图片行/视频行/吃瓜补探名单），不再本地拼装名单",
+      "item": "fix335/e-category 分类总览索引化：四区改读 surfaces 派生 sourcesForSurface（图片行/视频行/吃瓜补探名单），不再本地拼装名单；fix336/ui-fixes 适配：总览源行退场后本面只剩吃瓜补探名单（overview-posts）一处消费，图片/视频名单改由频道面（channel-image/channel-video）在频道页消费，min 随之 3→1",
       "files": [
         "src/features/category/Category.tsx"
       ],
       "symbol": "sourcesForSurface(\"overview-",
-      "min": 3
+      "min": 1
     },
     {
       "id": "fix335-e-posts-topup-relocated",
@@ -2281,6 +2259,52 @@
         "src/features/category/Category.tsx"
       ],
       "symbol": "nativeSourceId",
+      "min": 3
+    },
+    {
+      "id": "fix336-search-album-fullscreen",
+      "item": "fix336/ui-fixes 相册盖全屏：Search 图片详情宿主改 fixed 顶层覆盖（与 SourceGallery 源内宿主同形态），摘此包裹搜索宿主即回双标题栏/导航漏出旧形态（契约 fix336-ui-fixes (D) 另钉 immersive 与返回落点）",
+      "files": [
+        "src/features/search/Search.tsx"
+      ],
+      "symbol": "fixed inset-0 z-40 bg-black",
+      "min": 1
+    },
+    {
+      "id": "fix336-discovery-dedupe",
+      "item": "fix336/ui-fixes DiscoveryBar 标签与分类同名剔除：标签行消费 discoveryOptions.dedupeTagOptions（规范化比对＋已选保留），摘此调用标签墙同名项即回潮",
+      "files": [
+        "src/features/sources/DiscoveryBar.tsx"
+      ],
+      "symbol": "dedupeTagOptions",
+      "min": 1
+    },
+    {
+      "id": "fix336-discovery-collapse",
+      "item": "fix336/ui-fixes DiscoveryBar 默认单行横滑＋展开入口：展开开关带 aria-expanded，默认 flex-nowrap 横滑、展开才 flex-wrap 全量（契约 fix336-ui-fixes (D) 另钉两形态字面）",
+      "files": [
+        "src/features/sources/DiscoveryBar.tsx"
+      ],
+      "symbol": "aria-expanded",
+      "min": 1
+    },
+    {
+      "id": "fix336-category-image-channel",
+      "item": "fix336/ui-fixes 图片频道页：ChannelPage cate=image 分支经 sourceOptionsForCategory(image) 出 chips 名单（摘此派生图片频道无源可切），与 cate=image:<id> 深链分支分工",
+      "files": [
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "sourceOptionsForCategory(\"image\")",
+      "min": 1
+    },
+    {
+      "id": "fix336-channel-default-source",
+      "item": "fix336/ui-fixes 频道初始落点：selectedSource.defaultSourceId 单一派生（最近打开记忆优先、无记忆首源），Category 图片/视频两频道初始选择共用（摘任一消费该频道回落点即漂移）",
+      "files": [
+        "src/features/sources/selectedSource.ts",
+        "src/features/category/Category.tsx"
+      ],
+      "symbol": "defaultSourceId",
       "min": 3
     }
   ]

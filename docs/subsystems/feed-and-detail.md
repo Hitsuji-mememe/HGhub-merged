@@ -39,8 +39,8 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
    搜索面同病（3.2.1 F4b 线）：通用搜索端点 `/api/search?type=video` 的载荷不下发剧集结构信号（字段缺失或恒 0；本地 Rust/前端三层审计无丢弃点、信号丢在上游响应本身，证据 `fix321/evidence/f4b/root-cause.md`），同 ID 条目在频道/详情里却有——判定函数在场也无信号可用、必然默认落视频（搜「御姐」视频页签混入同批 AI 短剧，用户实报）。搜索归类改走 `contentKind.searchKindForHuangguoVideo`（仍为唯一出处）：卡自带正计数信号直接判；信号缺失者由 Search 以条目 ID 查 `api.video` Detail 规范信号补判（`hgCanonicalSignals`，作用域＋线路代次进 key、并发 4、失败静默）；补判也无信号 → `unknown` 安全侧暂扣、不进任何页签（不默认落视频、不猜落短剧），补判到达后自动重归类。代价：详情不可达条目在搜索中暂不可见。
    归类标记线（fix322，3.2.1 真机复报）：结构判定上线后单集短剧仍漏进视频区——单集短剧与普通视频集数同形（1 集），结构信号本身不构成性质证据。上游实测（2026-11-19）：列表/搜索载荷全字段（25 键）无任何品类标记，显式标记只在 Detail 的 `tracking.drama_type_id`（上游官方分类表 `/api/site/categories/video`：24=短剧、25=漫剧 → 短剧；26=AI换脸、27=AI魔改 → 视频；`video_type` 恒 1 非标记）；抽样 17 条 Detail（集数 1..42）标记全部 24/25，锚点《我的怪力母狗》（id 13765，列表 1 集）Detail 标记 24。裁决优先级定版（`contentKind.resolveHuangguoKind`，全归类面唯一出处）：①显式标记（卡自带→canonical 补判）为准、结构不得推翻；②无标记时结构只在 ＞1 集方向决定性成立；③≤1 集且标记不可得 → `unknown` 暂扣、绝不默认落视频。补判接缝同步升级：规范信号一律经 `kindSignalOfDetail` 单点构造（集数＋tracking 标记——fix322 前三面补判只摘集数、标记在提取点被丢，是本 bug 的直接成因）；触发门 `needsCanonicalKindLookup`（无自带标记且集数 ≤1 才查，多集结构已定不查——其标记与结构一致有抽样支持，多集 26/27 为已知漏检边界）；浏览面一并接入补判（推翻 F4b 期「浏览面不走补判」旧结论：频道载荷集数是真的，但 ≤1 集本身歧义）——总览经 `useCanonicalKindSignals` 异步补判后以 `partitionCardsByResolvedKind` 分组（unknown 不渲染）、频道页每页 incoming 先 await 本页补判再只入 video 组（`kindFiltered` 计数口径随之含暂扣数）。代价：补判不可达的单集条目在归类面暂不可见（换归类正确性，承 F4b 安全侧）。
    频道页接缝再修订（fix330/ui-fixes，3.2.2 真机复报 device-verdict-322 #10）：fix322 的「频道页每页先 await 补判再入列表」在整页待判时把分页堵在 Detail 往返上（并发 4、单查 15s 超时、requested-once 失败永不重试），整页被滤光时哨兵只能以补判速度翻页——真机「已加载 0 部·4/13 页」持续转圈无终态。现改渲染期分组：原始页先落座（分页只受接口速度与服务端 pages 约束），补判由 effect 非阻塞触发、信号到达经 version 自增重算归位，呈现集在 render 期以同一符号 `partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video` 现算；上游耗尽（page≥pages）且呈现为空时落诚实终态「暂无已确认条目」，绝不空转。traceFeed page.success 不再记 kindFiltered（落座时信号未齐、计数只会是假数）。证伪夹具 `tests/list-lifecycle.tsx` channel-spin 场景（三页全无标记单集＋api_video 永不返回：旧实现驱动超时、新实现落终态），驱动 `scripts/test-list-lifecycle.mjs`。
-   总览空区隐藏（fix330/ui-fixes，用户裁定）：分区「已尝试∧非加载∧无错误∧条目为 0」时整区不渲染（含视频区），谓词单点 `src/features/category/overviewSections.ts` 的 `contentSectionVisible`；频道区 attempted 取 errors 落痕（loadPreview 起始即写），吃瓜区黄果模式走 posts 状态、外部源 browse 模式经 `SourcePosts` 的 `onSettledEmpty` 回报（首批已结∧空），图片区无已启用源时整区不渲染。加载中/未尝试/出错一律保持可见（错误态与重试入口不被整洁吞掉）；blocked/pending 诚实提示不是内容区、恒可见。契约 `overviewSections.contract.test.ts`。
-   里番面接线（fix330-riban-surfaces，3.3.0 真机首验复报）：视频品类四源（hanime-api/iwara-api/hanime1/hentaihaven-api 模板）在总览缺席——总览此前只有图片区有源入口列示、吃瓜区有源切换器，视频品类只能先进「视频」频道页再切源片到达（注册表已启用≠浏览面已接通在视频面的复发，与清单 v2 将其中三源置 enabled=false 无关、纯属区段缺席）。现总览新增「视频源」区：与图片区同列示口径（`sourcesForCategory("video", activeSources)`、probe 带「未实测」标、空集整区不渲染），点开推 `cate="video:<源id>"` 深链（与 `image:<源id>` 同约定、不新增路由 kind），`ChannelPage` 专属分支经 `SourceBrowse` 取数、源缺失/blocked 走诚实提示，原生频道加载 effect 对 `video:` 前缀同样跳过。详情面：搜索副本加载核抽为纯模块 `src/features/search/copyLoader.ts`（`loadSearchCopy`，依赖注入、Search 只组装生产依赖），video/drama 分支改先走适配器 `detail` 段（缓存复用、失败降级不阻断取流）再 `resolve`——此前直调 resolve、单副本时详情面 detail 恒 undefined（描述/分集全缺），且失败只能落在从未被探过的 resolve 段。逐 seam 普查结论：App 内路径（结果卡→openMerged→openExternal→loadWithFallback→加载核→createAdapter→detail/resolve；main.tsx 注入；Rust source_fetch/source_post 注册与白名单）无断点，002 适配器本机真实网络 list/detail/resolve 全通；真机失败段收窄在 resolve 独有三段（ct 域 GET/WebCrypto/auth 域 POST＋设备出口），F7 自检只探 list+detail 不探 resolve——该缺口待后续自检扩探针解决，本批不冒充已修。契约 `fix330-riban-surfaces.contract.test.ts`（category/search 两份，四源逐源场景＋列示口径，基线旧红）；接线清单 fix330-riban-* 三条。
+   总览空区隐藏（fix330/ui-fixes，用户裁定）：分区「已尝试∧非加载∧无错误∧条目为 0」时整区不渲染（含视频区），谓词单点 `src/features/category/overviewSections.ts` 的 `contentSectionVisible`；频道区 attempted 取 errors 落痕（loadPreview 起始即写），吃瓜区黄果模式走 posts 状态、外部源 browse 模式经 `SourcePosts` 的 `onSettledEmpty` 回报（首批已结∧空），图片区无已启用源时整区不渲染。加载中/未尝试/出错一律保持可见（错误态与重试入口不被整洁吞掉）；blocked/pending 诚实提示不是内容区、恒可见。契约 `overviewSections.contract.test.ts`。（fix336/ui-fixes 已改：总览改四频道行后无数据驱动分区，谓词、`overviewSections.ts` 与其契约一并删除，见上方 fix336 段。）
+   里番面接线（fix330-riban-surfaces，3.3.0 真机首验复报）：视频品类四源（hanime-api/iwara-api/hanime1/hentaihaven-api 模板）在总览缺席——总览此前只有图片区有源入口列示、吃瓜区有源切换器，视频品类只能先进「视频」频道页再切源片到达（注册表已启用≠浏览面已接通在视频面的复发，与清单 v2 将其中三源置 enabled=false 无关、纯属区段缺席）。现总览新增「视频源」区：与图片区同列示口径（`sourcesForCategory("video", activeSources)`、probe 带「未实测」标、空集整区不渲染），点开推 `cate="video:<源id>"` 深链（与 `image:<源id>` 同约定、不新增路由 kind），`ChannelPage` 专属分支经 `SourceBrowse` 取数、源缺失/blocked 走诚实提示，原生频道加载 effect 对 `video:` 前缀同样跳过。详情面：搜索副本加载核抽为纯模块 `src/features/search/copyLoader.ts`（`loadSearchCopy`，依赖注入、Search 只组装生产依赖），video/drama 分支改先走适配器 `detail` 段（缓存复用、失败降级不阻断取流）再 `resolve`——此前直调 resolve、单副本时详情面 detail 恒 undefined（描述/分集全缺），且失败只能落在从未被探过的 resolve 段。逐 seam 普查结论：App 内路径（结果卡→openMerged→openExternal→loadWithFallback→加载核→createAdapter→detail/resolve；main.tsx 注入；Rust source_fetch/source_post 注册与白名单）无断点，002 适配器本机真实网络 list/detail/resolve 全通；真机失败段收窄在 resolve 独有三段（ct 域 GET/WebCrypto/auth 域 POST＋设备出口），F7 自检只探 list+detail 不探 resolve——该缺口待后续自检扩探针解决，本批不冒充已修。契约 `fix330-riban-surfaces.contract.test.ts`（category/search 两份，四源逐源场景＋列示口径，基线旧红）；接线清单 fix330-riban-* 三条。（fix336/ui-fixes 已改：总览「视频源」区段退场，四源列示迁视频频道切源片、`video:<id>` 深链分支保留，见上方 fix336 段。）
    当前条目由 `position` 与 `effectiveVideoIds` 锚定；列表变化时优先保持正在播放的 id，
    找不到才取相邻可见项。
 2. 详情读取走 `useFeedDetails.requestDetail(id)`。single-flight key 是
@@ -261,6 +261,51 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   postsRoute 改用与 `surfaces.isNativeSource` 同式的模板判据
   （该模块被 surfaces 反向 import，不回引以免成环，同
   templateSegments 先例）。两处行为逐字不变。
+  fix336/ui-fixes（2026-11-20，用户亲定分类逻辑重定＋真机三
+  报）：分类面四件现行口径——①总览只留频道行：短剧/视频/吃
+  瓜/图片四行由 `overviewRows` 单一数组派生、页头计数＝行数
+  （恒 4）；图片/视频源行整区退场，源列示出处迁频道内页切换
+  器 chips 与 `image:<id>`/`video:<id>` 深链（深链分支保留、
+  资料库回访生产者 Profile 不变）。surfaces 同步：总览源行两
+  面（overview-image-rows/overview-video-rows）删除、新增
+  channel-image 面（与 channel-video 同构），面数 20→19；图
+  片/视频源的 show-batch 补探与健康徽标随之迁各频道页的
+  `SourceSwitcher`（挂载批量补探＋徽标同一派生），总览只剩吃
+  瓜补探名单（overview-posts）一处消费。空区隐藏谓词
+  `contentSectionVisible` 与 overviewSections.ts 随源行区退场
+  删除（总览再无数据驱动分区）。②图片频道页：ChannelPage 新
+  增 `cate="image"` 分支（与深链分支分开），页内
+  `SourceSwitcher` chips 切已启用图片源（名单＝surfaces
+  channel-image 面同源），默认落点经 `selectedSource.
+  defaultSourceId`（最近打开记忆优先、无记忆落首个可用源；
+  记忆信号即既有 `hghubx_source_last_view_v1`），blocked 源
+  在 chips 挂徽标、点开落 `SourcePendingNotice`。③视频频道
+  原生空壳退场：原生「视频」列表的上游确认端点已下线、频道
+  恒空（调查 fix336/investigation-336.md 定案），切源 chips
+  只列外部源、默认落首个可用外部源（同 defaultSourceId 记
+  忆口径），无外部源落诚实空态；surfaces 的 channel-video×
+  原生改声明 native-not-in-video-channel 出局。原生专属死分
+  支同批清理：ChannelPage 的 `api.originalVideos` 取数臂、渲
+  染期品类分组 `partitionCardsByResolvedKind`、「暂无已确认
+  条目」确认门终态、ORIGINAL_CATES 子筛、归类补判钩子
+  `useCanonicalKindSignals` 全删——性质判定/补判的活面自此
+  只剩搜索两面（Search/useSearchResults），contentKind 纯函
+  数保留（同源口径不变）；原生短剧/吃瓜面完全不动。站内搜
+  索 scope="original" 入口随原生分支删除（InplaceSearch 的
+  scope 通道保留）。④DiscoveryBar 收敛（用户实报标签墙碍
+  读）：各维度行默认单行横滑（flex-nowrap＋overflow-x-auto）
+  ＋整条「展开」入口（aria-expanded），展开才 flex-wrap 全
+  量；标签维度经 `discoveryOptions.dedupeTagOptions` 剔除与
+  分类同名条目（trim＋不分大小写、label/value 双路比对、已
+  选中标签保留防悬空），Top-N 上限与 disc 规范化/指纹口径
+  不变。⑤相册宿主同形态：Search 图片详情改 fixed inset-0
+  z-40 顶层覆盖＋immersive（与 SourceGallery 逐字同形态），
+  双标题栏/壳导航漏出根治；AlbumViewer 的 immersive 口径改
+  为两宿主必传。契约 `fix336-ui-fixes.contract.test.ts`（落
+  点/去重真值表＋频道名单＋两宿主与总览接线）；fix334-
+  surfaces/fix330-riban-surfaces/fix321-f4/fix322-kind/
+  fix321-accept-f4 五契约同步适配（退场断言在基线可红、活面
+  覆盖不减）；证据 `~/workspace/hghub/fix336/evidence/ui-fixes.md`。
 - 封面状态机（同批）：`ImageLoad` 状态 loading→decoded→displayed 或
   failed(reason)（http/timeout/decode 分因），每 attempt 20s 超时，
   src 变化自动重试；失败计数与分页证据同节进诊断报告。fix2.1 修正
@@ -501,7 +546,7 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   判据无需改动；契约 `fix333-m4.contract.test.ts` 以列表同批
   夹具驱动 search 路径钉同排除集，采样原始页与逐条核对在
   `fix333/evidence/m4-search/`。
-- 图集查看器形态（3.2.1 fix321-F6，2026-11-19 用户实报图片太小）：图集查看统一走共用 `AlbumViewer`（`src/features/sources/AlbumViewer.tsx`，SourceGallery 与搜索图片详情同治）——舞台填满可用高度（SourceGallery 为 fixed 覆满视口、搜索详情页内 h-full）、图片 contain 贴边、无写死比例盒子与上下张按钮行；标题/计数/返回/关闭/缩略图条收进悬浮层（静止 3s 自动淡出、中央点按显隐、左右点按与横滑翻页、缩略图点选跳张且当前张高亮定位），index 受控于调用方单份状态。手势归属（fix322/gallery，2026-11-19 用户实报 146 张图集条划不动）：悬浮层的 touch 事件一律 stopPropagation、与舞台横滑完全隔离，缩略图条本体 `touch-action: pan-x` 走原生横滚快速定位；舞台 touchcancel 清手势起点。几何与条手势由 `scripts/test-layout.mjs` gallery 场景守门（舞台占可用区 ≥98%＋源码层无 4/5 写死盒＋146 张条场景：条上横拖不翻页/快划大位移/尾部点选/翻页后跟随可见）。快速滑动不消失（fix330/ui-fixes，2026-11-19 用户真机实报「图片预览滑的快了会直接消失隐藏」）：双机制根治——(1) 舞台窗口化：只挂当前张±1 三帧（`data-album-frame` 按 index 定 key、仅当前张不透明），邻图随挂载预取，旧单 `Img` 以 src 为 key 逐张重挂在慢图源下快翻张张空白；(2) chrome 活动续命：淡出计时新增活动依赖——缩略图条 `onScroll` 与悬浮层 touch 经 `pokeChrome`（500ms 节流）重置计时，旧计时只挂呼出/切张，条上划找图满 3s 整层在指下淡出。夹具：layout gallery 条场景⑤（条上持续活动跨 3s 闲置窗 chrome 仍可见、停手恢复淡出）＋新场景 gallery-fast-swipe（图源延迟 900ms 下连翻 6 张，落点窗口三帧在场＋邻图请求已发；两场景旧码均红）。沉浸式安全区（fix330/gallery-viewer，2026-11-19 真机实报全屏 chrome 与状态栏重叠）：AlbumViewer 新增 immersive 模式——chrome 内边距按 --sat/--sab/--sal/--sar 让位，fixed 宿主 SourceGallery 传入、搜索详情页内嵌不传（宿主页已处理、免双重让位）；舞台本体不让位保持全幅。缩略图随可见性加载（同线，真机实报全条除当前张外全 HG 占位）：条内缩略图改以条本体为 root 的 IO 闩锁（nearThumbs，进窗含 600px 预取边距才挂 Img 且 eager 取图、闩锁常驻，窗外只占位不发请求不起时钟）；根因是全量 lazy 挂载下浏览器取图窗口（条滚动口）与 Img attempt 时钟窗口（主视口 IO）脱节、且 load effect 重跑会重置 settled 把已加载图误判超时烧光 attempt——Img 侧同步加对账（`settleOkFromDom`：起算前与 timeout 裁决前先核 DOM img 真实状态）。夹具：layout gallery-safe-area（注入 --sat 47/--sab 34 断言顶栏/底条不侵入系统带）＋gallery-strip-load（126 张断言挂图数有界、远端未请求、滚动后尾部出图），两场景旧码均红；WebKit 探针另证已加载图跨 20s 无误烧重拉。
+- 图集查看器形态（3.2.1 fix321-F6，2026-11-19 用户实报图片太小）：图集查看统一走共用 `AlbumViewer`（`src/features/sources/AlbumViewer.tsx`，SourceGallery 与搜索图片详情同治）——舞台填满可用高度（SourceGallery 为 fixed 覆满视口、搜索详情页内 h-full）、图片 contain 贴边、无写死比例盒子与上下张按钮行；标题/计数/返回/关闭/缩略图条收进悬浮层（静止 3s 自动淡出、中央点按显隐、左右点按与横滑翻页、缩略图点选跳张且当前张高亮定位），index 受控于调用方单份状态。手势归属（fix322/gallery，2026-11-19 用户实报 146 张图集条划不动）：悬浮层的 touch 事件一律 stopPropagation、与舞台横滑完全隔离，缩略图条本体 `touch-action: pan-x` 走原生横滚快速定位；舞台 touchcancel 清手势起点。几何与条手势由 `scripts/test-layout.mjs` gallery 场景守门（舞台占可用区 ≥98%＋源码层无 4/5 写死盒＋146 张条场景：条上横拖不翻页/快划大位移/尾部点选/翻页后跟随可见）。快速滑动不消失（fix330/ui-fixes，2026-11-19 用户真机实报「图片预览滑的快了会直接消失隐藏」）：双机制根治——(1) 舞台窗口化：只挂当前张±1 三帧（`data-album-frame` 按 index 定 key、仅当前张不透明），邻图随挂载预取，旧单 `Img` 以 src 为 key 逐张重挂在慢图源下快翻张张空白；(2) chrome 活动续命：淡出计时新增活动依赖——缩略图条 `onScroll` 与悬浮层 touch 经 `pokeChrome`（500ms 节流）重置计时，旧计时只挂呼出/切张，条上划找图满 3s 整层在指下淡出。夹具：layout gallery 条场景⑤（条上持续活动跨 3s 闲置窗 chrome 仍可见、停手恢复淡出）＋新场景 gallery-fast-swipe（图源延迟 900ms 下连翻 6 张，落点窗口三帧在场＋邻图请求已发；两场景旧码均红）。沉浸式安全区（fix330/gallery-viewer，2026-11-19 真机实报全屏 chrome 与状态栏重叠）：AlbumViewer 新增 immersive 模式——chrome 内边距按 --sat/--sab/--sal/--sar 让位，fixed 宿主 SourceGallery 传入、搜索详情页内嵌不传（宿主页已处理、免双重让位）；舞台本体不让位保持全幅。缩略图随可见性加载（同线，真机实报全条除当前张外全 HG 占位）：条内缩略图改以条本体为 root 的 IO 闩锁（nearThumbs，进窗含 600px 预取边距才挂 Img 且 eager 取图、闩锁常驻，窗外只占位不发请求不起时钟）；根因是全量 lazy 挂载下浏览器取图窗口（条滚动口）与 Img attempt 时钟窗口（主视口 IO）脱节、且 load effect 重跑会重置 settled 把已加载图误判超时烧光 attempt——Img 侧同步加对账（`settleOkFromDom`：起算前与 timeout 裁决前先核 DOM img 真实状态）。夹具：layout gallery-safe-area（注入 --sat 47/--sab 34 断言顶栏/底条不侵入系统带）＋gallery-strip-load（126 张断言挂图数有界、远端未请求、滚动后尾部出图），两场景旧码均红；WebKit 探针另证已加载图跨 20s 无误烧重拉。（fix336/ui-fixes 已改：搜索宿主的「页内 h-full 内嵌＋不传 immersive」形态作废——真机实报双标题栏＋壳底部导航漏出，改 fixed 覆满视口＋传 immersive、与 SourceGallery 逐字同形态，「宿主页已处理安全区、免双重让位」的旧假设一并作废，见上方 fix336 段。）
 - 外部源按真站校准第二轮（3.2.1 fix321-F2b，住宅出口四级验收推翻
   机房定性后）：肉视频取流走站内端点模板 `streamUrlTemplate`
   （/api/hls/<id>，resolve 不回详情页找 m3u8）；SWAG/RedGifs 改走

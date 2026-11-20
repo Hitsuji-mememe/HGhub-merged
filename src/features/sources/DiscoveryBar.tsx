@@ -14,12 +14,20 @@
  * 明示，随健康恢复自动可用（useSourceHealthResults 订阅新结果即
  * 重渲染）；partial/unchecked/stale 不禁用——维度全骑列表段，深段
  * 失败不影响列表维度，过期结论也不冒充现行失败。
+ *
+ * 收敛（Muse 2026-11-20 fix336/ui-fixes，用户真机实报「标签分类
+ * 反而导致阅读不便」）：①各维度行默认单行横滑（flex-nowrap＋
+ * overflow-x-auto），整条末尾「展开」入口点开才 flex-wrap 全量
+ * 平铺、「收起」回单行——Top-N 上限口径不变，变的只是默认呈现
+ * 高度；②标签维度剔除与分类同名的条目（discoveryOptions.
+ * dedupeTagOptions，规范化比对，已选中的标签保留防筛选悬空）。
  */
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../shared/ui/ios/controls";
 import { createAdapter } from "./adapters/index.ts";
 import { discoverySpecFor, hasDiscovery, type DiscoveryOption } from "./adapters/templateCapabilities.ts";
 import { classifySelfCheckResult } from "./healthCheck.ts";
+import { dedupeTagOptions } from "./discoveryOptions.ts";
 import { useSourceHealthResults } from "./sourceHealth.ts";
 import type { ListDiscovery, SourceDef, SourceTaxonomy } from "./types.ts";
 
@@ -37,6 +45,9 @@ export default function DiscoveryBar({ def, disc, onDiscChange }: {
   const health = classifySelfCheckResult(healthResults[def.id], def, Date.now());
   const down = health.status === "down";
   const needsTaxonomy = spec.categories?.source === "taxonomy" || spec.tagFilter === true;
+  /* 展开态（fix336/ui-fixes）：默认收敛单行，展开才全量平铺；
+   * 只管呈现、不进 disc——指纹与滚动 key 口径不受影响。 */
+  const [expanded, setExpanded] = useState(false);
   const [taxonomy, setTaxonomy] = useState<SourceTaxonomy | null>(null);
   useEffect(() => {
     setTaxonomy(null);
@@ -82,17 +93,31 @@ export default function DiscoveryBar({ def, disc, onDiscChange }: {
     : spec.categories.source === "params"
       ? spec.categories.options
       : (taxonomy?.categories ?? []).slice(0, TAXONOMY_CHIP_LIMIT).map((e) => ({ value: e.id, label: e.name }));
-  const tagOptions: DiscoveryOption[] = spec.tagFilter
-    ? (taxonomy?.tags ?? []).slice(0, TAXONOMY_CHIP_LIMIT).map((e) => ({ value: e.id, label: e.name }))
-    : [];
+  /* 标签先与分类同名剔除再取 Top-N（fix336/ui-fixes）：剔除在
+   * 截断之前，被同名项占掉的名额由后续不同名标签补回；比对的
+   * 分类集＝本条实际呈现的分类选项（categoryOptions）。已选中
+   * 标签若被 Top-N 截断挤出，补回行尾——选中态必须可见可取消。 */
+  const tagOptions: DiscoveryOption[] = (() => {
+    if (!spec.tagFilter) return [];
+    const all = (taxonomy?.tags ?? []).map((e) => ({ value: e.id, label: e.name }));
+    const deduped = dedupeTagOptions(categoryOptions, all, disc.tag);
+    const top = deduped.slice(0, TAXONOMY_CHIP_LIMIT);
+    if (disc.tag && !top.some((o) => o.value === disc.tag)) {
+      const sel = deduped.find((o) => o.value === disc.tag);
+      if (sel) top.push(sel);
+    }
+    return top;
+  })();
 
   const pill = (key: string, label: string, pressed: boolean, onClick: () => void) => (
-    <Button key={key} aria-pressed={pressed} disabled={down} onClick={onClick} className="ios-filter-pill">{label}</Button>
+    <Button key={key} aria-pressed={pressed} disabled={down} onClick={onClick} className="ios-filter-pill shrink-0">{label}</Button>
   );
   const row = (label: string, children: React.ReactNode) => (
     <div className="flex items-start gap-2 py-1">
       <span className="w-8 shrink-0 pt-1.5 text-[12px] text-mut">{label}</span>
-      <div className="flex flex-wrap gap-1.5">{children}</div>
+      <div className={expanded
+        ? "flex flex-1 min-w-0 flex-wrap gap-1.5"
+        : "flex flex-1 min-w-0 flex-nowrap gap-1.5 overflow-x-auto"}>{children}</div>
     </div>
   );
 
@@ -112,6 +137,12 @@ export default function DiscoveryBar({ def, disc, onDiscChange }: {
         ...tagOptions.map((o) =>
           pill(`tag:${o.value}`, o.label, disc.tag === o.value, () => setTag(disc.tag === o.value ? undefined : o.value))),
       ])}
+      {(categoryOptions.length > 0 || tagOptions.length > 0) && (
+        <div className="flex justify-end">
+          <Button aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}
+            className="px-1 py-0.5 text-[12px] text-primary">{expanded ? "收起" : "展开"}</Button>
+        </div>
+      )}
       {down && (
         <p role="status" className="py-1 text-[12px] text-danger">
           自检显示该源列表不可用（{health.failure ?? "列表失败"}），发现维度暂不可用，恢复后自动可用

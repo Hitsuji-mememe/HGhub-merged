@@ -1,8 +1,8 @@
 /**
  * 全屏图集查看器（Muse 2026-11-19 3.2.1修复F6线，用户实报图集图片
  * 太小后定版的主流形态，SourceGallery 与搜索图片详情共用）：
- * - 舞台即全区：根容器由调用方给满可用高度（SourceGallery 用 fixed
- *   inset-0 覆满视口、Search 用详情页内 h-full），图片 fit="contain"
+ * - 舞台即全区：根容器由调用方以 fixed inset-0 覆满视口（两宿主
+ *   同形态，见文件头「宿主形态收敛」），图片 fit="contain"
  *   贴边铺满，不再有写死比例盒子、没有上下张大按钮行。
  * - 悬浮层（chrome）：标题/计数/返回/关闭在顶部、缩略图条在底部，
  *   全部只在悬浮层呼出时在场；静止 ALBUM_CHROME_IDLE_MS 后自动淡出。
@@ -28,9 +28,14 @@
  * - 沉浸式安全区（Muse 2026-11-19 fix330/gallery-viewer，用户真
  *   机实报全屏 chrome 与 iOS 状态栏同带重叠）：immersive 模式下
  *   顶部/底部 chrome 按 --sat/--sab/--sal/--sar 让位（与 Feed 全屏
- *   chrome 同口径）；fixed 覆满视口的宿主（SourceGallery）必须传
- *   immersive，页内嵌宿主（搜索详情）不传——宿主页已处理安全区，
- *   再让位会双重内边距。舞台本体保持全幅出血、不让位。
+ *   chrome 同口径）；fixed 覆满视口的宿主必须传 immersive。舞台
+ *   本体保持全幅出血、不让位。
+ * - 宿主形态收敛（Muse 2026-11-20 fix336/ui-fixes，用户真机实
+ *   报）：两个宿主（SourceGallery 源内、Search 搜索详情）现均为
+ *   fixed inset-0 z-40 顶层覆盖＋immersive——搜索宿主旧形态是详
+ *   情页内 h-full 内嵌＋不传 immersive，实报双标题栏（详情页头
+ *   漏出）＋壳底部导航漏出，「宿主页已处理安全区」的旧假设就此
+ *   作废；新宿主接入一律按此形态，不许再内嵌。
  * - 缩略图随可见性加载（同线，用户真机实报全条只有当前张有图、
  *   其余全是 HG 占位）：旧实现全量 lazy 挂载——浏览器原生 lazy
  *   以条滚动口为取图窗口、Img attempt 时钟以主视口 IO 为起算窗
@@ -62,7 +67,7 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
    * 一致（Search 图片详情不传、不受影响）。 */
   headerAction?: ReactNode;
   /* immersive：宿主为 fixed 覆满视口的全屏形态时为 true，chrome
-   * 按安全区变量让位（见文件头注）；页内嵌形态保持 false。 */
+   * 按安全区变量让位（见文件头注）；现行两宿主均为该形态。 */
   immersive?: boolean;
 }) {
   const [chrome, setChrome] = useState(true);

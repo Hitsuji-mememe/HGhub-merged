@@ -189,9 +189,13 @@ const detailNoTracking = { id: 77002, episode_count: 1, total_episodes: 0, episo
 /* ── 生产接线（文本断言） ── */
 {
   const category = read("../category/Category.tsx");
-  assert.ok(category.includes("partitionCardsByResolvedKind"), "Category 归类面走统一裁决分组");
-  assert.ok(category.includes("kindSignalOfDetail"), "Category 补判经共用提取点构造规范信号");
-  assert.ok(category.includes("needsCanonicalKindLookup"), "Category 补判触发走共用门");
+  /* 断言适配（fix336/ui-fixes，契约变化、非削弱）：Category 的归
+   * 类面（原生视频频道列表＋其 Detail 补判）已随原生视频空壳退
+   * 场整面删除——原三条 Category 正断言改钉退场事实（Category
+   * 不再 import contentKind，旧码上必红）；统一裁决/共用提取点/
+   * 共用门的活消费者是搜索两面，下方断言原样保留、覆盖不减。 */
+  assert.ok(!category.includes('from "../../shared/lib/contentKind"'), "Category 不再接归类补判链（fix336 退场）");
+  assert.ok(!category.includes("needsCanonicalKindLookup("), "Category 无补判触发调用（fix336 退场）");
   const search = read("../search/Search.tsx");
   assert.ok(search.includes("kindSignalOfDetail(d)"), "Search 补判经共用提取点（标记不丢）");
   assert.ok(search.includes("needsCanonicalKindLookup"), "Search 补判触发走共用门（单集也查标记）");

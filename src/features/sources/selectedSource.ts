@@ -46,3 +46,32 @@ export function resolveSelectedSource(
   if (builtin) return { kind: "disabled", def: builtin, label: builtin.displayName };
   return { kind: "gone", label: "该数据源" };
 }
+
+/**
+ * 频道页初始落点（Muse 2026-11-20 fix336/ui-fixes，用户亲定分类
+ * 逻辑：频道进入先落一个源、页内 chips 再切）：候选＝该频道切源
+ * 名单（已启用源，注册表序）；有「最近打开」记忆
+ * （healthCheck 的 hghubx_source_last_view_v1，经
+ * useSourceSelfCheckOnView 在各浏览面落盘）时落候选中最近打开的
+ * 那个，无记忆（或记忆源已不在候选内，如被清单停用）落候选首个；
+ * 候选为空回 undefined（调用方落诚实空态）。
+ *
+ * 与本文件头「不自动回落选中态」的分工：那条管的是用户已明确
+ * 选定/被寻址的源停用后不许偷换；本函数只定「尚无任何选择时
+ * 的初始值」，用户点 chips 的选择不经此函数、不被覆盖。
+ */
+export function defaultSourceId(
+  candidates: readonly SourceDef[],
+  lastViewedAt: Readonly<Record<string, number>>,
+): string | undefined {
+  let best: SourceDef | undefined;
+  let bestAt = 0;
+  for (const def of candidates) {
+    const at = lastViewedAt[def.id] ?? 0;
+    if (at > bestAt) {
+      best = def;
+      bestAt = at;
+    }
+  }
+  return (best ?? candidates[0])?.id;
+}

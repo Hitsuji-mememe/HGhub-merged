@@ -23,12 +23,19 @@
  * 契约的明细接线断言同步移除，面数 21 → 20。现存 20 面均无 dead
  * 标注；dead 机制保留给未来死面先标注后处置。
  *
+ * fix336 集成（2026-11-20，用户亲定分类逻辑重定）：总览源行两面
+ * （overview-image-rows/overview-video-rows）随总览改「只留频道
+ * 行」整面删除（消费者 Category 总览已退场）；新增 channel-image
+ * 面承接图片频道页的切源名单（与 channel-video 同构）；视频频道
+ * 的原生空壳 chip 同批退场，channel-video × 原生改以声明
+ * native-not-in-video-channel 显式出局。面数 20 → 19。
+ *
  * 语义约定：
  * - route 回答「该面与该源的关系」：native＝走仓内既有 api 通道
  *   （仅 001）；browse＝经外部浏览组件/加载器接通；notice＝诚实提示
  *   （reason 与 SourcePendingNotice 三分支同口径：blocked 站点不可
  *   达、disabled 清单停用、gone 已移除）；listed＝该面以列示/计划
- *   形态包含该源（总览行列示 blocked 源、诊断列示、自检计划）；
+ *   形态包含该源（诊断列示、自检计划）；
  *   not-applicable＝显式不适用，必须引用声明表条目、不许静默缺席。
  * - def=undefined 只对可寻址面（addressed：总览吃瓜/吃瓜页/深链/
  *   详情/播放）有意义，落 notice(gone)（陈旧 id 的诚实提示）；其余
@@ -62,8 +69,9 @@ import { searchPolicyFor } from "../search/multiSourceSearch.ts";
 import { selfCheckEligible } from "./healthCheck.ts";
 import type { SourceCategory, SourceDef } from "./types.ts";
 
-/* ── 面枚举与元数据（20 面，与设计 §1.1 同编号语义；原第 21 面
- * M20 diag-inapp 为死面，已于 fix334/L4 集成删除，见文件头） ── */
+/* ── 面枚举与元数据（19 面，与设计 §1.1 同编号语义；原第 21 面
+ * M20 diag-inapp 为死面已于 fix334/L4 删除，总览源行两面已于
+ * fix336 删除、channel-image 同批新增，见文件头） ── */
 export interface SurfaceMeta {
   id: string;
   /** 面的品类口径：具体品类／all＝跨品类／native-only＝原生构成面。 */
@@ -81,10 +89,9 @@ export const SURFACES = [
   { id: "home-feed", category: "native-only", topUp: "none" },
   { id: "overview-channels", category: "native-only", topUp: "none" },
   { id: "overview-posts", category: "posts", topUp: "show-batch" },
-  { id: "overview-image-rows", category: "image", topUp: "show-batch" },
-  { id: "overview-video-rows", category: "video", topUp: "show-batch" },
   { id: "channel-drama", category: "video", topUp: "none" },
   { id: "channel-video", category: "video", topUp: "show-batch" },
+  { id: "channel-image", category: "image", topUp: "show-batch" },
   { id: "deeplink-image", category: "image", topUp: "view-single" },
   { id: "deeplink-video", category: "video", topUp: "view-single" },
   { id: "posts-page", category: "posts", topUp: "show-batch" },
@@ -134,6 +141,9 @@ export const SURFACE_DECLARATIONS: Record<string, { reason: string }> = {
   },
   "no-drama-mapping": {
     reason: "外部 video 源×短剧频道：sourcesForChannel(ai-duanju) 要求 capabilities.episodes，当前无外部源满足（属实为空）；012 的多集是里番分集、非短剧品类（设计声明 e）",
+  },
+  "native-not-in-video-channel": {
+    reason: "原生主源×视频频道：原生视频面是确认门空壳（唯一能产「视频」确认的上游品类端点已下线、频道恒空，fix336 调查定案），fix336 起视频频道切源只列外部源、默认落首个可用外部源；原生面保留于短剧频道与吃瓜面，不受影响",
   },
   "no-inplace-search": {
     reason: "外部源×站内搜索：浏览面无站内搜索入口，全局扇出已覆盖外部搜索，面内搜索为原生 api 专用（D-5 默认口径，设计声明 f）",
@@ -219,17 +229,6 @@ export function routeForSurface(
       return browseOrNoAdapter(def, "SourcePosts");
     }
 
-    /* 总览源行：行本身是列示——blocked 源在行内列示（点开由深链
-     * 面落提示），其余已启用源点开即浏览组件。 */
-    case "overview-image-rows":
-    case "overview-video-rows": {
-      const cat: SourceCategory = surface === "overview-image-rows" ? "image" : "video";
-      if (def.category !== cat) return na("category-mismatch");
-      if (!def.enabled) return na("not-enabled");
-      if (def.maturity === "blocked") return LISTED;
-      return browseOrNoAdapter(def, cat === "image" ? "SourceGallery" : "SourceBrowse");
-    }
-
     /* 短剧频道：频道映射属实为空（声明 e），外部源不充数。 */
     case "channel-drama": {
       if (isNativeSource(def)) return NATIVE;
@@ -238,15 +237,29 @@ export function routeForSurface(
       return def.maturity === "blocked" ? notice("blocked") : browseOrNoAdapter(def, "SourceBrowse");
     }
 
-    /* 视频频道：切源片＝原生＋频道映射源；停用源不进选项、选择
-     * 回落原生（现行 effectiveChannelSourceId 口径），故停用落
-     * not-enabled 而非提示——与深链面的「寻址即提示」分工不同。 */
+    /* 视频频道：切源片＝频道映射的外部源（fix336 起原生空壳
+     * chip 退场、原生以声明出局，见声明表）；停用源不进选项、
+     * 选择回落首个可用外部源（现行 effectiveChannelSourceId
+     * 口径），故停用落 not-enabled 而非提示——与深链面的「寻址
+     * 即提示」分工不同。 */
     case "channel-video": {
-      if (isNativeSource(def)) return NATIVE;
+      if (isNativeSource(def)) return na("native-not-in-video-channel");
       if (def.category !== "video") return na("category-mismatch");
       if (!def.enabled) return na("not-enabled");
       if (!sourcesForChannel("original", ctx.active).some((d) => d.id === def.id)) return na("category-mismatch");
       return def.maturity === "blocked" ? notice("blocked") : browseOrNoAdapter(def, "SourceBrowse");
+    }
+
+    /* 图片频道（fix336 新增，与 channel-video 同构）：切源片＝
+     * 已启用图片源（sourcesForCategory("image")），默认落点按
+     * 最近打开记忆/首个可用源（selectedSource.defaultSourceId）；
+     * blocked 源留在片上挂状态徽标、点开落诚实提示（notice），
+     * 停用源不进选项（not-enabled）。 */
+    case "channel-image": {
+      if (def.category !== "image") return na("category-mismatch");
+      if (!def.enabled) return na("not-enabled");
+      if (def.maturity === "blocked") return notice("blocked");
+      return browseOrNoAdapter(def, "SourceGallery");
     }
 
     /* 深链：寻址单源——在册走组件、blocked/停用/下线各落其提示。 */

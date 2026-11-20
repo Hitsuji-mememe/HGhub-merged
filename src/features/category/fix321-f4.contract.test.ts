@@ -5,13 +5,18 @@
  * 运行：node src/features/category/fix321-f4.contract.test.ts
  * 覆盖：性质判定同源（shared/lib/contentKind 为唯一实现、搜索层
  * 只 re-export 同一函数引用）、混合列表按性质分组（多集只入短剧
- * 组、单条仍入视频组）、Category 生产接线文本断言（总览分组＋
- * 视频频道分页过滤）。不访问真实网络。
+ * 组、单条仍入视频组）、Category 生产接线文本断言。不访问真实
+ * 网络。
  * fix322 适配注记（契约变化、非削弱）：浏览面最终裁决升级为标记
  * 优先的 partitionCardsByResolvedKind（见 fix322-kind.contract），
  * 本文件的接线断言随之改绑新派生；kindForHuangguoVideo/
  * partitionCardsByKind 降为卡-only 结构兜底原语、语义不变，其行
  * 为断言原样保留。
+ * fix336 适配注记（契约变化、非削弱）：原生视频空壳 chip 退场、
+ * 「视频」频道改走外部源（SourceBrowse）后，Category 内已无性
+ * 质分组消费者——接线断言改钉退场事实（分组调用不许复活）；
+ * 判定同源与分组语义断言原样保留（搜索面仍是活消费者，见
+ * fix321-accept-f4 面 3）。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -59,15 +64,17 @@ const finishedDrama = { id: 104, title: "完结剧集丙", score: 8.8, episode_c
 }
 
 /* ── 生产接线（文本断言，与 wiring-manifest fix321-f4-* 互证；
- * fix322 改绑：浏览面最终分组走统一裁决 partitionCardsByResolvedKind） ── */
+ * fix322 改绑：浏览面最终分组走统一裁决 partitionCardsByResolvedKind；
+ * fix336 再适配：该分组在 Category 的消费者（原生视频频道列表）
+ * 随空壳退场整面删除，接线断言改钉退场——旧码上本段必红（分
+ * 组调用在场），证伪形态不变） ── */
 {
   const category = read("./Category.tsx");
-  assert.ok(category.includes("partitionCardsByResolvedKind"), "Category 浏览面调用统一裁决分组（fix322 标记线）");
   /* 断言适配（fix335/e-category 总览索引化）：总览预览退场、分组
-   * 派生随之删除，原两条总览分组断言改钉退场事实（防预览回潮）；
-   * 分组行为的活面只剩频道页，由下方字面断言守护，覆盖不减。 */
-  assert.ok(!category.includes("originalKindGroups"), "总览索引化后无预览分组派生（分组只在频道页发生）");
-  assert.ok(category.includes('partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video'), "视频频道分页 incoming 先经统一裁决过滤再入列表");
+   * 派生随之删除，原两条总览分组断言改钉退场事实（防预览回潮）。 */
+  assert.ok(!category.includes("originalKindGroups"), "总览索引化后无预览分组派生");
+  assert.ok(!category.includes("partitionCardsByResolvedKind(rawItems"), "原生视频分组调用已退场（fix336：视频频道走外部源、无原生列表可分组）");
+  assert.ok(!category.includes("kindSignals"), "归类补判钩子已随原生视频列表退场（fix336）");
 }
 
 console.log("fix321-f4.contract: all assertions passed");

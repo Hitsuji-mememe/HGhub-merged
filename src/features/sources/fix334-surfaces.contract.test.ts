@@ -190,10 +190,12 @@ validateSurfaceDerivation({ route: routeForSurface, sources: sourcesForSurface }
     /bogus-key/, "引用不存在的声明须被校验器抓住",
   );
   /* 假接通：无适配器模板的源被派成 browse → 必抛（ghost 见 §2 前
-   * 合成形态定义）。 */
+   * 合成形态定义）。突变面适配（fix336/ui-fixes）：原突变挂
+   * overview-video-rows，该面已随总览源行退场删除，改挂同为
+   * browse 派生面的 channel-video，证伪形态不变。 */
   assert.throws(
     () => validateSurfaceDerivation({
-      route: (s, d, c) => (s === "overview-video-rows" && d?.id === "ghost"
+      route: (s, d, c) => (s === "channel-video" && d?.id === "ghost"
         ? { kind: "browse", component: "SourceBrowse" }
         : routeForSurface(s, d, c)),
       sources: sourcesForSurface,
@@ -231,10 +233,13 @@ function expectedClass(surface: SurfaceId, def: SourceDef, active: SourceDef[]):
       if (s.kind !== "active") return "notice";
       return def.maturity === "blocked" ? "notice" : "applicable";
     }
-    case "overview-image-rows": case "overview-video-rows": {
-      const cat = surface === "overview-image-rows" ? "image" : "video";
-      if (def.category !== cat) return "na";
-      return def.enabled ? "applicable" : "na";
+    case "channel-image": {
+      /* 适配（fix336/ui-fixes）：总览源行两面删除，图片名单迁图
+       * 片频道面——已启用∧非 blocked 走浏览、blocked 落提示、
+       * 停用不适用（与 channel-video 同构）。 */
+      if (def.category !== "image") return "na";
+      if (!def.enabled) return "na";
+      return def.maturity === "blocked" ? "notice" : "applicable";
     }
     case "channel-drama": {
       if (nativeOf(def)) return "applicable";
@@ -242,7 +247,9 @@ function expectedClass(surface: SurfaceId, def: SourceDef, active: SourceDef[]):
       return sourcesForChannel("ai-duanju", active).some((d) => d.id === def.id) ? "applicable" : "na";
     }
     case "channel-video": {
-      if (nativeOf(def)) return "applicable";
+      /* 适配（fix336/ui-fixes）：原生空壳 chip 退场，原生×视频
+       * 频道改声明出局（native-not-in-video-channel）。 */
+      if (nativeOf(def)) return "na";
       if (def.category !== "video") return "na";
       if (!def.enabled) return "na";
       if (!sourcesForChannel("original", active).some((d) => d.id === def.id)) return "na";
@@ -319,12 +326,17 @@ for (const [si, state] of STATES.entries()) {
     "原生谓词认模板不认 id");
   assert.equal(isNativeSource({ ...byId("huangguo"), adapter: { template: "chigua" } }), false,
     "原生谓词认模板不认 id（反向）");
-  /* 总览行成员（适配 fix335/g-sources：007 PornPics 退役摘除、015
-   * yandere 与 Konachan 启用进成员）。 */
-  assert.deepEqual(sourcesForSurface("overview-image-rows", R1).map((d) => d.id),
-    ["xiuren", "cosplaytele", "danbooru", "pixibb", "nudecosplay", "yandere", "konachan"], "M4 成员＝已启用图片源");
-  assert.deepEqual(sourcesForSurface("overview-video-rows", R1).map((d) => d.id),
-    ["hanime-tv", "hanime1", "iwara", "hentaihaven"], "M5 成员＝已启用视频源");
+  /* 频道切源名单成员（适配 fix336/ui-fixes：总览源行两面删除，
+   * 名单迁频道面——图片走 channel-image、视频走 channel-video；
+   * 成员集合与原总览行逐字一致（007 退役、015/Konachan 启用进
+   * 集，承 fix335/g-sources 口径），视频名单另摘原生（空壳退
+   * 场、声明出局见下条）。 */
+  assert.deepEqual(sourcesForSurface("channel-image", R1).map((d) => d.id),
+    ["xiuren", "cosplaytele", "danbooru", "pixibb", "nudecosplay", "yandere", "konachan"], "channel-image 成员＝已启用图片源");
+  assert.deepEqual(sourcesForSurface("channel-video", R1).map((d) => d.id),
+    ["hanime-tv", "hanime1", "iwara", "hentaihaven"], "channel-video 成员＝已启用外部视频源（原生不在名单）");
+  assert.deepEqual(routeForSurface("channel-video", byId("huangguo"), ctx),
+    { kind: "not-applicable", declaration: "native-not-in-video-channel" }, "原生×视频频道＝空壳退场声明出局");
   /* 搜索扇出成员：005（App 编号，feedheiliao）以声明 g 出局、001 以
    * 声明 b 出局；声明 h（hls-site 模板搜索不可用）的触发改由合成
    * hlsSiteFx 承接（适配 fix335/g-sources：007 退役、内置无 hls-site
@@ -361,10 +373,15 @@ for (const [si, state] of STATES.entries()) {
    * fix334/L4 集成已按清扫口径整面删除（函数/声明/wiring/接线
    * 断言同步移除）——面数 21 → 20、无 diag-inapp、现存面无 dead
    * 标注；dead 机制本身保留（校验器对 dead 面的处理在 §2b 突变
-   * 自检的历史口径之外，此处只钉删除后的事实）。 */
-  assert.equal(SURFACES.length, 20, "面数落账：M20 删除后 20 面");
+   * 自检的历史口径之外，此处只钉删除后的事实）。
+   * 面数再落账（fix336/ui-fixes）：总览源行两面（overview-
+   * image-rows/overview-video-rows）随总览改四频道行整面删除、
+   * channel-image 新增承接图片频道名单——面数 20 → 19。 */
+  assert.equal(SURFACES.length, 19, "面数落账：fix336 删总览源行两面＋增 channel-image 后 19 面");
   assert.ok(!SURFACES.some((s) => (s.id as string) === "diag-inapp"), "diag-inapp 已删除、不许复活");
-  assert.ok(SURFACES.every((s) => !(s as { dead?: string }).dead), "现存 20 面均无 dead 标注");
+  assert.ok(!SURFACES.some((s) => (s.id as string) === "overview-image-rows" || (s.id as string) === "overview-video-rows"),
+    "总览源行两面已删除、不许复活（fix336）");
+  assert.ok(SURFACES.every((s) => !(s as { dead?: string }).dead), "现存 19 面均无 dead 标注");
   /* 声明表每条都有理由文本（声明不许只剩 key）。 */
   for (const [key, decl] of Object.entries(SURFACE_DECLARATIONS)) {
     assert.ok(decl.reason.length > 0, `声明 ${key} 须有理由`);
@@ -374,6 +391,8 @@ for (const [si, state] of STATES.entries()) {
    * 本批影子落位只声明策略，落点以源码文本钉住防漂移）。 */
   const topUpOf = (id: SurfaceId) => SURFACES.find((s) => s.id === id)?.topUp;
   assert.equal(topUpOf("overview-posts"), "show-batch");
+  assert.equal(topUpOf("channel-image"), "show-batch", "图片频道面补探＝show-batch（切换器挂载批量补探）");
+  assert.equal(topUpOf("channel-video"), "show-batch");
   assert.equal(topUpOf("detail-post"), "view-single");
   assert.equal(topUpOf("diag-export"), "none");
   assert.ok(srcText("../category/Category.tsx").includes("useSourceSelfCheckOnShow"), "总览行面 OnShow 落点在 Category");
@@ -397,10 +416,10 @@ for (const [si, state] of STATES.entries()) {
   assert.deepEqual(routeForSurface("deeplink-video", hh, ctx), { kind: "notice", reason: "disabled" }, "R3 012×M9＝停用提示");
   assert.deepEqual(routeForSurface("search-fanout", hh, ctx),
     { kind: "not-applicable", declaration: "not-enabled" }, "R3 011×M11 退出扇出");
-  assert.ok(!sourcesForSurface("overview-video-rows", R3).some((d) => d.id === "hentaihaven"), "R3 011 退出 M5 行");
+  assert.ok(!sourcesForSurface("channel-video", R3).some((d) => d.id === "hentaihaven"), "R3 011 退出视频频道名单（原 M5 行、fix336 迁面）");
   const yd = byId("yandere");
   assert.deepEqual(routeForSurface("detail-gallery", yd, ctx), { kind: "browse", component: "SourceGallery" }, "R3 014×M15 自动接通");
-  assert.ok(sourcesForSurface("overview-image-rows", R3).some((d) => d.id === "yandere"), "R3 015 进入 M4 行");
+  assert.ok(sourcesForSurface("channel-image", R3).some((d) => d.id === "yandere"), "R3 015 进入图片频道名单（原 M4 行、fix336 迁面）");
   assert.ok(sourcesForSurface("selfcheck", R3).some((d) => d.id === "yandere"), "R3 015 进入 M21 合格集");
   /* 015 进 M11（适配 fix335/g-sources）：moebooru 校准后 caps.search
    * 据实为 true、有搜索段——原「无搜索段出局」断言随事实翻转。 */

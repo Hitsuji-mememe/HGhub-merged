@@ -104,8 +104,10 @@ const builtinImages = sourcesForCategory("image", getBuiltinRegistry());
   const cat = readFileSync(new URL("../category/Category.tsx", import.meta.url), "utf8");
   /* 计数适配（fix335/e-category 总览索引化）：总览吃瓜预览面退场，
    * 其 selectedKind 调用点随面删除；余三面（图片深链/视频深链/
-   * 频道外源）仍逐面传三态 kind，口径不变。 */
-  assert.equal(cat.split("selectedKind={").length - 1, 3, "Category 三面传三态 kind（总览预览面已随索引化退场）");
+   * 频道外源）仍逐面传三态 kind，口径不变。
+   * 计数再适配（fix336/ui-fixes）：图片频道分支（cate="image"）
+   * 新增一面同口径传三态 kind，三面→四面，覆盖增加。 */
+  assert.equal(cat.split("selectedKind={").length - 1, 4, "Category 四面传三态 kind（图片深链/视频深链/频道外源/图片频道）");
 }
 
 /* ── 调用点不再用内部 id 作页头/提示回落 ── */

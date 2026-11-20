@@ -804,22 +804,24 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
             if (merged.kind === "image") {
               const images = data.images ?? [];
               const idx = Math.min(imgIdx, Math.max(0, images.length - 1));
-              /* 同形态同治（Muse 2026-11-19 3.2.1修复F6线）：与
-               * SourceGallery 同病（写死 4/5 盒子＋上下张按钮行挤压
-               * 图片），共用 AlbumViewer 全屏形态——本页在详情页内
-               * h-full 填满剩余高度，数据源注记收进悬浮层底部，
-               * 返回走查看器悬浮层返回钮（与页头返回同落点）。 */
-              return (
-                <div className="h-full">
-                  {images.length > 0 ? (
-                    <AlbumViewer title={merged.title} images={images} index={idx}
-                      onIndexChange={setImgIdx}
-                      onBack={closeExtDetail} backLabel="返回搜索结果"
-                      footerNote={`数据源：${data.active.sourceName}（经适配器实时取数）`} />
-                  ) : (
-                    <p className="px-4 pt-2 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>
-                  )}
+              /* 盖全屏（Muse 2026-11-20 fix336/ui-fixes，用户真机
+               * 实报＋18:40 亲口确认）：旧 h-full 内嵌形态把查看器
+               * 塞进详情页滚动区——详情页头漏在上方成双标题栏、
+               * 壳底部导航漏出。改与 SourceGallery 源内宿主逐字
+               * 同形态：fixed inset-0 z-40 顶层覆盖＋immersive
+               * 安全区让位，单一标题栏（查看器自带 chrome）、底层
+               * 页面与导航全盖住；返回落点（closeExtDetail）与
+               * 数据源注记（悬浮层底部）不变。无图时仍走页内
+               * 注记行（无查看器可盖）。 */
+              return images.length > 0 ? (
+                <div className="fixed inset-0 z-40 bg-black">
+                  <AlbumViewer title={merged.title} images={images} index={idx}
+                    onIndexChange={setImgIdx}
+                    onBack={closeExtDetail} backLabel="返回搜索结果"
+                    footerNote={`数据源：${data.active.sourceName}（经适配器实时取数）`} immersive />
                 </div>
+              ) : (
+                <p className="px-4 pt-2 text-[12px] text-mut">数据源：{data.active.sourceName}（经适配器实时取数）</p>
               );
             }
             /* 正文全文（fix335/c-presentation S2）：副本页此前只消费

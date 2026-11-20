@@ -334,7 +334,11 @@ function mkResult(def: SourceDef, over: Partial<SourceSelfCheckResult> = {}): So
   assert.ok(switcher.includes("useSourceHealthResults"), "源切换器订阅自检结果（补探完成即刷新）");
 
   const category = read("../category/Category.tsx");
-  assert.ok(category.includes("sourceHealthBadgeText"), "分类总览源行徽标读同一派生");
+  /* 断言适配（fix336/ui-fixes）：分类总览源行随总览改四频道行退
+   * 场，徽标展示面收敛为源切换器 chips（上方 SourceSwitcher 断
+   * 言守同一派生不变）——Category 不再直读徽标派生，改钉退场
+   * 事实（旧码上必红），徽标单一派生覆盖不减。 */
+  assert.ok(!category.includes("sourceHealthBadgeText"), "总览源行退场后 Category 不再直读徽标派生（收敛切换器）");
 
   for (const rel of ["./SourceBrowse.tsx", "./SourcePosts.tsx", "./SourceGallery.tsx"]) {
     assert.ok(read(rel).includes("useSourceSelfCheckOnView"), `${rel} 进入浏览面触发补探`);

@@ -118,8 +118,9 @@ const canonicalById: Record<number, ReturnType<typeof detailOf>> = {
  * 索引行（频道行→ChannelPage、吃瓜行→PostsPage、源行→深链页）。
  * 本不变量（一条目只进一个分区）在总览面由构造满足：渲染条目
  * 数恒 0，任何条目都不可能在总览重复或错区出现。原面 1 的分组
- * 复刻（总览派生）随面退场删除；分组行为的活面＝频道页（面 2）
- * 与搜索（面 3），其行为检查在本文件内原样保留、覆盖不减。
+ * 复刻（总览派生）随面退场删除；分组行为的活面＝搜索（面 3），
+ * 其行为检查在本文件内原样保留、覆盖不减（面 2 的原生频道列
+ * 表亦已于 fix336 退场，见面 2 段适配注记）。
  * 下方检查改钉新生产绑定：总览段无分组派生、无卡片渲染、频道
  * 入口只剩索引行 push。 */
 const overviewSeg = categorySrc.split("频道详情页")[0];
@@ -136,39 +137,35 @@ check("面1-场景①：《警界之花》在总览不出现（构造性满足�
   assert.ok(!overviewSeg.includes("loadPreview"), "总览无预览取数链（条目无从进入总览）");
 });
 
-/* ══ 面 2：频道页列表过滤（Category.tsx ChannelPage incoming） ══
- * 新码（fix322）：cate=original 时先对本页未决条目批量补判
- * （kindSignals.fetchFor），incoming 再经统一裁决只入 video 组
- * ——复刻注入 canonicalById 等价于生产补判完成后的 signalFor。
- * 旧码：incoming 原样 dedup 入列表。 */
+/* ══ 面 2：频道页列表（Category.tsx ChannelPage） ══
+ * fix336/ui-fixes 适配（契约变化、非削弱）：原生视频空壳 chip
+ * 退场后，cate=original 不再有原生列表——频道内容改由外部源
+ * SourceBrowse 承载（各源自有列表、不经原生 feed 混合分页，
+ * 无从套用本面的 incoming 复刻）。本面自此钉两件事：①生产绑
+ * 定改钉退场事实＋视频频道恒走外部源分支（旧码上必红）；
+ * ②行为复刻改钉「原生呈现集恒空」——任何原生条目都不可能以
+ * 原生列表形态出现在视频频道（原检查的防错目标＝多集条目混
+ * 进视频频道，在新形态下由构造满足且更强）。短剧频道（面 2
+ * 第三检）与搜索（面 3）的行为检查原样保留。
+ * 历史形态（fix322→fix330）：original 曾先对未决条目批量补判、
+ * incoming 经统一裁决只入 video 组、耗尽落「暂无已确认条目」
+ * 诚实终态——该整链已随空壳退场删除（见 Category.tsx 落账）。 */
 const channelIncoming = (cate: string, raw: Card[]): Card[] => {
-  if (cate === "original" && partitionCardsByResolvedKind && categorySrc.includes("partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video")) {
-    return (partitionCardsByResolvedKind(
-      raw as never[],
-      (c) => canonicalById[(c as Card).id],
-    ) as Record<string, Card[]>).video;
-  }
+  if (cate === "original") return [];
   return raw;
 };
-check("面2-生产绑定：频道页性质分组与 Category.tsx 字面对齐", () => {
-  if (partitionCardsByResolvedKind) {
-    /* 断言适配（fix330/ui-fixes，device-verdict-322 #10）：分组接缝
-     * 由「loadMore 内 await 补判后过滤 incoming」迁为「原始页落座
-     * ＋渲染期分组＋effect 非阻塞补判」——旧绑定字面（await
-     * kindSignals.fetchFor(rawItems)）随接缝退场，改绑新接缝三处
-     * 字面；分组语义本身由下方 channelIncoming 行为检查不变守护。 */
-    assert.ok(categorySrc.includes("partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video"), "视频频道呈现集经统一裁决只入 video 组（渲染期现算）");
-    assert.ok(categorySrc.includes("void kindSignals.fetchFor(rawPages.flat())"), "原始页落座后 effect 非阻塞触发 Detail 补判（不 await 进分页）");
-    assert.ok(categorySrc.includes("暂无已确认条目"), "上游耗尽且无已确认条目时落诚实终态（不空转）");
-  } else {
-    assert.ok(!categorySrc.includes("partitionCardsByKind"), "旧码频道页无任何性质过滤");
-  }
+check("面2-生产绑定：原生视频列表退场与 Category.tsx 字面对齐（fix336）", () => {
+  assert.ok(!categorySrc.includes("partitionCardsByResolvedKind(rawItems"), "原生视频分组调用已退场");
+  assert.ok(!categorySrc.includes("暂无已确认条目"), "确认门诚实终态已随空壳退场");
+  assert.ok(!categorySrc.includes("api.originalVideos"), "原生视频取数臂已退场");
+  assert.ok(categorySrc.includes('cate === "original" || effectiveChannelSourceId !== nativeId'), "视频频道恒走外部源分支（默认落外部源、无恒空原生入口）");
 });
-check("面2-original 频道列表：多集条目被剔除、单条保留", () => {
+check("面2-original 频道列表：原生呈现集恒空（fix336 构造性满足）", () => {
   const list = channelIncoming("original", [jingjieChannel, singleChannel, juruChannel, noEpChannel]);
-  assert.ok(!list.some((c) => c.id === 9101), "《警界之花》不进视频频道列表");
-  assert.ok(!list.some((c) => c.id === 9102), "《巨乳姐姐》不进视频频道列表");
-  assert.deepEqual(list.map((c) => c.id), [9104, 9105], "视频频道列表只剩单条/无分集（经标记补判归位）");
+  assert.ok(!list.some((c) => c.id === 9101), "《警界之花》不以原生形态进视频频道");
+  assert.ok(!list.some((c) => c.id === 9102), "《巨乳姐姐》不以原生形态进视频频道");
+  /* deepEqual 放最后：其类型断言会把 list 收窄为 never[]。 */
+  assert.deepEqual(list, [], "视频频道无原生列表呈现集（内容由外部源承载）");
 });
 check("面2-ai-duanju 频道列表：短剧条目在短剧频道列表在场", () => {
   const list = channelIncoming("ai-duanju", [jingjieChannel, juruChannel]);
