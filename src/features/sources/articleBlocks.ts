@@ -52,6 +52,14 @@
  *   头的访谈问答仍为反例保留）。容器外标签簇（④）与单对问答、
  *   无编号不连续问答（⑤ 余项）经 25 样本实测无存活实例、最接近
  *   的文本廓形判据会命中真标题/正文行，结案不设判据（见报告）。
+ * - 3.3.3 清扫修复（sweep-fixes，证据 fix333/sweep-report-333.md
+ *   坏-1/潜-1 与 fix333/evidence/sweep-fixes.md）：⑧ 发布行组成组
+ *   判读对单行垃圾行透明化——组内交插的样板行（组头/指令行）本
+ *   身即被逐行判据所杀，不应把行组打断成不足门槛的碎段（App
+ *   004 帖 202663）；⑫ 旁证廓形 isPromoBlurbShape 的最长词元上
+ *   限 14→18——App 005 帖 126027 串烧长句的最长词元恰 18 字，
+ *   旧上限使旁证单项落空、尾部模板区整区回退（仅旁证放宽，⑫
+ *   守门 (a)(b) 与其余参数不动）。
  * - 图片：地址解析与整页清洗链共用 html.ts 的 articleImageSrc
  *   （同一候选链＋安全门＋基址补全，两条路径地址集合恒一致），
  *   渲染继续走本地 /img 路由，不新开通道。
@@ -444,12 +452,16 @@ function isNarrativeContinuation(text: string): boolean {
   return sentencePunctCount(text) >= 2 || commaCount(text) >= 1;
 }
 /* 推广长句廓形（仅作尾部区旁证，不单独杀）：≥40 字、≥8 个空格分
- * 词、平均 ≤9、逗号为零、句读至多 1——标题短语串烧的名单句法，
- * 与带逗号展开的叙事句异形。 */
+ * 词、平均 ≤9、最长词元 ≤18、逗号为零、句读至多 1——标题短语串
+ * 烧的名单句法，与带逗号展开的叙事句异形。最长词元上限原为 14，
+ * 3.3.3 清扫实测 App 005 帖 126027 的串烧长句最长词元恰 18 字、
+ * 旁证单项落空致整区回退，放宽至 18（仅旁证用途，本函数不单独
+ * 杀；带逗号/多句读的真叙事行仍由逗号/句读条件独立挡之，>18 的
+ * 词元仍不认——夹具反例钉死）。 */
 function isPromoBlurbShape(text: string): boolean {
   if (text.length < 40 || commaCount(text) > 0 || sentencePunctCount(text) > 1) return false;
   const p = tokenProfile(text);
-  return p.tokens.length >= 8 && p.avg <= 9 && p.max <= 14;
+  return p.tokens.length >= 8 && p.avg <= 9 && p.max <= 18;
 }
 function tailTemplateIndices(blocks: ArticleBlock[]): Set<number> {
   const kill = new Set<number>();
@@ -679,12 +691,31 @@ function isUltraShortLine(b: ArticleBlock): boolean {
  * 行组被图片块隔开的形态不在覆盖内（残余漏杀，报告标注）。 */
 function groupJunkIndices(blocks: ArticleBlock[], base?: string): Set<number> {
   const kill = new Set<number>();
-  for (const run of consecutiveRuns(blocks, isPublishLine)) {
-    if (run.length < 3) continue;
-    const texts = run.map((i) => (blocks[i] as { text: string }).text);
-    if (texts.filter((t) => contactCount(t) > 0).length >= 2
-      && texts.some((t) => hasPublishLabelStart(t))) {
-      run.forEach((i) => kill.add(i));
+  /* ⑧ 行组的成组判读对「自身即单行垃圾」的行透明（3.3.3 清扫修
+   * 复，App 004 帖 202663 实测）：地址发布组内交插的样板行（组头
+   * 「…最新地址」、指令行「获取最新地址 …」）本身会被逐行判据
+   * 杀掉，却在组判读时把三条发布行打断成 1＋2 两段、均不足 3 行
+   * 门槛，整组存活。故先按 isJunkText 标出单行垃圾（沿用既有逐
+   * 行判据集、不新造），再在剩余序列上成组——透明只跨单行垃圾
+   * 行，普通正文行与图片块照旧打断连续性（夹具反例钉死）；成员
+   * 资格与组级门槛不变，透明行不计入成员数。 */
+  {
+    const runs: number[][] = [];
+    let cur: number[] = [];
+    const close = () => { if (cur.length) runs.push(cur); cur = []; };
+    blocks.forEach((b, i) => {
+      if (b.type === "text" && isPublishLine(b.text)) { cur.push(i); return; }
+      if (b.type === "text" && isJunkText(b.text)) return; /* 透明行 */
+      close();
+    });
+    close();
+    for (const run of runs) {
+      if (run.length < 3) continue;
+      const texts = run.map((i) => (blocks[i] as { text: string }).text);
+      if (texts.filter((t) => contactCount(t) > 0).length >= 2
+        && texts.some((t) => hasPublishLabelStart(t))) {
+        run.forEach((i) => kill.add(i));
+      }
     }
   }
   for (const run of consecutiveRuns(blocks, (t) => isTokenWallShape(t, 5))) {

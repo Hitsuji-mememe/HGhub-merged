@@ -781,6 +781,90 @@ await test("filter4 counter-example: unnumbered Q/A under non-FAQ heading surviv
   assert(ts.length === 7, `kept ${ts.length}/7: ${JSON.stringify(ts)}`);
 });
 
+/* ── 第五轮（3.3.3 清扫修复 sweep-fixes）：坏-1＋潜-1 ──────────
+ * 证据：fix333/sweep-report-333.md §二/§三、fix333/evidence/
+ * sweep-fixes.md。任务书即本组新增用例的授权（不变量 11）。
+ * 坏-1＝⑧ 发布行组被组内交插的单行垃圾行打断成碎段（App 004 帖
+ * 202663 真形态）；潜-1＝⑫ 尾部区旁证廓形的最长词元上限被 18 字
+ * 词元单项击穿（App 005 帖 126027 真形态）。 */
+
+/* ⑧ 正例（App 004 真形态）：标题行（正文段廓形、使 ⑨ 区域为空）
+ * 之后是地址发布组——组头行与指令行本身是单行垃圾、把三条发布
+ * 行断成 1＋2 两段，旧码整组存活（基线红）；组判读对单行垃圾行
+ * 透明化后整组消失，只剩标题与正文。 */
+const FIX5_ADDR_GROUP_SPLIT = `<article>
+  <p>示例创作者甲 十一月新作开场就亮出傲人曲线 道具玩法花样翻新 现场气氛直接拉满 多次高潮喷水不停 噱头十足！</p>
+  <p>每日大赛最新地址</p>
+  <p>国内地址 https://addr-a.example.com</p>
+  <p>获取最新地址 邮箱自动回复｜长按复制</p>
+  <p>tips@mail.example.org</p>
+  <p>海外地址 https://addr-b.example.net</p>
+  <p>推荐浏览器 Yandex / UC / Chrome / Safari</p>
+  <p>正文段落开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，用来标示正文的位置。</p>
+</article>`;
+
+await test("filter5: address group split by junk lines is dropped as a group", () => {
+  const bs = extractArticleBlocks(FIX5_ADDR_GROUP_SPLIT, { base: BASE_004 });
+  const ts = texts(bs);
+  assert(ts.length === 2, `kept ${ts.length}/2 texts: ${JSON.stringify(ts)}`);
+  assert(!ts.some((t) => t.includes("addr-a") || t.includes("addr-b") || t.includes("tips@mail")), "split address group leaked");
+});
+
+/* ⑧ 反例：发布行被普通正文行交插——正文行不是单行垃圾、不透明，
+ * 两侧各 2 行均不足成组门槛，必须整组保留（旧码即绿）。 */
+const FIX5_KEEP_ADDR_SPLIT_BY_BODY = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>国内地址 https://addr-a.example.com</p>
+  <p>邮箱 tips@mail.example.org</p>
+  <p>他把这两行抄在纸上，贴在电脑旁边，方便随时查看。</p>
+  <p>海外地址 https://addr-b.example.net</p>
+  <p>备用地址 https://addr-c.example.com</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+</article>`;
+
+await test("filter5 counter-example: address lines split by a body line survive", () => {
+  const bs = extractArticleBlocks(FIX5_KEEP_ADDR_SPLIT_BY_BODY, { base: BASE_004 });
+  const ts = texts(bs);
+  assert(ts.length === 7, `kept ${ts.length}/7 texts: ${JSON.stringify(ts)}`);
+  assert(ts.some((t) => t.includes("addr-a")) && ts.some((t) => t.includes("addr-c")), "split address lines dropped");
+});
+
+/* ⑫ 正例（App 005 真形态）：尾部「重磅热瓜」区内唯一旁证候选是
+ * 标题串烧长句，其最长空格词元恰 18 字——旧上限 14 使旁证单项
+ * 落空、安全门整区回退（基线红）；旁证上限放宽至 18 后整区消失，
+ * 正文保留。 */
+const FIX5_TAIL_BLURB_18 = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+  <p>🔥重磅热瓜🔥</p>
+  <p>内娱明星 沈某与林某 再爆卧槽级大瓜 有着17岁年龄差的两人私生子大瓜爆发 工作室急删丑闻黑料 快手千万网红 陈某高某 师徒八年三次公开对线 互撕聊天记录曝光</p>
+</article>`;
+
+await test("filter5: tail zone corroborated by 18-char-token blurb is dropped", () => {
+  const bs = extractArticleBlocks(FIX5_TAIL_BLURB_18, { base: BASE_005 });
+  const ts = texts(bs);
+  assert(ts.length === 2, `kept ${ts.length}/2 texts: ${JSON.stringify(ts)}`);
+  assert(!ts.some((t) => t.includes("重磅热瓜") || t.includes("私生子大瓜")), "tail zone leaked");
+});
+
+/* ⑫ 反例：尾部真内容区带长词元——一行带逗号（逗号条件独立挡之、
+ * 非旁证），一行最长词元 19 字（超放宽后的上限、非旁证）；无其
+ * 他旁证时整区必须保留（旧码即绿）。 */
+const FIX5_KEEP_TAIL_LONG_TOKEN = `<article>
+  <p>正文第一段开始讲述事情的来龙去脉，这一段文字足够长，带有完整的句子和标点，正是用来标示正文起点位置的段落。</p>
+  <p>正文最后一段开始收束全文，这一段文字足够长，带有完整的句子和标点，用来标示正文的结尾位置。</p>
+  <h2>温馨提示</h2>
+  <p>获奖名单公布 张小泉与李小花两人搭档参赛， 作品获得一致好评</p>
+  <p>本周值班表 周一甲班 周二乙班 周三丙班 周四丁班 周五戊班 周六己班 周日庚班 备注栏写明联系方式保持畅通无阻随时待命</p>
+</article>`;
+
+await test("filter5 counter-example: tail zone with comma line and over-limit token line survives", () => {
+  const bs = extractArticleBlocks(FIX5_KEEP_TAIL_LONG_TOKEN, { base: BASE_005 });
+  const ts = texts(bs);
+  assert(ts.length === 5, `kept ${ts.length}/5 texts: ${JSON.stringify(ts)}`);
+  assert(ts.some((t) => t.includes("值班表")), "tail content line dropped");
+});
+
 const report = { passed: results.filter((r) => r.passed).length, failed: results.filter((r) => !r.passed).length, results };
 document.querySelector("#results")!.textContent = JSON.stringify(report, null, 2);
 (window as unknown as { readerResults: typeof report }).readerResults = report;
