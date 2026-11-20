@@ -836,10 +836,11 @@
     },
     {
       "id": "fix322-search-segment-templates",
-      "item": "3.2.2 扇出放宽（用户 20:48 裁定）：SEARCH_TEMPLATES 搜索段结构门（定义＋missingSearchSegments 消费；旧 INCLUDE_OVERRIDE 已退役，本条目由其改判）",
-      "symbol": "SEARCH_TEMPLATES",
+      "item": "3.2.2 扇出放宽（用户 20:48 裁定）：SEARCH_TEMPLATES 搜索段结构门（定义＋missingSearchSegments 消费；旧 INCLUDE_OVERRIDE 已退役，本条目由其改判）；fix333-M3 再改判：SEARCH_TEMPLATES 副本集合删除、结构门改消费 templateSegments 探针派生，本条改绑派生符号",
+      "symbol": "templateHasSearch",
       "files": [
-        "src/features/search/multiSourceSearch.ts"
+        "src/features/search/multiSourceSearch.ts",
+        "src/features/sources/adapters/templateSegments.ts"
       ],
       "min": 2
     },
@@ -1536,10 +1537,11 @@
     },
     {
       "id": "fix330-hanime-fanout-search",
-      "item": "3.3.0接通批HanimeAPI线 扇出搜索结构门登记 hanime-api 模板（multiSourceSearch SEARCH_TEMPLATES）",
+      "item": "3.3.0接通批HanimeAPI线 扇出搜索结构门登记 hanime-api 模板（multiSourceSearch SEARCH_TEMPLATES）；fix333-M3 改判：登记点随探针派生迁至 templateSegments 探针表，本条改绑登记文件",
       "symbol": "hanime-api",
       "files": [
-        "src/features/search/multiSourceSearch.ts"
+        "src/features/search/multiSourceSearch.ts",
+        "src/features/sources/adapters/templateSegments.ts"
       ],
       "min": 1
     },
@@ -1942,6 +1944,25 @@
       "item": "fix333/promo-004 判据声明与消费：registry feedheiliao params.staffVerify（maxBodyChars=890）＋promoVerify staffVerifyConfig 读取组装作用域",
       "min": 3,
       "symbol": "staffVerify"
+    },
+    {
+      "files": [
+        "src/features/sources/adapters/templates.ts"
+      ],
+      "id": "fix333-m3-json-array-guard",
+      "item": "fix333-M3（清扫 P3）JSON 列表形状守卫 parseJsonArray：wp-rest/danbooru 的 list/search 四处消费——真 [] 正常空返回、非数组/非 JSON 抛 SourceParseEmptyError",
+      "min": 3,
+      "symbol": "parseJsonArray"
+    },
+    {
+      "files": [
+        "src/features/sources/adapters/templateSegments.ts",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "id": "fix333-m3-template-segments",
+      "item": "fix333-M3（清扫 P9）模板段事实单一派生：templateSegments 探针（工厂实例化按方法存在性）定义 templateHasSearch/templateHasAdapter，multiSourceSearch 的 missingSearchSegments 只消费派生、不再持有模板副本集合",
+      "min": 3,
+      "symbol": "templateHasSearch"
     }
   ]
 }

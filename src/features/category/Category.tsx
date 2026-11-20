@@ -339,7 +339,7 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
              * 走诚实提示。此前本预览对一切非黄果源无条件提示。 */
             <SourcePosts def={postsSource} compact onShowAll={() => push({ kind: "posts" })} onSettledEmpty={(empty) => reportSettledEmpty(postsSourceId, empty)} />
           ) : (
-            <SourcePendingNotice displayName={postsSelected.label} maturity={postsSource?.maturity} note={postsSource?.note} disabled={postsSelected.kind !== "active"} />
+            <SourcePendingNotice displayName={postsSelected.label} maturity={postsSource?.maturity} note={postsSource?.note} selectedKind={postsSelected.kind} />
           )}
         </section>
         )}
@@ -635,7 +635,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
         </div>
         <div className="flex-1 scroll-y pb-8">
           {!imageSource || imageSource.maturity === "blocked" ? (
-            <SourcePendingNotice displayName={imageSelected?.label ?? name} maturity={imageSource?.maturity} note={imageSource?.note} disabled={imageSelected?.kind !== "active"} />
+            <SourcePendingNotice displayName={imageSelected?.label ?? name} maturity={imageSource?.maturity} note={imageSource?.note} selectedKind={imageSelected?.kind} />
           ) : (
             <SourceGallery def={imageSource} />
           )}
@@ -673,7 +673,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
         )}
         <div className="flex-1 scroll-y pb-8">
           {!videoSource || videoSource.maturity === "blocked" ? (
-            <SourcePendingNotice displayName={videoSelected?.label ?? name} maturity={videoSource?.maturity} note={videoSource?.note} disabled={videoSelected?.kind !== "active"} />
+            <SourcePendingNotice displayName={videoSelected?.label ?? name} maturity={videoSource?.maturity} note={videoSource?.note} selectedKind={videoSelected?.kind} />
           ) : (
             <SourceBrowse def={videoSource} onDetailOpenChange={setBrowseDetailOpen} />
           )}
@@ -702,7 +702,7 @@ export function ChannelPage({ cate, name, onBack, wide }: { cate: string; name: 
         )}
         <div className="flex-1 scroll-y pb-8">
           {!channelSource || channelSource.maturity === "blocked" ? (
-            <SourcePendingNotice displayName={channelSelected.label} maturity={channelSource?.maturity} note={channelSource?.note} disabled={channelSelected.kind !== "active"} />
+            <SourcePendingNotice displayName={channelSelected.label} maturity={channelSource?.maturity} note={channelSource?.note} selectedKind={channelSelected.kind} />
           ) : (
             <SourceBrowse def={channelSource} onDetailOpenChange={setBrowseDetailOpen} />
           )}
