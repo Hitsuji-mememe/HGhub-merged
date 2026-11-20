@@ -11,8 +11,14 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub const UA: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+/* 诚实客户端 UA（Muse 2026-11-20 fix336-a）：产品名/版本，版本随
+ * Cargo 包版本自动跟随发版 bump。此前自称 Windows 桌面 Chrome 131，
+ * 与本栈的 rustls TLS 指纹及真实平台（iOS）三者错位，被 Cloudflare
+ * 前置站点的机器人管理按「UA 与指纹不符」判挑战/掐连接——真机五个
+ * CF 前置源自检/取页网络类全灭，本机同形态复放稳定复现、诚实 UA
+ * 形态全通（调查 fix336/investigation-336.md 任务一）。不再自称任何
+ * 浏览器：取页链就是这个 App 自己。 */
+pub const UA: &str = concat!("HGhubX/", env!("CARGO_PKG_VERSION"));
 
 /// 按**当前**系统代理设置新建一个客户端。
 ///

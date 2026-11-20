@@ -19,8 +19,8 @@ import { sourceFetchAllowlistOrigins } from "./features/sources/allowlist";
 import { verifyAppliedAdapterParams } from "./features/sources/adapterParams";
 import { getSelfCheckResults, runSourceSelfCheck, saveSelfCheckResult } from "./features/sources/healthCheck";
 import { getVersion } from "@tauri-apps/api/app";
-import { sourceHealthLines } from "./features/sources/registryDiag";
-import { registerSourceRegistryProvider, registerSourceHealthProvider } from "./shared/diagnostics/sourceRegistry";
+import { sourceHealthLines, sourceFetchErrorLines } from "./features/sources/registryDiag";
+import { registerSourceRegistryProvider, registerSourceHealthProvider, registerSourceFetchErrorProvider } from "./shared/diagnostics/sourceRegistry";
 import { createAdapter } from "./features/sources/adapters/index";
 import { startSourceSelfCheckScheduler } from "./features/sources/healthCheck";
 
@@ -111,6 +111,9 @@ registerSourceRegistryProvider(() => {
   return `清单 v${info.manifestVersion} · 来源 ${info.registrySource} · 内置 ${info.builtinCount} 源`;
 });
 registerSourceHealthProvider(() => sourceHealthLines());
+/* 逐源最近取页错误原文接线（Muse 2026-11-20 fix336-a）：与健康行
+ * 同处注册，供诊断报告「取页观测」节消费（fix336 调查任务一缺口）。 */
+registerSourceFetchErrorProvider(() => sourceFetchErrorLines());
 
 /* 源健康自检调度（Muse 2026-11-19 fix321-F7）：启动后延迟静默分批，
  * 对已启用源用其自身适配器（createAdapter 生产路径：模板适配器经

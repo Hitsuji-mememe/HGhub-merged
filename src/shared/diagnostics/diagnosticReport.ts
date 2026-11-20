@@ -25,7 +25,8 @@ import { readPlaybackFacts, type PlaybackFacts } from "./playbackFacts";
 import { formatLevelFactsLine } from "./levelFacts";
 import { shortVerdict} from "./netDiagReport";
 import { snapshot as ledgerSnapshot, validateLedgerIntegrity} from "./eventLedger";
-import { sourceRegistryVersion, sourceHealthLines } from "./sourceRegistry";
+import { sourceRegistryVersion, sourceHealthLines, sourceFetchErrorLines } from "./sourceRegistry";
+import { fetchObservationSectionLines } from "./fetchObservations";
 import { cacheCountersSnapshot } from "../../features/feed/cacheMap";
 import { formatSrProductionLines, formatSrProbeLines, getSrProductionStats, getSrProbeResult } from "./gpuProbe";
 import { summarizeHoldEvents } from "../../features/feed/holdJank";
@@ -511,7 +512,7 @@ lines.push(`构建：${BUILD_STAMP}`);
  * 报告头，让读者按此口径判读覆盖面与缺口。 */
 /* 报告头口径（整改 C8，G4 P2-5）：不把目标写成现状——已接入与未
  * 接入如实分列（据 diag-audit-20261119 接入矩阵）。 */
-lines.push("诊断原则：全量飞行记录仪（目标）——本报告无单一统一时间线存储，系多存储拼装（播放日志文件／事件账本／Feed 追踪／选线近轮／Rust 即时探测／取页健康／播放事实快照），跨存储靠时间戳对齐；已接入：播放/选线/超分/Feed 分页与封面/图片逐图失败明细（按面标注，含图集与源列表面）/取流分段失败（四源段级、结构化成节）/缓存计数/网络（生成时现跑探测）/错误；未接入：源取页观测链（无触发者，见源总览三态）、账号会话生命周期事件、注册表变更事件。覆盖面按此判读，不把目标当现状。");
+lines.push("诊断原则：全量飞行记录仪（目标）——本报告无单一统一时间线存储，系多存储拼装（播放日志文件／事件账本／Feed 追踪／选线近轮／Rust 即时探测／取页健康／播放事实快照），跨存储靠时间戳对齐；已接入：播放/选线/超分/Feed 分页与封面/图片逐图失败明细（按面标注，含图集与源列表面）/取流分段失败（四源段级、结构化成节）/取页观测（解析分支与目标失败＋逐源最近取页错误原文）/缓存计数/网络（生成时现跑探测）/错误；未接入：账号会话生命周期事件、注册表变更事件。覆盖面按此判读，不把目标当现状。");
 try {
 const snap = ledgerSnapshot();
 const integrity = validateLedgerIntegrity(snap);
@@ -715,6 +716,21 @@ lines.push("── 取流失败留痕 ──────────────
  * 8000 字符尾段截断挤出）。纯旁路：本节数据源与流水同为 entries，
  * 无事件时明示无记录。 */
 for (const l of resolveFailSectionLines(entries)) lines.push(l);
+lines.push("");
+lines.push("── 取页观测（解析与目标失败）──────");
+/* 取页观测节（Muse 2026-11-20 fix336-a）：Rust 取页链的
+ * network.resolve／network.target_failed 记录此前只躺导出尾部日志
+ * 原文、且尾 8000 字符常被挤出——真机五源取页网络类全灭时定不了
+ * 最后一公里（fix336 调查任务一）。现与取流失败留痕同模式从全量
+ * 解析日志结构化成节；逐源最近取页错误原文经 provider 消费
+ * fetchHealth 落盘记录（features 侧归属），未注册如实标注未接。 */
+for (const l of fetchObservationSectionLines(entries)) lines.push(l);
+{
+const errLines = sourceFetchErrorLines();
+if (errLines === null) lines.push("逐源最近取页错误：未接（注册表错误 provider 未注册）");
+else if (errLines.length) for (const l of errLines) lines.push(l);
+else lines.push("逐源最近取页错误：无记录（本会话无取页失败）");
+}
 lines.push("");
 lines.push("── Feed 分页与封面 ────────────────");
 /* FeedRequestTrace（fix2 A2/A3）：分页状态机与封面状态机的证据环。
