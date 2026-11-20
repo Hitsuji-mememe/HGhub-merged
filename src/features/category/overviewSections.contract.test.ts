@@ -5,6 +5,13 @@
  * 覆盖：contentSectionVisible 真值表（唯一隐藏组合＝已尝试∧非加载
  * ∧无错误∧条目 0）＋生产接线文本断言（Category 三类分区都经谓词/
  * 回报判定、SourcePosts 已结空态回报口存在）。
+ *
+ * 断言适配（2026-11-20 fix335/e-category 总览索引化，设计 §6）：
+ * 频道/吃瓜预览区随索引化整面退场，谓词按设计保留给源行区——
+ * 行区名单为注册表同步派生（无异步加载态），以已结算口径
+ * （attempted∧非加载∧无错误）＋派生计数消费同一谓词。原频道区
+ * attempted 落痕与吃瓜已结空态回报两条 Category 侧接线断言随面
+ * 退场，改钉行区消费形态；真值表与 SourcePosts 回报口断言不变。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -23,13 +30,12 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8"
   assert.equal(v({ attempted: false, loading: true, hasError: true, count: 0 }), true, "复合非隐藏条件：保持可见");
 }
 
-/* ── 生产接线：总览三类分区都接判定 ── */
+/* ── 生产接线：源行区经谓词判定（频道行原生恒在、不套谓词） ── */
 {
   const category = read("./Category.tsx");
   assert.ok(category.includes("contentSectionVisible"), "Category 总览经 contentSectionVisible 判定分区可见性");
-  assert.ok(category.includes("errors[c.cate] !== undefined"), "频道区 attempted 取 errors 落痕（loadPreview 起始即写）");
-  assert.ok(category.includes("onSettledEmpty"), "吃瓜外部源模式经 SourcePosts 已结空态回报判定");
-  assert.ok(category.includes("imageSources.length > 0"), "图片区无已启用源时整区不渲染");
+  assert.ok(category.includes("count: imageRowSources.length"), "图片行区以派生名单计数消费谓词（无已启用源整区不渲染）");
+  assert.ok(category.includes("count: videoRowSources.length"), "视频行区以派生名单计数消费谓词（同口径）");
   const sourcePosts = read("../sources/SourcePosts.tsx");
   assert.ok(sourcePosts.includes("onSettledEmpty"), "SourcePosts 提供已结空态回报口（可选 prop，Posts 页不传不受影响）");
 }

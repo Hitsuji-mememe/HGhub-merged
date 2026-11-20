@@ -63,8 +63,10 @@ const finishedDrama = { id: 104, title: "完结剧集丙", score: 8.8, episode_c
 {
   const category = read("./Category.tsx");
   assert.ok(category.includes("partitionCardsByResolvedKind"), "Category 浏览面调用统一裁决分组（fix322 标记线）");
-  assert.ok(category.includes("originalKindGroups.video"), "分类总览视频区只渲染 video 组");
-  assert.ok(category.includes("originalKindGroups.drama"), "分类总览短剧区合并 original 频道中的短剧组");
+  /* 断言适配（fix335/e-category 总览索引化）：总览预览退场、分组
+   * 派生随之删除，原两条总览分组断言改钉退场事实（防预览回潮）；
+   * 分组行为的活面只剩频道页，由下方字面断言守护，覆盖不减。 */
+  assert.ok(!category.includes("originalKindGroups"), "总览索引化后无预览分组派生（分组只在频道页发生）");
   assert.ok(category.includes('partitionCardsByResolvedKind(rawItems, kindSignals.signalFor).video'), "视频频道分页 incoming 先经统一裁决过滤再入列表");
 }
 

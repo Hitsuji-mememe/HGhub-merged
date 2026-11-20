@@ -53,8 +53,12 @@ const def = (id: string): SourceDef => {
   const posts = read("../posts/Posts.tsx");
   assert.ok(posts.includes("resolvePostsBrowse(activeSource)"), "Posts 页按统一判定分流（不再无条件提示）");
   assert.ok(posts.includes("<SourcePosts def={activeSource}"), "Posts 页 browse 分支挂载 SourcePosts");
-  const category = read("../category/Category.tsx");
-  assert.ok(category.includes("resolvePostsBrowse(postsSource)"), "分类总览吃瓜预览同判定分流");
+  /* 断言适配（fix335/e-category 总览索引化）：总览吃瓜预览退场，
+   * 总览面对 posts 的关系改经 surfaces 派生表达——派生内部仍以
+   * 同一 resolvePostsBrowse 分流（overview-posts 面），判定出处
+   * 不变；Category 侧原预览分流断言改钉派生消费点。 */
+  const surfaces = read("./surfaces.ts");
+  assert.ok(surfaces.includes("resolvePostsBrowse(def)"), "surfaces 的 overview-posts/posts-page 派生同判定分流（总览索引化后经派生消费同一判定）");
   const browse = read("./SourcePosts.tsx");
   assert.ok(browse.includes("createAdapter(def)"), "SourcePosts 生产调用 createAdapter");
 }
