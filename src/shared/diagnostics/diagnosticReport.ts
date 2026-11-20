@@ -20,6 +20,7 @@ import { autoLineEnabled, lastPickRound, recentPickRounds} from "../network/auto
 import { nativeFallbackState} from "../../features/playback/mediaTransport";
 import { flushPlaybackLog, playbackLogApi} from "./playbackDiagnostics";
 import { ledgerPlaybackEvidence, selectFlowSegment } from "./flowSegments";
+import { resolveFailSectionLines } from "./resolveFailLines";
 import { readPlaybackFacts, type PlaybackFacts } from "./playbackFacts";
 import { formatLevelFactsLine } from "./levelFacts";
 import { shortVerdict} from "./netDiagReport";
@@ -28,7 +29,7 @@ import { sourceRegistryVersion, sourceHealthLines } from "./sourceRegistry";
 import { cacheCountersSnapshot } from "../../features/feed/cacheMap";
 import { formatSrProductionLines, formatSrProbeLines, getSrProductionStats, getSrProbeResult } from "./gpuProbe";
 import { summarizeHoldEvents } from "../../features/feed/holdJank";
-import { feedTraceSnapshot, feedTraceSummary} from "../lib/feedTrace";
+import { feedTraceSnapshot, feedTraceSummary, imageSurfaceLabel} from "../lib/feedTrace";
 
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json => (v && typeof v === "object" &&!Array.isArray(v)? (v as Json): {});
@@ -510,7 +511,7 @@ lines.push(`构建：${BUILD_STAMP}`);
  * 报告头，让读者按此口径判读覆盖面与缺口。 */
 /* 报告头口径（整改 C8，G4 P2-5）：不把目标写成现状——已接入与未
  * 接入如实分列（据 diag-audit-20261119 接入矩阵）。 */
-lines.push("诊断原则：全量飞行记录仪（目标）——本报告无单一统一时间线存储，系多存储拼装（播放日志文件／事件账本／Feed 追踪／选线近轮／Rust 即时探测／取页健康／播放事实快照），跨存储靠时间戳对齐；已接入：播放/选线/超分/Feed 分页与封面/图片逐图失败明细（按面标注，含图集与源列表面）/缓存计数/网络（生成时现跑探测）/错误；未接入：源取页观测链（无触发者，见源总览三态）、账号会话生命周期事件、注册表变更事件。覆盖面按此判读，不把目标当现状。");
+lines.push("诊断原则：全量飞行记录仪（目标）——本报告无单一统一时间线存储，系多存储拼装（播放日志文件／事件账本／Feed 追踪／选线近轮／Rust 即时探测／取页健康／播放事实快照），跨存储靠时间戳对齐；已接入：播放/选线/超分/Feed 分页与封面/图片逐图失败明细（按面标注，含图集与源列表面）/取流分段失败（四源段级、结构化成节）/缓存计数/网络（生成时现跑探测）/错误；未接入：源取页观测链（无触发者，见源总览三态）、账号会话生命周期事件、注册表变更事件。覆盖面按此判读，不把目标当现状。");
 try {
 const snap = ledgerSnapshot();
 const integrity = validateLedgerIntegrity(snap);
@@ -708,6 +709,13 @@ lines.push(`此前播放 #${p.index}：${bits.join(" · ")}`);
 }
 }
 lines.push("");
+lines.push("── 取流失败留痕 ──────────────");
+/* 取流段失败结构化节（fix333-m5 P5）：消费全量解析日志里的
+ * source.resolve_fail 事件成行，不再只靠导出尾部日志原文（会被
+ * 8000 字符尾段截断挤出）。纯旁路：本节数据源与流水同为 entries，
+ * 无事件时明示无记录。 */
+for (const l of resolveFailSectionLines(entries)) lines.push(l);
+lines.push("");
 lines.push("── Feed 分页与封面 ────────────────");
 /* FeedRequestTrace（fix2 A2/A3）：分页状态机与封面状态机的证据环。
  * 纯旁路：读取失败只降级本节。慢线下「只出首屏/封面全黑」复现后
@@ -725,42 +733,30 @@ lines.push(`分页[${channelLabel(l.list)}]：已加载至第 ${l.loadedPages} �
 }
 const reasons = Object.entries(snap.image.byReason).map(([k, v]) => `${k} ${v}`).join(" · ");
 lines.push(`封面：已显示 ${snap.image.displayed} · 终局失败 ${snap.image.failed}${reasons? `（${reasons}）`: ""} · 在途峰值 ${snap.image.inFlightPeak}`);
-/* 段位分桶＋逐图终局失败留痕（Muse 2026-11-20 fix331/covers-header）：
- * 3.3.1 真机诊断只有全局一行（159/45），失败无法归属到面、逐图无
- * 行——源列表/图集的失败在报告里等于不存在，定位只能靠用户截图。
- * 现按 Img 段位分桶续印，并把最近 6 条终局失败逐图印出（段位/源
- * host 指纹/形态/attempt/耗时档；不带完整 URL，守日志不变量）。
- * 与 gallery-device 线共用同一 image 事件口径（ev/final/surface/
- * origin 字段），不另起格式。 */
-const imgSurfaceLabels: Record<string, string> = {
-"source-posts": "外部源·吃瓜列表",
-"source-browse": "外部源·视频列表",
-"posts-native": "原生吃瓜列表",
-};
+/* 段位分桶＋逐图终局失败明细（Muse 2026-11-20 fix331/covers-header
+ * 与 gallery-device 两线立、fix333-m5 O1 收敛）：3.3.1 真机诊断只有
+ * 全局一行（159/45），失败无法归属到面、逐图无行——源列表/图集
+ * 的失败在报告里等于不存在，定位只能靠用户截图。现按 Img 段位
+ * 分桶续印；逐图只走明细环一段（最近 12 条）：指纹（host#长度）/
+ * 面/段位/attempt/总＋末次双耗时档。判读键：error-event 且耗时小
+ * ＝上游快速拒绝（防盗链类）；耗时大＝上游重试耗尽或传输抖动；
+ * attempt-timeout＝Img 20s 时钟先到。m5 前同一终局失败另有一段
+ * 事件逐图行（最近 6 条、单耗时档、字段口径不同）与本段并存，
+ * 判读时易被误计为两批失败——已删，逐图留痕由明细环单段承载
+ * （信息更全、条数更多，用户 01:06 逐图留痕要求不丢），聚合计数
+ * 行口径不变。面标签走 feedTrace 的 imageSurfaceLabel 唯一出处
+ * （含图集/源图集列表的中文标签，m5 O4；此前 gallery/source-list
+ * 两面在导出中露英文原名）。 */
 for (const [surface, b] of Object.entries(snap.image.bySurface)) {
 if (!b.displayed && !b.failed) continue;
 const rs = Object.entries(b.byReason).map(([k, v]) => `${k} ${v}`).join(" · ");
-lines.push(`封面[${imgSurfaceLabels[surface] ?? surface}]：已显示 ${b.displayed} · 终局失败 ${b.failed}${rs? `（${rs}）`: ""}`);
+lines.push(`封面[${imageSurfaceLabel(surface)}]：已显示 ${b.displayed} · 终局失败 ${b.failed}${rs? `（${rs}）`: ""}`);
 }
-const imgMsBucket = (ms: unknown): string => {
-const n = typeof ms === "number" && Number.isFinite(ms)? ms: null;
-return n === null? "耗时未记": n < 1000? "<1s": n < 5000? "1–5s": n < 20000? "5–20s": "≥20s";
-};
-const imgFinalFails = snap.events.filter(e => e.kind === "image" && (e.data.ev === "failed" || e.data.ev === "error") && e.data.final === true).slice(-6);
-for (const e of imgFinalFails) {
-const d = e.data;
-const surface = typeof d.surface === "string" && d.surface? d.surface: "未标注";
-lines.push(`· 图片失败[${imgSurfaceLabels[surface] ?? surface}] ${String(d.origin ?? d.url ?? "")} · ${String(d.reason ?? "?")} · attempt ${Number(d.attempt ?? 0) + 1} · ${imgMsBucket(d.ms)}`);
-}
-/* 逐图终局失败明细（fix331/gallery-device）：聚合行定位不了单图，
- * 这里逐条给最近 12 条——指纹（host#长度）/面/段位/attempt/耗时档。
- * 判读键：error-event 且耗时小＝上游快速拒绝（防盗链类）；耗时大＝
- * 上游重试耗尽或传输抖动；attempt-timeout＝Img 20s 时钟先到。 */
 const failures = snap.imageFailures.slice(-12);
 if (failures.length) {
 lines.push(`图片失败明细（最近 ${failures.length} 条终局失败）：`);
 for (const f of failures) {
-lines.push(`· ${f.fp} · 面 ${f.surface} · ${f.stage}/${f.reason} · attempt ${f.attempts} · 总 ${f.totalBucket} · 末次 ${f.lastBucket}`);
+lines.push(`· ${f.fp} · 面 ${imageSurfaceLabel(f.surface)} · ${f.stage}/${f.reason} · attempt ${f.attempts} · 总 ${f.totalBucket} · 末次 ${f.lastBucket}`);
 }
 }
 const recent = snap.events.filter(e => e.kind.startsWith("page.")).slice(-4);

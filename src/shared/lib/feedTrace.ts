@@ -120,6 +120,25 @@ let imageSurface = "app";
 export function setImageTraceSurface(surface: string): void {
   imageSurface = surface || "app";
 }
+
+/* ── 图片面中文标签（唯一出处，Muse 2026-11-20 fix333-m5 O4）──
+ * 面值全集：Img 的 surface 段位（source-posts/source-browse/
+ * posts-native，调用面自报）＋本模块的当前面标注（gallery/
+ * source-list/app）。此前诊断导出只有前三面的标签表，gallery/
+ * source-list 在导出里露英文原名、与其余中文标签不一致。现标签
+ * 收敛到记录侧一处，导出各段（分桶行/失败明细行）共用；未知面值
+ * 回落原值如实呈现，不假译。 */
+const IMAGE_SURFACE_LABELS: Record<string, string> = {
+  "source-posts": "外部源·吃瓜列表",
+  "source-browse": "外部源·视频列表",
+  "posts-native": "原生吃瓜列表",
+  "gallery": "图集",
+  "source-list": "外部源·图集列表",
+  "app": "应用内",
+};
+export function imageSurfaceLabel(surface: string): string {
+  return IMAGE_SURFACE_LABELS[surface] ?? surface;
+}
 export function msBucket(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "?";
   if (ms < 1000) return "<1s";
