@@ -170,6 +170,20 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   先行 albumSeq++ 作废在飞请求。证据：
   `~/workspace/hghub/fix335/evidence/a-album-guard.md`（夹具三
   场景双树实测：切源复活/改开覆盖/关闭复活，旧红新绿）。
+  fix335/detail-guard（2026-11-20）：详情代次守卫横扫收口——
+  album-guard 登记的同病两落点（`SourceBrowse.openItem`、
+  `SourcePosts.openItem`）与 Search 外部详情三入口
+  （`openExternal`/`manualPick`/`switchCopy`）同型修复：各面
+  独立 seq（Browse/Posts 为 `detailSeq`、Search 为
+  `extDetailSeq`），打开取号、await 落地前比对丢弃；切源重置
+  effect 与全部关闭路径（`closeDetail`/`closeExtDetail`：返回
+  序登记、页头/相册返回钮、submit、输入清空）先行作废在飞
+  请求。Search 候选两处经核实排除：`evaluateDetail` 只写按
+  副本键的缓存与本地评估 Map、无状态落点；`copyLoader` 为纯
+  函数、迟到写落对键缓存不碰 UI 状态——病灶是其三个调用方
+  的 setExtDetail 落点，已逐个守卫。证据：
+  `~/workspace/hghub/fix335/evidence/detail-guard.md`（夹具十
+  场景双树实测＋正常路径回归：切副本/手选副本正常落定）。
 - 封面状态机（同批）：`ImageLoad` 状态 loading→decoded→displayed 或
   failed(reason)（http/timeout/decode 分因），每 attempt 20s 超时，
   src 变化自动重试；失败计数与分页证据同节进诊断报告。fix2.1 修正
