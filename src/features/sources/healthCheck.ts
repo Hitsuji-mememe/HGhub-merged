@@ -141,8 +141,16 @@ export const SELF_CHECK_PROTOCOL_VERSION = 2;
  * htmlListAdapter 取页行为变更——disc.period 榜单归档路径新增、
  * 无 searchPath 源的 search 假回退拆除（改显式抛错）。两线同批
  * 同 bump 至 3（纪元 3 未单独发布过），覆盖面为上述两类变更之
- * 并集，旧纪元结果按过期补探。 */
-export const SELF_CHECK_ADAPTER_EPOCH = 3;
+ * 并集，旧纪元结果按过期补探。
+ * v4（2026-11-20 fix338/net-fix，集成裁定）：取页/取流链的解析
+ * 采用语义变更——adopt_addresses 统一两采用点裁定（strict 子集
+ * 保留＋全合成集 ByHostname 不钉死）、FakeIP v6 合成池（ULA）
+ * 由 ip_kind 误判 public 改标 fake_ip 并放行、public_dns 整组校
+ * 验改同口径；同批清单魔数判别（声称清单而魔数不符 502）与清
+ * 单 15s 总截止改变取流成败形态。解析/取流结论可能整类翻转，
+ * 旧纪元结果（尤其 009/010 的取流结论）一律按过期补探、不许
+ * 带进 3.3.8。 */
+export const SELF_CHECK_ADAPTER_EPOCH = 4;
 /** 最近打开记录落盘键（hghubx_*，不变量 7）：源 id → 最近一次
  * 进入其浏览面的时刻；只记 id/时刻（不变量 10），供批量补探
  * 排序（M7）。 */
