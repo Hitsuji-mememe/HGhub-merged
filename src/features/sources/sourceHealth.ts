@@ -31,6 +31,7 @@ import {
   type SourceSelfCheckResult,
 } from "./healthCheck.ts";
 import { getActiveRegistry } from "./manifest.ts";
+import { probeStreamManifestViaPlayback } from "./manifestProbe.ts";
 import { createAdapter } from "./adapters/index.ts";
 import type { SourceDef } from "./types.ts";
 
@@ -47,7 +48,7 @@ export function useSourceSelfCheckOnView(def: SourceDef): void {
   useEffect(() => {
     recordSourceView(id);
     const current = getActiveRegistry().sources.find((s) => s.id === id);
-    if (current) ensureSourceSelfCheck(current, { createAdapterFor: (d) => createAdapter(d) });
+    if (current) ensureSourceSelfCheck(current, { createAdapterFor: (d) => createAdapter(d), probeManifest: probeStreamManifestViaPlayback });
   }, [id]);
 }
 
@@ -59,7 +60,7 @@ export function useSourceSelfCheckOnView(def: SourceDef): void {
 export function noteSourceListSuccess(def: SourceDef): void {
   try {
     const current = getActiveRegistry().sources.find((s) => s.id === def.id);
-    if (current) reprobeSelfCheckOnListSuccess(current, { createAdapterFor: (d) => createAdapter(d) });
+    if (current) reprobeSelfCheckOnListSuccess(current, { createAdapterFor: (d) => createAdapter(d), probeManifest: probeStreamManifestViaPlayback });
   } catch { /* 旁路：信号失败不影响浏览 */ }
 }
 
@@ -78,6 +79,7 @@ export function useSourceSelfCheckOnShow(defs: readonly SourceDef[], selectedId?
     if (current.length) {
       void ensureSourcesSelfCheck(current, {
         createAdapterFor: (d) => createAdapter(d),
+        probeManifest: probeStreamManifestViaPlayback,
         selectedId,
       });
     }

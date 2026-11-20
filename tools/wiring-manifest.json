@@ -2326,6 +2326,17 @@
       ],
       "symbol": "assembleSearchGallery",
       "min": 3
+    },
+    {
+      "id": "fix339-probe-manifest-live-pull",
+      "item": "fix339/probe-fidelity 自检取流段清单实拉：manifestProbe 定义＋main.tsx 调度/F8 两装配＋sourceHealth.ts 三补探接线显式注入（摘任一装配点该路径回到 resolve-only 假绿）",
+      "symbol": "probeStreamManifestViaPlayback",
+      "files": [
+        "src/features/sources/manifestProbe.ts",
+        "src/main.tsx",
+        "src/features/sources/sourceHealth.ts"
+      ],
+      "each": true
     }
   ]
 }

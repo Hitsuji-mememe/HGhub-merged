@@ -23,6 +23,12 @@
  * 保真）。基线（@5ca59ca）红：结果无 paging 段、引擎不取第 2
  * 页、预算常量为 3。
  * 不访问真实网络：适配器经注入接缝以脚本化假适配器隔离。
+ * 断言适配（2026-11-21 fix339/probe-fidelity）：协议 v3 取流段
+ * 加清单实拉、硬预算 4→5、SELF_CHECK_PROTOCOL_VERSION 2→3，
+ * (d) 两常量断言随之改判；本文件假适配器不注入 probeManifest
+ * 接缝、引擎维持 resolve-only 口径，各计数断言（视频全链＋抽
+ * 查＝4 等）不变；覆盖不降，实拉段口径由 fix339-probe-fidelity
+ * 契约承接。
  */
 import assert from "node:assert/strict";
 import {
@@ -236,8 +242,8 @@ const newCounter = () => ({ calls: 0, listPages: [] as number[] });
 
 /* ── (d) 预算常量与协议版本 ── */
 {
-  assert.equal(SELF_CHECK_MAX_REQUESTS_PER_SOURCE, 4, "硬预算 = 4（列表＋分页抽查＋详情＋取流）");
-  assert.equal(SELF_CHECK_PROTOCOL_VERSION, 2, "自检协议 v2＝全链＋分页抽查口径");
+  assert.equal(SELF_CHECK_MAX_REQUESTS_PER_SOURCE, 5, "硬预算 = 5（列表＋分页抽查＋详情＋取流解析＋清单实拉）");
+  assert.equal(SELF_CHECK_PROTOCOL_VERSION, 3, "自检协议 v3＝全链＋分页抽查＋清单实拉口径");
 }
 
 /* ── (e) 落盘归一：旧结果缺 paging 字段读入归一 skipped、新格式往返保真 ── */
