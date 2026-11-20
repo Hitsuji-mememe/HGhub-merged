@@ -1902,6 +1902,26 @@
       "item": "fix333/list-noise 列表层非帖锚点稳杀：findCardAnchors 卡片容器限定采集（parse 定义＋templates parseAnchorList 消费），导航/页脚锚点不进条目、广告三标记显式排除",
       "min": 3,
       "symbol": "findCardAnchors"
+    },
+    {
+      "files": [
+        "src/features/sources/adapters/parse.ts",
+        "src/features/sources/adapters/templates.ts"
+      ],
+      "id": "fix333-promo-card-category-tokens",
+      "item": "fix333/promo-filter 卡片分类词元提取：cardCategoryTokens 取 post-card-meta 分类 span 并切词元（parse 定义＋templates isPromoCard 消费），公告类分类判据的信号源",
+      "min": 3,
+      "symbol": "cardCategoryTokens"
+    },
+    {
+      "files": [
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/registry.ts"
+      ],
+      "id": "fix333-promo-announcement-cats",
+      "item": "fix333/promo-filter 推广帖组合判据接线：announcementCats/contestCat 参数声明（registry 两源）＋htmlListAdapter 组装 PromoCardFilter 传入 parseAnchorList 列表/搜索两路",
+      "min": 4,
+      "symbol": "announcementCats"
     }
   ]
 }

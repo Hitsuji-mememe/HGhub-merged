@@ -12,7 +12,7 @@ import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
 import { IWARA_API_ORIGIN, REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
-import { allImgSrcs, contentImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
+import { allImgSrcs, cardCategoryTokens, contentImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, metaContent, pageOf, stripTags } from "./parse.ts";
 
 export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "hentaihaven-api", "preview-only", "none"] as const;
 type Params = Record<string, unknown>;
@@ -47,6 +47,30 @@ function titleFromHref(href: string): string {
   } catch { return ""; }
 }
 
+/** 卡内推广帖组合判据（Muse 2026-11-20 fix333/promo-filter）：只认
+ * 站方分类学信号，不用标题关键词表。判据＝卡片分类词元（post-card-
+ * meta 的分类 span，见 parse.ts cardCategoryTokens）命中源声明的
+ * 公告类分类（params.announcementCats，如站方的活动存档/主题大赛
+ * 分类——该分类在真站样本里只装公告/活动帖），或「分类＝大赛栏目
+ * （params.contestCat）∧ 标题为栏目公告框式（params.contestTitle-
+ * Prefix 开头，如「每日大赛之【…】」征集帖）」的组合（栏目分类本身
+ * 也装参赛内容帖，须叠标题框式才判公告）。词元逐个精确比对；无
+ * 分类 span 的卡片（旧卡变体、无元信息卡）不判。样本与杀率见
+ * fix333/evidence/promo-filter.md（003/005 分类样本内容误杀 0）。 */
+export interface PromoCardFilter {
+  announcementCats: string[];
+  contestCat: string;
+  contestTitlePrefix: string;
+}
+
+function isPromoCard(inner: string, title: string, promo: PromoCardFilter): boolean {
+  const tokens = cardCategoryTokens(inner);
+  if (tokens.length === 0) return false;
+  if (promo.announcementCats.some((c) => tokens.includes(c))) return true;
+  return Boolean(promo.contestCat && promo.contestTitlePrefix
+    && tokens.includes(promo.contestCat) && title.startsWith(promo.contestTitlePrefix));
+}
+
 /** 锚点列表解析（chigua 与 hls-site 共用）：href 含 itemLinkPattern 的锚点为条目。
  * 卡片容器限定（Muse 2026-11-20 fix333/list-noise）：源在注册表声明
  * cardContainer 时只认卡片容器内的锚点——整页扫描会把页眉导航下拉、
@@ -56,8 +80,11 @@ function titleFromHref(href: string): string {
  * rel="sponsored"、ssp-placement＋template 假卡）由 findCardAnchors
  * 显式排除（此前靠外链不含条目模式偶然挡住）。容器采集为 0＝页面
  * 形态与声明不匹配，按「未知不是空」回落整页扫描（旧行为），不把
- * 形态漂移误报成空列表。未声明 cardContainer 的源行为逐字不变。 */
-function parseAnchorList(html: string, base: string, sourceId: string, itemLinkPattern: string, cardContainer = ""): SourceItem[] {
+ * 形态漂移误报成空列表。未声明 cardContainer 的源行为逐字不变。
+ * 推广帖过滤（fix333/promo-filter）：promo 声明时，条目成形后（标题
+ * 确定后）、入列前过 isPromoCard；与容器采集正交，两参数由
+ * htmlListAdapter 从 params 组装、list/search 两路同口径透传。 */
+function parseAnchorList(html: string, base: string, sourceId: string, itemLinkPattern: string, cardContainer = "", promo?: PromoCardFilter): SourceItem[] {
   const seen = new Set<string>();
   const items: SourceItem[] = [];
   let anchors = cardContainer === "article" || cardContainer === "video-item" ? findCardAnchors(html, cardContainer) : [];
@@ -69,6 +96,9 @@ function parseAnchorList(html: string, base: string, sourceId: string, itemLinkP
     seen.add(href);
     const title = a.titleAttr || headingText(a.inner) || imgAlt(a.inner) || stripTags(a.inner) || titleFromHref(href);
     if (!title) continue;
+    /* 推广帖过滤（fix333/promo-filter）：源声明判据时，公告/活动类
+     * 卡片在列表层整条剔除（搜索同路径同口径）；未声明的源零影响。 */
+    if (promo && isPromoCard(a.inner, title, promo)) continue;
     /* 封面空串守卫（Muse 2026-11-20 fix331/covers-header）：无封面
      * 载体时 firstCoverSrc 返回 ""，旧写法 absUrl(base, "") 把它补成
      * 站点根 URL——非空合法地址冒充封面，Img 遂把站点首页 HTML 当
@@ -120,12 +150,23 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
   /* 卡片容器声明（fix333/list-noise）：按源主题在注册表 params 里
    * 声明（article / video-item），未声明的源整页扫描、行为不变。 */
   const cardContainer = str(params, "cardContainer", "");
+  /* 推广帖判据（fix333/promo-filter）：params 声明才启用——
+   * announcementCats=公告类分类词元数组、contestCat/contestTitlePrefix
+   * =大赛栏目公告组合；三者皆缺省时 promo 为 undefined、解析旧行为。 */
+  const announcementCats = Array.isArray(params.announcementCats)
+    ? (params.announcementCats as unknown[]).filter((x): x is string => typeof x === "string" && x.length > 0)
+    : [];
+  const contestCat = str(params, "contestCat", "");
+  const contestTitlePrefix = str(params, "contestTitlePrefix", "");
+  const promo: PromoCardFilter | undefined = (announcementCats.length > 0 || (contestCat && contestTitlePrefix))
+    ? { announcementCats, contestCat, contestTitlePrefix }
+    : undefined;
   return {
     sourceId: def.id,
     async list(page, size) {
       const base = def.baseUrls[0];
       const html = await fetchPage(absUrl(base, fill(listPath, { page })));
-      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer);
+      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo);
       /* 未知不是空（fix321-F2）：取到页却 0 条目 = 解析失败，显式抛错走列表层错误通道 */
       if (all.length === 0) throw new SourceParseEmptyError(def.id);
       const items = all.slice(0, size);
@@ -145,7 +186,7 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
         ? fill(searchPath, { q: encodeURIComponent(q), page })
         : `/?s=${encodeURIComponent(q)}&paged=${page}`;
       const html = await fetchPage(absUrl(base, path));
-      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer);
+      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo);
       return { items: all.slice(0, size), pagination: pageOf(all.length, page, size) };
     },
   };
