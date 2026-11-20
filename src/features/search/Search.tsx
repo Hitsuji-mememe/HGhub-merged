@@ -26,8 +26,8 @@ import { Player } from "../playback";
 import { fetchHealthSnapshot } from "../sources/adapters/fetchHealth.ts";
 import {
   GLOBAL_SEARCH_TABS, aggregateHits, fanoutSearch, kindSignalOfDetail,
-  loadWithFallback, needsCanonicalKindLookup, orderCopiesForDisplay, searchKindForHuangguoVideo, structuralCompletenessOf,
-  type CopyAssessment, type CopyRef, type EpisodeStructureSignal, type FanoutHit, type GlobalSearchKind, type MergedHit,
+  loadWithFallback, needsCanonicalKindLookup, orderCopiesForDisplay, searchKindForHuangguoVideo, structuralCompletenessOf, summarizeFanoutFailures,
+  type CopyAssessment, type CopyRef, type EpisodeStructureSignal, type FanoutFailureSummary, type FanoutHit, type GlobalSearchKind, type MergedHit,
 } from "./multiSourceSearch";
 import { copyCacheKey, loadSearchCopy } from "./copyLoader";
 
@@ -40,8 +40,12 @@ import { copyCacheKey, loadSearchCopy } from "./copyLoader";
  * 跨源合并（多信号置信门、索引层合并保留全部副本）＋同类混排
  * （相关性优先、源等级只作 tiebreak、单源首屏贡献上限），页签
  * 恒四类（GLOBAL_SEARCH_TABS），永不按源分段。外部单源失败
- * 静默跳过、只经 tracePlayback 留痕（search.source_fail），不弹窗、
- * 不整页报错；黄果通道失败保留既有错误行＋重试（其余源结果照常）。
+ * 经 tracePlayback 留痕（search.source_fail）之外，扇出落定后由
+ * summarizeFanoutFailures 汇总在结果区呈现（fix333/m4-search 修
+ * 清扫 P4：此前 failures 零呈现，部分失败看不出结果不完整、全
+ * 部失败与「无结果」不可区分）——部分失败一行点名失败源＋重试，
+ * 全部失败走 alert 行且空态换失败文案，不弹窗、不整页报错；
+ * 黄果通道失败保留既有错误行＋重试（其余源结果照常）。
  * 外部条目点击走 D 线接通口径：视频 resolve→Player、图片 detail→
  * 图集、帖子 detail→正文，均在本页详情层呈现（外部源无黄果数值
  * id 路由）；多副本可切换（副本 pills），默认副本按「可用性→
@@ -92,6 +96,9 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
   const kindLookupRequested = useRef(new Set<string>());
   const [hgPost, setHgPost] = useState<HgState<Post>>(null);
   const [extHits, setExtHits] = useState<FanoutHit[]>([]);
+  /* 扇出失败呈现汇总（fix333/m4-search）：扇出落定后由
+   * summarizeFanoutFailures 生成；null＝未落定/无失败呈现。 */
+  const [extSummary, setExtSummary] = useState<FanoutFailureSummary | null>(null);
   const [hgLoading, setHgLoading] = useState(false);
   const [moreLoading, setMoreLoading] = useState(false);
   const [extLoading, setExtLoading] = useState(false);
@@ -204,6 +211,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
     setHgVideo(null);
     setHgPost(null);
     setExtHits([]);
+    setExtSummary(null);
     setExtDetail(null);
     setHgLoading(true);
     setExtLoading(true);
@@ -230,6 +238,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
       });
       if (seq !== seqRef.current) return;
       setExtHits(out.hits);
+      setExtSummary(summarizeFanoutFailures(out.failures, defs, out.searched));
       setExtLoading(false);
     })();
   };
@@ -655,11 +664,11 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
             onChange={(e) => {
               const next = e.target.value;
               setQ(next);
-              if (!next && submitted) { setSubmitted(""); seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setHgError(null); setExtDetail(null); }
+              if (!next && submitted) { setSubmitted(""); seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setExtSummary(null); setHgError(null); setExtDetail(null); }
             }}
             placeholder="搜索视频、短剧、帖子、图片…"
             className="flex-1 min-w-0 bg-transparent text-[14px] text-on placeholder-dim outline-none" />
-          {(q || submitted) && <Button aria-label="清空搜索" type="button" onClick={() => { seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setHgError(null); setExtDetail(null); setQ(""); setSubmitted(""); inputRef.current?.focus(); }} className="ios-icon-button ios-search-clear"><IClose size={16} /></Button>}
+          {(q || submitted) && <Button aria-label="清空搜索" type="button" onClick={() => { seqRef.current++; setHgVideo(null); setHgPost(null); setExtHits([]); setExtSummary(null); setHgError(null); setExtDetail(null); setQ(""); setSubmitted(""); inputRef.current?.focus(); }} className="ios-icon-button ios-search-clear"><IClose size={16} /></Button>}
         </Form>
         <Button onClick={() => push({ kind: "ranks" })} aria-label="排行榜"
           variant="primary" className="ios-icon-button ios-search-shortcut">
@@ -739,6 +748,20 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
               <span>「{submitted}」黄果通道搜索失败：{hgError}（其他来源结果不受影响）</span>
               <Button onClick={() => submit(submitted)} disabled={loading} className="px-3 text-primary">重试</Button>
             </div>}
+            {/* 扇出失败呈现（fix333/m4-search 修 P4）：部分失败点名
+             * 失败源＋计数（结果可能不完整）；全部失败走 alert 并与
+             * 下方空态的失败文案呼应，不再与「无结果」同形。 */}
+            {extSummary && extSummary.failed.length > 0 && (extSummary.allFailed ? (
+              <div role="alert" className="flex flex-wrap items-center gap-2 mb-3 text-[13px] text-danger">
+                <span>外部来源全部搜索失败：{extSummary.failed.map((f) => f.sourceName).join("、")}（共 {extSummary.total} 个来源；结果仅来自黄果通道）</span>
+                <Button onClick={() => submit(submitted)} disabled={loading} className="px-3 text-primary">重试</Button>
+              </div>
+            ) : (
+              <div role="status" className="flex flex-wrap items-center gap-2 mb-3 text-[13px] text-mut">
+                <span>{extSummary.failed.length} 个来源搜索失败：{extSummary.failed.map((f) => f.sourceName).join("、")}（结果可能不完整，其余来源不受影响）</span>
+                <Button onClick={() => submit(submitted)} disabled={loading} className="px-3 text-primary">重试</Button>
+              </div>
+            ))}
             <section aria-label="搜索结果" aria-busy={loading}>
               {currentGroup.length > 0 ? <>
                 <FilteredContent items={currentGroup} scopeKey={JSON.stringify([submitted, tab])}>{visible => <div className={`ios-media-grid ${wide ? "is-wide" : ""}`}>
@@ -757,6 +780,9 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
                 </div>
               </> : loading ? (
                 <div className="flex justify-center py-12"><Loader label="正在搜索" className="w-8 h-8 spinner" /></div>
+              ) : extSummary?.allFailed ? (
+                <Empty icon={<ISearch size={26} />} title="外部来源搜索全部失败" sub="没有拿到任何外部来源的结果，请重试或检查网络后再试"
+                  action="重试搜索" onAction={() => submit(submitted)} />
               ) : (
                 <Empty icon={<ISearch size={26} />} title="没有找到相关内容" sub="换个关键词试试，比如「都市」「逆袭」"
                   action="看看排行榜" onAction={() => push({ kind: "ranks" })} />

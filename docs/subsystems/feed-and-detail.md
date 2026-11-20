@@ -334,6 +334,27 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   `heiliao-list-footer-ssp.html`；真实 9 页新旧逐条 diff（消失
   恰为非帖集、保留集标题/封面/顺序逐字不变、005 零变化）证据
   在 `fix333/evidence/list-noise/`。
+- 搜索面两件（3.3.3 残余清剿 M4，2026-11-20）：①扇出失败呈现
+  （修清扫 P4）——此前 Search 只消费 `fanoutSearch` 的 hits、
+  failures 仅经 onFailure 落 `search.source_fail` 日志痕，UI 零
+  呈现：部分源失败看不出结果不完整、全部发起源失败与「无结
+  果」不可区分。现扇出落定后经 `multiSourceSearch.ts` 的
+  `summarizeFanoutFailures` 汇总入 state：分母只计实际发起搜
+  索的源（searched ∪ 失败源；无搜索段/未启用的静默出局不入
+  分母、不记失败，searchPolicyFor 既定口径不变），部分失败在
+  结果区上方一行点名失败源（注册表显示名）＋计数＋重试、全
+  部失败走 alert 行且空态换「外部来源搜索全部失败」文案＋重
+  试搜索；黄果通道失败行口径不变。②容器判据搜索页采样——
+  生产适配器实跑 003/004/005 搜索页各 3 个词条页（同字节交
+  叉核对）：003 每页模式锚点 27＝容器内 25＋容器外 2（恰为普
+  查导航非帖组、条目内 0）、004 模式锚点 27＝容器内 15＋页脚
+  12（条目内 0；且三词条返回同字节页，印证其无 GET 搜索段、
+  caps.search=false 的既有口径）、005 容器外模式锚点 0；三源
+  漏入 0、真帖误杀 0（005 未入列的容器内锚点逐条归因推广过
+  滤的公告类分类命中、属设计内剔除）。搜索页与列表页同构、
+  判据无需改动；契约 `fix333-m4.contract.test.ts` 以列表同批
+  夹具驱动 search 路径钉同排除集，采样原始页与逐条核对在
+  `fix333/evidence/m4-search/`。
 - 图集查看器形态（3.2.1 fix321-F6，2026-11-19 用户实报图片太小）：图集查看统一走共用 `AlbumViewer`（`src/features/sources/AlbumViewer.tsx`，SourceGallery 与搜索图片详情同治）——舞台填满可用高度（SourceGallery 为 fixed 覆满视口、搜索详情页内 h-full）、图片 contain 贴边、无写死比例盒子与上下张按钮行；标题/计数/返回/关闭/缩略图条收进悬浮层（静止 3s 自动淡出、中央点按显隐、左右点按与横滑翻页、缩略图点选跳张且当前张高亮定位），index 受控于调用方单份状态。手势归属（fix322/gallery，2026-11-19 用户实报 146 张图集条划不动）：悬浮层的 touch 事件一律 stopPropagation、与舞台横滑完全隔离，缩略图条本体 `touch-action: pan-x` 走原生横滚快速定位；舞台 touchcancel 清手势起点。几何与条手势由 `scripts/test-layout.mjs` gallery 场景守门（舞台占可用区 ≥98%＋源码层无 4/5 写死盒＋146 张条场景：条上横拖不翻页/快划大位移/尾部点选/翻页后跟随可见）。快速滑动不消失（fix330/ui-fixes，2026-11-19 用户真机实报「图片预览滑的快了会直接消失隐藏」）：双机制根治——(1) 舞台窗口化：只挂当前张±1 三帧（`data-album-frame` 按 index 定 key、仅当前张不透明），邻图随挂载预取，旧单 `Img` 以 src 为 key 逐张重挂在慢图源下快翻张张空白；(2) chrome 活动续命：淡出计时新增活动依赖——缩略图条 `onScroll` 与悬浮层 touch 经 `pokeChrome`（500ms 节流）重置计时，旧计时只挂呼出/切张，条上划找图满 3s 整层在指下淡出。夹具：layout gallery 条场景⑤（条上持续活动跨 3s 闲置窗 chrome 仍可见、停手恢复淡出）＋新场景 gallery-fast-swipe（图源延迟 900ms 下连翻 6 张，落点窗口三帧在场＋邻图请求已发；两场景旧码均红）。沉浸式安全区（fix330/gallery-viewer，2026-11-19 真机实报全屏 chrome 与状态栏重叠）：AlbumViewer 新增 immersive 模式——chrome 内边距按 --sat/--sab/--sal/--sar 让位，fixed 宿主 SourceGallery 传入、搜索详情页内嵌不传（宿主页已处理、免双重让位）；舞台本体不让位保持全幅。缩略图随可见性加载（同线，真机实报全条除当前张外全 HG 占位）：条内缩略图改以条本体为 root 的 IO 闩锁（nearThumbs，进窗含 600px 预取边距才挂 Img 且 eager 取图、闩锁常驻，窗外只占位不发请求不起时钟）；根因是全量 lazy 挂载下浏览器取图窗口（条滚动口）与 Img attempt 时钟窗口（主视口 IO）脱节、且 load effect 重跑会重置 settled 把已加载图误判超时烧光 attempt——Img 侧同步加对账（`settleOkFromDom`：起算前与 timeout 裁决前先核 DOM img 真实状态）。夹具：layout gallery-safe-area（注入 --sat 47/--sab 34 断言顶栏/底条不侵入系统带）＋gallery-strip-load（126 张断言挂图数有界、远端未请求、滚动后尾部出图），两场景旧码均红；WebKit 探针另证已加载图跨 20s 无误烧重拉。
 - 外部源按真站校准第二轮（3.2.1 fix321-F2b，住宅出口四级验收推翻
   机房定性后）：肉视频取流走站内端点模板 `streamUrlTemplate`

@@ -2002,6 +2002,16 @@
       "item": "fix333-m5 O2 自检 requests 适配器调用口径标注：字段定义＋单源段段尾＋汇总行定义三处同口径，不许裸称请求数",
       "min": 3,
       "symbol": "适配器调用口径"
+    },
+    {
+      "id": "fix333-m4-fanout-failure-summary",
+      "item": "3.3.3清剿M4 扇出失败呈现汇总（Search 落定后消费 failures＋纯逻辑定义，修清扫P4）",
+      "symbol": "summarizeFanoutFailures",
+      "files": [
+        "src/features/search/Search.tsx",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
     }
   ]
 }
