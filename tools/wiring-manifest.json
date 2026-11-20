@@ -371,6 +371,16 @@
       "min": 2
     },
     {
+      "id": "fix333-m4-fanout-failure-summary",
+      "item": "3.3.3清剿M4 扇出失败呈现汇总（Search 落定后消费 failures＋纯逻辑定义，修清扫P4）",
+      "symbol": "summarizeFanoutFailures",
+      "files": [
+        "src/features/search/Search.tsx",
+        "src/features/search/multiSourceSearch.ts"
+      ],
+      "min": 2
+    },
+    {
       "id": "fin-d3-four-tabs",
       "item": "最终版D3线 搜索页签四类封顶常量（定义＋消费）",
       "symbol": "GLOBAL_SEARCH_TABS",

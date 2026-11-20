@@ -216,6 +216,43 @@ export async function fanoutSearch(
   return { hits: buildHits(), failures, searched };
 }
 
+/* ── 扇出失败呈现汇总（fix333/m4-search，修复清扫 P4） ──
+ * 此前 Search 只消费 hits，failures 仅经 onFailure 落播放日志痕，
+ * UI 零呈现：部分源失败时用户无从知道结果不完整，全部发起源失败
+ * 时结果区与「无结果」不可区分。汇总口径：total 只计实际发起过
+ * 搜索的源（searched ∪ 失败源）——无搜索段/未启用的源是静默出局
+ * （searchPolicyFor 既定口径，不发请求、不记失败），不许混进分母
+ * 把「全失败」稀释成「部分失败」；allFailed 须 total＞0 且失败集
+ * 覆盖全部发起源。呈现（哪源失败＋计数＋重试）由 Search 消费本
+ * 汇总，不在组件里另拼口径。 */
+export interface FanoutFailureSummary {
+  /** 实际发起搜索的源总数（成功＋失败）。 */
+  total: number;
+  /** 失败源（扇出落定序）：注册表显示名＋失败形态消息。 */
+  failed: { sourceId: string; sourceName: string; message: string }[];
+  /** 全部发起源都失败（且至少发起了一个）。 */
+  allFailed: boolean;
+}
+
+export function summarizeFanoutFailures(
+  failures: readonly FanoutFailure[],
+  defs: readonly SourceDef[],
+  searched: readonly string[],
+): FanoutFailureSummary {
+  const nameOf = new Map(defs.map((d) => [d.id, d.displayName]));
+  const failedIds = new Set(failures.map((f) => f.sourceId));
+  const total = new Set([...searched, ...failedIds]).size;
+  return {
+    total,
+    failed: failures.map((f) => ({
+      sourceId: f.sourceId,
+      sourceName: nameOf.get(f.sourceId) ?? f.sourceId,
+      message: f.message,
+    })),
+    allFailed: total > 0 && failedIds.size >= total,
+  };
+}
+
 /* ── 合并置信（多信号：规范化标题＋封面指纹＋发布时间） ── */
 export function normalizeTitle(title: string): string {
   return title.normalize("NFKC").toLowerCase().replace(/\s+/g, "").replace(/[\p{P}\p{S}]/gu, "");
