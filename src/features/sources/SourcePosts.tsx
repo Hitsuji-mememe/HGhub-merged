@@ -40,6 +40,8 @@ import { createAdapter } from "./adapters/index.ts";
 import { useStaffPromoVerify } from "./promoVerify.ts";
 import { useTitleFallback } from "./titleFallback.ts";
 import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
+import DiscoveryBar from "./DiscoveryBar";
+import { discFingerprint, EMPTY_LIST_DISCOVERY, type ListDiscovery } from "./types.ts";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
 type DetailState =
@@ -82,10 +84,21 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   const detailSeq = useRef(0);
   const failAt = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  /* 发现维度（fix335/f-discovery）：同 SourceBrowse 口径——disc 按
+   * 源 id 隔离、指纹进滚动恢复 key，空 disc 时 key 与 D 线逐字一
+   * 致。compact 形态不渲染 DiscoveryBar（总览预览无维度切换），其
+   * disc 恒空、行为不变。 */
+  const [discMap, setDiscMap] = useState<Record<string, ListDiscovery>>({});
+  const disc = discMap[def.id] ?? EMPTY_LIST_DISCOVERY;
+  const discFp = discFingerprint(disc);
+  const discArg = discFp ? disc : undefined;
+  const applyDisc = useCallback((next: ListDiscovery) => {
+    setDiscMap((m) => ({ ...m, [def.id]: next }));
+  }, [def.id]);
   /* 滚动恢复（fix335/d-scroll）：详情分支替换列表期间宿主 scroller
    * 高度塌缩、scrollTop 被钳 0——打开详情前 capture、回列表且数据
    * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
-  const { captureScroll } = useScrollKeeper(`posts:${def.id}`, scrollerRef, detail === null && items.length > 0);
+  const { captureScroll } = useScrollKeeper(`posts:${def.id}${discFp ? `:${discFp}` : ""}`, scrollerRef, detail === null && items.length > 0);
   const pageSize = compact ? 8 : 20;
 
   /* 站务型推广帖异步验杀（fix333/promo-004）：仅声明 staffVerify
@@ -129,7 +142,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
     const mySeq = ++seq.current;
     try {
       const next = reset ? 1 : page + 1;
-      const res = await adapter.list(next, pageSize);
+      const res = await adapter.list(next, pageSize, discArg);
       if (mySeq !== seq.current) return;
       const fresh = reset ? res.items : res.items.filter((x) => !items.some((y) => y.externalId === x.externalId));
       setItems(reset ? res.items : [...items, ...fresh]);
@@ -150,7 +163,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
       if (mySeq === seq.current) { busy.current = false; setLoading(false); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def, page, pages, pageSize, items]);
+  }, [def, page, pages, pageSize, items, discArg]);
 
   /* 自动续页（与 SourceBrowse 同口径，fix335/a-pagination）：哨兵
    * 接近底部自动拉下一页（rootMargin 300px 近底预取、busy 单飞防
@@ -171,15 +184,23 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   }, [compact, loading, err, page, pages, items.length, load]);
 
   const openExternalConsumed = useRef<string | null>(null);
+  /* 维度切换重置（fix335/f-discovery）：同 SourceBrowse 口径——依赖
+   * 扩为 [源, 指纹]，同源切换维度重置重拉并置顶，新指纹位置隔离。 */
+  const prevFaceKey = useRef<{ id: string; fp: string } | null>(null);
   useEffect(() => {
     seq.current++;
     detailSeq.current++;
     busy.current = false;
     openExternalConsumed.current = null;
     setItems([]); setPage(0); setPages(1); setDetail(null);
+    const prev = prevFaceKey.current;
+    if (prev && prev.id === def.id && prev.fp !== discFp && scrollerRef?.current) {
+      scrollerRef.current.scrollTop = 0;
+    }
+    prevFaceKey.current = { id: def.id, fp: discFp };
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def.id]);
+  }, [def.id, discFp]);
 
   /* 关闭详情＝作废在飞 detail（与切源同列为作废触发点）：先行
    * detailSeq++ 再清状态，迟到响应落地时比对不过、直接丢弃，不
@@ -355,6 +376,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
 
   return (
     <div className="px-4 pt-2">
+      {!compact && <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc} />}
       {items.length > 0 && err && (
         <div role="status" className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-mut">
           <span>{err}</span><Button className="px-3 text-primary" onClick={() => void load(false)}>重试</Button>

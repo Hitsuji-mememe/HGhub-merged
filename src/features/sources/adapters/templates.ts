@@ -9,7 +9,7 @@
  * 全部经 fetchPage.ts 收敛取页；解析为正则级（见 parse.ts）。
  */
 import type { Paged } from "../../../shared/api/types";
-import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../types.ts";
+import type { SourceAdapter, SourceDef, SourceDetail, SourceItem, SourceTaxonomy } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
 import { IWARA_API_ORIGIN, REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
 import { httpStatusOf, traceListItemSkips, traceResolveFailure } from "./resolveTrace.ts";
@@ -18,6 +18,9 @@ import { allImgSrcs, cardCategoryTokens, contentImgSrcs, decodeEntities, extract
 export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "hentaihaven-api", "preview-only", "none"] as const;
 type Params = Record<string, unknown>;
 const str = (p: Params, k: string, d = "") => (typeof p[k] === "string" ? (p[k] as string) : d);
+
+/* WP taxonomy 成功结果缓存（fix335/f-discovery，见 createWpRestAdapter）。 */
+const wpTaxonomyCache = new Map<string, Promise<SourceTaxonomy>>();
 
 function fill(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ""));
@@ -149,7 +152,7 @@ function isPromoCard(inner: string, title: string, promo: PromoCardFilter): bool
  * 推广帖过滤（fix333/promo-filter）：promo 声明时，条目成形后（标题
  * 确定后）、入列前过 isPromoCard；与容器采集正交，两参数由
  * htmlListAdapter 从 params 组装、list/search 两路同口径透传。 */
-function parseAnchorList(html: string, base: string, sourceId: string, itemLinkPattern: string, cardContainer = "", promo?: PromoCardFilter): SourceItem[] {
+function parseAnchorList(html: string, base: string, sourceId: string, itemLinkPattern: string, cardContainer = "", promo?: PromoCardFilter, retainCats = false): SourceItem[] {
   const seen = new Set<string>();
   const items: SourceItem[] = [];
   let anchors = cardContainer === "article" || cardContainer === "video-item" ? findCardAnchors(html, cardContainer) : [];
@@ -170,7 +173,11 @@ function parseAnchorList(html: string, base: string, sourceId: string, itemLinkP
      * 图片拉取、解码必失败整屏落 HG（3.3.1 真机 source-005 实锤）。
      * 与详情路径同口径：空则保持空串，界面走诚实无封面态。 */
     const coverSrc = firstCoverSrc(a.inner);
-    items.push({ sourceId, externalId: href, title, cover: coverSrc ? absUrl(base, coverSrc) : "", href, tags: [] });
+    /* 分类保留（Muse 2026-11-20 fix335/f-discovery）：仅吃瓜模板
+     * 经 htmlListAdapter 选项开启——卡片分类词元即站方栏目归属，
+     * 进 cats（与 tags 分开，见 types.ts）；未开启的源零影响。 */
+    const cats = retainCats ? cardCategoryTokens(a.inner) : [];
+    items.push({ sourceId, externalId: href, title, cover: coverSrc ? absUrl(base, coverSrc) : "", href, tags: [], ...(cats.length ? { cats } : {}) });
   }
   return items;
 }
@@ -208,7 +215,35 @@ async function htmlResolve(def: SourceDef, externalId: string): Promise<{ stream
   return { streams: mp4 ? [{ url: mp4, kind: "file" as const }] : [] };
 }
 
-function htmlListAdapter(def: SourceDef): SourceAdapter {
+/* 栏目表读取（Muse 2026-11-20 fix335/f-discovery）：注册表 params
+ * 的 discoveryCategories（slug↔栏目名）是栏目全集的唯一出处，
+ * htmlListAdapter 的路径校验与 DiscoverySpec 的 chips 同读本函数，
+ * 不许两处各抄一份。形态不符的条目剔除。 */
+export interface DiscoveryCategoryParam { slug: string; name: string }
+export function readDiscoveryCategories(def: SourceDef): DiscoveryCategoryParam[] {
+  const params = (def.adapter.params ?? {}) as Record<string, unknown>;
+  const raw = params.discoveryCategories;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((x) => {
+    const o = x as { slug?: unknown; name?: unknown };
+    return typeof o?.slug === "string" && o.slug && typeof o?.name === "string" && o.name
+      ? [{ slug: o.slug, name: o.name }]
+      : [];
+  });
+}
+
+/* 栏目归档路径（Muse 2026-11-20 fix335/f-discovery）：categoryPath
+ * 模板含 {slug} 与 {page}；第 1 页为裸栏目路径（站方实证：带
+ * /page/1/ 或 /1/ 后缀回 404 或重定向首页），故 page<=1 时剥掉页码
+ * 段——两种模板形态（/category/{slug}/{page}/ 与 /{slug}/page/
+ * {page}/）共用本构造。 */
+function categoryPagePath(template: string, slug: string, page: number): string {
+  const filled = template.replace("{slug}", slug);
+  if (page > 1) return filled.replace("{page}", String(page));
+  return filled.replace(/page\/\{page\}\/?/, "").replace(/\{page\}\/?/, "");
+}
+
+function htmlListAdapter(def: SourceDef, opts?: { retainCats?: boolean }): SourceAdapter {
   const params = (def.adapter.params ?? {}) as Params;
   const listPath = str(params, "listPath", "/?page={page}");
   const itemLinkPattern = str(params, "itemLinkPattern", "/");
@@ -226,12 +261,24 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
   const promo: PromoCardFilter | undefined = (announcementCats.length > 0 || (contestCat && contestTitlePrefix))
     ? { announcementCats, contestCat, contestTitlePrefix }
     : undefined;
+  /* 栏目归档（Muse 2026-11-20 fix335/f-discovery）：params 声明
+   * categoryPath 模板＋discoveryCategories 栏目表（slug↔名，注册表
+   * 为唯一出处、DiscoverySpec 同读此处）才启用；disc.category 必须
+   * 命中栏目表才拼路径，未命中/未声明一律走现行 listPath 缺省路径
+   * 逐字不变。 */
+  const categoryPath = str(params, "categoryPath", "");
+  const discoveryCategories = readDiscoveryCategories(def);
   return {
     sourceId: def.id,
-    async list(page, size) {
+    async list(page, size, disc) {
       const base = def.baseUrls[0];
-      const html = await fetchPage(absUrl(base, fill(listPath, { page })));
-      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo);
+      const cat = disc?.category && categoryPath && discoveryCategories.some((c) => c.slug === disc.category)
+        ? disc.category
+        : "";
+      const pathTemplate = cat ? categoryPath.replace("{slug}", cat) : listPath;
+      const path = cat ? categoryPagePath(categoryPath, cat, page) : fill(listPath, { page });
+      const html = await fetchPage(absUrl(base, path));
+      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo, opts?.retainCats ?? false);
       if (all.length === 0) {
         /* 未知不是空（fix321-F2）：第一页 0 条目 = 解析失败，显式抛错
          * 走列表层错误通道，口径不变。第二页起 0 条目按分页信号判读：
@@ -239,7 +286,7 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
          * 整页被推广判据滤空等形态不许冒充到底）；导航不及本页 →
          * 已过末页，报尾页收尾。 */
         if (page <= 1) throw new SourceParseEmptyError(def.id);
-        const nav = lastPageInNav(html, listPath);
+        const nav = lastPageInNav(html, pathTemplate);
         return { items: [], pagination: { page, pages: nav !== null && nav >= page ? nav : page - 1, size, total: 0 } };
       }
       /* 整页消费（fix335/a-pagination）：UI 页与站方页 1:1——旧
@@ -247,7 +294,7 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
        * 页漏 10/30、live 实证），且 UI 页与站方页错位后无对齐点可
        * 补。现整页返回（22–30 条/页，UI 网格按实收条数渲染、口径
        * 与过滤后变长页一致），分页信号走 htmlSignal。 */
-      return { items: all, pagination: { page, size, ...htmlSignal(html, listPath, all.length, page, size) } };
+      return { items: all, pagination: { page, size, ...htmlSignal(html, pathTemplate, all.length, page, size) } };
     },
     detail: (id) => htmlDetail(def, id),
     resolve: (id) => htmlResolve(def, id),
@@ -263,7 +310,7 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
         ? fill(searchPath, { q: encodeURIComponent(q), page })
         : `/?s=${encodeURIComponent(q)}&paged=${page}`;
       const html = await fetchPage(absUrl(base, path));
-      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo);
+      const all = parseAnchorList(html, base, def.id, itemLinkPattern, cardContainer, promo, opts?.retainCats ?? false);
       /* 搜索同列表口径（fix335/a-pagination）：整页消费＋htmlSignal
        * （信号模板用未填的 searchPath 形状、无声明时用默认形，两者
        * 的 {page} 段都是导航末页的提取形状）。搜索真空合法：0 条目
@@ -280,7 +327,9 @@ function htmlListAdapter(def: SourceDef): SourceAdapter {
 
 /** (a) 吃瓜模板：与 hls-site 共用锚点骨架，差异在详情带正文 HTML。 */
 export function createChiguaAdapter(def: SourceDef): SourceAdapter {
-  const base0 = htmlListAdapter(def);
+  /* retainCats（fix335/f-discovery）：吃瓜卡片带站方分类词元，进
+   * cats 字段；hls-site 不开（无分类登记）。 */
+  const base0 = htmlListAdapter(def, { retainCats: true });
   return {
     ...base0,
     async detail(id) {
@@ -314,12 +363,45 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
   const restBase = str(params, "restBase", "/wp-json/wp/v2");
   const listPath = str(params, "listPath", "/posts");
   const apiUrl = (path: string) => `${def.baseUrls[0]}${restBase}${path}`;
-  interface WpPost { id: number; link: string; title?: { rendered?: string }; content?: { rendered?: string }; excerpt?: { rendered?: string } }
-  const toItem = (p: WpPost): SourceItem => ({
-    sourceId: def.id, externalId: String(p.id),
-    title: stripTags(p.title?.rendered ?? ""), cover: firstImgSrc(p.excerpt?.rendered ?? "") || firstImgSrc(p.content?.rendered ?? ""),
-    href: p.link, tags: [],
-  });
+  interface WpPost { id: number; link: string; title?: { rendered?: string }; content?: { rendered?: string }; excerpt?: { rendered?: string }; categories?: number[]; tags?: number[] }
+  /* taxonomy 名称映射（Muse 2026-11-20 fix335/f-discovery）：帖子
+   * 载荷只有分类/标签的数字 id，名称经 taxonomy 端点解析——分类名
+   * 进 cats、标签名进 tags（真标签才进 tags 的口径）；taxonomy 不
+   * 可达时省略两字段（不拿 id 冒充名称）。 */
+  const toItem = (p: WpPost, tax?: SourceTaxonomy | null): SourceItem => {
+    const names = (ids: number[] | undefined, pool: { id: string; name: string }[] | undefined): string[] =>
+      (ids ?? []).map((id) => pool?.find((t) => t.id === String(id))?.name ?? "").filter(Boolean);
+    const cats = tax ? names(p.categories, tax.categories) : [];
+    const tags = tax ? names(p.tags, tax.tags) : [];
+    return {
+      sourceId: def.id, externalId: String(p.id),
+      title: stripTags(p.title?.rendered ?? ""), cover: firstImgSrc(p.excerpt?.rendered ?? "") || firstImgSrc(p.content?.rendered ?? ""),
+      href: p.link, tags, ...(cats.length ? { cats } : {}),
+    };
+  };
+  /* taxonomy 取数（fix335/f-discovery）：categories/tags 端点与
+   * posts 同在 restBase 下；按计数降序取（chips 的 Top-N 顺序即
+   * 端点顺序，适配器不另排序）。模块级缓存只存成功结果，失败删
+   * 缓存容许下次重试；list 与 DiscoveryBar 的 taxonomy() 共用。 */
+  const fetchTaxonomy = (): Promise<SourceTaxonomy> => {
+    const key = `${def.id}|${apiUrl("")}`;
+    const hit = wpTaxonomyCache.get(key);
+    if (hit) return hit;
+    const toEntries = (rows: { id?: number; name?: string; count?: number }[]): SourceTaxonomy["categories"] =>
+      rows.flatMap((r) => (typeof r?.id === "number" && typeof r?.name === "string" && r.name
+        ? [{ id: String(r.id), name: stripTags(r.name), ...(typeof r.count === "number" ? { count: r.count } : {}) }]
+        : []));
+    const p = (async (): Promise<SourceTaxonomy> => {
+      const [cats, tags] = await Promise.all([
+        parseJsonArray<{ id?: number; name?: string; count?: number }>(await fetchPage(`${apiUrl("/categories")}?per_page=100&orderby=count&order=desc`), def.id),
+        parseJsonArray<{ id?: number; name?: string; count?: number }>(await fetchPage(`${apiUrl("/tags")}?per_page=100&orderby=count&order=desc`), def.id),
+      ]);
+      return { categories: toEntries(cats), tags: toEntries(tags) };
+    })();
+    wpTaxonomyCache.set(key, p);
+    p.catch(() => { if (wpTaxonomyCache.get(key) === p) wpTaxonomyCache.delete(key); });
+    return p;
+  };
   /* 分页取页（fix335/a-pagination）：WP 的总量在 X-WP-Total 响应头里，
    * 而取页通道（Rust source_fetch）只回正文、不回头（契约见
    * fetchPage.ts）——总量在前端不可达，信号走满页推断（apiSignal）。
@@ -339,14 +421,30 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
       throw e;
     }
   };
-  const paged = (posts: WpPost[] | null, page: number, size: number): Paged<SourceItem> => posts === null
+  const paged = (posts: WpPost[] | null, page: number, size: number, tax?: SourceTaxonomy | null): Paged<SourceItem> => posts === null
     ? { items: [], pagination: { page, pages: Math.max(1, page - 1), size, total: Math.max(0, (page - 1) * size) } }
-    : { items: posts.map(toItem), pagination: { page, size, ...apiSignal(posts.length, page, size) } };
+    : { items: posts.map((p) => toItem(p, tax)), pagination: { page, size, ...apiSignal(posts.length, page, size) } };
   return {
     sourceId: def.id,
-    async list(page, size) {
-      return paged(await fetchPosts(`page=${page}&per_page=${size}`, page, size), page, size);
+    /* 发现维度（fix335/f-discovery，探针实证 2026-11-20）：缺省
+     * 查询与旧实现逐字一致（page/per_page 两参数、无 orderby——
+     * 站方默认即 date desc）；disc.sort＝date-asc/date-desc 译为
+     * orderby=date&order=asc/desc，disc.category/tag 须为数字 id
+     * 才拼 categories=/tags= 参数（形态不符忽略、不拼坏参数）。
+     * taxonomy 与帖取数并行竞速，只作名称映射、失败省略。 */
+    async list(page, size, disc) {
+      const query = [`page=${page}`, `per_page=${size}`];
+      if (disc?.sort === "date-asc") query.push("orderby=date", "order=asc");
+      else if (disc?.sort === "date-desc") query.push("orderby=date", "order=desc");
+      if (disc?.category && /^\d+$/.test(disc.category)) query.push(`categories=${disc.category}`);
+      if (disc?.tag && /^\d+$/.test(disc.tag)) query.push(`tags=${disc.tag}`);
+      const [posts, tax] = await Promise.all([
+        fetchPosts(query.join("&"), page, size),
+        fetchTaxonomy().catch(() => null),
+      ]);
+      return paged(posts, page, size, tax);
     },
+    taxonomy: () => fetchTaxonomy(),
     async detail(id) {
       const p = JSON.parse(await fetchPage(`${apiUrl(listPath)}/${id}`)) as WpPost;
       const item = toItem(p);
@@ -379,6 +477,16 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
   };
 }
 
+/* Danbooru 排序预设（Muse 2026-11-20 fix335/f-discovery）：tags
+ * 参数的 order: 预设，住宅终验三值均严格降序（rank 日榜/score
+ * 高分/favcount 收藏）；缺省（无 tags 参数）＝id 降序最新。
+ * DiscoverySpec 同读本表（templateCapabilities 派生）。 */
+export const DANBOORU_ORDER_PRESETS: { value: string; label: string }[] = [
+  { value: "order:rank", label: "日榜" },
+  { value: "order:score", label: "高分" },
+  { value: "order:favcount", label: "收藏" },
+];
+
 /** (d) Danbooru 公开 API。 */
 export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
   const params = (def.adapter.params ?? {}) as Params;
@@ -391,8 +499,11 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
   });
   return {
     sourceId: def.id,
-    async list(page, size) {
-      const posts = parseJsonArray<DbPost>(await fetchPage(`${def.baseUrls[0]}${listPath}?page=${page}&limit=${size}`), def.id);
+    async list(page, size, disc) {
+      /* 排序预设（fix335/f-discovery）：disc.sort 命中预设表才拼
+       * tags= 参数；缺省 URL 与旧实现逐字一致。 */
+      const preset = disc?.sort && DANBOORU_ORDER_PRESETS.some((o) => o.value === disc.sort) ? disc.sort : "";
+      const posts = parseJsonArray<DbPost>(await fetchPage(`${def.baseUrls[0]}${listPath}?page=${page}&limit=${size}${preset ? `&tags=${encodeURIComponent(preset)}` : ""}`), def.id);
       /* 分页信号（fix335/a-pagination）：服务端 limit 页式、无总量
        * 字段，走满页推断；越界页站方回 []（真空即尾页，apiSignal
        * 对 0 条报 page-1 收尾）。 */
@@ -607,6 +718,15 @@ const IWARA_FILE_VERSION_SALT = "mSvL05GfEmeEmsEYfGCnVpEjYgTJraJN";
  * <file.id>/thumbnail-00.jpg；取流 GET 详情 fileUrl（带 X-Version
  * 签名头，Rust source_fetch 仅对 files/filesq.iwara.tv 两 host
  * 定向放行该头）→ [{name,src:{view,download}}] mp4 多档取最高档。 */
+/* Iwara 排序值（Muse 2026-11-20 fix335/f-discovery）：/videos 的
+ * sort 参数三值（探针实证：views 现行写死默认/date 最新/likes
+ * 点赞，返回集与计数各异）；DiscoverySpec 同读本表。 */
+export const IWARA_SORT_OPTIONS: { value: string; label: string }[] = [
+  { value: "views", label: "最热" },
+  { value: "date", label: "最新" },
+  { value: "likes", label: "点赞" },
+];
+
 export function createIwaraAdapter(def: SourceDef): SourceAdapter {
   const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? IWARA_API_ORIGIN;
   const siteBase = def.baseUrls.find((u) => !u.includes("api.")) ?? "https://www.iwara.tv";
@@ -645,8 +765,11 @@ export function createIwaraAdapter(def: SourceDef): SourceAdapter {
   };
   return {
     sourceId: def.id,
-    async list(page, size) {
-      const r = await listFrom(`${apiBase}/videos?sort=views&page=${page - 1}&limit=${size}`, page, size);
+    async list(page, size, disc) {
+      /* 排序（fix335/f-discovery）：disc.sort 命中三值才切换，未
+       * 命中/缺省＝views（现行写死值，URL 逐字不变）。 */
+      const sort = disc?.sort && IWARA_SORT_OPTIONS.some((o) => o.value === disc.sort) ? disc.sort : "views";
+      const r = await listFrom(`${apiBase}/videos?sort=${sort}&page=${page - 1}&limit=${size}`, page, size);
       /* 第一页空 = 解析为空抛错（旧口径不变）；第二页起空是满页
        * 推断探出的尾页，按 listFrom 的信号收尾返回、不冒充故障。 */
       if (r.items.length === 0 && page <= 1) throw new SourceParseEmptyError(def.id);
@@ -730,6 +853,16 @@ export function createIwaraAdapter(def: SourceDef): SourceAdapter {
  * #shareBtn-title 或 og:title、封面 video poster 或 og:image）；
  * 取流解析 watch 页 <source size>/data-url 的 mp4 多档、无档时
  * 回落 /download?v=<id> 同法解析，取最高档。 */
+/* Hanime1 排序值（Muse 2026-11-20 fix335/f-discovery）：/search
+ * 的 sort 参数九值，**必须逐字用站方繁体原值**——简体拼法被站方
+ * 静默回落默认序（探针＋住宅终验实证：简体「最新上传」回落最新
+ * 上市序）。label 即原值本身（界面原文呈现，不另译）。
+ * DiscoverySpec 同读本表。 */
+export const HANIME1_SORT_VALUES: string[] = [
+  "最新上市", "最新上傳", "本日排行", "本週排行", "本月排行",
+  "觀看次數", "讚好比例", "時長最長", "他們在看",
+];
+
 export function createHanime1Adapter(def: SourceDef): SourceAdapter {
   const base = def.baseUrls[0].replace(/\/$/, "");
   const cardTitle = (inner: string): string => {
@@ -779,8 +912,11 @@ export function createHanime1Adapter(def: SourceDef): SourceAdapter {
   const pageParam = (page: number) => (page > 1 ? `&page=${page}` : "");
   return {
     sourceId: def.id,
-    async list(page, size) {
-      const html = await fetchPage(`${base}/search?sort=${encodeURIComponent("最新上市")}${pageParam(page)}`);
+    async list(page, size, disc) {
+      /* 排序（fix335/f-discovery）：disc.sort 须逐字命中九值表，
+       * 未命中/缺省＝最新上市（现行写死值，URL 逐字不变）。 */
+      const sort = disc?.sort && HANIME1_SORT_VALUES.includes(disc.sort) ? disc.sort : "最新上市";
+      const html = await fetchPage(`${base}/search?sort=${encodeURIComponent(sort)}${pageParam(page)}`);
       const { items, matched } = parseCards(html);
       /* 分页信号（fix335/a-pagination）：整页消费（旧 slice 同 HTML
        * 模板尾损问题）；无导航末页可读（本机出口 CF 403、形态未实
@@ -840,6 +976,15 @@ export function createHanime1Adapter(def: SourceDef): SourceAdapter {
  * 封面拼 img.hentaihaven.xxx/<meta 路径>；详情 GET /watch/<slug>/
  * （h1/og:image＋episode-<n> 分集链接）；取流取集页（无分集时
  * watch 页）ld+json VideoObject 的 contentUrl（.m3u8）。 */
+/* HentaiHaven 榜单周期（Muse 2026-11-20 fix335/f-discovery）：
+ * trending_period 只登记 monthly（现行写死默认）与 all（全部）两
+ * 值——weekly/daily/week/day 被站方应用层拒绝（Unsupported
+ * trending period），不得登记（探针实证）。DiscoverySpec 同读本表。 */
+export const HENTAIHAVEN_PERIOD_OPTIONS: { value: string; label: string }[] = [
+  { value: "monthly", label: "月榜" },
+  { value: "all", label: "全部" },
+];
+
 export function createHentaihavenAdapter(def: SourceDef): SourceAdapter {
   const base = def.baseUrls[0].replace(/\/$/, "");
   interface HhRow { slug?: string; title?: { rendered?: string } | string; meta?: { vraven_remote_thumbnail?: string } }
@@ -875,8 +1020,11 @@ export function createHentaihavenAdapter(def: SourceDef): SourceAdapter {
   };
   return {
     sourceId: def.id,
-    async list(page, size) {
-      const { items, fetched } = await apiList("trending_period=monthly", page, size);
+    async list(page, size, disc) {
+      /* 榜单周期（fix335/f-discovery）：disc.period 命中登记两值
+       * 才切换，未命中/缺省＝monthly（现行写死值，URL 逐字不变）。 */
+      const period = disc?.period && HENTAIHAVEN_PERIOD_OPTIONS.some((o) => o.value === disc.period) ? disc.period : "monthly";
+      const { items, fetched } = await apiList(`trending_period=${period}`, page, size);
       /* 分页信号（fix335/a-pagination）：响应只有 data 数组、无总量
        * 字段（协议事实见文件头），走满页推断；第一页空仍抛解析为
        * 空、第二页起空按尾页收尾（与 iwara 同口径）。 */

@@ -54,6 +54,8 @@ import { createAdapter } from "./adapters/index.ts";
 import { useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import { episodeChoicesForSurface, episodeOrdinal, type EpisodeChoice } from "./episodes.ts";
 import { EpisodePicker } from "./EpisodePicker";
+import DiscoveryBar from "./DiscoveryBar";
+import { discFingerprint, EMPTY_LIST_DISCOVERY, type ListDiscovery } from "./types.ts";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
 type DetailState =
@@ -108,10 +110,20 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
   const detailSeq = useRef(0);
   const failAt = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  /* 发现维度（fix335/f-discovery）：disc 按源 id 隔离存放（换源不
+   * 串维度）；指纹进滚动恢复 key——切换维度后位置按新指纹隔离，
+   * 空 disc 时 key 与 D 线逐字一致。 */
+  const [discMap, setDiscMap] = useState<Record<string, ListDiscovery>>({});
+  const disc = discMap[def.id] ?? EMPTY_LIST_DISCOVERY;
+  const discFp = discFingerprint(disc);
+  const discArg = discFp ? disc : undefined;
+  const applyDisc = useCallback((next: ListDiscovery) => {
+    setDiscMap((m) => ({ ...m, [def.id]: next }));
+  }, [def.id]);
   /* 滚动恢复（fix335/d-scroll）：详情分支替换列表期间宿主 scroller
    * 高度塌缩、scrollTop 被钳 0——打开详情前 capture、回列表且数据
    * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
-  const { captureScroll } = useScrollKeeper(`browse:${def.id}`, scrollerRef, detail === null && items.length > 0);
+  const { captureScroll } = useScrollKeeper(`browse:${def.id}${discFp ? `:${discFp}` : ""}`, scrollerRef, detail === null && items.length > 0);
 
   const load = useCallback(async (reset: boolean) => {
     if (busy.current) return;
@@ -127,7 +139,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
     const mySeq = ++seq.current;
     try {
       const next = reset ? 1 : page + 1;
-      const res = await adapter.list(next, 20);
+      const res = await adapter.list(next, 20, discArg);
       if (mySeq !== seq.current) return;
       const fresh = reset ? res.items : res.items.filter((x) => !items.some((y) => y.externalId === x.externalId));
       setItems(reset ? res.items : [...items, ...fresh]);
@@ -147,7 +159,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
       if (mySeq === seq.current) { busy.current = false; setLoading(false); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def, page, pages, items]);
+  }, [def, page, pages, items, discArg]);
 
   /* 自动续页（3.2.2 集成批＋fix335/a-pagination）：哨兵接近底部自动
    * 拉下一页（rootMargin 300px 近底预取、busy 单飞防并发重复拉）；
@@ -172,6 +184,12 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
   /* 历史写入去重键（条目:当前集）：同集反复 playing（暂停续播/寻址）
    * 不重复记，换集才以新 ordinal 再记一行。 */
   const historyKeyRef = useRef("");
+  /* 维度切换重置（fix335/f-discovery）：重置 effect 依赖扩为
+   * [源, 指纹]——同源内切换维度走同一重置路径（seq 作废在飞 load、
+   * 列表清空重拉），且滚动置顶：新维度是新列表、旧位置无意义；
+   * 位置恢复只在同指纹内经详情往返发生（keeper 语义）。换源时
+   * 不在此置顶（宿主滚动由换源路径自理，与 D 线口径一致）。 */
+  const prevFaceKey = useRef<{ id: string; fp: string } | null>(null);
   useEffect(() => {
     seq.current++;
     detailSeq.current++;
@@ -179,9 +197,14 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
     openExternalConsumed.current = null;
     historyKeyRef.current = "";
     setItems([]); setPage(0); setPages(1); setDetail(null);
+    const prev = prevFaceKey.current;
+    if (prev && prev.id === def.id && prev.fp !== discFp && scrollerRef?.current) {
+      scrollerRef.current.scrollTop = 0;
+    }
+    prevFaceKey.current = { id: def.id, fp: discFp };
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def.id]);
+  }, [def.id, discFp]);
 
   /* 关闭详情＝作废在飞 detail（与切源同列为作废触发点）：先行
    * detailSeq++ 再清状态，迟到响应落地时比对不过、直接丢弃，不
@@ -372,6 +395,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
 
   return (
     <div className="px-4 pt-2">
+      <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc} />
       {items.length > 0 && err && (
         <div role="status" className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-mut">
           <span>{err}</span><Button className="px-3 text-primary" onClick={() => void load(false)}>重试</Button>

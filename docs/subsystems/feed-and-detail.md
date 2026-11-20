@@ -205,6 +205,32 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   不变。证据：`~/workspace/hghub/fix335/evidence/d-scroll.md`
   （夹具三面×三场景双树实测：旧码往返全落 0、新码精确回位、
   切源 B 从 0 起且只恢复 B 自己的位置）。
+  fix335/f-discovery（2026-11-20）：源内发现维度——三浏览组件
+  列表态顶部共用 `DiscoveryBar`（`SourcePosts` compact 不渲染），
+  只渲染 `adapters/templateCapabilities.ts` 的 `discoverySpecFor`
+  已登记维度（单一出处、未实证不登记、登记带证据与日期）。
+  `list(page, size, disc?)` 的 disc 缺省＝各适配器现行写死行为
+  逐字不变；分类进 `SourceItem.cats`、真标签才进 `tags`。登记
+  全集：吃瓜三源栏目归档（注册表 params 的 categoryPath＋
+  discoveryCategories 为栏目表唯一出处，003 登记 26/004 登记
+  19/005 登记 30——公告存档栏目与 003 大赛征集栏目被推广过滤
+  全覆盖、登记只会恒解析为空，不登记）；WP 四源 taxonomy
+  （categories/tags 端点＋orderby/过滤参数，chips 只取 Top-24）；
+  002 客户端重排（目录缓存内 brand 过滤/tag 过滤/views 排序）；
+  009 三预设 order:rank/score/favcount（只登记 danbooru 本尊，
+  同模板 gelbooru/yandere 未验不登记）；010 九个 sort 繁体原值
+  （简体被站方静默回落默认序，适配器只认逐字命中）；011
+  sort=views/likes/date；012 只 monthly/all（weekly/daily 被站
+  方应用层拒绝、不登记、入参回落 monthly）。滚动恢复 key 扩为
+  「面:源:disc 指纹」（`discFingerprint`，空 disc 时与 d-scroll
+  逐字一致）：切换维度走重置 effect 重拉并置顶，位置只在同指
+  纹内经详情往返恢复。自检降级：DiscoveryBar 经
+  `classifySelfCheckResult` 派生，该源 down（列表段失败）时整
+  条维度禁用并明示，订阅自检结果、恢复后自动可用；partial/
+  unchecked/stale 不禁用。证据：
+  `~/workspace/hghub/fix335/evidence/f-discovery.md`；契约
+  `fix335-f-discovery.contract.test.ts`（登记表＋逐源行为＋缺省
+  路径逐字对照＋指纹规范化）。
 - 封面状态机（同批）：`ImageLoad` 状态 loading→decoded→displayed 或
   failed(reason)（http/timeout/decode 分因），每 attempt 20s 超时，
   src 变化自动重试；失败计数与分页证据同节进诊断报告。fix2.1 修正
