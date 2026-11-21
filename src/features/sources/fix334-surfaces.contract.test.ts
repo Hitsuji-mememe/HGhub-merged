@@ -331,7 +331,9 @@ for (const [si, state] of STATES.entries()) {
        * 断言适配（fix339）：yandere 摘除，名单 7→6 源。 */
       "everia", "xsnvshen"], "channel-image 成员＝已启用图片源（fix339 后 6 源）");
   assert.deepEqual(sourcesForSurface("channel-video", R1).map((d) => d.id),
-    ["hanime-tv"], "channel-video 成员＝已启用外部视频源（原生不在名单；fix339 后单源 002）");
+    /* 断言适配（fix3310/video-add-2）：009/010 试装恢复＋020/021
+     * 补位，视频名单 1→5 源（注册表序）。 */
+    ["hanime-tv", "hanime1", "iwara", "hentaigasm", "hentaiplay"], "channel-video 成员＝已启用外部视频源（原生不在名单；fix3310 后五源）");
   assert.deepEqual(routeForSurface("channel-video", byId("huangguo"), ctx),
     { kind: "not-applicable", declaration: "native-not-in-video-channel" }, "原生×视频频道＝空壳退场声明出局");
   /* 搜索扇出成员：005（App 编号，feedheiliao）以声明 g 出局、001 以
@@ -342,8 +344,11 @@ for (const [si, state] of STATES.entries()) {
    * xsnvshen 为内置 hls-site 源且 caps.search=false、以声明 h 出局
    * （合成 hlsSiteFx 的触发与之同口径并存）。 */
   assert.deepEqual(sourcesForSurface("search-fanout", R1).map((d) => d.id),
-    ["hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "pixibb", "nudecosplay", "everia"],
-    "M11 成员＝已启用∧有搜索段的外部源（fix339 后 8 源：摘 009/010/014）");
+    /* 断言适配（fix3310/video-add-2）：009/010 恢复（两源均有搜索段）
+     * ＋021 新进（caps.search=true），成员 8→11 源；020 搜索未验
+     * caps.search=false、不入扇出。 */
+    ["hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "hanime1", "iwara", "pixibb", "nudecosplay", "everia", "hentaiplay"],
+    "M11 成员＝已启用∧有搜索段的外部源（fix3310 后 11 源）");
   assert.deepEqual(routeForSurface("search-fanout", byId("huangguo"), ctx),
     { kind: "not-applicable", declaration: "native-dual-path" }, "001×M11 声明 b");
   assert.deepEqual(routeForSurface("search-fanout", byId("feedheiliao"), ctx),
@@ -355,7 +360,7 @@ for (const [si, state] of STATES.entries()) {
    * （fix338 集成对账：registry-cut 摘除出集 15→12、realphoto-add
    * everia/xsnvshen 启用且自检合格进集 12→14）。 */
   assert.deepEqual(routeForSurface("selfcheck", byId("huangguo"), ctx), { kind: "listed" }, "001×M21 在册（订正设计声明 c）");
-  assert.equal(sourcesForSurface("selfcheck", R1).length, 11, "M21 R1 合格集＝11 源（fix339：摘三源后与已启用集同数）");
+  assert.equal(sourcesForSurface("selfcheck", R1).length, 15, "M21 R1 合格集＝15 源（fix3310：恢复 009/010＋新增 020/021 后与已启用集同数）");
   /* 短剧频道：外部 video 源以声明 e 出局（caps 映射属实为空）。 */
   assert.deepEqual(routeForSurface("channel-drama", byId("hanime-tv"), ctx),
     { kind: "not-applicable", declaration: "no-drama-mapping" }, "002×M6 声明 e");

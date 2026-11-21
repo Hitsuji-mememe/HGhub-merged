@@ -118,14 +118,17 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
    * 验负向（不在册即不在名单）。
    * 断言适配（fix339/registry-cut-2）：yandere 已摘除，样本由启用
    * 源 everia 接替；hanime1/iwara 已摘除、其 fix330 启用断言退役
-   * 并改入下方负向组。 */
-  for (const id of ["huangguo", "hanime-tv", "everia"]) {
+   * 并改入下方负向组。
+   * 断言适配（fix3310/video-add-2）：hanime1/iwara 试装恢复＋
+   * hentaigasm/hentaiplay 新进，四源启用即进自检名单（正向组）；
+   * yandere 不恢复、留在负向组。 */
+  for (const id of ["huangguo", "hanime-tv", "everia", "hanime1", "iwara", "hentaigasm", "hentaiplay"]) {
     assert.ok(ids.includes(id), `已启用源 ${id} 在自检名单`);
   }
   for (const id of ["danbooru", "hentaihaven", "konachan"]) {
     assert.ok(!ids.includes(id), `已摘除源 ${id} 不在自检名单（fix338）`);
   }
-  for (const id of ["hanime1", "iwara", "yandere"]) {
+  for (const id of ["yandere"]) {
     assert.ok(!ids.includes(id), `已摘除源 ${id} 不在自检名单（fix339）`);
   }
   /* 集成适配（3.3.0 接通批）：xiuren/meiridasai 均已解 blocked

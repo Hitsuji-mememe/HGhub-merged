@@ -196,7 +196,12 @@ assert.equal(typeof lib.applyExternalHistory, "function", "L3 须暴露 applyExt
    * 受影响、仍以快照出卡，见本文件 extRefs 各节）。 */
   assert.ok(members.includes("everia"), "M17 成员含启用图片源 everia（fix338/realphoto-add）");
   assert.ok(!members.includes("konachan"), "M17 成员不含已摘除源 konachan（fix338）");
-  for (const id of ["hanime1", "iwara", "yandere"]) {
+  /* 适配（fix3310/video-add-2）：hanime1/iwara 试装恢复＋020/021
+   * 新进、四源启用即入成员；yandere 不恢复、仍不在成员。 */
+  for (const id of ["hanime1", "iwara", "hentaigasm", "hentaiplay"]) {
+    assert.ok(members.includes(id), `M17 成员含已启用源 ${id}（fix3310）`);
+  }
+  for (const id of ["yandere"]) {
     assert.ok(!members.includes(id), `M17 成员不含已摘除源 ${id}（fix339）`);
   }
   assert.ok(!members.includes("gelbooru") && !members.includes("pixiv"), "M17 成员不含未启用源");

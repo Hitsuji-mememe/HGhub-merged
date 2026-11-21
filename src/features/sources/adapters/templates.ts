@@ -11,11 +11,11 @@
 import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem, SourceTaxonomy } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
-import { REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
-import { httpStatusOf, traceListItemSkips } from "./resolveTrace.ts";
-import { allImgSrcs, cardCategoryTokens, contentImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, lastPageInNav, metaContent, pageOf, stripTags } from "./parse.ts";
+import { IWARA_API_ORIGIN, REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
+import { httpStatusOf, traceListItemSkips, traceResolveFailure } from "./resolveTrace.ts";
+import { allImgSrcs, cardCategoryTokens, contentImgSrcs, decodeEntities, extractIframeSrc, extractJwFile, extractJwImage, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, lastPageInNav, metaContent, pageOf, stripTags } from "./parse.ts";
 
-export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "preview-only", "none"] as const;
+export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "preview-only", "none"] as const;
 type Params = Record<string, unknown>;
 const str = (p: Params, k: string, d = "") => (typeof p[k] === "string" ? (p[k] as string) : d);
 
@@ -36,7 +36,7 @@ function absUrl(base: string, href: string): string {
  * 恒 2，三套 UI 以 page>=pages 停拉，各源在 20–40 条见底，与站方
  * 万级库存脱钩（审计 fix335/audit-007-inventory.md §1，live 旧红
  * harness 实证）。新口径：pages 只许来自下列信号，按优先级——
- * ① 服务端真信号：API 总数字段、HTML 分页导航末页
+ * ① 服务端真信号：API 总数字段（iwara count）、HTML 分页导航末页
  *    （parse.ts lastPageInNav）、响应自带总页数（redgifs pages）；
  * ② 「下一页」链接实存（HTML 列表模板，nextPageLinkPresent）；
  * ③ 满页推断：本页取回数达到请求页容量（服务端页式 API 的满页是
@@ -452,11 +452,18 @@ export function createHlsSiteAdapter(def: SourceDef): SourceAdapter {
   };
 }
 
-/** (b) WP REST 骨架（秀人网）。 */
+/** (b) WP REST 骨架（秀人网）。
+ * JW 校准（Muse 2026-11-21 fix3310/video-add-2，020）：params
+ * 声明 jwFile=true 时，正文 JW Player setup 的 file:/image: 字段
+ * 经 parse.ts 小解析消费——resolve 在 extractMp4 之前先取 JW
+ * file（该形态 URL 含空格、stock 正则恒不命中，JW setup 是播放
+ * 器事实源、优先于正文散落的 mp4 链接）；toItem 封面在 <img>
+ * 采集落空时回落 JW image。未声明的源逐字走旧行为。 */
 export function createWpRestAdapter(def: SourceDef): SourceAdapter {
   const params = (def.adapter.params ?? {}) as Params;
   const restBase = str(params, "restBase", "/wp-json/wp/v2");
   const listPath = str(params, "listPath", "/posts");
+  const jwFile = params.jwFile === true;
   const apiUrl = (path: string) => `${def.baseUrls[0]}${restBase}${path}`;
   interface WpPost { id: number; link: string; title?: { rendered?: string }; content?: { rendered?: string }; excerpt?: { rendered?: string }; categories?: number[]; tags?: number[] }
   /* taxonomy 名称映射（Muse 2026-11-20 fix335/f-discovery）：帖子
@@ -470,7 +477,7 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
     const tags = tax ? names(p.tags, tax.tags) : [];
     return {
       sourceId: def.id, externalId: String(p.id),
-      title: stripTags(p.title?.rendered ?? ""), cover: firstImgSrc(p.excerpt?.rendered ?? "") || firstImgSrc(p.content?.rendered ?? ""),
+      title: stripTags(p.title?.rendered ?? ""), cover: firstImgSrc(p.excerpt?.rendered ?? "") || firstImgSrc(p.content?.rendered ?? "") || (jwFile ? extractJwImage(p.content?.rendered ?? "") ?? "" : ""),
       href: p.link, tags, ...(cats.length ? { cats } : {}),
     };
   };
@@ -551,6 +558,12 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
       const content = p.content?.rendered ?? "";
       const m3u8 = extractM3u8(content);
       if (m3u8) return { streams: [{ url: m3u8, kind: "hls" as const }] };
+      /* JW 形态（jwFile 声明源）：setup 的 file: 是播放器事实源，
+       * 先于 extractMp4 兜底（其 URL 含空格、兜底正则恒不命中）。 */
+      if (jwFile) {
+        const jw = extractJwFile(content);
+        if (jw) return { streams: [{ url: jw, kind: "file" as const }] };
+      }
       const mp4 = extractMp4(content);
       if (mp4) return { streams: [{ url: mp4, kind: "file" as const }] };
       // WP 站常见形态：正文只嵌播放器 iframe，流地址在 iframe 页内。
@@ -779,6 +792,336 @@ export function createRedgifsAdapter(def: SourceDef): SourceAdapter {
       const d = await api<{ gifs?: RgGif[] }>(`/v2/gifs/search?search_text=${encodeURIComponent(q)}&order=trending&count=${size}&page=${page}`);
       const items = (d.gifs ?? []).map(toItem).filter((x): x is SourceItem => x !== null);
       return { items, pagination: pageOf(items.length, page, size) };
+    },
+  };
+}
+
+/* ── SHA-1（纯实现，Muse 2026-11-19 fix330 接通批）：Iwara 取流
+ * 签名头 X-Version 的摘要算法；同步实现避免 WebView/Node 两环境
+ * crypto.subtle 可用性差异，契约以 Node createHash 对照验证。 */
+function sha1Hex(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  const bitLen = bytes.length * 8;
+  const padded = new Uint8Array((((bytes.length + 8) >> 6) + 1) << 6);
+  padded.set(bytes);
+  padded[bytes.length] = 0x80;
+  const dv = new DataView(padded.buffer);
+  dv.setUint32(padded.length - 4, bitLen >>> 0);
+  dv.setUint32(padded.length - 8, Math.floor(bitLen / 0x100000000));
+  let h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476, h4 = 0xc3d2e1f0;
+  const w = new Int32Array(80);
+  for (let off = 0; off < padded.length; off += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getInt32(off + i * 4);
+    for (let i = 16; i < 80; i++) { const x = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]; w[i] = (x << 1) | (x >>> 31); }
+    let a = h0, b = h1, c = h2, d = h3, e = h4;
+    for (let i = 0; i < 80; i++) {
+      let f = 0, k = 0;
+      if (i < 20) { f = (b & c) | (~b & d); k = 0x5a827999; }
+      else if (i < 40) { f = b ^ c ^ d; k = 0x6ed9eba1; }
+      else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }
+      else { f = b ^ c ^ d; k = 0xca62c1d6; }
+      const tmp = (((a << 5) | (a >>> 27)) + f + e + k + w[i]) | 0;
+      e = d; d = c; c = (b << 30) | (b >>> 2); b = a; a = tmp;
+    }
+    h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0; h3 = (h3 + d) | 0; h4 = (h4 + e) | 0;
+  }
+  return [h0, h1, h2, h3, h4].map((h) => (h >>> 0).toString(16).padStart(8, "0")).join("");
+}
+
+/** Iwara fileUrl 签名盐：站点协议固定常数（公开插件 iwara.js 与
+ * 独立用户脚本双证据的协议事实、非用户凭据），X-Version =
+ * sha1(<fileUrl 末段>_<expires 参数>_<盐>)。站点会轮换签名盐
+ * （维护客户端 IwaraTool「verified」API 文档＋gallery-dl 双证据）：
+ * 现行盐在前、旧盐兜底，逐个试——轮换期站方对旧签名回空表/错误，
+ * 单盐一次判读即终局会把全站取流打成 stream_unavailable
+ * （fix337/video-resolve）。 */
+const IWARA_FILE_VERSION_SALTS = [
+  "mSvL05GfEmeEmsEYfGCnVpEjYgTJraJN",
+  "5nFp9kmbNnHdAFhaqMvt",
+] as const;
+
+/** (h) Iwara 公开 API（Muse 2026-11-19 fix330 接通批）：结构据
+ * Hentai-Park 公开插件 iwara.js 的协议事实（只借协议/结构、代码
+ * 原创）：列表 GET api.iwara.tv/videos?sort=views&page=<0基>&limit
+ * → {results:[{id,slug,title,file:{id,duration},user,tags,body}]}；
+ * 搜索 GET /search?type=videos&query&page&limit 同形；详情 GET
+ * /video/<id>；封面由 file.id 拼 files.iwara.tv/image/thumbnail/
+ * <file.id>/thumbnail-00.jpg；取流 GET 详情 fileUrl（带 X-Version
+ * 签名头，Rust source_fetch 仅对 files/filesq.iwara.tv 两 host
+ * 定向放行该头）→ [{name,src:{view,download}}] mp4 多档取最高档。 */
+/* Iwara 排序值（Muse 2026-11-20 fix335/f-discovery）：/videos 的
+ * sort 参数三值（探针实证：views 现行写死默认/date 最新/likes
+ * 点赞，返回集与计数各异）；DiscoverySpec 同读本表。 */
+export const IWARA_SORT_OPTIONS: { value: string; label: string }[] = [
+  { value: "views", label: "最热" },
+  { value: "date", label: "最新" },
+  { value: "likes", label: "点赞" },
+];
+
+export function createIwaraAdapter(def: SourceDef): SourceAdapter {
+  const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? IWARA_API_ORIGIN;
+  const siteBase = def.baseUrls.find((u) => !u.includes("api.")) ?? "https://www.iwara.tv";
+  interface IwaraVideo {
+    id?: string; slug?: string; title?: string; body?: string; fileUrl?: string;
+    file?: { id?: string; duration?: number };
+    tags?: { id?: string }[];
+  }
+  const toItem = (v: IwaraVideo): SourceItem | null => {
+    const id = String(v?.id ?? "");
+    const title = String(v?.title ?? "").trim();
+    const fileId = String(v?.file?.id ?? "");
+    if (!/^[A-Za-z0-9]{8,32}$/.test(id) || !title || !fileId) return null;
+    return {
+      sourceId: def.id, externalId: id, title,
+      cover: `https://files.iwara.tv/image/thumbnail/${encodeURIComponent(fileId)}/thumbnail-00.jpg`,
+      href: `${siteBase}/video/${id}/${v.slug ?? ""}`,
+      tags: (v.tags ?? []).map((t) => String(t?.id ?? "")).filter(Boolean),
+      duration: v.file?.duration ? String(v.file.duration) : undefined,
+    };
+  };
+  const getJson = async <T>(url: string, headers?: Record<string, string>): Promise<T> =>
+    JSON.parse(await fetchPage(url, headers)) as T;
+  const listFrom = async (url: string, page: number, size: number) => {
+    const d = await getJson<{ results?: IwaraVideo[]; count?: number }>(url);
+    const rows = Array.isArray(d?.results) ? d.results : [];
+    const items = rows.map(toItem).filter((x): x is SourceItem => x !== null);
+    /* 分页信号（fix335/a-pagination）：响应自带 count 总数字段
+     * （站方 API 协议事实，旧实现未消费、拿本页行数冒充总量）——
+     * 有 count 走真信号 pageOf；缺失/形态异常回落满页推断，满页
+     * 判读用过滤前行数（toItem 剔除的无效行不代表站方页未满）。 */
+    const pagination = typeof d?.count === "number" && Number.isFinite(d.count) && d.count >= 0
+      ? pageOf(d.count, page, size)
+      : { page, size, ...apiSignal(rows.length, page, size) };
+    return { items, pagination };
+  };
+  return {
+    sourceId: def.id,
+    async list(page, size, disc) {
+      /* 排序（fix335/f-discovery）：disc.sort 命中三值才切换，未
+       * 命中/缺省＝views（现行写死值，URL 逐字不变）。 */
+      const sort = disc?.sort && IWARA_SORT_OPTIONS.some((o) => o.value === disc.sort) ? disc.sort : "views";
+      const r = await listFrom(`${apiBase}/videos?sort=${sort}&page=${page - 1}&limit=${size}`, page, size);
+      /* 第一页空 = 解析为空抛错（旧口径不变）；第二页起空是满页
+       * 推断探出的尾页，按 listFrom 的信号收尾返回、不冒充故障。 */
+      if (r.items.length === 0 && page <= 1) throw new SourceParseEmptyError(def.id);
+      return r;
+    },
+    async detail(id) {
+      const v = await getJson<IwaraVideo>(`${apiBase}/video/${id}`);
+      const item = toItem(v);
+      if (!item) throw new Error("Iwara 条目无效");
+      return { ...item, description: String(v.body ?? ""), images: [], episodes: [{ label: "正片", externalId: id }] };
+    },
+    async resolve(id) {
+      /* 取流分段留痕（fix333-m5 P5，与 002 同口径）：detail（详情取数
+       * 得 fileUrl）/fetch（流表取数）/decode（流表判读）三段，任一
+       * 失败或终局无流落 source.resolve_fail，不再只有 fetchHealth
+       * 的 host 级兜底。取数在此内联（不走 getJson）以便分段归属，
+       * 失败行为与原实现一致（抛出点不变、空结果仍回空流表）。 */
+      let detailRaw: string;
+      try {
+        detailRaw = await fetchPage(`${apiBase}/video/${id}`);
+      } catch (e) {
+        traceResolveFailure(def.id, "detail", "detail_fetch_failed", httpStatusOf(e), 0);
+        throw e;
+      }
+      let v: IwaraVideo;
+      try {
+        v = JSON.parse(detailRaw) as IwaraVideo;
+      } catch (e) {
+        traceResolveFailure(def.id, "detail", "detail_decode_failed", undefined, 0);
+        throw e;
+      }
+      const fileUrl = String(v?.fileUrl ?? "");
+      if (!fileUrl) {
+        traceResolveFailure(def.id, "detail", "file_url_unavailable", undefined, 0);
+        return { streams: [] };
+      }
+      /* 签名盐逐个试（fix337/video-resolve）：fileUrl 形态可算签名
+       * 时按 IWARA_FILE_VERSION_SALTS 顺序逐盐取表，任一盐产出候选
+       * 即终局；取数失败/解码失败/非数组/零候选都先换下一盐，全盐
+       * 终局才按旧口径落痕/抛出（留痕只记终局一次、不按盐重复记）。
+       * fileUrl 形态异常算不出签名时退化为单次无签名取数（旧行为）。 */
+      let seg = "";
+      let exp = "";
+      try {
+        const u = new URL(fileUrl);
+        seg = u.pathname.split("/").filter(Boolean).pop() ?? "";
+        exp = u.searchParams.get("expires") ?? "";
+      } catch { /* fileUrl 形态异常：无签名取数、由响应形态决定成败 */ }
+      const versions: (string | undefined)[] = seg && exp
+        ? IWARA_FILE_VERSION_SALTS.map((salt) => sha1Hex(`${seg}_${exp}_${salt}`))
+        : [undefined];
+      type IwaraRow = { name?: string; quality?: string; src?: { view?: string; download?: string }; url?: string };
+      for (let attempt = 0; attempt < versions.length; attempt++) {
+        const last = attempt === versions.length - 1;
+        const version = versions[attempt];
+        let rowsRaw: string;
+        try {
+          rowsRaw = await fetchPage(fileUrl, version ? { "X-Version": version } : undefined);
+        } catch (e) {
+          if (!last) continue;
+          traceResolveFailure(def.id, "fetch", "stream_fetch_failed", httpStatusOf(e), 0);
+          throw e;
+        }
+        let rows: IwaraRow[];
+        try {
+          rows = JSON.parse(rowsRaw) as IwaraRow[];
+        } catch (e) {
+          if (!last) continue;
+          traceResolveFailure(def.id, "decode", "stream_decode_failed", undefined, 0);
+          throw e;
+        }
+        if (!Array.isArray(rows)) {
+          if (!last) continue;
+          traceResolveFailure(def.id, "decode", "stream_table_invalid", undefined, 0);
+          return { streams: [] };
+        }
+        /* 候选地址规范化（fix337/video-resolve）：站方流表的
+         * src.view/download 实为**协议相对地址**（//host/...，
+         * IwaraTool 取画质代码＋gallery-dl 双证据，客户端须补
+         * https:）——旧实现只收 ^https:// 把全部候选滤光，真机
+         * 取数/解码都成功却恒 stream_unavailable（3.3.6 三连）。 */
+        const cands = rows
+          .map((r) => {
+            const raw = r.src?.view ?? r.src?.download ?? r.url ?? "";
+            return { url: raw.startsWith("//") ? `https:${raw}` : raw, q: Number(String(r.name ?? r.quality ?? "").match(/\d+/)?.[0] ?? 0) };
+          })
+          .filter((c) => /^https:\/\//i.test(c.url));
+        cands.sort((a, b) => b.q - a.q);
+        if (cands.length) return { streams: [{ url: cands[0].url, kind: "file" as const }] };
+        if (!last) continue;
+        traceResolveFailure(def.id, "decode", "stream_unavailable", undefined, 0);
+        return { streams: [] };
+      }
+      return { streams: [] };
+    },
+    async search(q, page, size) {
+      return listFrom(`${apiBase}/search?type=videos&query=${encodeURIComponent(q.slice(0, 100))}&page=${page - 1}&limit=${size}`, page, size);
+    },
+  };
+}
+
+/** (i) Hanime1 HTML 站（Muse 2026-11-19 fix330 接通批）：结构据
+ * Hentai-Park 公开插件 hanime1.js 的协议事实（只借协议/结构、代码
+ * 原创）：列表与搜索同走 GET /search（列表=sort 最新上市、搜索=
+ * query 参数），卡片为 a[href*=watch?v=<数字id>]（标题取卡内
+ * home-rows-videos-title/card-mobile-title 元素或 img alt、封面
+ * img、时长取 duration 元素）；详情 GET /watch?v=<id>（标题
+ * #shareBtn-title 或 og:title、封面 video poster 或 og:image）；
+ * 取流解析 watch 页 <source size>/data-url 的 mp4 多档、无档时
+ * 回落 /download?v=<id> 同法解析，取最高档。 */
+/* Hanime1 排序值（Muse 2026-11-20 fix335/f-discovery）：/search
+ * 的 sort 参数九值，**必须逐字用站方繁体原值**——简体拼法被站方
+ * 静默回落默认序（探针＋住宅终验实证：简体「最新上传」回落最新
+ * 上市序）。label 即原值本身（界面原文呈现，不另译）。
+ * DiscoverySpec 同读本表。 */
+export const HANIME1_SORT_VALUES: string[] = [
+  "最新上市", "最新上傳", "本日排行", "本週排行", "本月排行",
+  "觀看次數", "讚好比例", "時長最長", "他們在看",
+];
+
+export function createHanime1Adapter(def: SourceDef): SourceAdapter {
+  const base = def.baseUrls[0].replace(/\/$/, "");
+  const cardTitle = (inner: string): string => {
+    const m = /class="[^"]*(?:home-rows-videos-title|card-mobile-title)[^"]*"[^>]*>([\s\S]*?)<\//i.exec(inner)
+      ?? /class="[^"]*\btitle\b[^"]*"[^>]*>([\s\S]*?)<\//i.exec(inner);
+    return m ? stripTags(m[1]) : "";
+  };
+  /* matched（fix335/a-pagination）：命中 watch?v= 形态的去重卡数
+   * （标题/封面校验前）——分页满页判读的口径。校验会剔除缺标题/
+   * 封面的卡，若以实收条数判满页，站方满页也会因剔除跌破阈值被
+   * 误判尾页（吃瓜 005 第一页实收 15<20 的同型教训）。 */
+  const parseCards = (html: string): { items: SourceItem[]; matched: number } => {
+    const seen = new Set<string>();
+    const matchedIds = new Set<string>();
+    const items: SourceItem[] = [];
+    for (const a of findAnchors(html)) {
+      const m = /watch\?v=(\d{1,8})/.exec(a.href);
+      if (!m) continue;
+      matchedIds.add(m[1]);
+      if (seen.has(m[1])) continue;
+      const title = cardTitle(a.inner) || imgAlt(a.inner);
+      const cover = firstImgSrc(a.inner);
+      if (!title || !cover) continue;
+      seen.add(m[1]);
+      const dur = /class="[^"]*(?:card-mobile-duration|duration)[^"]*"[^>]*>\s*([\d]+:[\d:]+)/i.exec(a.inner)?.[1];
+      items.push({ sourceId: def.id, externalId: m[1], title, cover: absUrl(base, cover), href: `${base}/watch?v=${m[1]}`, tags: [], duration: dur });
+    }
+    return { items, matched: matchedIds.size };
+  };
+  const parseSources = (html: string): { url: string; q: number }[] => {
+    const byQuality = new Map<number, string>();
+    const add = (raw: string, q: number) => {
+      if (!raw || !Number.isInteger(q) || q < 144 || q > 4320 || byQuality.has(q)) return;
+      const url = absUrl(base, raw.trim());
+      if (/^https:\/\//i.test(url) && /\.mp4(\?|$)/i.test(url)) byQuality.set(q, url);
+    };
+    for (const tag of html.match(/<source\b[^>]*>/gi) ?? []) {
+      const src = /\bsrc="([^"]+)"/i.exec(tag)?.[1] ?? "";
+      const q = Number(/\bsize="(\d+)"/i.exec(tag)?.[1] ?? /\-(\d{3,4})p\.mp4/i.exec(src)?.[1] ?? 0);
+      add(src, q);
+    }
+    for (const m of html.matchAll(/\bdata-url="([^"]+\.mp4[^"]*)"/gi)) {
+      add(m[1], Number(/\-(\d{3,4})p\.mp4/i.exec(m[1])?.[1] ?? 0));
+    }
+    return [...byQuality.entries()].map(([q, url]) => ({ url, q })).sort((a, b) => b.q - a.q);
+  };
+  const pageParam = (page: number) => (page > 1 ? `&page=${page}` : "");
+  return {
+    sourceId: def.id,
+    async list(page, size, disc) {
+      /* 排序（fix335/f-discovery）：disc.sort 须逐字命中九值表，
+       * 未命中/缺省＝最新上市（现行写死值，URL 逐字不变）。 */
+      const sort = disc?.sort && HANIME1_SORT_VALUES.includes(disc.sort) ? disc.sort : "最新上市";
+      const html = await fetchPage(`${base}/search?sort=${encodeURIComponent(sort)}${pageParam(page)}`);
+      const { items, matched } = parseCards(html);
+      /* 分页信号（fix335/a-pagination）：整页消费（旧 slice 同 HTML
+       * 模板尾损问题）；无导航末页可读（本机出口 CF 403、形态未实
+       * 测），走满页推断、满页口径取 matched。第一页无有效卡仍抛
+       * 解析为空；第二页起无卡按尾页收尾。 */
+      if (items.length === 0 && page <= 1) throw new SourceParseEmptyError(def.id);
+      return { items, pagination: { page, size, ...apiSignal(matched, page, size) } };
+    },
+    async detail(id) {
+      const html = await fetchPage(`${base}/watch?v=${id}`);
+      const title = stripTags(/id="shareBtn-title"[^>]*>([\s\S]*?)<\//i.exec(html)?.[1] ?? "")
+        || metaContent(html, "og:title").replace(/\s*-\s*Hanime1\.me\s*$/i, "");
+      if (!title) throw new Error("Hanime1 条目无效");
+      const cover = /<video\b[^>]*\bposter="([^"]+)"/i.exec(html)?.[1] ?? metaContent(html, "og:image");
+      return {
+        sourceId: def.id, externalId: id, title, cover: cover ? absUrl(base, cover) : "",
+        href: `${base}/watch?v=${id}`, tags: [], description: metaContent(html, "description"),
+        images: [], episodes: parseSources(html).length ? [{ label: "正片", externalId: id }] : [],
+      };
+    },
+    async resolve(id) {
+      /* 取流分段留痕（fix333-m5 P5，与 002 同口径）：watch（详情页
+       * 取数）/download（回落下载页取数）/decode（页内流解析判读）
+       * 三段；下载页失败原为静默吞掉，现留痕后仍按 watch 页结论
+       * 走（行为不变），终局无流同落一条 decode 留痕。 */
+      let watchHtml: string;
+      try {
+        watchHtml = await fetchPage(`${base}/watch?v=${id}`);
+      } catch (e) {
+        traceResolveFailure(def.id, "watch", "watch_fetch_failed", httpStatusOf(e), 0);
+        throw e;
+      }
+      let sources = parseSources(watchHtml);
+      if (sources.length === 0) {
+        try {
+          sources = parseSources(await fetchPage(`${base}/download?v=${id}`));
+        } catch (e) { /* 下载页不可达：以 watch 页结论为准（无流），失败本身留痕 */
+          traceResolveFailure(def.id, "download", "download_fetch_failed", httpStatusOf(e), 0);
+        }
+      }
+      if (sources.length === 0) traceResolveFailure(def.id, "decode", "stream_unavailable", undefined, 0);
+      return { streams: sources.length ? [{ url: sources[0].url, kind: "file" as const }] : [] };
+    },
+    async search(q, page, size) {
+      const html = await fetchPage(`${base}/search?query=${encodeURIComponent(q)}${pageParam(page)}`);
+      const { items, matched } = parseCards(html);
+      return { items, pagination: { page, size, ...apiSignal(matched, page, size) } };
     },
   };
 }

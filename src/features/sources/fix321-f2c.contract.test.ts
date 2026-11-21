@@ -174,10 +174,15 @@ assert.deepEqual(templateFetchOrigins("none"), [], "none 模板无取页 origin"
   assert.ok(!allow.has("https://konachan.com"), "konachan 已摘除：origin 不入白名单（fix338）");
   assert.ok(!allow.has("https://hentaihaven.xxx"), "hentaihaven 已摘除：origin 不入白名单（fix338）");
   /* 断言适配（fix339/registry-cut-2）：hanime1/iwara/yandere 已摘除，
-   * 其 origin 同口径改验负向（原 hanime1 正向断言随源退役）。 */
-  assert.ok(!allow.has("https://hanime1.me"), "hanime1 已摘除：origin 不入白名单（fix339）");
-  assert.ok(!allow.has("https://www.iwara.tv"), "iwara 已摘除：origin 不入白名单（fix339）");
-  assert.ok(!allow.has("https://api.iwara.tv"), "iwara 已摘除：API origin 不入白名单（fix339）");
+   * 其 origin 同口径改验负向（原 hanime1 正向断言随源退役）。
+   * 断言适配（fix3310/video-add-2）：hanime1/iwara 试装恢复，正向
+   * 断言回滚（含 iwara 模板声明的 files/filesq 取流 origin）；yandere
+   * 不恢复、负向不变。 */
+  assert.ok(allow.has("https://hanime1.me"), "hanime1 恢复：origin 入白名单（fix3310）");
+  assert.ok(allow.has("https://www.iwara.tv"), "iwara 恢复：origin 入白名单（fix3310）");
+  assert.ok(allow.has("https://api.iwara.tv"), "iwara 恢复：API origin 入白名单（fix3310）");
+  assert.ok(allow.has("https://files.iwara.tv"), "iwara 恢复：files 取流 origin 经模板声明入白名单（fix3310）");
+  assert.ok(allow.has("https://filesq.iwara.tv"), "iwara 恢复：filesq 取流 origin 经模板声明入白名单（fix3310）");
   assert.ok(!allow.has("https://yande.re"), "yandere 已摘除：origin 不入白名单（fix339）");
   /* 清单远程下线 swag（enabled=false）→ 其根域与 API origin 一并退出白名单 */  const off = validateManifest({
     manifestVersion: 9, minAppVersion: "3.0.0",

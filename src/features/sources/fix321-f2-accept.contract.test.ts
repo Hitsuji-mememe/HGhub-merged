@@ -186,9 +186,15 @@ const def = (id: string) => {
    * 纳入集 14→15 源；xsnvshen 搜索未验 caps.search=false 维持出局。 */
   assert.equal(searchPolicyFor(def("everia")).include, true, "everia 搜索属实、进扇出（fix338/realphoto-add）");
   assert.equal(searchPolicyFor(def("xsnvshen")).include, false, "xsnvshen 搜索未验、无搜索段出局（fix338/realphoto-add）");
+  /* 断言适配（fix3310/video-add-2）：hanime1/iwara 恢复带 search 段
+   * 进扇出、hentaiplay 搜索实证新进、hentaigasm 搜索未验出局。 */
+  assert.equal(searchPolicyFor(def("hanime1")).include, true, "hanime1 恢复、进扇出（fix3310）");
+  assert.equal(searchPolicyFor(def("iwara")).include, true, "iwara 恢复、进扇出（fix3310）");
+  assert.equal(searchPolicyFor(def("hentaiplay")).include, true, "hentaiplay 搜索属实、进扇出（fix3310）");
+  assert.equal(searchPolicyFor(def("hentaigasm")).include, false, "hentaigasm 搜索未验、无搜索段出局（fix3310）");
   const included = reg.filter((s) => searchPolicyFor(s).include).map((s) => s.id).sort();
-  assert.deepEqual(included, ["51chigua", "cosplaytele", "everia", "hanime-tv", "huangguo", "meiridasai", "nudecosplay", "pixibb", "xiuren"],
-    "扇出纳入集＝保留集内具备搜索段的 9 源（20:48 裁定口径＋3.3.0 集成；fix338 集成后 12、fix339 摘 009/010/014 后 9）");
+  assert.deepEqual(included, ["51chigua", "cosplaytele", "everia", "hanime-tv", "hanime1", "hentaiplay", "huangguo", "iwara", "meiridasai", "nudecosplay", "pixibb", "xiuren"],
+    "扇出纳入集＝保留集内具备搜索段的 12 源（20:48 裁定口径＋3.3.0 集成；fix338 集成后 12、fix339 摘 009/010/014 后 9、fix3310 恢复＋新进后 12）");
 }
 /* ── (F) 51吃瓜解 blocked＋黑料网毕业：内置面三面一致 ── */
 {

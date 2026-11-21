@@ -30,8 +30,8 @@
 import type { SourceAdapter, SourceDef } from "../types.ts";
 import { createHanimeApiAdapter } from "./hanimeApi.ts";
 import {
-  createChiguaAdapter, createDanbooruAdapter,
-  createHlsSiteAdapter, createPreviewOnlyAdapter, createRedgifsAdapter,
+  createChiguaAdapter, createDanbooruAdapter, createHanime1Adapter,
+  createHlsSiteAdapter, createIwaraAdapter, createPreviewOnlyAdapter, createRedgifsAdapter,
   createSwagAdapter, createWpRestAdapter,
 } from "./templates.ts";
 
@@ -44,6 +44,8 @@ const PROBE_FACTORIES: Record<string, (def: SourceDef) => SourceAdapter> = {
   "swag-api": createSwagAdapter,
   "redgifs-api": createRedgifsAdapter,
   "hanime-api": createHanimeApiAdapter,
+  "iwara-api": createIwaraAdapter,
+  hanime1: createHanime1Adapter,
   "preview-only": createPreviewOnlyAdapter,
 };
 

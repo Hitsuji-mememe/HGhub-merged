@@ -57,7 +57,10 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
    * yandere，注册表 16→13 源；中性权重样本改由 everia 接替（同为
    * 总表未覆盖、已启用、具备搜索段，覆盖口径不变）；页签封顶四
    * 类的口径不变。 */
-  assert.equal(getBuiltinRegistry().length, 13, "注册表 13 源（fix339：摘 009/010/014）下页签仍封顶四类（上一断言即证据）");
+  /* 断言适配（fix3310/video-add-2，2026-11-21）：恢复 hanime1/iwara
+   * ＋新增 hentaigasm/hentaiplay，注册表 13→17 源；页签封顶四类
+   * 的口径不变。 */
+  assert.equal(getBuiltinRegistry().length, 17, "注册表 17 源（fix3310：恢复 009/010＋新增 020/021）下页签仍封顶四类（上一断言即证据）");
   const groups = aggregateHits([]);
   assert.deepEqual(Object.keys(groups).sort(), ["drama", "image", "post", "video"], "聚合分组恒四键");
 }

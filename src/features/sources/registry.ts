@@ -47,6 +47,21 @@
  * 模板与组装画廊保留（目录源 gelbooru 同模板在册承接、只摘
  * yandere 注册）。清单 v6 同步已摘（仓外 remote-manifest）。
  * 盘点与证据 fix339/evidence/registry-cut-2.md。
+ * 2026-11-21 fix3310/video-add-2（3.3.10）试装恢复＋补位：009/010
+ * 按用户同日授权试装一轮——两源当年双墙（清单主机连接墙＋file
+ * 流无播放腿），播放腿已由 fix3310/file-playback-leg 补齐，本批
+ * 以 fix338 集成树 @7769c90 原样恢复两适配器与全部独占牵连面
+ * （签名链/工厂/白名单/发现选集登记/Rust X-Version 放行/夹具/
+ * 契约/wiring），注册为试装条目：新探针（协议 v4）走真实播放
+ * 路径先验、真机点播过关才正式回归，不过删回。新增 020/021 两
+ * 视频源（候选 fix339/evidence/video-candidates.md 播放级实证）：
+ * 020＝wp-rest＋JW file: 小解析（opt-in 参数 jwFile），021＝
+ * wp-rest 逐字同形。内置终态 17 源、启用 15；清单 v7 同步
+ * （仓外 remote-manifest）。证据 fix3310/evidence/video-add-2.md。
+ * 自检纪元 5／协议 v4 均不 bump：本批探针步骤零变更（v4 为腿线
+ * bump）；009/010 在纪元 5 下无已存结果（摘除后未探过、≤4 的旧
+ * 结果已被纪元 5 整批作废），020/021 为新 id 无旧结果，保留源
+ * 切片与判定语义不变（jwFile 为 def opt-in、未声明源行为不变）。
  *
  * 成熟度口径（诚实标注，2026-11-19 真站实测后更新）：
  * - 黄果 stable：仓内既有 native 通道、现行生产源；
@@ -124,6 +139,19 @@ export const NAMED_SOURCES: SourceDef[] = [
     capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：本站为 WP 站、/wp-json/wp/v2/posts 列表实测可达、详情正文实测 103 张图（图集型、wp-rest detail.images 承接）；原 HTML slug 列表参数作废",
   },
   {
+    id: "hanime1", displayName: "Hanime1", kind: "video", category: "video",
+    adapter: { template: "hanime1", params: {} }, baseUrls: ["https://hanime1.me"],
+    enabled: true, order: 53, maturity: "probe", capabilities: HLS_CAPS,
+    network: { mode: "probe-required", needsNonJpExit: true },
+    note: "fix330 接通批启用：专用 HTML 适配器（/search 列表与搜索段、/watch 详情、watch/download 页 mp4 多档取流，结构据公开插件 hanime1.js 协议事实＋解析夹具实证）；住宅出口四级验收全通在案（source-verify-20261119，引存档）；本机机房出口为 CF 403（出口形态、非站点结论）；封日本 IP、needsNonJpExit 维持；App 侧未真机验 → probe。【fix3310/video-add-2 试装恢复 2026-11-21】3.3.9 曾按一轮制整组删（真机清单取数段 dns_error＋file 流无播放腿双墙）；播放腿补齐后按用户授权试装一轮，自检（协议 v4、真实播放路径探针）＋真机点播过关才正式回归，不过删回",
+  },
+  {
+    id: "iwara", displayName: "Iwara", kind: "video", category: "video",
+    adapter: { template: "iwara-api", params: {} }, baseUrls: ["https://www.iwara.tv", "https://api.iwara.tv"],
+    enabled: true, order: 54, maturity: "probe", capabilities: HLS_CAPS, network: PROBE_NET,
+    note: "fix330 接通批启用：专用 API 适配器（api.iwara.tv /videos 列表、/search 搜索段、/video/<id> 详情、fileUrl＋X-Version 签名取流，结构据公开插件 iwara.js 协议事实＋解析夹具实证）；住宅出口四级验收全通在案（source-verify-20261119，引存档）；本机机房出口为 CF 403（出口形态、非站点结论）；App 侧未真机验 → probe。【fix3310/video-add-2 试装恢复 2026-11-21】同 009 试装口径：3.3.9 删除批删码、本批原样恢复（含签名链与 Rust X-Version 定向放行），过关才回归、不过删回",
+  },
+  {
     id: "everia", displayName: "Everia", kind: "image", category: "image",
     adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
     baseUrls: ["https://everia.club"],
@@ -138,6 +166,22 @@ export const NAMED_SOURCES: SourceDef[] = [
     enabled: true, order: 123, maturity: "probe",
     capabilities: NO_CAPS, network: PROBE_NET,
     note: "fix338/realphoto-add 新增（2026-11-20）：真人图片候选准入 C2（候选调查 fix338/evidence/realphoto-candidates.md §三）——hls-site 锚点骨架按校准点落地：列表 /album/?p={page}（导航末页 1800）；itemLinkRegex 收紧条目形态（裸子串 /album/ 会误收分类页/隐藏空锚/分页锚，实测 132 vs 真卡 25）；详情服务端分页 ?p=N 每页 10 张、detailPageParam 逐页组装整册＋detailImagePattern 只留本册全尺寸图（内容区混排他人图集缩略图 40 张须滤）；图床 img.xsnvshen.com 防盗链判据＝Referer 须本站域且路径以 /album/ 开头（无 Referer/根 Referer 均 403、本批实测矩阵），详情图经 /img 的 p= 参数带详情页 Referer 进候选链（见 net/edge.rs）；搜索未验 caps.search 维持 false；编号 019（order 123 置末）；App 侧未真机验 → probe",
+  },
+  {
+    id: "hentaigasm", displayName: "HentaiGasm", kind: "video", category: "video",
+    adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts", jwFile: true } },
+    baseUrls: ["https://hentaigasm.com"],
+    enabled: true, order: 124, maturity: "probe",
+    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    network: PROBE_NET, note: "fix3310/video-add-2 新增（2026-11-21）：视频候选准入 V1（候选调查 fix339/evidence/video-candidates.md，播放级实证）——wp-rest 列表/详情与 018 同模板；流地址在正文 JW Player setup 的 file: 字段（hgasm2.com MP4 直链、文件名含空格），经 opt-in 参数 jwFile 走 parse.ts 小解析提取、封面回落 JW image:（hgasm1.com）；全链非 CF（主站 Apache＋文件域 nginx 直连、无令牌无挑战）；内容以 Raw（无字幕）为主、单档无多画质；搜索未验 caps.search 维持 false；编号 020（order 124）；流走 kind=file 新播放腿（fix3310/file-playback-leg），App 侧未真机验 → probe",
+  },
+  {
+    id: "hentaiplay", displayName: "HentaiPlay", kind: "video", category: "video",
+    adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
+    baseUrls: ["https://hentaiplay.net"],
+    enabled: true, order: 125, maturity: "probe",
+    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    network: PROBE_NET, note: "fix3310/video-add-2 新增（2026-11-21）：视频候选准入 V2（候选调查 fix339/evidence/video-candidates.md，播放级实证）——wp-rest 与 018 逐字同形、零新适配器代码：content.rendered 直含 hentaiplanet.info MP4 直链（stock extractMp4 命中）、搜索端点实拉 20 条真结果 caps.search=true；已知限制：封面不在 REST 载荷内（正文只有 <video><source>、无 <img>），列表封面为空＝诚实无封面态；主站 CF 前置仅取页面、文件域 Apache 非 CF（与 009/010 死因结构不同）；英文字幕、单档无多画质；编号 021（order 125）；流走 kind=file 新播放腿，App 侧未真机验 → probe",
   },
 ];
 

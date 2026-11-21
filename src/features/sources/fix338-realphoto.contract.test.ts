@@ -35,9 +35,12 @@ const byId = (id: string): SourceDef => {
    * 两位（位置 15/16）；编号 018/019 为顺延分配号、不复用已删编
    * 号（主线裁定），与位置号脱钩。
    * 断言适配（fix339/registry-cut-2，2026-11-21）：摘除 009/010/014
-   * 后注册表 16→13 源，两源仍居末两位（位置 12/13）。 */
-  assert.equal(registry.indexOf(everia), 11, "everia 为注册表第 12 位（编号 018、居末两位）");
-  assert.equal(registry.indexOf(xsnvshen), 12, "xsnvshen 为注册表第 13 位（编号 019、居末）");
+   * 后注册表 16→13 源，两源仍居末两位（位置 12/13）。
+   * 断言适配（fix3310/video-add-2，2026-11-21）：恢复 009/010
+   * （order 53/54、居两源之前）＋新增 020/021（order 124/125、居
+   * 注册表末两位），注册表 13→17 源，两源位置 14/15、不再居末。 */
+  assert.equal(registry.indexOf(everia), 13, "everia 为注册表第 14 位（编号 018）");
+  assert.equal(registry.indexOf(xsnvshen), 14, "xsnvshen 为注册表第 15 位（编号 019）");
   assert.equal(everia.adapter.template, "wp-rest", "everia 走 wp-rest 模板实例化");
   assert.equal(everia.kind, "image");
   assert.equal(everia.enabled, true);

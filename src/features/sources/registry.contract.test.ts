@@ -34,15 +34,24 @@ import { TEMPLATE_IDS } from "./adapters/templates.ts";
  * 轮）、yandere（单图帖与 danbooru 同标准删），命名源 11→9、目录
  * 源 5→4、CORE_IDS 移除 hanime1/iwara、三源并入负向名单；远程熔
  * 断样本由同 category 保留源 hanime-tv 接替（先例同口径）；danbooru-api
- * 模板由 gelbooru 在册承接、不随 yandere 退役。 */
+ * 模板由 gelbooru 在册承接、不随 yandere 退役。
+ * 断言适配（fix3310/video-add-2，2026-11-21）：009/010 按用户授权
+ * 试装恢复（播放腿补齐后试一轮、过关才回归），命名源 9→13、
+ * CORE_IDS 回加 hanime1/iwara 并新增 hentaigasm/hentaiplay（视频
+ * 候选准入 V1/V2），两源退出负向名单、fix330 启用事实断言恢复；
+ * yandere 仍在负向名单（不恢复）。 */
 const CORE_IDS = [
   "huangguo", "hanime-tv", "51chigua", "feedheiliao", "meiridasai",
   "xiuren", "cosplaytele",
+  /* 断言适配（fix3310/video-add-2，2026-11-21）：hanime1/iwara 试装
+   * 恢复回加（见文件头）；hentaigasm/hentaiplay 为视频补位新源。 */
+  "hanime1", "iwara",
   /* 断言适配（fix338/realphoto-add，集成对账 2026-11-20）：真人图片
    * 新源 everia/xsnvshen 以命名源入册（候选准入＋生产取页栈实拉全
    * 通，证据 fix338/evidence/realphoto-add.md），保留集 9→11；
    * fix339 后保留集 11→9（摘 hanime1/iwara）。 */
   "everia", "xsnvshen",
+  "hentaigasm", "hentaiplay",
 ];
 
 /* ── 注册表完整性 ── */
@@ -50,11 +59,11 @@ const CORE_IDS = [
   const ids = new Set(BUILTIN_SOURCES.map((s) => s.id));
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
   for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
-  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 9（fix339/registry-cut-2 摘 hanime1/iwara；此前 fix338 摘 danbooru/hentaihaven、加 everia/xsnvshen，更早已摘 rule34video/pornpics）");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 13（fix3310/video-add-2 试装恢复 hanime1/iwara＋新增 hentaigasm/hentaiplay；此前 fix339 摘 hanime1/iwara、fix338 摘 danbooru/hentaihaven、加 everia/xsnvshen，更早已摘 rule34video/pornpics）");
   /* 瘦身负向不变量：被删源不得回流注册表（App 内不得出现）。 */
   for (const goneId of ["rouvideo", "91video", "pornhub", "xvideos", "swag", "fyptt", "redgifs", "fc2",
     "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91", "rule34video", "pornpics",
-    "danbooru", "hentaihaven", "konachan", "hanime1", "iwara", "yandere"]) {
+    "danbooru", "hentaihaven", "konachan", "yandere"]) {
     assert.ok(!ids.has(goneId), `瘦身删除源 ${goneId} 不在册`);
   }
   assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
@@ -100,8 +109,28 @@ const CORE_IDS = [
       }
     }
   }
-  /* fix330 接通批的 hanime1/iwara 启用事实断言已随 fix339/registry-cut-2
-   * 摘除退役（两源并入上方负向名单、不得回流）。 */
+  /* 断言适配（fix3310/video-add-2，2026-11-21）：hanime1/iwara 启用
+   * 事实断言随试装恢复回滚（fix330 接通批口径原样）：两源已写专用
+   * 适配器并启用、maturity 仍 probe（App 未真机验不上调）；试装
+   * 性质由注册表 note 与本批证据承载、过关才转正式回归。 */
+  for (const probeId of ["hanime1", "iwara"]) {
+    const s = BUILTIN_SOURCES.find((x) => x.id === probeId)!;
+    assert.equal(s.enabled, true, `${probeId} fix330 接通批已启用（fix3310 试装恢复）`);
+    assert.notEqual(s.adapter.template, "none", `${probeId} 已有专用适配器`);
+    assert.equal(s.maturity, "probe");
+  }
+  /* 新源事实（fix3310/video-add-2）：020/021 均 wp-rest 视频源、
+   * 020 声明 JW 小解析 opt-in、021 搜索已实证。 */
+  {
+    const g = BUILTIN_SOURCES.find((x) => x.id === "hentaigasm")!;
+    assert.equal(g.adapter.template, "wp-rest", "hentaigasm 走 wp-rest 模板");
+    assert.equal((g.adapter.params as Record<string, unknown>).jwFile, true, "hentaigasm 声明 jwFile 小解析");
+    assert.equal(g.enabled, true, "hentaigasm enabled");
+    const p = BUILTIN_SOURCES.find((x) => x.id === "hentaiplay")!;
+    assert.equal(p.adapter.template, "wp-rest", "hentaiplay 走 wp-rest 模板");
+    assert.equal(p.capabilities.search, true, "hentaiplay 搜索已实证");
+    assert.equal(p.enabled, true, "hentaiplay enabled");
+  }
   assert.equal(getBuiltinRegistry()[0].id, "huangguo", "order 第一顺位为黄果");
 }
 
