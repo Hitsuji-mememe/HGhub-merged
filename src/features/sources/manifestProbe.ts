@@ -17,15 +17,17 @@
  *   样抛作错误供自检失败分类（healthCheck.selfCheckFailureKind）
  *   判读，不在此另造分类。客户端超时 20s 只是兜底：清单腿自身
  *   15s 总截止恒先于它给出结论（fix338 签名③）。
- * - file（fix3310 新增）：MP4 直链没有清单，播放第一步是经本地
- *   /seg 路由以 Range 取首段字节（playbackSource 包 segment()、
- *   native 引擎直连）——探针同构：fetch segment(url) 带
- *   Range: bytes=0-2047，要求响应成功（200/206）且字节 [4..8)
- *   为 "ftyp" 魔数（ISO BMFF 签名，与 Rust 侧清单魔数判别同为
- *   「取回的字节真是所声称的媒体」一道关）。Rust /seg 对媒体文
- *   件目标走 ranged 直通（media/segment.rs）：上游慢/挂由其取
- *   数链 20s 超时给出结论、HTML 错误页由其判别回 502，非 200
- *   正文同样原样抛作错误。客户端超时同为 20s 兜底。
+ * - file（fix3310 新增、fix3311/file-leg-fix 加固）：MP4 直链没
+ *   有清单，播放第一步是经本地 /seg 路由以 Range 取首段字节
+ *   （playbackSource 包 segment()、native 引擎直连）。fix3310
+ *   探针只验首段 ftyp——3.3.10 真机探针全绿而点播全灭（响应类
+ *   型 octet-stream 被播放器拒收、moov 在尾探针全盲、无 Range
+ *   请求在 App 侧落整段级联，定因见 fix3311 调查报告）。现行
+ *   步序由 fileProbe.ts 的 probeFileStream 实现（HEAD 等价调用
+ *   ＋0-1 试探＋首段 ftyp＋尾段实拉验 moov＋响应类型须
+ *   video/*，按播放器真实请求形态），本文件只负责以 segment()
+ *   构造同路 URL 并注入全局 fetch 与 20s 单步超时。非 2xx 时
+ *   Rust 正文原样抛作错误、沿用既有失败分类，不在此另造分类。
  *
  * 接缝纪律：本文件 import shared/api（构建期 define＋Tauri 链，
  * node 契约环境不可直导入——既有约束），故 healthCheck 引擎只认
@@ -35,15 +37,13 @@
  * （自检引擎）只把结果收敛成段状态与失败形态。 */
 
 import { playlist, segment } from "../../shared/api/api";
+import { probeFileStream } from "./fileProbe.ts";
 import type { SourceStream } from "./types.ts";
 
 /** 客户端兜底超时：恒大于清单腿 15s 总截止，只防本地路由自身
- * 无响应时探针挂死，不与 Rust 侧结论竞速。 */
+ * 无响应时探针挂死，不与 Rust 侧结论竞速。file 分支的多步序列
+ * 以本值作单步超时（与播放单发同值，见 fileProbe.ts 文件头）。 */
 export const STREAM_MANIFEST_PROBE_TIMEOUT_MS = 20_000;
-
-/** file 探针的 Range 窗口：只需覆盖 ftyp 魔数所在的头部字节，
- * 取 2KB 与设备链 MP4 用例同口径。 */
-export const FILE_PROBE_RANGE = "bytes=0-2047";
 
 /** 经播放同路实拉一条流（按 kind 分支）：成功返回，失败抛
  * Error（正文为 Rust 侧错误原文时以其为 message）。 */
@@ -68,29 +68,14 @@ export async function probeStreamViaPlayback(stream: SourceStream): Promise<void
   }
 }
 
-/** file 流实拉：经 /seg 同路 Range 取首段，ftyp 魔数通过才算
- * 取流可达。魔数不符（取回的不是 MP4 家族字节——错误页/占位
- * 数据冒充）抛错，与清单腿魔数判别同罪。 */
+/** file 流实拉：经 /seg 同路多步实拉（步序与判据在 fileProbe.ts，
+ * 按播放器真实请求形态：HEAD 等价调用＋0-1 试探＋首段 ftyp＋尾
+ * 段实拉验 moov＋响应类型须 video/*）。本函数只注入同路 URL、
+ * 全局 fetch 与单步超时，结论口径（成功返回/失败抛错）不变。 */
 async function probeFileStreamViaPlayback(stream: SourceStream): Promise<void> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), STREAM_MANIFEST_PROBE_TIMEOUT_MS);
-  try {
-    const r = await fetch(segment(stream.url), {
-      headers: { Range: FILE_PROBE_RANGE },
-      signal: ctrl.signal,
-    });
-    if (!r.ok) {
-      const body = await r.text().catch(() => "");
-      throw new Error(body.trim() || `HTTP ${r.status}`);
-    }
-    const bytes = new Uint8Array(await r.arrayBuffer());
-    const magic = bytes.length >= 8
-      ? String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7])
-      : "";
-    if (magic !== "ftyp") {
-      throw new Error("响应不是 MP4 文件（ftyp 魔数不符）");
-    }
-  } finally {
-    clearTimeout(timer);
-  }
+  await probeFileStream(
+    segment(stream.url),
+    (url, init) => fetch(url, init),
+    STREAM_MANIFEST_PROBE_TIMEOUT_MS,
+  );
 }

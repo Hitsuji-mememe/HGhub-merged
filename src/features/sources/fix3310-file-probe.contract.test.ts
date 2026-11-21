@@ -118,9 +118,15 @@ function probeRecorder(impl: (stream: SourceStream) => Promise<void>) {
   assert.ok(impl.includes("export async function probeStreamViaPlayback"), "生产实现导出 probeStreamViaPlayback 在 manifestProbe.ts");
   assert.ok(impl.includes('stream.kind === "file"'), "生产实现按 kind 分支 file 流");
   assert.ok(impl.includes("segment(stream.url)"), "file 分支经 shared/api 的 segment() 构造 /seg 同路 URL（与播放侧逐字同路）");
-  assert.ok(impl.includes('"Range"') || impl.includes("Range:"), "file 分支带 Range 头实拉首段字节");
-  assert.ok(impl.includes("ftyp"), "file 分支以 ftyp 魔数判读响应字节");
   assert.ok(impl.includes("playlist(stream.url)"), "hls 分支仍经 playlist() 实拉清单（fix339 同路不变）");
+  /* fix3311/file-leg-fix 断言适配（非削弱）：file 分支的实拉步序
+   * 自 manifestProbe 内联实现改为委托 fileProbe.probeFileStream
+   * （多步序列，行为覆盖由 fix3311-file-probe-hardening 契约承
+   * 接且严于原单步断言）——此处改钉委托接线与步序文件归属。 */
+  assert.ok(impl.includes("probeFileStream"), "file 分支委托 fileProbe.probeFileStream 多步实拉（fix3311 加固）");
+  const seq = read("./fileProbe.ts");
+  assert.ok(seq.includes('"Range"') || seq.includes("Range:"), "实拉步序带 Range 头（fileProbe.ts）");
+  assert.ok(seq.includes("ftyp"), "实拉步序以 ftyp 魔数判读响应字节（fileProbe.ts）");
 }
 
 console.log("fix3310-file-probe contract OK");

@@ -147,7 +147,7 @@ function probeRecorder(impl: (stream: SourceStream) => Promise<void>) {
 
 /* ── (e) 协议/纪元/预算常量 ── */
 {
-  assert.equal(SELF_CHECK_PROTOCOL_VERSION, 4, "自检协议 v4＝全链＋分页抽查＋取流实拉按 kind 分支（fix3310 适配：v3 的清单实拉＋file 流 /seg 实拉）");
+  assert.equal(SELF_CHECK_PROTOCOL_VERSION, 5, "自检协议 v5＝全链＋分页抽查＋取流实拉按 kind 分支＋file 探针多步加固（fix3311 适配：v4 的 file 首段单步→HEAD＋0-1＋首段 ftyp＋尾段验 moov＋类型须 video/*）");
   assert.equal(SELF_CHECK_ADAPTER_EPOCH, 5, "适配器纪元 5＝取流结论依据链扩展到媒体取数链");
   assert.equal(SELF_CHECK_MAX_REQUESTS_PER_SOURCE, 5, "硬预算 5＝列表＋抽查＋详情＋取流解析＋取流实拉");
 }

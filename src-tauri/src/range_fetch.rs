@@ -179,6 +179,56 @@ pub async fn fetch_range_direct(
     Ok(RangeFetch { status, total, ctype, etag, bytes })
 }
 
+/// 元信息探针的结果（HEAD 等价，只读响应头）：状态码 / 总长 / 类型。
+pub struct RangeMeta {
+    pub status: u16,
+    /// 总长：206 取 Content-Range、200 取 Content-Length；都没有为 None。
+    pub total: Option<u64>,
+    pub ctype: Option<String>,
+}
+
+/// 以 Range bytes=0-0 探上游元信息（Muse 2026-11-21 fix3311/file-leg-fix）：
+/// 媒体文件目标的 HEAD 请求在入口层无 Range 可传，旧形态落整段下载
+/// （大文件必 502、中等文件整文件下完才回）。本函数只发一发小 Range
+/// 请求、只读响应头即返回（体丢弃、连接随响应 drop 关闭），供
+/// media::segment::load_segment_head 组元信息响应。请求形态
+/// （Referer/UA/identity 编码/20s 截止）与 fetch_range_direct 同路；
+/// 非 2xx 按同口径报错（"HTTP {status}"），由调用方按 ranged 失败
+/// 分流（超时定案、其余回退）处置。
+pub async fn fetch_range_meta(url: &str) -> Result<RangeMeta, String> {
+    let referer = format!("{}/", base());
+    let resp = get_with_dns_h(
+        url,
+        Duration::from_secs(20),
+        None,
+        Some(&referer),
+        false,
+        &[("Range", "bytes=0-0"), ("Accept-Encoding", "identity")],
+    )
+    .await?;
+    let status = resp.status().as_u16();
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let headers = resp.headers();
+    let total = if status == 206 {
+        headers
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_content_range_total)
+    } else {
+        headers
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse::<u64>().ok())
+    };
+    let ctype = headers
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    Ok(RangeMeta { status, total, ctype })
+}
+
 /* ── 大分片并行 Range 下载（修复四，4 路） ────────────────────────
  * 家里实测瓶颈是视频服务器按连接限速（单连接 0.3–1MB/s）：总长 >512KB 的
  * 分片拆段并行拉，让每条连接各吃一份限速。探针（首 64KB）是第 1 条连接，

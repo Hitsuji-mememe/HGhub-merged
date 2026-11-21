@@ -247,7 +247,7 @@ const newCounter = () => ({ calls: 0, listPages: [] as number[] });
 /* ── (d) 预算常量与协议版本 ── */
 {
   assert.equal(SELF_CHECK_MAX_REQUESTS_PER_SOURCE, 5, "硬预算 = 5（列表＋分页抽查＋详情＋取流解析＋清单实拉）");
-  assert.equal(SELF_CHECK_PROTOCOL_VERSION, 4, "自检协议 v4＝全链＋分页抽查＋取流实拉按 kind 分支口径（fix3310 适配）");
+  assert.equal(SELF_CHECK_PROTOCOL_VERSION, 5, "自检协议 v5＝全链＋分页抽查＋取流实拉按 kind 分支＋file 探针多步加固口径（fix3311 适配）");
 }
 
 /* ── (e) 落盘归一：旧结果缺 paging 字段读入归一 skipped、新格式往返保真 ── */
