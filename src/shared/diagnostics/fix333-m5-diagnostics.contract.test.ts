@@ -10,10 +10,12 @@
  * 为两批失败）；O2 自检 requests 计适配器调用数却裸称「请求数」、
  * 与真实网络量对不上；O4 段位标签表只含三面，gallery/source-list
  * 在导出露英文原名。本契约钉四件：
- * (1) P5：四源 resolve 段失败同落 source.resolve_fail（组装纯函数
- *     键集合封闭＋三源段调用点齐全），导出有结构化留痕节消费之
- *     （resolveFailSectionLines 行为：双事件名形态兼容＝旧日志可读、
- *     段名中文标签、汇总＋最近 12 条）；
+ * (1) P5：四源 resolve 段失败同落 source.resolve_fail，导出有结构
+ *     化留痕节消费之（resolveFailSectionLines 行为：双事件名形态
+ *     兼容＝旧日志可读、段名中文标签、汇总＋最近 12 条）。写侧设
+ *     施（traceResolveFailure 组装/发射）已随 fix3314 审计 A1 整
+ *     删（调用方随视频板块退场），本节改钉写侧退场＋读侧保留
+ *     （读侧仍消费 Rust 清单腿 manifest 事件与历史日志）；
  * (2) O1：导出逐图只剩明细环单段（事件逐图行不复活、明细段在位）；
  * (3) O2：自检呈现恒带「适配器调用口径」标注（单源段＋汇总定义行）；
  * (4) O4：imageSurfaceLabel 六面中文标签齐全、未知回落原值；导出
@@ -21,23 +23,11 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { resolveFailureEventData } from "../../features/sources/adapters/resolveTrace.ts";
 import { resolveFailSectionLines } from "./resolveFailLines.ts";
 import { imageSurfaceLabel } from "../lib/feedTrace.ts";
 import { selfCheckDiagLines, selfCheckSegmentText, type SourceSelfCheckResult } from "../../features/sources/healthCheck.ts";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
-
-/* ── (1) P5：组装纯函数键集合封闭（与 002 原口径逐字一致） ── */
-{
-  assert.deepEqual(
-    resolveFailureEventData("source-011", "fetch", "stream_fetch_failed", 403, 0),
-    { source: "source-011", segment: "fetch", code: "stream_fetch_failed", status: 403, attempt: 0 },
-    "留痕数据：编号/段名/固定码/状态/尝试序",
-  );
-  const noStatus = resolveFailureEventData("source-010", "decode", "stream_unavailable", undefined, 0);
-  assert.deepEqual(Object.keys(noStatus).sort(), ["attempt", "code", "segment", "source"], "无状态时 status 键整缺、键集合封闭");
-}
 
 /* ── (1) P5：段调用点齐全（源码断言，仿既有契约先例；
  * 断言适配 fix338/registry-cut：011 已摘除，其 episode 段留痕随
@@ -54,13 +44,21 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8"
  * download 段留痕随适配器同删、改验负向（与 011 episode 同口
  * 径）；010 三段在位不变） ── */
 {
-  /* 断言适配（fix3314）：002 hanimeApi 与 010 wp-rest jw 分支随视
-   * 频板块整组删除退场，traceResolveFailure 的生产调用点全数消
-   * 失；设施定义（resolveTrace.ts）与读侧（留痕节）保留在位——
-   * 写侧无调用方这一事实记入 fix3314 审计登记（瘦身候选），本节
-   * 改钉「定义在位＋全部旧段负向」。 */
+  /* 断言适配（fix3314 阶段一）：002 hanimeApi 与 010 wp-rest jw
+   * 分支随视频板块整组删除退场，traceResolveFailure 的生产调用
+   * 点全数消失；设施定义（resolveTrace.ts）与读侧（留痕节）保
+   * 留在位，写侧无调用方记入审计登记（瘦身候选）。
+   * 断言适配（fix3314 阶段二，审计 A1 定版执行）：写侧设施整
+   * 删——traceResolveFailure／resolveFailureEventData／发射器退
+   * 场，resolveTrace.ts 只剩 httpStatusOf（wp-rest 消费）；读侧
+   * （留痕节行为，下节）保留在位，仍消费 Rust 清单腿 manifest
+   * 事件与历史日志。本节改钉「写侧退场＋httpStatusOf 在位＋全
+   * 部旧段负向」。 */
   const rt = read("../../features/sources/adapters/resolveTrace.ts");
-  assert.ok(rt.includes("export function traceResolveFailure"), "留痕设施定义保留在位（fix3314 审计登记其写侧无调用方）");
+  assert.ok(!rt.includes("export function traceResolveFailure"), "留痕写侧 traceResolveFailure 已整删（fix3314 审计 A1）");
+  assert.ok(!rt.includes("export function resolveFailureEventData"), "留痕组装 resolveFailureEventData 已整删（fix3314 审计 A1）");
+  assert.ok(!rt.includes("function emitSourceTrace"), "留痕发射器已整删（fix3314 审计 A1）");
+  assert.ok(rt.includes("export function httpStatusOf"), "httpStatusOf 保留在位（wp-rest 消费，勿误伤）");
   const tpl = read("../../features/sources/adapters/templates.ts");
   assert.ok(!tpl.includes("traceResolveFailure"), "templates 留痕调用点已随 jw 分支退场（fix3314）");
   for (const seg of ["detail", "fetch", "decode", "watch", "download", "episode", "csrf", "handshake"]) {

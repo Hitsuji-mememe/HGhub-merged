@@ -274,6 +274,18 @@ const recorder = (body: string | ((url: string) => string)) => {
   assert.ok(bar.includes("SegmentedControl"), "排序改分段开关（fix3314）");
   assert.ok(bar.includes("<Sheet open={tagSheetOpen}"), "标签改底部弹层（fix3314）");
   assert.ok(bar.includes("selectedTagCount"), "筛选按钮带已选标签数徽标（fix3314）");
+  /* fix3314 阶段二审计处置（A1 之外四项，任务书定版口径）：
+   * D1 标签池映射抽共用 taxonOptionsOf（discoveryOptions 单一出处、
+   * DiscoveryBar 消费）；C1 taxonomy 加载失败明示＋重试（不再恒显
+   * 加载中）；B1 弹层标签分段渲染（TAG_SHEET_PAGE 首段＋滚动增
+   * 量）；C2 已选 chip 在 taxonomy 到达前暂缓渲染（不以原始 id
+   * 回显——无条件原始 id 回落字面退场）。 */
+  assert.ok(read("./discoveryOptions.ts").includes("export function taxonOptionsOf"), "taxonOptionsOf 单一出处在 discoveryOptions（fix3314 D1）");
+  assert.ok(bar.includes("taxonOptionsOf("), "DiscoveryBar 消费共用 taxon 映射（fix3314 D1）");
+  assert.ok(bar.includes("taxonomyFailed"), "DiscoveryBar 带 taxonomy 失败态（fix3314 C1）");
+  assert.ok(bar.includes("标签加载失败"), "弹层加载失败明示文案（fix3314 C1）");
+  assert.ok(bar.includes("TAG_SHEET_PAGE"), "弹层标签分段渲染页大小（fix3314 B1）");
+  assert.ok(!bar.includes("?? { value: disc.tag, label: disc.tag }"), "已选 chip 无条件原始 id 回落退场（fix3314 C2）");
   for (const [file, listCall] of [
     ["./SourceGallery.tsx", "adapter.list(next, 20, discArg)"],
     ["./SourcePosts.tsx", "adapter.list(next, pageSize, discArg)"],

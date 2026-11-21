@@ -41,6 +41,18 @@ export function pinRecentOptions(
 }
 
 /**
+ * taxonomy 条目→选项映射（Muse 2026-11-21 fix3314 阶段二审计
+ * D1 抽共用）：id→value、name→label 的唯一口径。原 DiscoveryBar
+ * 内分类行／标签池／已选回落三处内联重拼同一映射，池口径变更时
+ * 回落链易漏改——收敛为一处，三消费面共用。
+ */
+export function taxonOptionsOf(
+  entries: readonly TaxonEntry[],
+): DiscoveryOption[] {
+  return entries.map((e) => ({ value: e.id, label: e.name }));
+}
+
+/**
  * taxonomy 条目合并（Muse 2026-11-21 fix3313/discovery-tail ②）：
  * 本地已加载名单与服务端补取结果按 id 合并——先到先得（本地项
  * 优先、序不变），补取项按到达序殿后；同 id 重复只留一份。

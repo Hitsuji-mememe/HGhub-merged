@@ -35,6 +35,12 @@
  * 服务端长尾（searchTags 补取并池、口径不变）；落盘 disc 的
  * taxonomy 值加失效自检（站方改 id 后回落为空＋诊断账本留痕，
  * 不再静默过滤为空列表）。见 fix3313 契约。
+ *
+ * 审计处置（Muse 2026-11-21 fix3314 阶段二，audit-3314 定版）：
+ * B1 弹层标签分段渲染（千级标签池首开不再全量挂载）；C1
+ * taxonomy 加载失败明示＋重试（不再恒显「加载中」）；C2 已选
+ * chip 在 taxonomy 到达前暂缓渲染（不以原始 id 回显）；D1 标签
+ * 池映射抽共用 taxonOptionsOf（discoveryOptions 单一出处）。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input, SegmentedControl } from "../../shared/ui/ios/controls";
@@ -43,7 +49,7 @@ import { record } from "../../shared/diagnostics/eventLedger.ts";
 import { createAdapter } from "./adapters/index.ts";
 import { discoverySpecFor, hasDiscovery, type DiscoveryOption } from "./adapters/templateCapabilities.ts";
 import { classifySelfCheckResult } from "./healthCheck.ts";
-import { dedupeTagOptions, mergeTaxonEntries, pinRecentOptions, resolveStaleDiscFields } from "./discoveryOptions.ts";
+import { dedupeTagOptions, mergeTaxonEntries, pinRecentOptions, resolveStaleDiscFields, taxonOptionsOf } from "./discoveryOptions.ts";
 import { serverTagSearchTerms, tagOptionMatchesQuery, taxonKeysForChineseQuery, taxonZhLabel } from "./taxonLabels.ts";
 import { useSourceHealthResults } from "./sourceHealth.ts";
 import type { ListDiscovery, SourceDef, SourceTaxonomy, TaxonEntry } from "./types.ts";
@@ -55,6 +61,11 @@ const TAXONOMY_CHIP_LIMIT = 24;
 /* 弹层内标签搜索命中上限：搜索态已是定向查找，给足长尾覆盖
  * 即可，不许一次把上千命中全量平铺成墙。 */
 const TAG_SEARCH_LIMIT = 60;
+/* 弹层标签分段渲染页大小（Muse 2026-11-21 fix3314 阶段二审计
+ * B1）：标签池实测可达 1198，一次全量映射渲染首开卡顿——非搜索
+ * 态先渲染首段、滚动近底增量续段；搜索态已有 TAG_SEARCH_LIMIT
+ * 封顶、不走分段。 */
+const TAG_SHEET_PAGE = 120;
 
 export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories, recentTags }: {
   def: SourceDef;
@@ -84,17 +95,27 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
   useEffect(() => { setTagQuery(""); setRemoteTags([]); setTagSheetOpen(false); }, [def.id]);
   const searching = tagQuery.trim().length > 0;
   const [taxonomy, setTaxonomy] = useState<SourceTaxonomy | null>(null);
+  /* taxonomy 加载失败态（Muse 2026-11-21 fix3314 阶段二审计
+   * C1）：原空 catch 让 taxonomy 恒 null、弹层恒显「加载中」——
+   * 端点真故障时用户等一个永不到达的名单。现失败明示＋可重试
+   * （taxonomyRetry 自增触发重取）；分类行维持不渲染（旧口径）。 */
+  const [taxonomyFailed, setTaxonomyFailed] = useState(false);
+  const [taxonomyRetry, setTaxonomyRetry] = useState(0);
   useEffect(() => {
     setTaxonomy(null);
+    setTaxonomyFailed(false);
     if (!needsTaxonomy || !hasDiscovery(spec)) return undefined;
     let live = true;
     const adapter = createAdapter(def);
     adapter?.taxonomy?.()
       .then((t) => { if (live) setTaxonomy(t); })
-      .catch(() => { /* 选项取不到：对应行不渲染，不拿空冒充无分类 */ });
+      .catch(() => { if (live) setTaxonomyFailed(true); });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def.id, needsTaxonomy]);
+  }, [def.id, needsTaxonomy, taxonomyRetry]);
+  /* 弹层分段渲染游标（fix3314 审计 B1）：开层/换词/切源回首段。 */
+  const [tagVisibleCount, setTagVisibleCount] = useState(TAG_SHEET_PAGE);
+  useEffect(() => { setTagVisibleCount(TAG_SHEET_PAGE); }, [tagSheetOpen, tagQuery, def.id]);
 
   /* 标签长尾补取（fix3313/discovery-tail）：搜索词非空且适配器有
    * searchTags 时，按派生词（英文原词/中文反查键）防抖补取、结果
@@ -180,7 +201,7 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
   const categoryOptions: DiscoveryOption[] = (() => {
     if (!spec.categories) return [];
     if (spec.categories.source === "params") return spec.categories.options;
-    const all = (taxonomy?.categories ?? []).map((e) => ({ value: e.id, label: e.name }));
+    const all = taxonOptionsOf(taxonomy?.categories ?? []);
     const pinned = pinRecentOptions(all, recentCategories ?? []);
     const top = pinned.slice(0, TAXONOMY_CHIP_LIMIT);
     if (disc.category && !top.some((o) => o.value === disc.category)) {
@@ -197,8 +218,7 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
    * 搜索直达。 */
   const tagOptions: DiscoveryOption[] = (() => {
     if (!spec.tagFilter) return [];
-    const all = mergeTaxonEntries(taxonomy?.tags ?? [], remoteTags)
-      .map((e) => ({ value: e.id, label: e.name }));
+    const all = taxonOptionsOf(mergeTaxonEntries(taxonomy?.tags ?? [], remoteTags));
     const deduped = dedupeTagOptions(categoryOptions, all, disc.tag);
     const pinned = pinRecentOptions(deduped, recentTags ?? []);
     if (searching) {
@@ -209,14 +229,21 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
     }
     return pinned;
   })();
-  /* 已选标签的回显选项（筛选栏 chip）：从全池按 value 找回——
-   * 池未到手（taxonomy 未回）时回落 value 本身作显示，不冒充无选。 */
+  /* 已选标签的回显选项（筛选栏 chip）：从全池按 value 找回。
+   * taxonomy 到达后仍不在名单（站方改 id、失效自检未跑完）才回
+   * 落原始 id 显示，保证 chip 可见可移除、不悬空；taxonomy 未到
+   * 手时暂缓渲染 chip（fix3314 阶段二审计 C2：不以原始 id 闪烁
+   * 回显，到达后自然以真名出现），筛选徽标计数不受影响。 */
   const selectedTagOption: DiscoveryOption | undefined = disc.tag
     ? tagOptions.find((o) => o.value === disc.tag)
-      ?? (taxonomy?.tags ?? []).map((e) => ({ value: e.id, label: e.name })).find((o) => o.value === disc.tag)
-      ?? { value: disc.tag, label: disc.tag }
+      ?? taxonOptionsOf(taxonomy?.tags ?? []).find((o) => o.value === disc.tag)
+      ?? (taxonomy ? { value: disc.tag, label: disc.tag } : undefined)
     : undefined;
   const selectedTagCount = disc.tag ? 1 : 0;
+  /* 弹层实际渲染段（fix3314 审计 B1）：搜索态已由
+   * TAG_SEARCH_LIMIT 封顶、全量渲染；非搜索态按 tagVisibleCount
+   * 分段，滚动近底续段，避免千级标签首开全量挂载。 */
+  const visibleTagOptions = searching ? tagOptions : tagOptions.slice(0, tagVisibleCount);
 
   const pill = (key: string, label: string, pressed: boolean, onClick: () => void, originalName?: string) => (
     <Button key={key} aria-pressed={pressed} disabled={down} onClick={onClick}
@@ -292,13 +319,32 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
             <Input value={tagQuery} onChange={(e) => setTagQuery(e.target.value)}
               placeholder="输入中文或英文找标签" aria-label="找标签"
               style={{ minHeight: 36 }} className="w-full shrink-0 px-3 py-1 text-[13px]" />
-            <div className="mt-3 flex flex-wrap gap-1.5 overflow-y-auto">
-              {tagOptions.map((o) =>
+            <div className="mt-3 flex flex-wrap gap-1.5 overflow-y-auto"
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                if (!searching && tagVisibleCount < tagOptions.length
+                  && el.scrollTop + el.clientHeight >= el.scrollHeight - 240) {
+                  setTagVisibleCount((c) => Math.min(c + TAG_SHEET_PAGE, tagOptions.length));
+                }
+              }}>
+              {visibleTagOptions.map((o) =>
                 taxonPill("tag", o, disc.tag === o.value, () => {
                   setTag(disc.tag === o.value ? undefined : o.value);
                   setTagSheetOpen(false);
                 }))}
-              {tagOptions.length === 0 && taxonomy === null && (
+              {!searching && visibleTagOptions.length < tagOptions.length && (
+                <p role="status" className="w-full py-1 text-[12px] text-mut">
+                  继续滚动加载更多标签（已显示 {visibleTagOptions.length}/{tagOptions.length}）
+                </p>
+              )}
+              {tagOptions.length === 0 && taxonomy === null && taxonomyFailed && (
+                <div className="flex items-center gap-2 py-1">
+                  <p role="status" className="text-[12px] text-danger">标签加载失败</p>
+                  <Button onClick={() => setTaxonomyRetry((n) => n + 1)}
+                    className="px-1 py-0.5 text-[12px] text-primary">重试</Button>
+                </div>
+              )}
+              {tagOptions.length === 0 && taxonomy === null && !taxonomyFailed && (
                 <p role="status" className="py-1 text-[12px] text-mut">标签加载中…</p>
               )}
               {searching && tagOptions.length === 0 && taxonomy !== null && (
