@@ -105,7 +105,10 @@ export function applyDiscSelection(
   sourceId: string,
   next: ListDiscovery,
 ): DiscStateMap {
-  const prev = map[sourceId];
+  // prev 只认自有键：源 id 为 "__proto__" 等原型名且图中尚无该键时，
+  // map[sourceId] 会取到继承的 Object.prototype（disc 为 undefined），
+  // 后续 prev?.disc.category 即抛 TypeError（Muse 2026-11-21 fix3312 proto-guard）。
+  const prev = Object.prototype.hasOwnProperty.call(map, sourceId) ? map[sourceId] : undefined;
   const record: SourceDiscRecord = {
     disc: next,
     recentCategories: next.category !== prev?.disc.category
