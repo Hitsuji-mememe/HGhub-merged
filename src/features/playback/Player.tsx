@@ -185,6 +185,8 @@ export default function Player({
       /* HLS 实例登记（最终版 B3 线任务 2，纯诊断）：与 VideoSurface 同口径 */
       noteHoldHlsAttach();
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        /* 清单到达＝起播有进展：解除恢复层的无进展预算（fix3313）。 */
+        recovery.manifestParsed();
         lockHighestStartLevel(hls);
         if (activity.isActive()) hls.startLoad(resume?.time ?? -1);
         if (activity.isPlayWanted() && !resume) activity.play("manifest_autoplay", true);

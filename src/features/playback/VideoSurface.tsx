@@ -278,6 +278,8 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       /* HLS 实例登记（最终版 B3 线任务 2，纯诊断）：松手剖面据此区分重建前后的实例 */
       noteHoldHlsAttach();
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        /* 清单到达＝起播有进展：解除恢复层的无进展预算（fix3313）。 */
+        recovery.manifestParsed();
         /* 起播锁最高档（P0-A 第 1 层）：必须在 startLoad 之前落位。 */
         lockHighestStartLevel(hls);
         if (activity.isActive()) hls.startLoad(resume?.time ?? -1);
