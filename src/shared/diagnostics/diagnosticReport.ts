@@ -649,11 +649,8 @@ lines.push("── 状态快照 ────────────────
  * 读取失败只降级对应行。 */
 {
 const ps = proxyStateR.status === "fulfilled"? obj(proxyStateR.value): {};
-const env = obj(diag.env);
-const sp = obj(env.session_persist);
-const persistText = Object.keys(sp).length === 0? "未记录": sp.ok === true? `成功${str(sp.at)? `（${str(sp.at)}）`: ""}`: `失败（阶段 ${str(sp.stage) || "未知"}）`;
 /* 代理生效地址不入导出（整改 C8 零 host 口径）：只报是否生效。 */
-lines.push(`环境：代理模式 ${str(ps.mode) || "未知"}${str(ps.effective)? " · 生效中（地址不入导出）": ""} · session 落盘 ${persistText}`);
+lines.push(`环境：代理模式 ${str(ps.mode) || "未知"}${str(ps.effective)? " · 生效中（地址不入导出）": ""}`);
 const brk = obj(lineState.breaker);
 if (Object.keys(brk).length) lines.push(`熔断：进程期自动切换 ${num(brk.total)?? "?"} / ${num(brk.sessionMax)?? "?"} · 10 分钟窗口 ${num(brk.windowCount)?? "?"} / ${num(brk.windowMax)?? "?"} · 退避中 ${num(brk.backoffLines)?? "?"} 条`);
 const ledgerEntries = Array.isArray(lineState.ledger)? lineState.ledger.map(obj): [];

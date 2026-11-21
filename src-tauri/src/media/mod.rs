@@ -398,6 +398,7 @@ mod tests {
     /// ③3 秒慢但健康仍 200 出清单（不误杀慢源）；④同 URL 并发
     /// 两次 /hls 只产生一条上游请求（旧码无清单 single-flight）。
     /// 运行：cargo test --lib device_chain_hls_deadline -- --ignored --nocapture
+    /// 须单发、勿与同类测试并发同跑（共用进程全局代理会串扰）。
     #[cfg(target_os = "linux")]
     #[tokio::test]
     #[ignore = "设备链模拟：需要 fix338 上游替身代理（127.0.0.1:17890），手动运行"]
@@ -488,6 +489,7 @@ mod tests {
     /// (4<=i<8)｜"isom"(8<=i<12)｜i%251(i>=12)。
     /// 运行：先起替身 python3 seg-file-double.py，再
     /// cargo test --lib device_chain_seg_file_range -- --ignored --nocapture
+    /// 须单发、勿与同类测试并发同跑（共用进程全局代理会串扰）。
     #[cfg(target_os = "linux")]
     #[tokio::test]
     #[ignore = "设备链模拟：需要 fix3310 文件替身（127.0.0.1:17890），手动运行"]
@@ -611,6 +613,7 @@ mod tests {
     /// 径同罪 502。
     /// 运行：先起替身 python3 seg-file-double-v2.py，再
     /// cargo test --lib device_chain_seg_file_leg2 -- --ignored --nocapture
+    /// 须单发、勿与同类测试并发同跑（共用进程全局代理会串扰）。
     #[cfg(target_os = "linux")]
     #[tokio::test]
     #[ignore = "设备链模拟：需要 fix3311 替身 v2（127.0.0.1:17891），手动运行"]

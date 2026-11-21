@@ -2,7 +2,7 @@
 /**
  * source-probe — 探路源轻量探测（Muse 2026-11-19 根治包·多源线 条目1）
  *
- * 对探路 5 站逐个测三件事（只发普通 GET、不绕验证墙、不下媒体文件）：
+ * 对探路 4 站逐个测三件事（只发普通 GET、不绕验证墙、不下媒体文件）：
  *   1) 列表页 plain HTTP 可达：状态码 / 是否被 JS 墙或验证墙挡；
  *   2) 页面可解析出条目：按通用链接启发式数出候选条目数；
  *   3) 详情页可提取 HLS：跟进第一个条目详情页，找 .m3u8 地址。
@@ -27,7 +27,6 @@ export const PROBE_TARGETS = [
   { id: "jabletv", name: "JableTV", listUrl: "https://jable.tv/", detailHint: /\/videos\/[a-z0-9-]+\//i },
   { id: "missav", name: "MissAV", listUrl: "https://missav.ws/", detailHint: /\/[a-z]{2,}\/([a-z]+-\d+)/i },
   { id: "tikporn", name: "Tik.porn", listUrl: "https://tik.porn/", detailHint: /\/video\//i },
-  { id: "hanime1", name: "Hanime1", listUrl: "https://hanime1.me/", detailHint: /\/watch\?v=|\/video\//i },
   { id: "iwara", name: "Iwara", listUrl: "https://www.iwara.tv/videos", detailHint: /\/video\//i },
 ];
 
@@ -126,7 +125,7 @@ for (const target of PROBE_TARGETS) {
 }
 
 await writeFile(new URL("./results.json", import.meta.url), JSON.stringify(results, null, 2));
-const md = ["# 探路 5 站探测结果", "", `生成: ${results.generatedAt} · 代理环境变量存在: ${results.proxyEnvPresent}`, "",
+const md = ["# 探路 4 站探测结果", "", `生成: ${results.generatedAt} · 代理环境变量存在: ${results.proxyEnvPresent}`, "",
   "| 站点 | 结论 | 最佳轮 | 可达 | 解析条目 | HLS | 墙 | 备注 |", "|---|---|---|---|---|---|---|---|",
   ...results.sites.map((s) => {
     const b = s.bestRound === "proxy" ? s.proxy : s.direct;
