@@ -2365,6 +2365,34 @@
         "src/features/sources/manifestProbe.ts"
       ],
       "min": 1
+    },
+    {
+      "id": "fix3311-polish-p1-profile-hold",
+      "item": "fix3311/polish P1：Profile 页签状态住未 key 化外层，切线只重挂取数内容层（摘掉上提切线回到整体重挂、页签/分段/滚动全重置）",
+      "symbol": "useState<\"fav\" | \"history\">",
+      "files": [
+        "src/features/account/Profile.tsx"
+      ],
+      "min": 1
+    },
+    {
+      "id": "fix3311-polish-g1-error-card",
+      "item": "fix3311/polish G1：播放错误呈现统一为 PlaybackErrorCard，Feed 与嵌入 Player 两处都消费（摘掉任一处回到两样式分叉）",
+      "symbol": "<PlaybackErrorCard",
+      "files": [
+        "src/features/feed/Feed.tsx",
+        "src/features/playback/Player.tsx"
+      ],
+      "each": true
+    },
+    {
+      "id": "fix3311-polish-album-zoom",
+      "item": "fix3311/polish 查看器缩放：AlbumViewer 当前帧消费 albumPinchZoom 纯函数判定（摘掉接线 pinch 回到无 scale 路径）",
+      "symbol": "albumPinchZoom",
+      "files": [
+        "src/features/sources/AlbumViewer.tsx"
+      ],
+      "min": 1
     }
   ]
 }

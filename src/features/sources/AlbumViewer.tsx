@@ -21,10 +21,23 @@
  *   缩略图点选跳张且当前张高亮并滚动定位、返回/关闭由调用方注入。
  * - 快速滑动不消失（Muse 2026-11-19 fix330/ui-fixes，用户真机实
  *   报「图片预览滑的快了会直接消失隐藏」）：双机制——(1) 舞台窗口
- *   化：只挂当前张±1 三帧、邻图随挂载即预取，旧单 Img 逐张重挂
- *   在慢图源下快翻张张空白；(2) chrome 活动续命：缩略图条滚动/
- *   悬浮层触摸都算「还在用 chrome」，淡出计时据此重置，旧计时
- *   只挂呼出/切张，条上划找图满 3 秒整层在指下淡出。
+ *   化：只挂当前张±2 五帧（fix3311/polish 由 ±1 扩深，图片审计
+ *   §1.5：匀速连翻时邻图提前解码、不再逐张现场等），邻图随挂载
+ *   即预取，旧单 Img 逐张重挂在慢图源下快翻张张空白；(2) chrome
+ *   活动续命：缩略图条滚动/悬浮层触摸都算「还在用 chrome」，淡
+ *   出计时据此重置，旧计时只挂呼出/切张，条上划找图满 3 秒整层
+ *   在指下淡出。
+ * - 缩放（Muse 2026-11-21 fix3311/polish，图片审计 §2.3 真缺陷）：
+ *   双指 pinch 与双击（点按锚点 2.5x/再击还原）作用于当前帧的
+ *   transform，判定走 albumZoom.ts 纯函数；缩放态单指拖动归平
+ *   移、横滑翻页与点按三分区整体让行，切张/换册自动复位。点按
+ *   因此改为延迟仲裁（第一击登记、300ms 窗口内第二击判双击、
+ *   到期才执行旧三分区单点按，与 Feed 单击 250ms 窗口同构）；
+ *   触摸手势收尾的尾随 click 被时间戳门吞掉，不进仲裁。
+ * - 失败帧重试（同批，图片审计 §1.6/§4.3）：窗口内任一帧终局失
+ *   败经 Img.onFinalFail 登记，当前帧命中时在帧上显「加载失败，
+ *   点按重试」弱提示，点按经 nonce 换 Img key 重走 attempt；登
+ *   记随窗口（±2）滑动剪除，出窗帧重挂时重新验。
  * - 沉浸式安全区（Muse 2026-11-19 fix330/gallery-viewer，用户真
  *   机实报全屏 chrome 与 iOS 状态栏同带重叠）：immersive 模式下
  *   顶部/底部 chrome 按 --sat/--sab/--sal/--sar 让位（与 Feed 全屏
@@ -58,6 +71,11 @@ import { GESTURE_EDGE_PX } from "../../shared/lib/gestureGate";
 import { Button } from "../../shared/ui/ios/controls";
 import { Img } from "../../shared/ui/ui";
 import { IBack, IClose } from "../../shared/ui/icons";
+import {
+  ALBUM_DOUBLE_TAP_MS, ALBUM_DOUBLE_TAP_PX, ALBUM_ZOOM_IDENTITY,
+  albumDoubleTapZoom, albumPanBy, albumPinchZoom, albumZoomOwnsGesture,
+  type AlbumZoom,
+} from "./albumZoom";
 
 export const ALBUM_CHROME_IDLE_MS = 3000;
 
@@ -104,6 +122,62 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
     onIndexChange(next);
   }, [images.length, idx, onIndexChange]);
 
+  /* 缩放与失败帧（fix3311/polish，见文件头注）：变换状态住组
+   * 件、判定走 albumZoom 纯函数；zoomRef/idxRef/goRef 镜像供延
+   * 迟点按回调（300ms 后执行）读现值，不吃闭包旧值。 */
+  const [zoom, setZoom] = useState<AlbumZoom>(ALBUM_ZOOM_IDENTITY);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const idxRef = useRef(idx);
+  idxRef.current = idx;
+  const goRef = useRef(go);
+  goRef.current = go;
+  const [failedFrames, setFailedFrames] = useState<ReadonlySet<number>>(new Set());
+  const [albumRetryNonce, setAlbumRetryNonce] = useState<Record<number, number>>({});
+  const pinchRef = useRef<{ startDist: number; base: AlbumZoom; midFx: number; midFy: number } | null>(null);
+  const panRef = useRef<{ x: number; y: number; base: AlbumZoom } | null>(null);
+  const tapRef = useRef<{ t: number; x: number; y: number } | null>(null);
+  const pendingTapRef = useRef<number | null>(null);
+  const suppressClickUntilRef = useRef(0);
+
+  /* 换册重置：缩放/失败登记/重试 nonce/待执行点按都是本册内的
+   * 事，旧册状态不得带进新册。 */
+  useEffect(() => {
+    setZoom(ALBUM_ZOOM_IDENTITY);
+    setFailedFrames(new Set());
+    setAlbumRetryNonce({});
+    tapRef.current = null;
+    if (pendingTapRef.current) { window.clearTimeout(pendingTapRef.current); pendingTapRef.current = null; }
+  }, [images]);
+
+  /* 切张复位缩放；失败登记只留窗口内（±2）——出窗帧重挂时会重
+   * 走 attempt，旧登记不得冒充新结论。 */
+  useEffect(() => {
+    setZoom(ALBUM_ZOOM_IDENTITY);
+    setFailedFrames((prev) => {
+      if (!prev.size) return prev;
+      const next = new Set([...prev].filter((i) => Math.abs(i - idx) <= 2));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [idx]);
+
+  useEffect(() => () => {
+    if (pendingTapRef.current) window.clearTimeout(pendingTapRef.current);
+  }, []);
+
+  const markFailed = useCallback((i: number) => {
+    setFailedFrames((prev) => (prev.has(i) ? prev : new Set(prev).add(i)));
+  }, []);
+  const retryFrame = useCallback((i: number) => {
+    setFailedFrames((prev) => {
+      if (!prev.has(i)) return prev;
+      const next = new Set(prev);
+      next.delete(i);
+      return next;
+    });
+    setAlbumRetryNonce((prev) => ({ ...prev, [i]: (prev[i] ?? 0) + 1 }));
+  }, []);
+
   /* 悬浮层自动淡出：呼出/切张/chrome 上有活动后重新计时，静止
    * ALBUM_CHROME_IDLE_MS 淡出（活动续命 fix330/ui-fixes）。 */
   useEffect(() => {
@@ -149,12 +223,41 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [images]);
 
+  /* 点按仲裁（fix3311/polish）：双击缩放要求单点按延迟判定——
+   * 第一击只登记并起计时，窗口内（300ms/32px）第二击判双击、取
+   * 消待执行单点按并切缩放；窗口到期才执行旧三分区单点按。缩
+   * 放态单点按整体让行（albumZoomOwnsGesture，缩放的进出只走
+   * 双击/pinch）。触摸手势（横滑/平移/pinch）收尾置
+   * suppressClickUntil，尾随 click 不进仲裁。 */
+  const runSingleTap = (fx: number) => {
+    if (albumZoomOwnsGesture(zoomRef.current)) return;
+    const cur = idxRef.current;
+    if (fx < 1 / 3) { goRef.current(cur - 1); setChrome(true); }
+    else if (fx > 2 / 3) { goRef.current(cur + 1); setChrome(true); }
+    else setChrome((v) => !v);
+  };
+
   const onStageClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (Date.now() < suppressClickUntilRef.current) return;
     const r = e.currentTarget.getBoundingClientRect();
     const fx = (e.clientX - r.left) / Math.max(1, r.width);
-    if (fx < 1 / 3) { go(idx - 1); setChrome(true); }
-    else if (fx > 2 / 3) { go(idx + 1); setChrome(true); }
-    else setChrome((v) => !v);
+    const fy = (e.clientY - r.top) / Math.max(1, r.height);
+    const last = tapRef.current;
+    if (last && Date.now() - last.t <= ALBUM_DOUBLE_TAP_MS
+      && Math.hypot(e.clientX - last.x, e.clientY - last.y) <= ALBUM_DOUBLE_TAP_PX) {
+      tapRef.current = null;
+      if (pendingTapRef.current) { window.clearTimeout(pendingTapRef.current); pendingTapRef.current = null; }
+      const z = albumDoubleTapZoom(zoomRef.current, fx, fy);
+      if (z) setZoom(z);
+      return;
+    }
+    tapRef.current = { t: Date.now(), x: e.clientX, y: e.clientY };
+    if (pendingTapRef.current) window.clearTimeout(pendingTapRef.current);
+    pendingTapRef.current = window.setTimeout(() => {
+      pendingTapRef.current = null;
+      tapRef.current = null;
+      runSingleTap(fx);
+    }, ALBUM_DOUBLE_TAP_MS);
   };
 
   const chromeCls = `transition-opacity duration-300 ${chrome ? "opacity-100" : "opacity-0 pointer-events-none"}`;
@@ -177,16 +280,68 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
     <div data-ui="album-viewer-stage" className="relative h-full w-full overflow-hidden bg-black select-none"
       onClick={onStageClick}
       onTouchStart={(e) => {
+        /* 双指起手切 pinch（fix3311/polish）：锚点取起手两指中
+         * 点、倍率以起手距离为基线，move 期间锚点与基线都固定，
+         * 不随手指漂移重锚。单指路径的横滑/平移起点同时清掉。 */
+        if (e.touches.length === 2) {
+          const a = e.touches[0];
+          const b = e.touches[1];
+          const r = e.currentTarget.getBoundingClientRect();
+          pinchRef.current = {
+            startDist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+            base: zoomRef.current,
+            midFx: ((a.clientX + b.clientX) / 2 - r.left) / Math.max(1, r.width),
+            midFy: ((a.clientY + b.clientY) / 2 - r.top) / Math.max(1, r.height),
+          };
+          touchRef.current = null;
+          panRef.current = null;
+          return;
+        }
         const t = e.touches[0];
         touchRef.current = t ? { x: t.clientX, y: t.clientY } : null;
+        panRef.current = t ? { x: t.clientX, y: t.clientY, base: zoomRef.current } : null;
+      }}
+      onTouchMove={(e) => {
+        const pinch = pinchRef.current;
+        if (pinch && e.touches.length === 2) {
+          const a = e.touches[0];
+          const b = e.touches[1];
+          setZoom(albumPinchZoom(pinch.base, pinch.startDist,
+            Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), pinch.midFx, pinch.midFy));
+          return;
+        }
+        /* 缩放态单指拖动归平移（fix3311/polish 手势互斥）：位移
+         * 以起手快照为基线绝对计算，不逐帧累积。 */
+        const pan = panRef.current;
+        if (pan && e.touches.length === 1 && albumZoomOwnsGesture(pan.base)) {
+          const t = e.touches[0];
+          const r = e.currentTarget.getBoundingClientRect();
+          setZoom(albumPanBy(pan.base, t.clientX - pan.x, t.clientY - pan.y, r.width, r.height));
+        }
       }}
       onTouchEnd={(e) => {
+        if (pinchRef.current) {
+          pinchRef.current = null;
+          panRef.current = null;
+          touchRef.current = null;
+          suppressClickUntilRef.current = Date.now() + 500;
+          return;
+        }
         const start = touchRef.current;
+        const pan = panRef.current;
         touchRef.current = null;
+        panRef.current = null;
         const t = e.changedTouches[0];
         if (!start || !t) return;
         const dx = t.clientX - start.x;
         const dy = t.clientY - start.y;
+        /* 缩放态单指手势收尾（fix3311/polish 手势互斥）：拖动已
+         * 在 move 里平移完，收尾只吞尾随 click——不翻页、不切
+         * chrome；静止点按不吞，留给 click 仲裁判双击还原。 */
+        if (pan && albumZoomOwnsGesture(pan.base)) {
+          if (Math.abs(dx) > 10 || Math.abs(dy) > 10) suppressClickUntilRef.current = Date.now() + 500;
+          return;
+        }
         /* 边缘起手归壳层链返回（fix330/gesture-back 一致性批）：与
            Feed 面 scrub 同一归属口径——左右缘 GESTURE_EDGE_PX 内
            起手不翻页。旧版舞台无归属：频道页（栈页）内边缘右滑翻
@@ -194,22 +349,50 @@ export function AlbumViewer({ title, images, index, onIndexChange, onBack, backL
            内的图集此前靠外层 dialog 祖先挡链才幸免，行为按入口
            分叉（结构审计 C⑤ 点名）。 */
         if (start.x <= GESTURE_EDGE_PX || window.innerWidth - start.x <= GESTURE_EDGE_PX) return;
-        if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy)) { go(dx < 0 ? idx + 1 : idx - 1); setChrome(true); }
+        if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy)) {
+          suppressClickUntilRef.current = Date.now() + 500;
+          go(dx < 0 ? idx + 1 : idx - 1);
+          setChrome(true);
+        }
       }}
-      onTouchCancel={() => { touchRef.current = null; }}>
-      {/* 窗口化舞台（fix330/ui-fixes）：只挂当前张±1 三帧、仅当
-          前张不透明。旧实现单 Img 以 src 为 key 逐张重挂——每张
-          从空白/微光起步、无邻图预载，慢图源下快速连翻必然张张
-          追不上、舞台空白如「消失」。窗口帧按 index 定 key、随
-          idx 滑动复用：已挂载帧的 Img 不重走 attempt，邻图在被
-          翻到前已经预取解码；非当前帧 opacity-0（不影响 Img 的
-          视口 attempt 门，几何仍在场）。 */}
-      {images.slice(Math.max(0, idx - 1), Math.min(images.length, idx + 2)).map((src, k) => {
-        const i = Math.max(0, idx - 1) + k;
+      onTouchCancel={() => { touchRef.current = null; panRef.current = null; pinchRef.current = null; }}>
+      {/* 窗口化舞台（fix330/ui-fixes，±2 扩深 fix3311/polish）：
+          只挂当前张±2 五帧、仅当前张不透明。旧实现单 Img 以 src
+          为 key 逐张重挂——每张从空白/微光起步、无邻图预载，慢
+          图源下快速连翻必然张张追不上、舞台空白如「消失」。窗口
+          帧按 index 定 key、随 idx 滑动复用：已挂载帧的 Img 不
+          重走 attempt，邻图在被翻到前已经预取解码；非当前帧
+          opacity-0（不影响 Img 的视口 attempt 门，几何仍在场）。
+          当前帧内层承载缩放 transform（fix3311/polish）：平移以
+          舞台分数计（translate % 相对内层自身＝舞台尺寸）、原点
+          为锚点分数，与 albumZoom 的钳制域同坐标系。失败帧重试
+          钮在帧内（帧根 pointerEvents-none，钮单独开 auto 并吞
+          全部触摸/点击冒泡，不进舞台手势与点按仲裁）。 */}
+      {images.slice(Math.max(0, idx - 2), Math.min(images.length, idx + 3)).map((src, k) => {
+        const i = Math.max(0, idx - 2) + k;
+        const isCur = i === idx;
         return (
           <div key={i} data-album-frame={i} className="absolute inset-0"
-            style={{ opacity: i === idx ? 1 : 0, pointerEvents: "none" }} aria-hidden={i !== idx}>
-            <Img src={src} alt={i === idx ? title : ""} eager fit="contain" page={page} />
+            style={{ opacity: isCur ? 1 : 0, pointerEvents: "none" }} aria-hidden={!isCur}>
+            <div className="absolute inset-0" data-album-zoom={isCur ? zoom.scale : undefined}
+              style={isCur && zoom.scale > 1 ? {
+                transform: `translate(${zoom.tx * 100}%, ${zoom.ty * 100}%) scale(${zoom.scale})`,
+                transformOrigin: `${zoom.ax * 100}% ${zoom.ay * 100}%`,
+              } : undefined}>
+              <Img key={albumRetryNonce[i] ?? 0} src={src} alt={isCur ? title : ""} eager fit="contain" page={page}
+                onFinalFail={() => markFailed(i)} />
+            </div>
+            {isCur && failedFrames.has(i) && (
+              <button type="button" data-album-frame-retry={i}
+                className="absolute inset-x-0 bottom-24 z-10 mx-auto min-h-11 w-fit rounded-full bg-black/60 px-4 text-[13px] text-white/90"
+                style={{ pointerEvents: "auto" }}
+                onClick={(e) => { e.stopPropagation(); retryFrame(i); }}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchMove={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}>
+                这张图加载失败，点按重试
+              </button>
+            )}
           </div>
         );
       })}

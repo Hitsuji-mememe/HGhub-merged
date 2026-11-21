@@ -232,6 +232,14 @@
   固定为 none，避免原生 pan-y 把视觉横滑取消掉。
 - 媒体错误：hls fatal 显示 `type/details/status`，原生错误走
   `mediaErrorMessage`；手动重试走同一个 `useProxyPlaybackRecovery` 路径。
+- 错误呈现统一（fix3311/polish G1）：终局错误的用户可见形态只有
+  `PlaybackErrorCard` 一副（居中卡：主文案＋可选 detail 小字＋重试
+  钮），Feed 与嵌入 Player 都消费它；组件只呈现、不接管恢复——
+  重试仍走各宿主既有恢复链（Feed 有流 `videoRef.retry`、无流
+  `proxyRetry+1`；Player 走 `proxyRecovery.retry`）。此前两面同
+  一终局错误两副样式（Feed 居中卡 vs Player 左上小横幅），审计
+  `fix3311/evidence/holistic-polish-audit.md` G1 点名。契约
+  `fix3311-polish.contract.test.ts` (c)。
 
 ## 约束与失败行为
 

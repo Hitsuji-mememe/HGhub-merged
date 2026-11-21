@@ -30,8 +30,11 @@ type AlbumState =
   | { phase: "loading"; item: SourceItem }
   /* galleryItems（fix337/008-detail）：单图模型画廊组装成立时的
    * 入选条目集——item 随 index 在集内跟随（标题/收藏作用于当前
-   * 所见条目）；未组装（图集源等）时缺省、item 恒为点开条目。 */
-  | { phase: "ready"; item: SourceItem; images: string[]; index: number; galleryItems?: SourceItem[] }
+   * 所见条目）；未组装（图集源等）时缺省、item 恒为点开条目。
+   * partial（fix3311/polish，图片审计 §1.4）：封面先行开册态——
+   * images 只含列表封面一帧、detail 尚未落地；补全后以完整
+   * images 同 seq 原位替换并清 partial（见 openAlbum）。 */
+  | { phase: "ready"; item: SourceItem; images: string[]; index: number; partial?: boolean; galleryItems?: SourceItem[] }
   | { phase: "error"; item: SourceItem; message: string };
 
 export default function SourceGallery({ def, openExternalId, scrollerRef }: {
@@ -197,7 +200,15 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
      * setAlbum，慢 detail 落地会把旧源相册覆层复活到新源列表
      * 之上（A 线旁记、夹具三场景旧红在案）。 */
     const mySeq = ++albumSeq.current;
-    setAlbum({ phase: "loading", item });
+    /* 封面先行开册（fix3311/polish，图片审计 §1.4）：列表封面即刻
+     * 以 partial 态开册、先显封面帧，detail 落地后同 seq 原位补全
+     * （下方 ready 落点不变、partial 随之清除）——大图集整册串行
+     * 组装（019 逐页/018 全量 URL 表）不再让用户对着页内转圈等整
+     * 册。无封面的条目维持 loading 形态等 detail。补全沿用代次守
+     * 卫：切源/改开他册/关闭任一发生，迟到补全整路丢弃；detail
+     * 失败仍落 error 态＋重试（与旧口径同终态）。 */
+    if (item.cover) setAlbum({ phase: "ready", item, images: [item.cover], index: 0, partial: true });
+    else setAlbum({ phase: "loading", item });
     try {
       const d = await adapter.detail(item.externalId);
       if (mySeq !== albumSeq.current) return;
@@ -285,7 +296,7 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
       {items.length ? (
         <div className="ios-media-grid" data-ui="media-grid">
           {items.map((item) => (
-            <MediaCard key={item.externalId} title={item.title} cover={item.cover}
+            <MediaCard key={item.externalId} title={item.title} cover={item.cover} surface="source-list"
               subtitle={item.tags?.slice(0, 2).join(" · ") || def.displayName}
               onOpen={() => void openAlbum(item)} />
           ))}

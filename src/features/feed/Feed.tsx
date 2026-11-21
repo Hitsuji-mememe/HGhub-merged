@@ -3,6 +3,7 @@ import { Loader } from "../../shared/ui/ios/effects";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useFsOrientation } from "../playback/useFsOrientation";
+import PlaybackErrorCard from "../playback/PlaybackErrorCard";
 import { api, cover, fmt, fmtTime, isMobile, logLine, playlist } from "../../shared/api/api";
 import type { Detail, Episode, PlayInfo, Post, VideoCard } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
@@ -1524,14 +1525,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               )}
               {isActive && err && (
                 <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-                  <div className="rounded-xl p-5 flex flex-col items-center gap-3 text-[14px] hg-ink-2 pointer-events-auto" style={{ background: "rgba(0,0,0,.7)" }}>
-                    <span>视频暂时无法加载</span>
-                    <span className="text-[12px] hg-ink-4 max-w-[240px] text-center break-all">{err}</span>
-                    <Button className="hg-link text-[14px]" onClick={() => {
+                  <div className="pointer-events-auto">
+                    <PlaybackErrorCard detail={err} onRetry={() => {
                       setErr(""); setWaiting(true);
                       if (playUrl && videoRef.current) videoRef.current.retry();
                       else setProxyRetry(value => value + 1);
-                    }}>重试</Button>
+                    }} />
                   </div>
                 </div>
               )}
