@@ -2289,32 +2289,12 @@
       "min": 1
     },
     {
-      "id": "fix3311-discovery-gallery-notaxonomy",
-      "item": "fix3311/discovery-rework 图片面门控：SourceGallery 向 DiscoveryBar 传 noTaxonomyRows、门控下有效 spec 剥 categories/tagFilter（分类/标签行不渲染、taxonomy 不取数）；摘任一落点图片面两行即回潮",
-      "symbol": "noTaxonomyRows",
-      "files": [
-        "src/features/sources/DiscoveryBar.tsx",
-        "src/features/sources/SourceGallery.tsx"
-      ],
-      "min": 2
-    },
-    {
       "id": "fix3311-seg-head-metadata",
       "item": "fix3311/file-leg-fix /seg HEAD 元信息腿：mod.rs 分流对 HEAD∧媒体文件目标调 load_segment_head（只回元信息、零字节零级联；摘掉接线播放器 HEAD 探测回到整段拼片下载）",
       "symbol": "load_segment_head",
       "files": [
         "src-tauri/src/media/mod.rs",
         "src-tauri/src/media/segment.rs"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix3311-discovery-gallery-strip",
-      "item": "fix3311/discovery-rework 图片面 disc 失效化：stripDiscTaxonomy（types 定义＋SourceGallery 读取点消费），存量 category/tag 到不了 list 参数与滚动指纹；摘消费点「看不见的筛选」即回潮",
-      "symbol": "stripDiscTaxonomy",
-      "files": [
-        "src/features/sources/types.ts",
-        "src/features/sources/SourceGallery.tsx"
       ],
       "min": 2
     },
@@ -2412,6 +2392,38 @@
       "files": [
         "src/features/sources/adapters/templates.ts",
         "src/features/sources/registry.ts"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix3312-disc-persist-wiring",
+      "item": "fix3312/discovery-b 兴趣直达：discState.useDiscState 定义＋三浏览面消费（disc 按源落盘 hghubx_disc_v1、重开直达上次筛选）；摘任一消费面该面回到关 App 即忘",
+      "symbol": "useDiscState",
+      "files": [
+        "src/features/sources/discState.ts",
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourceGallery.tsx",
+        "src/features/sources/SourcePosts.tsx"
+      ],
+      "min": 4
+    },
+    {
+      "id": "fix3312-taxon-labels-display",
+      "item": "fix3312/discovery-b 有限集汉化：taxonLabels 映射表＋DiscoveryBar taxonPill 显示消费（只改显示文案、value 不经映射）；摘消费点分类/标签行回到全英文原名",
+      "symbol": "taxonZhLabel",
+      "files": [
+        "src/features/sources/taxonLabels.ts",
+        "src/features/sources/DiscoveryBar.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix3312-disc-recent-pinning",
+      "item": "fix3312/discovery-b 最近用过置顶：pinRecentOptions 定义（discoveryOptions）＋DiscoveryBar 分类/标签两行消费；摘消费点最近用过不再置顶、兴趣直达只剩落盘一半",
+      "symbol": "pinRecentOptions",
+      "files": [
+        "src/features/sources/discoveryOptions.ts",
+        "src/features/sources/DiscoveryBar.tsx"
       ],
       "min": 2
     }

@@ -91,23 +91,6 @@ export function discFingerprint(disc: ListDiscovery): string {
   return parts.join("&");
 }
 
-/* 图片面 disc 失效化（Muse 2026-11-21 fix3311/discovery-rework，
- * 用户发现轴裁定＋整体打磨审计 §8.2）：图片面发现只走排序＋查找，
- * category/tag 不再是图片面发现维度。disc 只存浏览组件的会话内
- * 状态、无落盘键（STORAGE_KEYS 无 disc 条目），存量清理的落点
- * 是读取点：图片面（SourceGallery）派生 disc 时一律剥两字段——
- * 任何残存值都到不了 list 参数与滚动指纹，不形成「看不见的筛
- * 选」；收藏/历史/屏蔽/续播等落盘数据不经此路、逐字不动。无两
- * 字段时同引用返回：disc 身份喂列表 load 的依赖，干净时不许换
- * 新对象引发无谓重拉。视频/吃瓜面不经此函数、行为不变。 */
-export function stripDiscTaxonomy(disc: ListDiscovery): ListDiscovery {
-  if (!disc.category && !disc.tag) return disc;
-  const next = { ...disc };
-  delete next.category;
-  delete next.tag;
-  return next;
-}
-
 /* taxonomy 选项（fix335/f-discovery）：分类/标签的可选项与计数；
  * id 为适配器过滤参数的实际取值（WP 为数字 id 字符串，002 为原值）。 */
 export interface TaxonEntry {

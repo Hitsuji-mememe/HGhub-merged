@@ -41,6 +41,7 @@ import { useStaffPromoVerify } from "./promoVerify.ts";
 import { useTitleFallback } from "./titleFallback.ts";
 import { noteSourceListSuccess, useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import DiscoveryBar from "./DiscoveryBar";
+import { useDiscState } from "./discState.ts";
 import { discFingerprint, EMPTY_LIST_DISCOVERY, type ListDiscovery } from "./types.ts";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
@@ -87,14 +88,15 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   /* 发现维度（fix335/f-discovery）：同 SourceBrowse 口径——disc 按
    * 源 id 隔离、指纹进滚动恢复 key，空 disc 时 key 与 D 线逐字一
    * 致。compact 形态不渲染 DiscoveryBar（总览预览无维度切换），其
-   * disc 恒空、行为不变。 */
-  const [discMap, setDiscMap] = useState<Record<string, ListDiscovery>>({});
-  const disc = discMap[def.id] ?? EMPTY_LIST_DISCOVERY;
+   * disc 恒空、行为不变——落盘后更须显式钉死（fix3312/discovery-b）：
+   * compact 直读 EMPTY，不让全量形态的存量筛选漏进总览预览。 */
+  const { discStateMap, applyDisc: applyDiscState } = useDiscState();
+  const disc = compact ? EMPTY_LIST_DISCOVERY : (discStateMap[def.id]?.disc ?? EMPTY_LIST_DISCOVERY);
   const discFp = discFingerprint(disc);
   const discArg = discFp ? disc : undefined;
   const applyDisc = useCallback((next: ListDiscovery) => {
-    setDiscMap((m) => ({ ...m, [def.id]: next }));
-  }, [def.id]);
+    applyDiscState(def.id, next);
+  }, [applyDiscState, def.id]);
   /* 滚动恢复（fix335/d-scroll）：详情分支替换列表期间宿主 scroller
    * 高度塌缩、scrollTop 被钳 0——打开详情前 capture、回列表且数据
    * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
@@ -404,7 +406,9 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
 
   return (
     <div className="px-4 pt-2">
-      {!compact && <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc} />}
+      {!compact && <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc}
+        recentCategories={discStateMap[def.id]?.recentCategories}
+        recentTags={discStateMap[def.id]?.recentTags} />}
       {items.length > 0 && err && (
         <div role="status" className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-mut">
           <span>{err}</span><Button className="px-3 text-primary" onClick={() => void load(false)}>重试</Button>
