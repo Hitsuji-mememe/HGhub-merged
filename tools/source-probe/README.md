@@ -4,7 +4,7 @@ Muse 2026-11-19 根治包·多源线条目 1。
 
 ## 做什么
 
-对探路 5 站（JableTV / MissAV / Tik.porn / Hanime1 / Iwara）逐个测：
+对探路 4 站（JableTV / MissAV / Tik.porn / Iwara）逐个测：
 
 1. **可达性**：列表页 plain HTTP GET 的状态码，是否被 JS 墙 / 验证墙
    （Cloudflare challenge、captcha、age-gate 等标记）挡住；
@@ -12,7 +12,7 @@ Muse 2026-11-19 根治包·多源线条目 1。
 3. **HLS**：跟进第一个条目详情页，HTML 里能否直接提取 `.m3u8`。
 
 两轮出口都测都记：①直连；②环境代理（`HTTPS_PROXY` 等环境变量，
-本机出口为非日本——Hanime1 封日本 IP，非日本出口是它的正常解法）。
+本机出口为非日本——双轮出口的设计起因是已删的 Hanime1 封日本 IP，机制保留）。
 
 ## 纪律
 
