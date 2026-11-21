@@ -47,7 +47,7 @@ function hlsDef(id: string, over: Partial<SourceDef> = {}): SourceDef {
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
     baseUrls: [`https://${id}.example`],
     enabled: true, order: 1, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     network: { mode: "probe-required" },
     ...over,
   };

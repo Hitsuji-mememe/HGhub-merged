@@ -30,7 +30,7 @@
  * registry-cut-2.md）。 */
 import type { SourceDef } from "./types.ts";
 
-const NO_CAPS = { search: false, episodes: false, hevc: false, comments: false };
+const NO_CAPS = { search: false, episodes: false, hevc: false };
 const PROBE_NET = { mode: "probe-required" } as const;
 
 /* 黑料网（feedheiliao）已于 fix321-F2b 自目录导入毕业为命名源
@@ -45,14 +45,14 @@ export const CATALOG_SOURCES: SourceDef[] = [
     adapter: { template: "wp-rest", params: {"restBase": "/wp-json/wp/v2", "listPath": "/posts"} },
     baseUrls: ["https://sexy.pixibb.com"],
     enabled: true, order: 101, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false }, network: PROBE_NET, note: "fix330 图片线定级（2026-11-19）：本机出口四级实证全通（/wp-json/wp/v2/posts 200 真条目、详情 200、图集、出图 200）＋搜索端点 200 有结果；住宅出口两级筛查正常在案（source-verify-20261119 第二轮 B 组）；wp-rest 参数按实抓校准无变更；App 侧未真机验 → 启用、probe（证据 fix330/evidence/images.md）",
+    capabilities: { search: true, episodes: false, hevc: false }, network: PROBE_NET, note: "fix330 图片线定级（2026-11-19）：本机出口四级实证全通（/wp-json/wp/v2/posts 200 真条目、详情 200、图集、出图 200）＋搜索端点 200 有结果；住宅出口两级筛查正常在案（source-verify-20261119 第二轮 B 组）；wp-rest 参数按实抓校准无变更；App 侧未真机验 → 启用、probe（证据 fix330/evidence/images.md）",
   },
   {
     id: "nudecosplay", displayName: "NudeCosplay", kind: "image", category: "image",
     adapter: { template: "wp-rest", params: {"restBase": "/wp-json/wp/v2", "listPath": "/posts"} },
     baseUrls: ["https://nudecosplay.biz"],
     enabled: true, order: 102, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false }, network: PROBE_NET, note: "fix330 图片线定级（2026-11-19）：本机出口四级实证全通（/wp-json/wp/v2/posts 200 真条目、详情 200、图集、出图 206）＋搜索端点 200 有结果；住宅出口两级筛查正常在案（source-verify-20261119 第二轮 B 组）；wp-rest 参数按实抓校准无变更；App 侧未真机验 → 启用、probe（证据 fix330/evidence/images.md）",
+    capabilities: { search: true, episodes: false, hevc: false }, network: PROBE_NET, note: "fix330 图片线定级（2026-11-19）：本机出口四级实证全通（/wp-json/wp/v2/posts 200 真条目、详情 200、图集、出图 206）＋搜索端点 200 有结果；住宅出口两级筛查正常在案（source-verify-20261119 第二轮 B 组）；wp-rest 参数按实抓校准无变更；App 侧未真机验 → 启用、probe（证据 fix330/evidence/images.md）",
   },
   {
     id: "gelbooru", displayName: "Gelbooru", kind: "image", category: "image",

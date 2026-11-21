@@ -22,15 +22,6 @@
     },
     {
       "files": [
-        "src-tauri/src/session.rs"
-      ],
-      "id": "diag-session-restore",
-      "item": "session 启动恢复状态补记",
-      "min": 1,
-      "symbol": "restore-ok"
-    },
-    {
-      "files": [
         "src/shared/diagnostics/playbackDiagnostics.ts",
         "src/features/playback/usePlaybackKernel.ts"
       ],
@@ -560,41 +551,12 @@
       "min": 2
     },
     {
-      "id": "fix321-f2b-redgifs-api-adapter",
-      "item": "3.2.1修复F2b线 RedGifs 官方 API 令牌链适配器 createRedgifsAdapter（模板定义＋工厂分发）",
-      "symbol": "createRedgifsAdapter",
-      "files": [
-        "src/features/sources/adapters/templates.ts",
-        "src/features/sources/adapters/index.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix321-f2b-redgifs-auth-scoped",
-      "item": "3.2.1修复F2b线 Rust source_fetch 对 Authorization 仅 api.redgifs.com 定向放行 AUTHORIZATION_SCOPED_ORIGIN（定义＋过滤消费）",
-      "symbol": "AUTHORIZATION_SCOPED_ORIGIN",
-      "files": [
-        "src-tauri/src/api/source.rs"
-      ],
-      "min": 2
-    },
-    {
       "id": "fix321-f2b-stream-url-template",
       "item": "3.2.1修复F2b线 肉视频站内流端点模板 streamUrlTemplate（templates 消费＋registry 肉视频参数）",
       "symbol": "streamUrlTemplate",
       "files": [
         "src/features/sources/adapters/templates.ts",
         "src/features/sources/registry.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix321-f2b-swag-api-adapter",
-      "item": "3.2.1修复F2b线 SWAG 免登录 API 适配器 createSwagAdapter（模板定义＋工厂分发）",
-      "symbol": "createSwagAdapter",
-      "files": [
-        "src/features/sources/adapters/templates.ts",
-        "src/features/sources/adapters/index.ts"
       ],
       "min": 2
     },
@@ -624,26 +586,6 @@
         "src/features/sources/adapters/fetchOrigins.ts"
       ],
       "min": 2
-    },
-    {
-      "id": "fix321-f2c-swag-shared-origin",
-      "item": "3.2.1修复F2c线 SWAG API origin 单一常数 SWAG_API_ORIGIN（声明定义＋模板声明表＋适配器回落消费）",
-      "symbol": "SWAG_API_ORIGIN",
-      "files": [
-        "src/features/sources/adapters/fetchOrigins.ts",
-        "src/features/sources/adapters/templates.ts"
-      ],
-      "min": 3
-    },
-    {
-      "id": "fix321-f2c-redgifs-shared-origin",
-      "item": "3.2.1修复F2c线 RedGifs API origin 单一常数 REDGIFS_API_ORIGIN（声明定义＋模板声明表＋适配器回落消费）",
-      "symbol": "REDGIFS_API_ORIGIN",
-      "files": [
-        "src/features/sources/adapters/fetchOrigins.ts",
-        "src/features/sources/adapters/templates.ts"
-      ],
-      "min": 3
     },
     {
       "id": "fix321-f3-hold-summary-ledger-source",
@@ -1518,16 +1460,6 @@
       "min": 2
     },
     {
-      "id": "fix330-hanime1-adapter",
-      "item": "3.3.0接通批新适配器线 Hanime1 专用 HTML 适配器 createHanime1Adapter（模板定义＋工厂分发）",
-      "symbol": "createHanime1Adapter",
-      "files": [
-        "src/features/sources/adapters/templates.ts",
-        "src/features/sources/adapters/index.ts"
-      ],
-      "min": 2
-    },
-    {
       "id": "fix330-iwara-shared-origin",
       "item": "3.3.0接通批新适配器线 Iwara API origin 单一常数 IWARA_API_ORIGIN（声明定义＋模板声明表＋适配器回落消费）",
       "symbol": "IWARA_API_ORIGIN",
@@ -2137,16 +2069,6 @@
       "item": "fix335/b-purify 站务验杀按源校准声明：51chigua（图≤26）与 meiridasai（图≤18）两源 staffVerify 字数阈值置不承重 100000（实拉量测分布校准，feedheiliao 890 不动）",
       "min": 2,
       "symbol": "maxBodyChars: 100000"
-    },
-    {
-      "files": [
-        "src/features/sources/adapters/resolveTrace.ts",
-        "src/features/sources/adapters/templates.ts"
-      ],
-      "id": "fix335-a-list-skip-trace",
-      "item": "fix335/a-pagination 收敛审计 SWAG 逐条取数失败留痕：resolveTrace 定义 traceListItemSkips（与 traceResolveFailure 同共享发射通道）＋templates SWAG list 失败计数消费，落 source.list_skip 进诊断导出账本",
-      "min": 2,
-      "symbol": "traceListItemSkips"
     },
     {
       "files": [

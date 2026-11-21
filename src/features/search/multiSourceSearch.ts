@@ -79,12 +79,10 @@ export type SearchSegment = "search" | "detail" | "play";
  * 适配器存在即两段皆在。 */
 
 /** 结构上缺失的段（只判实现存在性、不判验通）：none/未知模板三段
- * 全缺；preview-only 缺 search/play（resolve 按产品口径明确拒绝，
- * 非结构事实、单独分叉）；其余模板 detail/play 恒有，search
+ * 全缺；其余模板 detail/play 恒有，search
  * 缺 iff 模板无 search 方法或注册表未声明 capabilities.search。 */
 export function missingSearchSegments(def: SourceDef): SearchSegment[] {
   const t = def.adapter.template;
-  if (t === "preview-only") return ["search", "play"];
   const missing: SearchSegment[] = [];
   if (!templateHasSearch(t) || !def.capabilities.search) missing.push("search");
   if (!templateHasAdapter(t)) missing.push("detail", "play");

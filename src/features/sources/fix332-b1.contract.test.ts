@@ -28,7 +28,7 @@ const def: SourceDef = {
   id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
   adapter: { template: "hls-site", params: { listPath: "/recent/", itemLinkPattern: "/galleries/", detailPath: "/galleries/{id}/" } },
   baseUrls: ["https://www.pornpics.com"], enabled: true, order: 41, maturity: "probe",
-  capabilities: { search: false, episodes: false, hevc: false, comments: false },
+  capabilities: { search: false, episodes: false, hevc: false },
   network: { mode: "probe-required" },
 };
 

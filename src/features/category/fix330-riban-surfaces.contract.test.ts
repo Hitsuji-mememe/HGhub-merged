@@ -45,8 +45,10 @@ import { getBuiltinRegistry, sourcesForCategory, sourcesForChannel } from "../so
  * （002 保留、视频频道保留，用户 2026-11-21 改判）；单源频道呈现
  * 维持现状、不做单源简化。
  * 适配（fix3310/video-add-2）：009/010 试装恢复＋020/021 补位，
- * 列示集合单源→五源（002＋009＋010＋020＋021，注册表序）。 */
-const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara", "hentaigasm", "hentaiplay"];
+ * 列示集合单源→五源（002＋009＋010＋020＋021，注册表序）。
+ * 适配（fix3311/registry-cleanup）：009 试装判删回，列示集合
+ * 五源→四源（002＋010＋020＋021，注册表序）。 */
+const RIBAN_IDS = ["hanime-tv", "iwara", "hentaigasm", "hentaiplay"];
 
 /* ── 列示选择器口径：单源在列、全员 probe ── */
 {
@@ -55,7 +57,7 @@ const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara", "hentaigasm", "hentaiplay"];
   assert.deepEqual(
     listed.map((s) => s.id).sort(),
     [...RIBAN_IDS].sort(),
-    "视频源列示集合 = active 注册表 category=video 已启用源，恰为里番五源（fix3310 后）",
+    "视频源列示集合 = active 注册表 category=video 已启用源，恰为里番四源（fix3311 后）",
   );
   for (const s of listed) {
     assert.equal(s.enabled, true, `${s.id} 已启用才入列示`);
@@ -75,7 +77,7 @@ const RIBAN_IDS = ["hanime-tv", "hanime1", "iwara", "hentaigasm", "hentaiplay"];
   assert.deepEqual(
     sourcesForChannel("original", builtin).map((s) => s.id).sort(),
     [...RIBAN_IDS].sort(),
-    "频道页切源片与列示集合为同一五源集合（fix3310 后）",
+    "频道页切源片与列示集合为同一四源集合（fix3311 后）",
   );
 }
 

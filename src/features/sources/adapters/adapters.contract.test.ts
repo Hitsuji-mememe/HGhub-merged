@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { getBuiltinRegistry } from "../registry.ts";
 import { setFetchPage } from "./fetchPage.ts";
-import { createChiguaAdapter, createDanbooruAdapter, createHlsSiteAdapter, createPreviewOnlyAdapter, createWpRestAdapter } from "./templates.ts";
+import { createChiguaAdapter, createDanbooruAdapter, createHlsSiteAdapter, createWpRestAdapter } from "./templates.ts";
 
 const fx = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
 const def = (id: string) => {
@@ -53,7 +53,7 @@ const def = (id: string) => {
     id: "hls-synthetic", displayName: "HLS 合成源", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
     baseUrls: ["https://hls.example.com/"], enabled: false, order: 105, maturity: "probe",
-    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    capabilities: { search: false, episodes: false, hevc: false },
     network: { mode: "probe-required" }, note: "历史目录条目参数（fix330 适配合成 def、fix338 改中性 id）",
   } as Parameters<typeof createHlsSiteAdapter>[0]);
   const list = await a.list(1, 20);
@@ -93,7 +93,7 @@ const def = (id: string) => {
     id: "danbooru-synthetic", displayName: "Danbooru 合成源", kind: "image", category: "image",
     adapter: { template: "danbooru-api", params: { listPath: "/posts.json" } },
     baseUrls: ["https://danbooru.example.com"], enabled: false, order: 998, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     network: { mode: "probe-required" }, note: "模板默认形态覆盖（fix338 适配合成 def）",
   } as Parameters<typeof createDanbooruAdapter>[0]);
   const list = await a.list(1, 20);
@@ -122,7 +122,7 @@ const def = (id: string) => {
     id: "moebooru-synthetic", displayName: "moebooru 合成源", kind: "image", category: "image",
     adapter: { template: "danbooru-api", params: {"listPath": "/post.json", "detailPath": "/post.json?tags=id:{id}", "postPath": "/post/show/{id}", "tagsField": "tags", "previewField": "preview_url", "largeField": "jpeg_url"} },
     baseUrls: ["https://moebooru.example.com"], enabled: false, order: 997, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     network: { mode: "probe-required" }, note: "模板 moebooru 校准形态覆盖（fix339 适配合成 def，参数与原 yandere def 逐字一致）",
   } as Parameters<typeof createDanbooruAdapter>[0]);
   const list = await a.list(1, 20);
@@ -133,21 +133,9 @@ const def = (id: string) => {
   assert.deepEqual(detail.images, ["https://cdn.example.com/j7001.jpg"], "moebooru detail 恒单图（单元素数组归一）");
 }
 
-/* ── preview-only 模板（断言适配，3.2.2 瘦身）：唯一使用方 myfans 已
- * 摘除注册表，模板工厂留仓——覆盖移交合成 def（模板行为不变式：
- * 条目标注仅预览、resolve 明确拒绝），断言内容不变。 ── */
-{
-  const synthetic = {
-    id: "preview-synthetic", displayName: "预览合成源", kind: "video", category: "preview",
-    adapter: { template: "preview-only", params: {} }, baseUrls: ["https://example.com"],
-    enabled: true, order: 999, maturity: "preview",
-    capabilities: { search: false, episodes: false, hevc: false, comments: false },
-  } as Parameters<typeof createPreviewOnlyAdapter>[0];
-  const a = createPreviewOnlyAdapter(synthetic);
-  const list = await a.list(1, 20);
-  assert.equal(list.items[0].previewOnly, true, "preview-only 条目标注仅预览");
-  assert.ok(list.items[0].tags.includes("仅预览"));
-  await assert.rejects(() => a.resolve("preview-root"), /仅预览/, "preview-only resolve 明确拒绝");
-}
+/* ── 预览专用模板节已随模板簇整体退役同删
+ * （fix3311/registry-cleanup）：其不变式（条目标注仅预览、resolve
+ * 明确拒绝）的唯一生产者即该适配器，随删退役；SourceItem 的
+ * previewOnly 标志本身是通用条目字段、仍由注册表诊断面消费。 ── */
 
 console.log("adapters.contract: all assertions passed");

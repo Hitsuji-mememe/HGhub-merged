@@ -81,7 +81,7 @@ def template_for(key, cat):
         if key in ('yandere', 'gelbooru'):
             return 'danbooru-api', {'listPath': '/posts.json'}
         return 'wp-rest', {'restBase': '/wp-json/wp/v2', 'listPath': '/posts'}
-    return 'preview-only', None
+    return 'none', None  # 未识别分类无适配器（原预览专用模板已于 fix3311 退役）
 
 stats = {'total': 0, 'excluded': 0, 'deduped': 0, 'imported': 0}
 excluded_keys, deduped_keys = [], []

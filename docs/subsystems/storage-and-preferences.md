@@ -26,10 +26,9 @@
 - 应用偏好：[`src/shared/model/store.tsx`](../../src/shared/model/store.tsx) 的 `Persist`、`DEFAULTS`、
   `normalizeHistory()`、`loadPersist()`、`readThemePreference()`、`LS`、
   `STORAGE_KEYS.theme`/`autoLine`。
-- 会话：[`src-tauri/src/session.rs`](../../src-tauri/src/session.rs) 的 `Session`、
-  `SessionStore`、`bind()`、`token()`、`snapshot()`、`stored_origin()`、`rebase_if_trusted()`、
-  `rebase_or_clear()`、`reconcile_on_boot()`、
-  `set_if_revision()`、`is_current()`、`update_user_if_current()`、`clear_if_current()`、`persist()`。
+- 会话：已删除（fix3311/registry-cleanup，见文末同批注记）——原
+  `src-tauri/src/session.rs` 的 `Session`/`SessionStore` 及其
+  `bind()`/`token()`/`snapshot()`/`rebase_if_trusted()`/`persist()` 等全数退役。
 - 清缓存：[`src-tauri/src/api/platform.rs`](../../src-tauri/src/api/platform.rs) 的
   `cache_clear`；[`src-tauri/src/cache.rs`](../../src-tauri/src/cache.rs) 的
   `CacheClearReport`、`clear_web_cache()`、`safe_cache_types()`。
@@ -147,3 +146,17 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib
 `test-storage-migration` 覆盖旧键、写/删失败、损坏 JSON、一次性 swipe 迁移与 3.3.0
 账号分桶吸收（两桶合并逐项对账、写失败保留旧键、屏蔽键不动、重启幂等）。
 这些是本地 fixture，不证明真实上游接口返回结构；真实接口变化需另加 fixture。
+
+---
+
+**fix3311/registry-cleanup（2026-11-21）会话本体删除**：`src-tauri/src/session.rs`
+（`Session`/`SessionStore`）、`session.json` 落盘与启动恢复、`Api.session` 热路径、
+`app_boot` 的 `user`/`logged_in` 状态面（键保留、恒 null/false，不变量 8 形状不变）、
+诊断 `session_persist` 字段，已整体删除；同批删 `api/account.rs`、`api/interact.rs`
+共 12 个 Tauri 命令。依据：账号体系 3.3.0 已拆除、用户恒游客——12 命令在 TS 侧零
+调用点、会话唯一写入口（登录/注册的 `set_if_revision`）随之不可达，`bind()` 恢复是
+唯一残余填充路径且其文件只由已不可达的 persist 写入；游客请求链恒不带凭据，新树
+`Api::get/post` 恒以 None 调 `edge`，与旧树会话恒空时线上行为逐字一致。旧树
+`session::` 14 个单元测试（含落盘/恢复实证）在删前实跑全过、记录在案；新树以全套
+门禁同绿＋残留 grep 零为验收。存量设备上若有 3.3.0 前遗留的 `session.json`，新版
+不再读取、不再写入，文件原地失效（不主动删除）。上文各节对会话的描述为删除前史。

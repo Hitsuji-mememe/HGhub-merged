@@ -75,7 +75,7 @@ function fakeDef(id: string, over: Partial<SourceDef> = {}): SourceDef {
     id, displayName: id, kind: "video", category: "video",
     adapter: { template: "hls-site" }, baseUrls: [`https://${id}.example`],
     enabled: true, order: 1, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     network: { mode: "probe-required" },
     ...over,
   };
@@ -121,15 +121,17 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
    * 并改入下方负向组。
    * 断言适配（fix3310/video-add-2）：hanime1/iwara 试装恢复＋
    * hentaigasm/hentaiplay 新进，四源启用即进自检名单（正向组）；
-   * yandere 不恢复、留在负向组。 */
-  for (const id of ["huangguo", "hanime-tv", "everia", "hanime1", "iwara", "hentaigasm", "hentaiplay"]) {
+   * yandere 不恢复、留在负向组。
+   * 断言适配（fix3311/registry-cleanup）：hanime1 试装判删回、移出
+   * 正向组并入负向组；iwara 与两新源正向不变。 */
+  for (const id of ["huangguo", "hanime-tv", "everia", "iwara", "hentaigasm", "hentaiplay"]) {
     assert.ok(ids.includes(id), `已启用源 ${id} 在自检名单`);
   }
   for (const id of ["danbooru", "hentaihaven", "konachan"]) {
     assert.ok(!ids.includes(id), `已摘除源 ${id} 不在自检名单（fix338）`);
   }
-  for (const id of ["yandere"]) {
-    assert.ok(!ids.includes(id), `已摘除源 ${id} 不在自检名单（fix339）`);
+  for (const id of ["yandere", "hanime1"]) {
+    assert.ok(!ids.includes(id), `已摘除源 ${id} 不在自检名单（fix339/fix3311）`);
   }
   /* 集成适配（3.3.0 接通批）：xiuren/meiridasai 均已解 blocked
    * 改判 probe 进自检名单（见下方 fix330 定级源断言），「blocked 不进
@@ -157,7 +159,11 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
    * 排除口径由下方合成 def 断言接棒（覆盖不降）。 */
   assert.equal(selfCheckEligible(fakeDef("x", { maturity: "preview" })), false, "preview 成熟度不合格");
   assert.equal(selfCheckEligible(fakeDef("x", { adapter: { template: "none" } })), false, "无适配器模板不合格");
-  assert.equal(selfCheckEligible(fakeDef("x", { adapter: { template: "preview-only" } })), false, "preview-only 模板不合格");
+  /* 断言适配（fix3311/registry-cleanup）：预览专用模板已随簇
+   * 退役、selfCheckEligible 的模板名特判同删；「preview 类不探」
+   * 口径由 category=preview 排除接棒（原该模板源的 def
+   * 分类即 preview），覆盖不降。 */
+  assert.equal(selfCheckEligible(fakeDef("x", { category: "preview" })), false, "preview 分类不合格");
   assert.equal(selfCheckEligible(fakeDef("x")), true, "已启用普通源合格");
 }
 

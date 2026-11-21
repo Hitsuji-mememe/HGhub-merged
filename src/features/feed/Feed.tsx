@@ -36,7 +36,7 @@ import { holdState } from "./holdState";
 import { createHoldJankSampler, createHoldReleaseProfiler, noteHoldSurfaceMount, noteHoldSurfaceUnmount, setActiveHoldReleaseProfiler } from "./holdJank";
 import { HoldBadge } from "./HoldBadge";
 import {
-  IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText,
+  IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICompress, IExpand, IFileText,
   ICheck, IHeart, IHeartF, ILink, IList, INext, IPauseF, IPlayF, ISearch, IStar, IStarF, IVertSwap, IVol, IVolMute,
 } from "../../shared/ui/icons";
 
@@ -400,8 +400,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         authorId: -1,
         tags: post?.tags || [],
         score: 0,
-        like: 0,
-        comment: post?.counts?.comment ?? 0,
         collect: 0,
         episodes: [] as Episode[],
       }
@@ -413,8 +411,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         authorId: detail?.author?.id || -1,
         tags: detail?.tags || [],
         score: detail?.score || 0,
-        like: detail?.counts?.like ?? 0,
-        comment: detail?.counts?.comment ?? 0,
         collect: detail?.counts?.collect ?? 0,
         episodes: detail?.episodes || [],
       };

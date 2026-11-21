@@ -54,20 +54,18 @@ pub fn set_text_interaction(app: tauri::AppHandle, enabled: bool) -> Result<(), 
     Ok(())
 }
 
-/* ───────────────────────── 会话 ───────────────────────── */
+/* ───────────────────────── 启动 ───────────────────────── */
 
 #[tauri::command]
-pub async fn app_boot(state: State<'_, Api>) -> Result<Value, String> {
+pub async fn app_boot(_state: State<'_, Api>) -> Result<Value, String> {
     let origin = base();
-    if crate::network_policy::strict_security() {
-        state.session.reconcile_on_boot(&origin).await;
-    }
-    let origin = base();
-    let credentials_allowed = !crate::network_policy::strict_security()
-        || crate::net::trusted_auth_origin(&origin);
+    /* user/logged_in 键保留（不变量 8：JSON 形状不变）：账号体系
+     * 已拆除、会话本体已删（fix3311/registry-cleanup），恒为游客
+     * 事实值；前端唯一消费方 store.tsx 只读 strict_security 与
+     * cli_relaxed 两键，user/logged_in 无消费。 */
     Ok(json!({
-        "user": if credentials_allowed { state.session.user(&origin) } else { Value::Null },
-        "logged_in": credentials_allowed && state.session.token(&origin).is_some(),
+        "user": Value::Null,
+        "logged_in": false,
         "base": origin,
         "strict_security": crate::network_policy::strict_security(),
         "cli_relaxed": crate::network_policy::cli_strict_override() == Some(false),

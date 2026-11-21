@@ -123,7 +123,7 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
     id: "hls-synthetic", displayName: "HLS 合成源", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
     baseUrls: ["https://hls.example.com/"], enabled: false, order: 105, maturity: "probe",
-    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    capabilities: { search: false, episodes: false, hevc: false },
     network: { mode: "probe-required" }, note: "历史目录条目参数（fix330 适配合成 def、fix338 改中性 id）",
   } as unknown as Parameters<typeof createHlsSiteAdapter>[0];
   assert.equal(def.adapter.template, "hls-site", "合成 def 模板为 hls-site（createAdapter 分发目标即下方工厂）");
@@ -170,7 +170,7 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
     id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
     adapter: { template: "hls-site", params: { listPath: "/recent/", itemLinkPattern: "/galleries/", detailPath: "/galleries/{id}/" } },
     baseUrls: ["https://www.pornpics.com"], enabled: true, order: 41, maturity: "probe",
-    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    capabilities: { search: false, episodes: false, hevc: false },
     network: { mode: "probe-required" },
   };
   const adapter = createHlsSiteAdapter(def);

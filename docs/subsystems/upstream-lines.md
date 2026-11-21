@@ -124,3 +124,10 @@ pnpm test:smoke
 `src-tauri/src/publish_parser.rs` 与 `src-tauri/src/lines/mod.rs` 的单元测试覆盖脚本词法、域名规范化、发布页同源、交错合并、
 all-down、健康判据和候选排序；`test-line-selection` 覆盖前端自动选线状态。
 发布页和真实镜像的可达性属于外部状态，测试不请求上游网络；实机结果需单独记录。
+
+---
+
+**fix3311/registry-cleanup（2026-11-21）**：切线时的会话 rebase/清空已随会话本体
+删除同删（`line_set`/`line_custom_set`/`line_auto` 不再触碰会话状态）——游客请求链
+无凭据可迁移，切线行为（选线代次、熔断、账本）不变。上文涉及 `SessionStore`
+rebase 的描述为删除前史。

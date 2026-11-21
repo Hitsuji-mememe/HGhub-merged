@@ -9,7 +9,7 @@ import { RowCard } from "../../shared/ui/cards";
 import "../../styles/video-details.css";
 
 type VideoMeta = {
-  title: string; cover: string; score: number; like: number; collect: number; comment: number;
+  title: string; cover: string; score: number; collect: number;
   author: string; authorId: number; tags: readonly string[]; desc: string;
 };
 

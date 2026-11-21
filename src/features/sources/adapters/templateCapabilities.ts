@@ -12,11 +12,8 @@
  *   005 无搜索段的事实由其 caps.search=false 表达，证据在注册表
  *   note）。签名吃 def 正因资格是「模板 × 该源声明」的合取。
  * - detailPlay＝适配器存在（templateHasAdapter）：detail/resolve
- *   在 SourceAdapter 类型上必填，有适配器即两段皆在。例外
- *   preview-only：适配器存在、detail 是预览桩、resolve 按产品
- *   口径拒绝——detailPlay 对其为 true 只表示 detail 段在，播放
- *   可达性另由 surfaces 的品类/启用规则与 missingSearchSegments
- *   的 preview-only 分叉表达，不许只读本字段判可播。
+ *   在 SourceAdapter 类型上必填，有适配器即两段皆在；播放可达性
+ *   另由 surfaces 的品类/启用规则表达，不许只读本字段判可播。
  * - episodes＝逐模板代码事实声明（detail 的 episodes 产出形态，
  *   无法靠构造探针得出——须取页才知）：现行无 multi 登记——唯一
  *   multi 模板 hentaihaven-api（detail 扫 episode-<n> 链接产多
@@ -37,7 +34,6 @@
 import type { SourceDef } from "../types.ts";
 import { templateHasAdapter, templateHasSearch } from "./templateSegments.ts";
 import {
-  HANIME1_SORT_VALUES,
   IWARA_SORT_OPTIONS,
   readDiscoveryRanks,
 } from "./templates.ts";
@@ -47,7 +43,7 @@ export type EpisodesForm = "none" | "single" | "multi";
 export interface TemplateCapabilities {
   /** 该 def 可用搜索段（模板有 search ∧ 注册表声明）。 */
   search: boolean;
-  /** detail 段在（适配器存在）；播放可达性见文件头 preview-only 注。 */
+  /** detail 段在（适配器存在）；播放可达性见文件头注。 */
   detailPlay: boolean;
   /** detail 的 episodes 产出形态。 */
   episodes: EpisodesForm;
@@ -60,12 +56,8 @@ export const EPISODES_FORM_BY_TEMPLATE: Record<string, EpisodesForm> = {
   "hls-site": "single", // htmlDetail 同上
   "wp-rest": "none", // detail episodes: []
   "danbooru-api": "none", // detail episodes: []
-  "swag-api": "none", // detail episodes: []
-  "redgifs-api": "single", // detail 单条「正片」
   "hanime-api": "single", // hanimeApi detail 单条「正片」
   "iwara-api": "single", // detail 单条「正片」
-  hanime1: "single", // detail 有源时单条「正片」
-  "preview-only": "none", // 预览桩 detail episodes: []
 };
 
 /** 模板的 episodes 产出形态；未登记/未知模板回落 none（不冒充有集数）。 */
@@ -91,8 +83,8 @@ export function templateCapabilitiesFor(def: SourceDef): TemplateCapabilities {
  * 证据统一出处：fix335/evidence/f-probes.md（机房探针）＋
  * fix335/evidence/f-residential-verify.md（住宅终验），2026-11-20。
  * 协议值表在 templates.ts 与适配器同文件定义、本表引用同一
- * 常量，不另抄（009 九值/010 三值表曾于 fix339 随源摘除同删、
- * fix3310/video-add-2 试装恢复同批回滚）。 */
+ * 常量，不另抄（009 九值表于 fix3311/registry-cleanup 随 009 试装
+ * 判删同删；010 三值表在册保留）。 */
 
 export interface DiscoveryOption {
   value: string;
@@ -214,14 +206,6 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
         sortDefault: "",
         evidence: `目录行 brand/tags/views 字段与客户端重排经探针实证（${F_EVIDENCE}）`,
       };
-    case "hanime1":
-      /* 九值逐字繁体原值（HANIME1_SORT_VALUES），label 即原值；
-       * 简体拼法被站方静默回落默认序——实现红线。 */
-      return {
-        sorts: HANIME1_SORT_VALUES.map((v) => ({ value: v, label: v })),
-        sortDefault: "最新上市",
-        evidence: `九个 sort 繁体原值逐值实证（${F_EVIDENCE}）`,
-      };
     case "iwara-api":
       return {
         sorts: IWARA_SORT_OPTIONS,
@@ -229,7 +213,7 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
         evidence: `sort=views/likes/date 三值返回集各异经探针实证（${F_EVIDENCE}）`,
       };
     default:
-      /* hls-site/swag/redgifs/preview/native 及未实证模板：一律
+      /* hls-site/native 及未实证模板：一律
        * 不登记（未实证不登记）。 */
       return EMPTY_DISCOVERY_SPEC;
   }

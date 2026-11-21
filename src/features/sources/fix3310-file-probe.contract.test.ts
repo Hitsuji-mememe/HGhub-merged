@@ -37,7 +37,7 @@ function fakeDef(id: string): SourceDef {
     id, displayName: id, kind: "video", category: "video",
     adapter: { template: "wp-rest" }, baseUrls: [`https://${id}.example`],
     enabled: true, order: 1, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     network: { mode: "probe-required" },
   };
 }

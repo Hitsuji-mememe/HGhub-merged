@@ -92,8 +92,8 @@ async function bootstrapRegistry(): Promise<void> {
  * 时把白名单推给 Rust 命令 source_allowlist_set；名单内容不在此
  * 内联拼装、只消费 features/sources/allowlist.ts 的唯一派生
  * sourceFetchAllowlistOrigins（已启用且可取页源的 baseUrls ∪ 模板
- * 声明 origin——旧内联只拼 baseUrls，远程清单削掉 swag/redgifs 的
- * API origin 后两源 API 取页被 Rust 拒，验收 D 缺口 G1）。Rust 侧
+ * 声明 origin——旧内联只拼 baseUrls，远程清单削掉模板声明的
+ * API origin 后对应源 API 取页被 Rust 拒，验收 D 缺口 G1）。Rust 侧
  * 名单未设置时 source_fetch 一律拒绝，名单内才放行。推送失败不
  * 阻塞启动（取页会明确报错、可再触发）。 */
 function pushSourceAllowlist(): void {

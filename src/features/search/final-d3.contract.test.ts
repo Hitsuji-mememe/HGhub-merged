@@ -60,7 +60,9 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   /* 断言适配（fix3310/video-add-2，2026-11-21）：恢复 hanime1/iwara
    * ＋新增 hentaigasm/hentaiplay，注册表 13→17 源；页签封顶四类
    * 的口径不变。 */
-  assert.equal(getBuiltinRegistry().length, 17, "注册表 17 源（fix3310：恢复 009/010＋新增 020/021）下页签仍封顶四类（上一断言即证据）");
+  /* 断言适配（fix3311/registry-cleanup，2026-11-21）：009 试装判删
+   * 回，注册表 17→16 源；页签封顶四类的口径不变。 */
+  assert.equal(getBuiltinRegistry().length, 16, "注册表 16 源（fix3311：摘 009）下页签仍封顶四类（上一断言即证据）");
   const groups = aggregateHits([]);
   assert.deepEqual(Object.keys(groups).sort(), ["drama", "image", "post", "video"], "聚合分组恒四键");
 }
@@ -319,7 +321,7 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
     id: "hentaihaven", displayName: "HentaiHaven", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
     baseUrls: ["https://hentaihaven.xxx/"], enabled: false, order: 105, maturity: "probe",
-    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    capabilities: { search: false, episodes: false, hevc: false },
     network: { mode: "probe-required" }, note: "历史目录条目参数（fix330 适配合成 def）",
   } as unknown as SourceDef);
   assert.ok(a.search, "hls-site 适配器有 search");

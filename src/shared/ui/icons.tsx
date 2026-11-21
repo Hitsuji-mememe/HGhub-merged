@@ -25,7 +25,6 @@ export const IHeart = S(<path d="M12 20.6C6.4 16.9 3 13.6 3 9.9 3 7.2 5.1 5 7.8 
 export const IHeartF = S(<path d="M12 21.1C6.1 17.2 2.5 13.7 2.5 9.8c0-3 2.3-5.3 5.2-5.3 1.7 0 3.3.8 4.3 2.2 1-1.4 2.6-2.2 4.3-2.2 2.9 0 5.2 2.3 5.2 5.3 0 3.9-3.6 7.4-9.5 11.3Z" />, true);
 export const IStar = S(<path d="m12 3.4 2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.6l5.9-.8Z" />);
 export const IStarF = S(<path d="m12 2.8 2.8 5.7 6.3.9c.6.1.9.9.4 1.3l-4.5 4.4 1 6.2c.1.6-.5 1.1-1.1.8L11.3 19l-5.6 3c-.6.3-1.2-.2-1.1-.8l1-6.2L1.1 10.7c-.5-.4-.2-1.2.4-1.3l6.3-.9L10.6 2.8c.3-.6 1.1-.6 1.4 0Z" />, true);
-export const ICommentF = S(<path d="M12 2.8c5.4 0 9.8 3.9 9.8 8.8s-4.4 8.8-9.8 8.8c-.9 0-1.8-.1-2.6-.3-1.2 1-2.9 1.8-5 1.9-.5 0-.8-.5-.5-.9.8-1.1 1.3-2.3 1.4-3.5C3.4 16 2.2 13.9 2.2 11.6c0-4.9 4.4-8.8 9.8-8.8Z" />, true);
 export const IExpand = S(<><path d="M8.5 3.5H3.5v5" /><path d="M15.5 3.5h5v5" /><path d="M8.5 20.5h-5v-5" /><path d="M15.5 20.5h5v-5" /></>);
 export const ICompress = S(<><path d="M3.5 8.5h5v-5" /><path d="M20.5 8.5h-5v-5" /><path d="M3.5 15.5h5v5" /><path d="M20.5 15.5h-5v5" /></>);
 export const IBack = S(<path d="m14.5 5-7 7 7 7" strokeWidth={2.4} />);
@@ -46,11 +45,8 @@ export const IClock = S(<><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5.2l3
 export const IRefresh = S(<><path d="M20 12a8 8 0 1 1-2.5-5.8" /><path d="M20 3.5V7h-3.5" /></>);
 export const ISparkF = S(<path d="M12 2.5c.6 3.9 1.7 6.1 3.3 7.7 1.6 1.6 3.8 2.6 6.2 3.3-3.9.6-6.1 1.7-7.7 3.3-1.6 1.6-2.6 3.8-3.3 6.2-.6-3.9-1.7-6.1-3.3-7.7-1.6-1.6-3.8-2.6-6.2-3.3 3.9-.6 6.1-1.7 7.7-3.3 1.6-1.6 2.6-3.8 3.3-6.2Z" />, true);
 export const IMinus = S(<path d="M5 12h14" />);
-export const IPip = S(<><rect x="3" y="4.5" width="18" height="15" rx="2.5" /><rect x="12" y="12" width="6.5" height="4.8" rx="1.2" fill="currentColor" stroke="none" /></>);
-
 export const IChevronUp = S(<path d="m6 14 6-6 6 6" />);
 export const IChevronDown = S(<path d="m6 10 6 6 6-6" />);
-export const ITheater = S(<><rect x="2.5" y="5" width="19" height="14" rx="2.5" /><path d="M6.5 5v14M17.5 5v14" /></>);
 export const INext = S(<><path d="M5 5v14l10-7Z" fill="currentColor" stroke="none" /><path d="M18 5v14" /></>);
 export const ISun = S(<><circle cx="12" cy="12" r="3.4" /><path d="M12 2.8v2.2M12 19v2.2M2.8 12h2.2M19 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6" /></>);
 export const IMoon = S(<path d="M16.5 13.2A6.6 6.6 0 0 1 10.2 5 6.8 6.8 0 1 0 16.5 13.2Z" />);

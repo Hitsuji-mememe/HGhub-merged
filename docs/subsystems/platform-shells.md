@@ -34,9 +34,7 @@ loopback、Windows 的自定义标题栏与注册表代理判断、Android 的 W
 - 前端平台判断与本地基址：[`src/shared/api/api.ts`](../../src/shared/api/api.ts) 的 `isIos`、`isAndroid`、
   `isLinux`、`platform`、`LOCAL`；本地媒体地址判定（避免把代理地址再包一层）由
   [`src/features/playback/mediaTransport.ts`](../../src/features/playback/mediaTransport.ts) 的
-  `playbackSource()` 承担：按 `${LOCAL}/` 前缀与 `/hls`、`/seg` 路径识别已包装地址；桌面壳：
-  [`src/app/shell/DesktopChrome.tsx`](../../src/app/shell/DesktopChrome.tsx) 的
-  `DesktopTitleBar`/`win-titlebar`、`DesktopRail`；移动壳见
+  `playbackSource()` 承担：按 `${LOCAL}/` 前缀与 `/hls`、`/seg` 路径识别已包装地址；移动壳见
   [`src/app/App.tsx`](../../src/app/App.tsx) 的 `TabBar`/`MobileShell` 和
   [`src/shared/ui/ios/`](../../src/shared/ui/ios/)。
 
@@ -123,7 +121,7 @@ loopback、Windows 的自定义标题栏与注册表代理判断、Android 的 W
    `data-legacy-flex-gap`；构建层 `vite.config.ts` 以 `chrome66/safari14.1` 为语法目标，
    `scripts/legacy-css.ts` 在 CSS 汇总后做 dvh/color-mix 回退、postcss-preset-env 降级与
    lightningcss 压缩，并追加 `src/styles/legacy-webview.css` 的几何回退。标准入口
-   `src/main.tsx` 与 TV 入口 `src/tv/bootstrap.tsx` 都在首个成功 commit 调
+   `src/main.tsx` 在首个成功 commit 调
    `markStartupReady()` 解除看门狗；协议未签署不算启动失败。
 7. 冷启动无闪烁链路：原生窗口/系统启动屏（`tauri.conf.json`、`patch-android-splash.mjs`、
    `patch-ios-splash.mjs`）、`index.html` 的 `html[data-hg-launching]` 背景锁与 `.hg-launch`
@@ -152,7 +150,8 @@ loopback、Windows 的自定义标题栏与注册表代理判断、Android 的 W
   放宽 `script-src`、`connect-src`、`frame-src`。iOS 配置只额外允许 `http://127.0.0.1:*` 作为
   `media-src`。
 - 平台监听器只绑定回环地址，必须有连接/头/时间上限；不能把监听端口或 capability 当作
-  用户认证，真正的登录仍是 `SessionStore`。
+  用户认证。（原 `SessionStore` 登录本体已于 fix3311/registry-cleanup 删除：账号体系
+  3.3.0 已拆除、用户恒游客，App 内不再有登录态，见 storage-and-preferences.md 同批注记。）
 - Linux 端口绑定失败不能静默退回到 `hg://` 假装成功；GStreamer 播不了，必须在 UI 暴露播放
   错误。macOS 红绿灯测量失败必须回退配置值，不阻塞窗口创建。
 - `if-range` 或重复 `Range` 一律退回完整响应，不能把不完整分片当成 206 返回。
