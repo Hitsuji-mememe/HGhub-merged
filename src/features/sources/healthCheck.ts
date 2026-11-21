@@ -99,6 +99,16 @@
  * 一步同构）；HLS 分支逐字不变。「取流可达」语义自此＝播放器
  * 能取到该流的第一步字节。探测步骤变更 → 协议版本 bump 至
  * v4；纪元不 bump（论证见 SELF_CHECK_ADAPTER_EPOCH 注释）。
+ * 探针加固（2026-11-21 fix3311/file-leg-fix）：v4 的 file 探针
+ * 只验首段——3.3.10 真机 020/021 探针全绿、点播全灭（响应类型
+ * octet-stream 被播放器以 code 4 拒收、moov 在文件尾探针全
+ * 盲、播放器无 Range 请求在 App 侧落整段级联，定因见 fix3311
+ * 调查报告）。现 file 探针按播放器真实请求形态多步实拉
+ * （fileProbe.probeFileStream：HEAD 等价调用＋0-1 试探＋首段
+ * ftyp＋尾段实拉验 moov＋响应类型须 video/*），「取流可达」
+ * 语义自此＝播放器能走完取流的每一步形态。探测步骤变更 →
+ * 协议版本 bump 至 v5；纪元不 bump（论证同前：adapters/ 零变
+ * 更、步序属协议维度，见纪元注释 fix3311 条）。
  *
  * 分页抽查（2026-11-20 fix335/selfcheck-paging 补）：分页信号
  * （fix335/a-pagination 新信号体系）只保证信号形态自洽，信号说
@@ -151,8 +161,14 @@ export const SELF_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
  * 绿）按指纹不符判过期补探；现行 v4（2026-11-21 fix3310/
  * file-playback-leg）＝v3＋取流段按流 kind 分支（接缝入参改整
  * 条流、file 流走 /seg Range 实拉＋ftyp 判读，每源预算不变仍
- * 5）——探测步骤变更，v3 结果按指纹不符判过期补探。 */
-export const SELF_CHECK_PROTOCOL_VERSION = 4;
+ * 5）——探测步骤变更，v3 结果按指纹不符判过期补探；现行 v5
+ * （2026-11-21 fix3311/file-leg-fix）＝v4＋file 流探针按播放器
+ * 真实请求形态加固（HEAD 等价调用＋0-1 试探＋首段 ftyp＋尾段
+ * 实拉验 moov＋响应类型须 video/*，步序实现 fileProbe.ts；每
+ * 源预算不变仍 5、接缝计 1 次口径不变）——v4 的 file 流取流结
+ * 论只验首段（类型/尾段全盲，3.3.10 真机探针过、点播死）按指
+ * 纹不符判过期补探；HLS 分支判读逐字不变。 */
+export const SELF_CHECK_PROTOCOL_VERSION = 5;
 /** 适配器纪元（指纹维度二）：取页/解析行为变更到可能改变探测结
  * 论时 bump——覆盖面是整条取页链：adapters/ 下模板、解析、内置
  * 参数形态，以及取页链形态层（Rust net 的 UA/指纹层、信封与重
@@ -196,7 +212,14 @@ export const SELF_CHECK_PROTOCOL_VERSION = 4;
  * 本批逐字不变、无结论可因本批变更而翻转；且协议 v4 bump 本
  * 身已使全部旧结果按指纹不符判过期补探——纪元再 bump 不改变
  * 任何一条结果的新鲜度判定，只会污染「纪元＝适配器行为」这
- * 一维的语义。 */
+ * 一维的语义。
+ * fix3311/file-leg-fix（2026-11-21）纪元不 bump 的论证：同
+ * fix3310 先例——本批 adapters/ 下取页/解析行为零变更，变更
+ * 只在探针步序（协议维度，已 bump 至 v5）与 Rust 媒体腿（HEAD
+ * 元信息/裸 GET 首窗/类型归一/窗口收窄，属取数链的响应形态、
+ * 非适配器行为）；存量纪元 5 结果中 HLS 流结论的依据链（resolve
+ * ＋/hls 实拉）本批逐字不变，file 流结论则已被协议 v5 bump 全
+ * 量作废补探——纪元再 bump 不改变任何一条结果的新鲜度判定。 */
 export const SELF_CHECK_ADAPTER_EPOCH = 5;
 /** 最近打开记录落盘键（hghubx_*，不变量 7）：源 id → 最近一次
  * 进入其浏览面的时刻；只记 id/时刻（不变量 10），供批量补探

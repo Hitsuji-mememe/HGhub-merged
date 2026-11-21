@@ -207,18 +207,27 @@ pub(super) fn clear_cache() {
  * 本形态：把播放器/探针的单段 Range 映射为对上游的同区间单次
  * Range 取数（fetch_range_direct，20s 截止、206 偏移校验现成），
  * 窗口字节原样 206 返回——内存与流量都只随窗口走。
- * 适用面由 handle 限定：带 Range 头 ∧ 目标路径为媒体文件扩展名；
- * 其余 /seg 请求（HLS 分片/key/无 Range）逐字走旧形态。
+ * 适用面由 handle 限定：目标路径为媒体文件扩展名时，带 Range 走
+ * 本形态、HEAD 走 load_segment_head、无 Range 走 load_segment_
+ * unranged 首窗（fix3311/file-leg-fix 扩，见各函数注）；其余 /seg
+ * 请求（HLS 分片/key/非媒体文件目标）逐字走旧形态。
  * 失败分流：可由旧形态接管的（解析不出的 Range、上游 200 全量
  * 超限、无总长、切片实为清单）回 Fallback；旧形态同样无结论或
  * 语义已定的（超时——旧形态共用同一 20s 取数链、只会再挂一遍；
  * 上游 416；切片为 HTML 文档——与 segment_response 同罪 502）
  * 直接 Fatal 定案，不双倍等待。 */
 
-/// 开放区间（bytes=a-）单次服务的窗口上限：小于 fetch_range_
-/// direct 的 16MB 单响应上限，留校验余量；播放器要更多字节会
-/// 续发下一段 Range（原生媒体栈的常规形态）。
-pub(super) const RANGED_WINDOW_MAX_BYTES: u64 = 15 * 1024 * 1024;
+/// 区间单次服务的窗口上限：小于 fetch_range_direct 的 16MB 单
+/// 响应上限，留校验余量；播放器要更多字节会续发下一段 Range
+/// （原生媒体栈的常规形态）。窗口同时是 TTFB 的上界：回环层整窗
+/// 物化后才回吐（ios_media_http/lib 协议均以整响应为体），15MB
+/// 窗在真机 App 通道 2.4MB/s 下 TTFB≈6s 起、慢文件宿主线性恶化
+/// （fix3311 定因 §1）——本批收至 4MB（同通道 ≈1.7s），显式区间
+/// 与后缀区间一并封顶（旧形态显式大区间直通 fetch_range_direct
+/// 必撞 16MB 上限回 Fallback 落整段级联）。回环层流式回吐（边取
+/// 边写）为定因报告候选 5，成本最高、动共享层，待真机起播 P50
+/// 证据再立项。
+pub(super) const RANGED_WINDOW_MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SingleRange {
@@ -330,6 +339,7 @@ async fn load_ranged_explicit(
         let slice_end = end.min(total - 1);
         let slice = fetched.bytes[start as usize..=slice_end as usize].to_vec();
         return Ok(super::response::range_window_response(
+            url,
             fetched.ctype.as_deref(),
             slice,
             start,
@@ -345,6 +355,7 @@ async fn load_ranged_explicit(
     }
     ranged_slice_guard(&fetched.bytes, start)?;
     Ok(super::response::range_window_response(
+        url,
         fetched.ctype.as_deref(),
         fetched.bytes,
         start,
@@ -359,7 +370,14 @@ pub(super) async fn load_segment_ranged(
     range: &str,
 ) -> Result<tauri::http::Response<Vec<u8>>, RangedError> {
     match parse_single_range(range).ok_or(RangedError::Fallback)? {
-        SingleRange::FromTo(start, end) => load_ranged_explicit(url, start, end).await,
+        SingleRange::FromTo(start, end) => {
+            /* 显式区间同样封顶窗口（fix3311）：播放器偶发超大显
+             * 式区间时旧形态直通 fetch_range_direct 必撞 16MB 单
+             * 响应上限、回 Fallback 落整段拼片级联；截短为窗口
+             * 206 是合法 HTTP 形态，播放器按 Content-Range 续发。 */
+            let end = end.min(start.saturating_add(RANGED_WINDOW_MAX_BYTES - 1));
+            load_ranged_explicit(url, start, end).await
+        }
         SingleRange::From(start) => {
             let end = start.saturating_add(RANGED_WINDOW_MAX_BYTES - 1);
             load_ranged_explicit(url, start, end).await
@@ -367,7 +385,7 @@ pub(super) async fn load_segment_ranged(
         SingleRange::Suffix(len) => {
             /* 后缀区间须先知总长：1 字节探针取 Content-Range 总
              * 长（206），上游忽略 Range 回 200 时探针体即全量、
-             * 直接尾切。 */
+             * 直接尾切。取量封顶窗口（fix3311，同显式区间）。 */
             let probe = crate::range_fetch::fetch_range_direct(url, 0, 0)
                 .await
                 .map_err(ranged_fetch_error)?;
@@ -377,10 +395,11 @@ pub(super) async fn load_segment_ranged(
                     return Err(RangedError::Fallback);
                 }
                 ranged_slice_guard(&probe.bytes, 0)?;
-                let take = len.min(total);
+                let take = len.min(total).min(RANGED_WINDOW_MAX_BYTES);
                 let start = total - take;
                 let slice = probe.bytes[start as usize..].to_vec();
                 return Ok(super::response::range_window_response(
+                    url,
                     probe.ctype.as_deref(),
                     slice,
                     start,
@@ -391,10 +410,48 @@ pub(super) async fn load_segment_ranged(
             if total == 0 {
                 return Err(RangedError::Fallback);
             }
-            let take = len.min(total);
+            let take = len.min(total).min(RANGED_WINDOW_MAX_BYTES);
             load_ranged_explicit(url, total - take, total - 1).await
         }
     }
+}
+
+/// HEAD 元信息（Muse 2026-11-21 fix3311/file-leg-fix）：媒体文件
+/// 目标的 HEAD 在两个入口层都被丢 Range（HEAD 本就无 Range 可
+/// 传），旧形态落 load_segment 整段下载——大文件恒 502、中等文件
+/// 整文件下载完才回（定因 §2）。改走 range_fetch::fetch_range_
+/// meta 一发小 Range 探总长/类型，本地组 media_head_response
+/// （空体＋总长＋归一类型）。失败分流与 ranged 同口径
+/// （ranged_fetch_error）：超时定案 502（旧形态共用同一取数链、
+/// 回退只会再挂一轮）；其余（HTTP 错误、无总长）Fallback 回旧
+/// 形态——小文件/奇形态上游仍可由整段路径给出等价响应（入口层
+/// 弃体、Content-Length＝体长）。
+pub(super) async fn load_segment_head(
+    url: &str,
+) -> Result<tauri::http::Response<Vec<u8>>, RangedError> {
+    let meta = crate::range_fetch::fetch_range_meta(url)
+        .await
+        .map_err(ranged_fetch_error)?;
+    let total = meta.total.ok_or(RangedError::Fallback)?;
+    Ok(super::response::media_head_response(
+        url,
+        meta.ctype.as_deref(),
+        total,
+    ))
+}
+
+/// 裸 GET 首窗（Muse 2026-11-21 fix3311/file-leg-fix）：无 Range
+/// 形态（裸 GET，以及入口层已合并归一的 If-Range/多 Range）在旧
+/// 形态落整段拼片级联（定因 §2）。媒体文件目标改按首窗 ranged
+/// 语义服务——即 load_ranged_explicit 的 [0, 窗口) 区间：文件不
+/// 大于窗口时响应即全量（206＋Content-Range 标明完整区间，消费
+/// 方拿到完整体）；大于窗口时播放器按 Accept-Ranges 续发后续区
+/// 间，与其对开放区间的消费形态同构。Fallback/Fatal 口径随
+/// ranged 路径（切片为清单字节仍回退清单改写、HTML 仍 502）。
+pub(super) async fn load_segment_unranged(
+    url: &str,
+) -> Result<tauri::http::Response<Vec<u8>>, RangedError> {
+    load_ranged_explicit(url, 0, RANGED_WINDOW_MAX_BYTES - 1).await
 }
 
 #[cfg(test)]

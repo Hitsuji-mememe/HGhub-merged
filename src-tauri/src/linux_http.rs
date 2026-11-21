@@ -131,7 +131,7 @@ fn serve(mut stream: TcpStream) -> std::io::Result<()> {
     } else {
         None
     };
-    let response = tauri::async_runtime::block_on(crate::media::handle(path, query, ORIGIN, range));
+    let response = tauri::async_runtime::block_on(crate::media::handle(path, query, ORIGIN, range, method == "HEAD"));
     let (parts, body) = response.into_parts();
 
     write_response(&mut stream, method, parts, &body)
@@ -143,13 +143,28 @@ fn write_response(
     parts: tauri::http::response::Parts,
     body: &[u8],
 ) -> std::io::Result<()> {
+    /* 写线长度口径（fix3311/file-leg-fix）：GET 恒以体长为准（头
+     * 部 Content-Length 在下方循环里被跳过、只出一份权威长度，
+     * 既有口径不变）；HEAD 的语义是「对应 GET 的表示长度」——
+     * media::handle 对媒体文件 HEAD 只回元信息（空体＋总长头），
+     * 此时以头部为准，无头部时回退体长。 */
+    let wire_len = if method == "HEAD" {
+        parts
+            .headers
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(body.len())
+    } else {
+        body.len()
+    };
     let mut head = String::with_capacity(320);
     head.push_str(&format!(
         "HTTP/1.1 {} {}\r\n",
         parts.status.as_u16(),
         parts.status.canonical_reason().unwrap_or("OK")
     ));
-    head.push_str(&format!("Content-Length: {}\r\n", body.len()));
+    head.push_str(&format!("Content-Length: {}\r\n", wire_len));
     for (name, value) in parts.headers.iter() {
         // This server sends a complete body and closes the connection. Do not
         // duplicate media::handle's length/CORS headers or forward framing for

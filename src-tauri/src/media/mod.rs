@@ -113,7 +113,7 @@ mod byte_lru_tests {
 pub(crate) use response::fixture_response;
 use hls::{dec, load_playlist};
 use image::load_image;
-use segment::{is_media_file_target, load_segment, load_segment_ranged, RangedError};
+use segment::{is_media_file_target, load_segment, load_segment_head, load_segment_ranged, load_segment_unranged, RangedError};
 use response::{apply_byte_range, respond, segment_response, PROXIED_IMAGE_CACHE_CONTROL};
 
 /// 本平台自定义协议的完整基址。
@@ -140,7 +140,7 @@ pub fn clear_caches() {
 ///
 /// `origin` 是本平台自定义协议的完整基址，见 [`LOCAL_ORIGIN`]；用于改写 m3u8 里的
 /// 分片与 key 地址。正常情况下调用方直接传 [`LOCAL_ORIGIN`]。
-pub async fn handle(path: &str, query: &str, origin: &str, range: Option<&str>) -> Response<Vec<u8>> {
+pub async fn handle(path: &str, query: &str, origin: &str, range: Option<&str>, head: bool) -> Response<Vec<u8>> {
     let target = query
         .split('&')
         .find_map(|kv| kv.strip_prefix("u="))
@@ -197,13 +197,24 @@ pub async fn handle(path: &str, query: &str, origin: &str, range: Option<&str>) 
              * 区间单次取数（segment::load_segment_ranged）——整段
              * 拼片形态对大文件必超单响应上限恒 502、对中等文件每
              * 请求整文件重下。直通定案（206/416/HTML 502）直接采
-             * 用；Fallback 与不适用面（无 Range、非媒体文件目标
-             * ——HLS 分片/key/清单子请求）逐字走旧整段形态，末端
-             * apply_byte_range 对 206 原样直通、对旧形态 200 照旧
-             * 切片。 */
-            let ranged = match range {
-                Some(r) if is_media_file_target(&target) => Some(load_segment_ranged(&target, r).await),
-                _ => None,
+             * 用；Fallback 与不适用面（非媒体文件目标——HLS 分片/
+             * key/清单子请求）逐字走旧整段形态，末端 apply_byte_
+             * range 对 206 原样直通、对旧形态 200 照旧切片。
+             * fix3311/file-leg-fix 扩两形态（同限媒体文件目标）：
+             * HEAD 走 load_segment_head 只回元信息、无 Range（裸
+             * GET 与入口层合并归一的 If-Range/多 Range）走 load_
+             * segment_unranged 首窗——旧形态下两者同落整段拼片
+             * 级联（定因 §2：大文件数十秒零字节后 502、中等文件
+             * 整文件下完才首字节）。 */
+            let media_file = is_media_file_target(&target);
+            let ranged = if head && media_file {
+                Some(load_segment_head(&target).await)
+            } else {
+                match range {
+                    Some(r) if media_file => Some(load_segment_ranged(&target, r).await),
+                    None if media_file => Some(load_segment_unranged(&target).await),
+                    _ => None,
+                }
             };
             match ranged {
                 Some(Ok(resp)) => resp,
@@ -410,7 +421,7 @@ mod tests {
         let get = |path: &str| {
             let url = format!("{base}{path}");
             let q = format!("u={}", enc(&url));
-            async move { handle("/hls", &q, LOCAL_ORIGIN, None).await }
+            async move { handle("/hls", &q, LOCAL_ORIGIN, None, false).await }
         };
 
         // ① 永不响应：deadline 内 502（余量 5s 容调度抖动）。
@@ -511,7 +522,7 @@ mod tests {
             let url = format!("{base}{path}");
             let q = format!("u={}", enc(&url));
             let range = range.map(|r| r.to_string());
-            async move { handle("/seg", &q, LOCAL_ORIGIN, range.as_deref()).await }
+            async move { handle("/seg", &q, LOCAL_ORIGIN, range.as_deref(), false).await }
         };
         let header = |resp: &Response<Vec<u8>>, name: &str| {
             resp.headers().get(name).and_then(|v| v.to_str().ok()).map(|s| s.to_string())
@@ -581,6 +592,151 @@ mod tests {
         assert_eq!(slow3.body().len(), 1024);
     }
 
+    /// 设备链模拟（Muse 2026-11-21 fix3311/file-leg-fix）：file 流
+    /// 播放腿三缺陷的完整链验证——替身 v2（~/workspace/hghub/
+    /// fix3311/seg-file-double-v2.py，127.0.0.1:17891）复刻定因报告
+    /// （fix3311/evidence/file-playback-stall-investigation.md §A/§B）
+    /// 的真机样本形态：结构化 MP4（ftyp/free/mdat/moov，moov 在最
+    /// 尾）＋一切响应恒 application/octet-stream（021 形态）＋Range
+    /// 全形态 206。断言面：①HEAD 只回元信息——200＋Content-Length
+    /// ＝总长＋类型归一 video/mp4＋空体＋秒级返回（旧码 HEAD 在两入
+    /// 口层被丢 Range、落整段下载：huge 恒 502、tail 整文件回吐）；
+    /// ②裸 GET 按首窗 ranged 语义——206＋Content-Range 精确＋窗口
+    /// 字节守恒（旧码 tail 整文件 200、huge 拼片 502）；③带 Range
+    /// 的 206 类型归一（旧码透传 octet-stream，媒体元素 code 4 拒
+    /// 收）；④尾段后缀/显式区间 206 精确＋moov 盒头守恒（探针新步
+    /// 骤的同路形态）；⑤.mp4 清单裸 GET 仍回退清单改写 200（不误
+    /// 伤回退形态）；⑥never 的 HEAD 在取数截止内 502 定案（元信息
+    /// 探针超时 Fatal、不落级联双倍等待）；⑦HTML 冒充在裸 GET 路
+    /// 径同罪 502。
+    /// 运行：先起替身 python3 seg-file-double-v2.py，再
+    /// cargo test --lib device_chain_seg_file_leg2 -- --ignored --nocapture
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    #[ignore = "设备链模拟：需要 fix3311 替身 v2（127.0.0.1:17891），手动运行"]
+    async fn device_chain_seg_file_leg2() {
+        use std::time::{Duration, Instant};
+        let base = std::env::var("DEVICE_CHAIN_SEG_BASE")
+            .unwrap_or_else(|_| "http://upstream.example".to_string());
+        let stub = std::env::var("DEVICE_CHAIN_SEG_STUB2")
+            .unwrap_or_else(|_| "http://127.0.0.1:17891".to_string());
+        let proxy_dir = std::env::temp_dir().join(format!("hghubx-seg2-proxy-{}", std::process::id()));
+        std::fs::create_dir_all(&proxy_dir).expect("代理目录");
+        crate::proxy::bind(&proxy_dir);
+        crate::proxy::set("custom", &stub).expect("指向替身代理");
+
+        const TAIL_TOTAL: u64 = 8_388_656;
+        const MOOV_START: u64 = 7_340_080;
+        const HUGE_TOTAL: u64 = 80 * 1024 * 1024;
+        /* /tail.mp4 字节布局与替身 build_tail 同式（盒头逐项写死、
+         * 其余 i%251 按绝对偏移）。 */
+        fn tail_byte(i: u64) -> u8 {
+            match i {
+                0..=2 => 0,
+                3 => 0x20,
+                4 => b'f',
+                5 => b't',
+                6 => b'y',
+                7 => b'p',
+                8..=11 => b"isom"[(i - 8) as usize],
+                12..=13 => 0,
+                14 => 2,
+                15 => 0,
+                16..=19 => b"isom"[(i - 16) as usize],
+                20..=23 => b"iso2"[(i - 20) as usize],
+                24..=31 => 0,
+                32..=34 => 0,
+                35 => 8,
+                36..=39 => b"free"[(i - 36) as usize],
+                40..=43 => 7_340_040u32.to_be_bytes()[(i - 40) as usize],
+                44..=47 => b"mdat"[(i - 44) as usize],
+                7_340_080..=7_340_083 => 1_048_576u32.to_be_bytes()[(i - 7_340_080) as usize],
+                7_340_084..=7_340_087 => b"moov"[(i - 7_340_084) as usize],
+                _ => (i % 251) as u8,
+            }
+        }
+        let get = |path: &str, range: Option<&str>, head: bool| {
+            let url = format!("{base}{path}");
+            let q = format!("u={}", enc(&url));
+            let range = range.map(|r| r.to_string());
+            async move { handle("/seg", &q, LOCAL_ORIGIN, range.as_deref(), head).await }
+        };
+        let header = |resp: &Response<Vec<u8>>, name: &str| {
+            resp.headers().get(name).and_then(|v| v.to_str().ok()).map(|s| s.to_string())
+        };
+        let window = segment::RANGED_WINDOW_MAX_BYTES;
+
+        // ① HEAD tail：只回元信息（200＋总长＋归一类型＋空体＋秒级）。
+        let started = Instant::now();
+        let head = get("/tail.mp4", None, true).await;
+        let head_ms = started.elapsed();
+        println!("[device-chain-seg2] HEAD tail → status={} elapsed={head_ms:?}", head.status());
+        assert_eq!(head.status(), 200, "HEAD 必须回元信息 200（旧码整段下载/502）");
+        assert!(head.body().is_empty(), "HEAD 响应体必须为空（元信息形态）");
+        assert_eq!(header(&head, "Content-Length").as_deref(), Some(TAIL_TOTAL.to_string().as_str()), "HEAD Content-Length 必须为文件总长");
+        assert_eq!(header(&head, "Content-Type").as_deref(), Some("video/mp4"), "HEAD 类型必须归一为 video/mp4（上游 octet-stream）");
+        assert_eq!(header(&head, "Accept-Ranges").as_deref(), Some("bytes"));
+        assert!(head_ms < Duration::from_secs(5), "HEAD 元信息必须秒级返回（旧码整文件下载），实耗 {head_ms:?}");
+
+        // ② 裸 GET tail：首窗 ranged 语义（206＋精确 Content-Range＋守恒）。
+        let bare = get("/tail.mp4", None, false).await;
+        println!("[device-chain-seg2] bare tail → status={}", bare.status());
+        assert_eq!(bare.status(), 206, "裸 GET 必须按首窗 ranged 服务（旧码整文件 200）");
+        assert_eq!(header(&bare, "Content-Range").as_deref(), Some(format!("bytes 0-{}/{TAIL_TOTAL}", window - 1).as_str()));
+        assert_eq!(bare.body().len() as u64, window, "裸 GET 体长恰为首窗");
+        assert_eq!(header(&bare, "Content-Type").as_deref(), Some("video/mp4"), "裸 GET 类型必须归一");
+        assert!(bare.body().iter().enumerate().all(|(i, b)| *b == tail_byte(i as u64)), "首窗逐字节守恒");
+
+        // ③ 带 Range 首段：206 类型归一（旧码透传 octet-stream）。
+        let ranged = get("/tail.mp4", Some("bytes=0-2047"), false).await;
+        assert_eq!(ranged.status(), 206);
+        assert_eq!(header(&ranged, "Content-Type").as_deref(), Some("video/mp4"), "ranged 206 类型必须归一（旧码 octet-stream 透传）");
+        assert_eq!(&ranged.body()[4..8], b"ftyp");
+
+        // ④ 尾段：后缀与显式区间各一发，moov 盒头守恒。
+        for range in [format!("bytes=-{}", 1024 * 1024), format!("bytes={}-{TAIL_TOTAL}", MOOV_START)] {
+            let tail = get("/tail.mp4", Some(&range), false).await;
+            println!("[device-chain-seg2] tail {range} → status={}", tail.status());
+            assert_eq!(tail.status(), 206, "尾段 {range} 必须 206");
+            assert_eq!(header(&tail, "Content-Range").as_deref(), Some(format!("bytes {MOOV_START}-{}/{TAIL_TOTAL}", TAIL_TOTAL - 1).as_str()));
+            assert_eq!(&tail.body()[4..8], b"moov", "尾段首盒必须为 moov（moov 在尾的同路形态）");
+            assert!(tail.body().iter().enumerate().all(|(i, b)| *b == tail_byte(MOOV_START + i as u64)), "尾段逐字节守恒");
+        }
+
+        // ⑤ huge：裸 GET 首窗 206（旧码拼片必超限 502）；HEAD 元信息秒级。
+        let huge_bare = get("/huge.mp4", None, false).await;
+        println!("[device-chain-seg2] bare huge → status={}", huge_bare.status());
+        assert_eq!(huge_bare.status(), 206, "huge 裸 GET 必须首窗 206（旧码整段拼片 502）");
+        assert_eq!(huge_bare.body().len() as u64, window);
+        let started = Instant::now();
+        let huge_head = get("/huge.mp4", None, true).await;
+        let huge_head_ms = started.elapsed();
+        println!("[device-chain-seg2] HEAD huge → status={} elapsed={huge_head_ms:?}", huge_head.status());
+        assert_eq!(huge_head.status(), 200, "huge HEAD 必须元信息 200（旧码 502）");
+        assert_eq!(header(&huge_head, "Content-Length").as_deref(), Some(HUGE_TOTAL.to_string().as_str()));
+        assert!(huge_head_ms < Duration::from_secs(5), "huge HEAD 必须秒级（旧码级联数十秒），实耗 {huge_head_ms:?}");
+
+        // ⑥ .mp4 清单裸 GET：回退清单改写 200（裸路径不误伤回退形态）。
+        let list = get("/list.mp4", None, false).await;
+        println!("[device-chain-seg2] bare list → status={}", list.status());
+        assert_eq!(list.status(), 200, "清单字节裸 GET 须回退清单改写形态");
+        let list_body = String::from_utf8_lossy(list.body()).to_string();
+        assert!(list_body.contains("#EXTM3U") && list_body.contains("/seg?u="), "清单应已改写：{list_body}");
+
+        // ⑦ HTML 冒充裸 GET：502（与 ranged 路径同罪）。
+        let page = get("/page.mp4", None, false).await;
+        println!("[device-chain-seg2] bare page → status={}", page.status());
+        assert_eq!(page.status(), 502, "HTML 冒充在裸 GET 路径必须 502");
+
+        // ⑧ never HEAD：取数截止内 502 定案（元信息探针超时 Fatal）。
+        let started = Instant::now();
+        let never = get("/never.mp4", None, true).await;
+        let never_ms = started.elapsed();
+        println!("[device-chain-seg2] HEAD never → status={} elapsed={never_ms:?}", never.status());
+        assert_eq!(never.status(), 502, "永不响应 HEAD 必须 502 定案");
+        assert!(never_ms < Duration::from_secs(25), "不得落级联双倍等待（≥40s），实耗 {never_ms:?}");
+    }
+
     /// 联网测试：默认跳过，手动跑 `cargo test --lib -- --ignored`。
     /// 依赖上游 `/api/videos/117/play` 返回的实时播放地址。
     #[tokio::test]
@@ -605,7 +761,7 @@ mod tests {
             &text[..text.len().min(160)]
         );
         let q = format!("u={}", enc(&url));
-        let resp = handle("/hls", &q, LOCAL_ORIGIN, None).await;
+        let resp = handle("/hls", &q, LOCAL_ORIGIN, None, false).await;
         let body = String::from_utf8_lossy(resp.body()).to_string();
         println!("proxied status={} len={}", resp.status(), body.len());
         assert!(body.contains("#EXTM3U"));
@@ -617,7 +773,7 @@ mod tests {
             .to_string();
         println!("seg line: {}", &seg_line[..seg_line.len().min(120)]);
         let seg_q = seg_line.split("?u=").nth(1).unwrap();
-        let seg = handle("/seg", &format!("u={seg_q}"), LOCAL_ORIGIN, None).await;
+        let seg = handle("/seg", &format!("u={seg_q}"), LOCAL_ORIGIN, None, false).await;
         println!("segment status={} len={}", seg.status(), seg.body().len());
         assert_eq!(seg.status(), 200);
         assert!(seg.body().len() > 1000);

@@ -194,8 +194,11 @@ pub fn run() {
             // 自定义协议基址随平台不同，统一定义在 media::LOCAL_ORIGIN
             // （Windows/Android 是 http://<scheme>.localhost，macOS/iOS/Linux 是 <scheme>://localhost）。
             // 它同时是 m3u8 分片/key 改写用的前缀，必须与前端 src/shared/api/api.ts 的 LOCAL 一致。
+            // HEAD 语义透传（fix3311/file-leg-fix）：媒体文件目标的
+            // HEAD 在 media::handle 内只回元信息，不再落整段下载。
+            let head = request.method() == tauri::http::Method::HEAD;
             tauri::async_runtime::spawn(async move {
-                let mut resp = media::handle(&path, &query, media::LOCAL_ORIGIN, range.as_deref()).await;
+                let mut resp = media::handle(&path, &query, media::LOCAL_ORIGIN, range.as_deref(), head).await;
                 if let Some(origin) =
                     request_origin.and_then(|s| tauri::http::HeaderValue::from_str(&s).ok())
                 {

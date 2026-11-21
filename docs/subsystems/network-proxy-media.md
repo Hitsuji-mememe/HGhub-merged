@@ -125,6 +125,30 @@
    长、切片实为清单字节等）回退旧整段形态；无 Range 或非媒体文件目标（HLS 分
    片/key/嵌套清单）逐字走旧形态。已知边界：HEAD 等无 Range 请求仍走旧整段形
    态（大文件 HEAD 会 502，播放器与探针均不发无 Range 的文件请求）。
+   `/seg` 无 Range 形态与类型治理（fix3311/file-leg-fix，2026-11-21，定因见
+   `~/workspace/hghub/fix3311/evidence/file-playback-stall-investigation.md`）：
+   播放器（AVFoundation）对 file 流会发 HEAD/If-Range/多 Range/裸 GET 等无
+   Range 形态，旧形态在两个入口层把 Range 丢弃后一律落整段拼片级联（大文件
+   必爆 16MB 上限→502、数十秒零字节），且 021 上游恒回 `application/octet-
+   stream`、ranged 路径原样透传＋nosniff 使媒体元素以 code 4 拒收。现行：
+   ①类型归一——ranged/HEAD/末支三处响应经 `response::media_mime_for_target`：
+   上游给出 video/* 原样透传，非视频泛类型（octet-stream/binary/无类型）按
+   媒体文件扩展名映射为 video/* 回吐，nosniff 保留（防的是类型嗅探、问题在
+   类型本身）；②HEAD∧媒体文件目标改走 `segment::load_segment_head()`——经
+   `range_fetch::fetch_range_meta` 以 1 字节 Range 只读响应头取总长/类型，
+   回 200＋空体＋`Content-Length`=总长（`response::media_head_response`），
+   两套接字入口（iOS capability/Linux loopback）的写线长度对 HEAD 以响应头
+   部为准、GET 恒以体长为准；③裸 GET∧媒体文件目标改走
+   `segment::load_segment_unranged()`＝首窗 ranged 语义（206＋窗口体，上限
+   内文件自然全量 206），多 Range/If-Range 在入口层仍被丢弃、由此同落本形
+   态（最保守可播形态，不再落级联）；④窗口上限 15MB→4MB（回环层整窗缓冲
+   后才回吐首字节，真机 2.4MB/s 通道下 TTFB ≈6s→≈1.7s；显式/后缀区间一并
+   封顶，旧形态显式大区间直通必撞上限落级联）；真流式回吐（定因候选 5）牵
+   连 Tauri 协议整响应形态、本批未做、待真机起播 P50 证据再立项。非媒体文
+   件目标与清单回退形态逐字走旧整段路径。已知边界：以 .mp4 命名的超大 HLS
+   分片裸 GET 只回首窗（注册表内无已知源如此命名、带 Range 的请求不受影
+   响）；上游对 ranged 请求忽略 Range 回 200 时本地切片仅对 ≤16MB 文件可
+   达、大文件回 200 仍落 Fallback 旧形态（fix3310 既有记账）。
    清单腿总截止与在途合并（fix338/net-fix）：`load_playlist` 取数整体受 15 秒
    deadline 约束（小于 hls.js 的 manifestLoadingTimeOut 20s，失败由 Rust 层先于
    播放器超时以可分类的 502 给出），同 URL 并发经 `PL_LOADING` 与分片共用

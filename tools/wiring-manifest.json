@@ -2377,12 +2377,32 @@
       "min": 2
     },
     {
+      "id": "fix3311-seg-head-metadata",
+      "item": "fix3311/file-leg-fix /seg HEAD 元信息腿：mod.rs 分流对 HEAD∧媒体文件目标调 load_segment_head（只回元信息、零字节零级联；摘掉接线播放器 HEAD 探测回到整段拼片下载）",
+      "symbol": "load_segment_head",
+      "files": [
+        "src-tauri/src/media/mod.rs",
+        "src-tauri/src/media/segment.rs"
+      ],
+      "min": 2
+    },
+    {
       "id": "fix3311-discovery-gallery-strip",
       "item": "fix3311/discovery-rework 图片面 disc 失效化：stripDiscTaxonomy（types 定义＋SourceGallery 读取点消费），存量 category/tag 到不了 list 参数与滚动指纹；摘消费点「看不见的筛选」即回潮",
       "symbol": "stripDiscTaxonomy",
       "files": [
         "src/features/sources/types.ts",
         "src/features/sources/SourceGallery.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix3311-probe-multistep",
+      "item": "fix3311/file-leg-fix 自检 file 探针多步加固：manifestProbe 委托 fileProbe.probeFileStream（HEAD 等价＋0-1 试探＋首段 ftyp＋尾段实拉验 moov＋类型须 video/*；摘掉委托 file 流自检回到首段 2KB 单步、探针过点播死）",
+      "symbol": "probeFileStream",
+      "files": [
+        "src/features/sources/manifestProbe.ts",
+        "src/features/sources/fileProbe.ts"
       ],
       "min": 2
     }

@@ -74,7 +74,7 @@ enum Handler {
 impl Handler {
     async fn response(&self, request: &Request, origin: &str) -> Response<Vec<u8>> {
         match self {
-            Self::Media => crate::media::handle(&request.path, &request.query, origin, request.range.as_deref()).await,
+            Self::Media => crate::media::handle(&request.path, &request.query, origin, request.range.as_deref(), request.head).await,
             #[cfg(test)]
             Self::Fixture(calls) => {
                 calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -237,8 +237,22 @@ async fn write_response(
 ) -> io::Result<()> {
     let (parts, body) = response.into_parts();
     let status = parts.status;
+    /* 写线长度口径（fix3311/file-leg-fix）：GET 恒以体长为准（与
+     * 旧行为逐字一致，头部 Content-Length 由 respond 按体长写入、
+     * 两者恒等）；HEAD 的 Content-Length 语义是「对应 GET 的表示
+     * 长度」——media::handle 对媒体文件 HEAD 只回元信息（空体＋
+     * 总长头，见 media::response::media_head_response），此时以头
+     * 部为准；无头部时（本地 error_response）回退体长。 */
+    let wire_len = if head {
+        parts.headers.get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(body.len())
+    } else {
+        body.len()
+    };
     let mut headers = format!("HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n",
-        status.as_u16(), status.canonical_reason().unwrap_or("Response"), body.len());
+        status.as_u16(), status.canonical_reason().unwrap_or("Response"), wire_len);
     for (name, value) in &parts.headers {
         if matches!(name.as_str(), "content-length" | "connection" | "transfer-encoding" | "cache-control" | "access-control-allow-origin" | "vary") {
             continue;

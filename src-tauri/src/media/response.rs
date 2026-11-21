@@ -166,20 +166,60 @@ pub(super) fn segment_response(
             ),
         };
     }
-    respond(
-        200,
-        ctype.unwrap_or("application/octet-stream"),
-        bytes,
-        PROXIED_MEDIA_CACHE_CONTROL,
-    )
+    /* 媒体文件目标的类型归一（fix3311/file-leg-fix）：整段路径的
+     * ctype 来自上游（download_segment 仅在上游缺省时按扩展名兜
+     * 底）——021 形态的 octet-stream 在此原样透传会与 ranged 路径
+     * 同病（code 4 拒收）。仅媒体文件目标在末支归一，清单/Key/分
+     * 片（.ts/.m4s/.m3u8）逐字不变。 */
+    let mime = if super::segment::is_media_file_target(target) {
+        media_mime_for_target(target, ctype)
+    } else {
+        ctype.unwrap_or("application/octet-stream").to_string()
+    };
+    respond(200, &mime, bytes, PROXIED_MEDIA_CACHE_CONTROL)
+}
+
+/// 媒体文件目标的响应类型归一（Muse 2026-11-21 fix3311/file-leg-fix）：
+/// 上游类型已是 video/* 时原样透传；泛类型（application/octet-stream、
+/// 缺失、其他非视频类型）按目标扩展名映射为对应 video/*——021 上游
+/// 对一切 Range 请求恒回 octet-stream，App 侧原样透传又带 nosniff
+/// （respond 恒置），媒体元素以 MEDIA_ERR_SRC_NOT_SUPPORTED（code 4）
+/// 拒收（3.3.10 真机定案，调查 fix3311 §A）。映射表与
+/// segment::is_media_file_target 的扩展名集同界；不在集内的目标
+/// 保持上游值（或 octet-stream 缺省），行为不变。
+pub(super) fn media_mime_for_target(target: &str, upstream: Option<&str>) -> String {
+    if let Some(raw) = upstream {
+        let base = raw.split(';').next().unwrap_or(raw).trim();
+        if base.to_ascii_lowercase().starts_with("video/") {
+            return raw.to_string();
+        }
+    }
+    let path = target
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(target)
+        .to_ascii_lowercase();
+    if path.ends_with(".mp4") || path.ends_with(".m4v") {
+        "video/mp4".to_string()
+    } else if path.ends_with(".mov") {
+        "video/quicktime".to_string()
+    } else if path.ends_with(".webm") {
+        "video/webm".to_string()
+    } else if path.ends_with(".mkv") {
+        "video/x-matroska".to_string()
+    } else {
+        upstream.unwrap_or("application/octet-stream").to_string()
+    }
 }
 
 /// ranged 直通的 206 整形（Muse 2026-11-21 fix3310/file-playback-leg）：
 /// 上游已按请求区间回字节（segment::load_segment_ranged），这里只
 /// 补 Content-Range/Accept-Ranges 并以窗口字节为体；状态 206 使
 /// handle 末端的 apply_byte_range 原样直通（其只整形 200）。
-/// 调用方保证 bytes 非空且 start+len-1 < total。
+/// 调用方保证 bytes 非空且 start+len-1 < total。响应类型经
+/// media_mime_for_target 归一（fix3311，见其注）。
 pub(super) fn range_window_response(
+    target: &str,
     ctype: Option<&str>,
     bytes: Vec<u8>,
     start: u64,
@@ -189,7 +229,7 @@ pub(super) fn range_window_response(
     let end = start + bytes.len() as u64 - 1;
     let mut response = respond(
         206,
-        ctype.unwrap_or("application/octet-stream"),
+        &media_mime_for_target(target, ctype),
         bytes,
         PROXIED_MEDIA_CACHE_CONTROL,
     );
@@ -201,6 +241,35 @@ pub(super) fn range_window_response(
         HeaderValue::from_str(&format!("bytes {start}-{end}/{total}"))
             .unwrap_or_else(|_| HeaderValue::from_static("bytes */*")),
     );
+    response
+}
+
+/// HEAD 元信息响应（Muse 2026-11-21 fix3311/file-leg-fix）：媒体
+/// 文件目标的 HEAD 只回头不回体——Content-Length 写文件总长（而
+/// 非空体长度，覆盖 respond 的体长值）、类型经 media_mime_for_
+/// target 归一、Accept-Ranges 声明可分段。两个套接字入口
+/// （ios_media_http/linux_http）对 HEAD 请求以本响应的
+/// Content-Length 头为准写线；其 GET 路径仍以体长为准（各入口注）。
+pub(super) fn media_head_response(
+    target: &str,
+    ctype: Option<&str>,
+    total: u64,
+) -> Response<Vec<u8>> {
+    use tauri::http::HeaderValue;
+    let mut response = respond(
+        200,
+        &media_mime_for_target(target, ctype),
+        Vec::new(),
+        PROXIED_MEDIA_CACHE_CONTROL,
+    );
+    response.headers_mut().insert(
+        "Content-Length",
+        HeaderValue::from_str(&total.to_string())
+            .unwrap_or_else(|_| HeaderValue::from_static("0")),
+    );
+    response
+        .headers_mut()
+        .insert("Accept-Ranges", HeaderValue::from_static("bytes"));
     response
 }
 
@@ -464,6 +533,19 @@ mod tests {
             playlist.headers()["Cache-Control"],
             PROXIED_MEDIA_CACHE_CONTROL
         );
+    }
+
+    /* fix3311/file-leg-fix：类型归一——video 类型透传、泛类型按
+     * 扩展名映射、集外目标保持原值。 */
+    #[test]
+    fn media_mime_normalizes_generic_types_for_file_targets() {
+        assert_eq!(media_mime_for_target("https://cdn.example/v.mp4", Some("application/octet-stream")), "video/mp4");
+        assert_eq!(media_mime_for_target("https://cdn.example/v.webm", None), "video/webm");
+        assert_eq!(media_mime_for_target("https://cdn.example/v.mov", Some("application/octet-stream")), "video/quicktime");
+        assert_eq!(media_mime_for_target("https://cdn.example/v.mkv", Some("binary/octet-stream")), "video/x-matroska");
+        assert_eq!(media_mime_for_target("https://cdn.example/v.mp4", Some("video/mp4")), "video/mp4", "已是 video/* 原样透传");
+        assert_eq!(media_mime_for_target("https://cdn.example/seg.ts", Some("application/octet-stream")), "application/octet-stream", "集外目标不变");
+        assert_eq!(media_mime_for_target("https://cdn.example/seg.ts", None), "application/octet-stream");
     }
 
     #[test]
