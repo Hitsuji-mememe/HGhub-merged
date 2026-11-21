@@ -23,7 +23,7 @@ import { createAdapter } from "./adapters/index.ts";
 import { noteSourceListSuccess, useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import { assembleAlbumGallery } from "./albumGallery.ts";
 import DiscoveryBar from "./DiscoveryBar";
-import { discFingerprint, EMPTY_LIST_DISCOVERY, type ListDiscovery } from "./types.ts";
+import { discFingerprint, EMPTY_LIST_DISCOVERY, stripDiscTaxonomy, type ListDiscovery } from "./types.ts";
 import type { SourceDef, SourceItem } from "./types.ts";
 
 type AlbumState =
@@ -64,7 +64,11 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
   /* 发现维度（fix335/f-discovery）：同 SourceBrowse 口径——disc 按
    * 源 id 隔离、指纹进滚动恢复 key，空 disc 时 key 与 D 线逐字一致。 */
   const [discMap, setDiscMap] = useState<Record<string, ListDiscovery>>({});
-  const disc = discMap[def.id] ?? EMPTY_LIST_DISCOVERY;
+  /* 图片面 disc 失效化（fix3311/discovery-rework，审计 §8.2）：
+   * 读取点经 stripDiscTaxonomy 剥 category/tag——图片面发现只
+   * 走排序＋查找，残存的两字段值到不了 list 参数与滚动指纹，
+   * 不形成「看不见的筛选」；sort 保留逐字不变。 */
+  const disc = stripDiscTaxonomy(discMap[def.id] ?? EMPTY_LIST_DISCOVERY);
   const discFp = discFingerprint(disc);
   const discArg = discFp ? disc : undefined;
   const applyDisc = useCallback((next: ListDiscovery) => {
@@ -276,7 +280,7 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
 
   return (
     <div className="px-4 pt-2">
-      <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc} />
+      <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc} noTaxonomyRows />
       {items.length > 0 && err && (
         <div role="status" className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-mut">
           <span>{err}</span><Button className="px-3 text-primary" onClick={() => void load(false)}>重试</Button>
