@@ -95,7 +95,7 @@ const flush = async (rounds = 60) => {
     "51chigua 声明 staffVerify（fix335/b-purify 校准：字数不承重 100000；图 26＝站务图数上限 23 与内容下限 30 的空带 24–29 内）");
   assert.deepEqual(cfgOf("meiridasai"), { maxBodyChars: 100000, maxBodyImages: 18 },
     "meiridasai 声明 staffVerify（fix335/b-purify 校准：字数不承重 100000；图 18＝公告图数上限 16 与内容下限 21 的空带 17–20 内）");
-  for (const id of ["huangguo", "xiuren", "hanime-tv"]) {
+  for (const id of ["huangguo", "xiuren", "cosplaytele"]) {
     assert.equal(staffVerifyConfig(def(id)), null, `${id} 未声明 staffVerify（零外溢）`);
   }
   assert.match(promoVerifyScope(def("feedheiliao"), cfgOf("feedheiliao")),

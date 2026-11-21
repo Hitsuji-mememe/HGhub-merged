@@ -118,14 +118,17 @@ const synthAdapter = {
   /* 单集模板：detail 只有「正片」一条且模板事实 single → 不出
    * 选集（单集条目行为与现状一致：无选集区）。 */
   const singleDetail: SourceDetail = {
-    ...hhDetail, sourceId: "hanime-tv", externalId: "x",
+    ...hhDetail, sourceId: "51chigua", externalId: "x",
     episodes: [{ label: "正片", externalId: "x" }],
   };
-  assert.deepEqual(episodeChoicesForSurface("play-external", def("hanime-tv"), singleDetail), [], "single 模板不出选集");
-  assert.deepEqual(episodeChoicesForSurface("search-external-detail", def("hanime-tv"), singleDetail), [], "single 模板搜索面同样不出选集");
+  /* 断言适配（fix3314）：single 模板样本原用 hanime-tv（hanime-api），
+   * 该模板已随视频板块删除退役，样本改存活 single 模板源 51chigua
+   * （chigua），覆盖不变。 */
+  assert.deepEqual(episodeChoicesForSurface("play-external", def("51chigua"), singleDetail), [], "single 模板不出选集");
+  assert.deepEqual(episodeChoicesForSurface("search-external-detail", def("51chigua"), singleDetail), [], "single 模板搜索面同样不出选集");
 
   assert.deepEqual(episodeChoicesForSurface("play-external", undefined, hhDetail), [], "无 def 回空");
-  assert.deepEqual(episodeChoicesForSurface("play-external", def("hanime-tv"), undefined), [], "无 detail 回空");
+  assert.deepEqual(episodeChoicesForSurface("play-external", def("51chigua"), undefined), [], "无 detail 回空");
 }
 
 
@@ -147,19 +150,11 @@ const synthAdapter = {
   assert.equal(dflt.streamUrl, "https://cdn.example.com/hh-fixture-001.m3u8", "不带集参数仍默认第一集（既有行为不变）");
 }
 
-/* ══ §5 两条路径接线文本断言 ══ */
+/* ══ §5 路径接线文本断言 ══ */
 {
-  const browse = src("./SourceBrowse.tsx");
-  assert.ok(browse.includes("episodeChoicesForSurface"), "SourceBrowse 消费选集派生");
-  assert.ok(browse.includes("\"play-external\""), "SourceBrowse 宿主面＝play-external");
-  /* 渲染形断言（fix334 清扫已坏-3 补强）：只查符号子串时改名/
-   * 摘除 JSX 渲染仍全绿——须断言 JSX 实际渲染形在场。 */
-  assert.ok(browse.includes("<EpisodePicker "), "SourceBrowse 实际渲染 EpisodePicker（JSX 形）");
-  assert.ok(browse.includes("adapter.detail(item.externalId)"), "SourceBrowse openItem 并发取 detail（选集数据来源）");
-  assert.ok(browse.includes("currentEpExternalId"), "SourceBrowse 持有当前集状态");
-  assert.ok(browse.includes("scopeKey={`${def.id}:${detail.currentEpExternalId}`}"), "Player scopeKey 随当前集变更（防串集缓存）");
-  assert.ok(browse.includes("adapter.resolve(choice.externalId)"), "SourceBrowse 切集以所选 externalId 重新 resolve");
-
+  /* 断言适配（fix3314）：原 SourceBrowse 宿主已随视频板块删除退
+   * 场，选集派生的生产宿主只剩 Search 外部详情一处——其接线断言
+   * 保留在下，强度不变。 */
   const search = src("../search/Search.tsx");
   assert.ok(search.includes("episodeChoicesForSurface"), "Search 消费选集派生");
   assert.ok(search.includes("\"search-external-detail\""), "Search 宿主面＝search-external-detail");

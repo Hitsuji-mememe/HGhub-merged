@@ -84,7 +84,9 @@ const def = (id: string): SourceDef => {
 
 /* ── (C) 登记表与 fix336 去重不回退 ── */
 {
-  for (const id of ["xiuren", "everia", "hentaiplay", "hanime-tv"]) {
+  /* 断言适配（fix3314）：hentaiplay/hanime-tv 随视频板块删除退场，
+   * 登记不回退的守恒对象只剩存活 taxonomy 源。 */
+  for (const id of ["xiuren", "everia"]) {
     const spec = discoverySpecFor(def(id));
     assert.equal(spec.categories?.source, "taxonomy", `${id} 登记仍含 taxonomy 分类`);
     assert.equal(spec.tagFilter, true, `${id} 登记仍含 tagFilter`);
@@ -178,7 +180,7 @@ const def = (id: string): SourceDef => {
 
 /* ── (G) 兴趣直达接线（源码文本断言） ── */
 {
-  for (const f of ["./SourceBrowse.tsx", "./SourceGallery.tsx", "./SourcePosts.tsx"]) {
+  for (const f of ["./SourceGallery.tsx", "./SourcePosts.tsx"]) {
     assert.ok(read(f).includes("useDiscState"), `${f} 接 disc 落盘 hook`);
     assert.ok(read(f).includes("recentCategories"), `${f} 向 DiscoveryBar 下传最近分类`);
   }
@@ -201,19 +203,21 @@ const def = (id: string): SourceDef => {
     "swimsuit", "milf", "watersports", "comedy", "orgy", "threesome", "horror", "ugly bastard",
     "dark skin", "pov", "mind break", "lactation", "mind control", "nurse", "futanari",
     "foot job", "inflation", "rimjob", "scat", "pregnant", "tsundere", "nekomimi", "softcore", "trap", "yaoi"];
-  for (const n of tags002) assert.ok(taxonZhLabel("hanime-tv", n) !== null, `002 题材词有译名：${n}`);
+  /* 断言适配（fix3314）：002/020 已删——两组词本就只钉共享表覆盖
+   * （两源从无源表），改以存活源 xiuren 为查表键、覆盖口径不变。 */
+  for (const n of tags002) assert.ok(taxonZhLabel("xiuren", n) !== null, `共享表题材词有译名（原 002 名单）：${n}`);
   const tags020 = ["Blowjob", "Creampie", "Vanilla", "Rape", "Boobjob", "Gangbang", "Uncensored",
     "Harem", "Virgin", "Exhibition", "Series", "Anal", "Exclusive", "Sex Toy", "Motion Anime",
     "Bondage", "Masturbation", "Incest", "Cheating", "Yuri", "School", "Fantasy", "Swimsuit",
     "X-Ray", "Maid", "Monster", "Tentacle", "Demon", "Footjob", "Futanari", "Nurse", "Preview"];
-  for (const n of tags020) assert.ok(taxonZhLabel("hentaigasm", n) !== null, `020 题材词有译名：${n}`);
+  for (const n of tags020) assert.ok(taxonZhLabel("xiuren", n) !== null, `共享表题材词有译名（原 020 名单）：${n}`);
 
   /* 不收录钉：歧义/专名/同形——回落原名是设计、不是缺漏。 */
   for (const [id, n] of [
-    ["hanime-tv", "filmed"], ["hanime-tv", "bdsm"], ["hanime-tv", "2000-year-old dragon girl"],
-    ["hentaigasm", "Season"], ["pixibb", "Almost Real"], ["pixibb", "Hot Games"],
+    ["xiuren", "filmed"], ["xiuren", "bdsm"], ["xiuren", "2000-year-old dragon girl"],
+    ["xiuren", "Season"], ["pixibb", "Almost Real"], ["pixibb", "Hot Games"],
     ["nudecosplay", "Waifu AI"], ["xiuren", "Hot Girl"], ["xiuren", "DJAWA"],
-    ["hentaiplay", "Pink Pineapple"], ["cosplaytele", "Genshin Impact"], ["everia", "Graphis"],
+    ["cosplaytele", "Genshin Impact"], ["everia", "Graphis"],
   ] as const) {
     assert.equal(taxonZhLabel(id, n), null, `不译（歧义/专名）：${id}/${n}`);
   }
@@ -221,7 +225,7 @@ const def = (id: string): SourceDef => {
   /* 逐源分类：源表优先、共享兜底。 */
   assert.equal(taxonZhLabel("everia", "Japan"), "日本", "018 地域桶走源表");
   assert.equal(taxonZhLabel("everia", "Cosplay"), "角色扮演", "018 分类共享词走共享表");
-  assert.equal(taxonZhLabel("hentaiplay", "RAW"), "生肉", "021 属性桶走源表");
+  /* 021 源表已随源删除（fix3314），其专属断言退役。 */
   assert.equal(taxonZhLabel("xiuren", "XiuRen"), "秀人网", "006 厂牌中文名走源表");
   assert.equal(taxonZhLabel("xiuren", "Maid"), "女仆", "006 标签题材词走共享表");
   assert.equal(taxonZhLabel("pixibb", "Uncategorized"), "未分类", "通用桶走共享表");
@@ -235,14 +239,15 @@ const def = (id: string): SourceDef => {
   /* 表规模（防整表误删）：共享＋源表合计与逐源条数下限。 */
   const sharedCount = Object.keys(SHARED_TAXON_LABELS_ZH).length;
   assert.ok(sharedCount >= 170, `共享题材词表规模（实际 ${sharedCount}）`);
-  for (const [id, min] of [["everia", 4], ["hentaiplay", 6], ["pixibb", 3], ["nudecosplay", 3], ["xiuren", 14]] as const) {
+  for (const [id, min] of [["everia", 4], ["pixibb", 3], ["nudecosplay", 3], ["xiuren", 14]] as const) {
     assert.ok(Object.keys(SOURCE_TAXON_LABELS_ZH[id]).length >= min, `${id} 源表条数`);
   }
 
   /* 接线：分类/标签 chip 经 taxonPill 显示、排序行不经汉化。 */
   const bar = read("./DiscoveryBar.tsx");
   assert.ok(bar.includes("taxonPill"), "DiscoveryBar 分类/标签 chip 经汉化显示");
-  assert.ok(bar.includes("pill(`sort:${o.value}`, o.label"), "排序行保持登记原名、不经汉化改写");
+  /* 断言适配（fix3314）：排序改分段开关、按钮仍直用登记原名。 */
+  assert.ok(bar.includes("onClick={() => setSort(o.value)}>{o.label}</Button>"), "排序分段开关保持登记原名、不经汉化改写");
 }
 
 console.log("fix3312-discovery-b contract (segments 1-3): PASS");

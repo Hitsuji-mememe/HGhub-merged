@@ -210,7 +210,7 @@ function newTracker(): Tracker {
 
 /* ── (d) 旧指纹迁移：逐条按新口径判定去留、不无条件全丢 ── */
 {
-  const activeDef = getBuiltinRegistry().find((s) => s.id === "hanime-tv")!;
+  const activeDef = getBuiltinRegistry().find((s) => s.id === "xiuren")!;
   const MV = getActiveRegistry().manifestVersion;
   const AV = getRegistryInfo().appVersion;
   const legacyBase = {
@@ -220,14 +220,14 @@ function newTracker(): Tracker {
   };
   const storage = fakeStorage();
   storage.map.set("hghubx_source_selfcheck_v1", JSON.stringify({
-    "hanime-tv": { sourceId: "hanime-tv", ...legacyBase, manifestVersion: MV, appVersion: AV },
+    "xiuren": { sourceId: "xiuren", ...legacyBase, manifestVersion: MV, appVersion: AV },
     "gone-app": { sourceId: "gone-app", ...legacyBase, manifestVersion: MV, appVersion: "0.0.0-old" },
     "gone-manifest": { sourceId: "gone-manifest", ...legacyBase, manifestVersion: MV + 99, appVersion: AV },
   }));
   bindSelfCheckStorage(storage);
   const loaded = getSelfCheckResults();
 
-  const kept = loaded["hanime-tv"];
+  const kept = loaded["xiuren"];
   assert.ok(kept, "同 App 版本∧同清单版本的旧结果迁移后保留、不丢弃");
   assert.equal(kept.protocolVersion, SELF_CHECK_PROTOCOL_VERSION, "迁移：协议版本按现行全链口径认定");
   assert.equal(kept.adapterEpoch, SELF_CHECK_ADAPTER_EPOCH, "迁移：同 App 版本＝同一适配器代码、纪元按现行认定");
@@ -250,8 +250,8 @@ function newTracker(): Tracker {
   /* 迁移结果随下一次落盘以新格式写回（存储里不再留旧指纹）。 */
   saveSelfCheckResult({ ...kept, at: NOW });
   const stored = JSON.parse(storage.map.get("hghubx_source_selfcheck_v1") ?? "{}") as Record<string, Record<string, unknown>>;
-  assert.equal(stored["hanime-tv"].protocolVersion, SELF_CHECK_PROTOCOL_VERSION, "写回后存储为新指纹格式");
-  assert.equal(stored["hanime-tv"].appVersion, undefined, "写回后旧 App 版本指纹字段退役");
+  assert.equal(stored["xiuren"].protocolVersion, SELF_CHECK_PROTOCOL_VERSION, "写回后存储为新指纹格式");
+  assert.equal(stored["xiuren"].appVersion, undefined, "写回后旧 App 版本指纹字段退役");
   bindSelfCheckStorage(null);
 }
 

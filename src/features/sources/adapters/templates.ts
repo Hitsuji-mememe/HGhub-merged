@@ -10,11 +10,10 @@
 import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem, SourceTaxonomy } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
-import { IWARA_API_ORIGIN } from "./fetchOrigins.ts";
-import { httpStatusOf, traceResolveFailure } from "./resolveTrace.ts";
-import { allImgSrcs, cardCategoryTokens, contentImgSrcs, decodeEntities, extractIframeSrc, extractJwFile, extractJwImage, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, lastPageInNav, metaContent, pageOf, stripTags } from "./parse.ts";
+import { httpStatusOf } from "./resolveTrace.ts";
+import { allImgSrcs, cardCategoryTokens, contentImgSrcs, decodeEntities, extractIframeSrc, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, lastPageInNav, metaContent, pageOf, stripTags } from "./parse.ts";
 
-export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "hanime-api", "iwara-api", "none"] as const;
+export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "none"] as const;
 type Params = Record<string, unknown>;
 const str = (p: Params, k: string, d = "") => (typeof p[k] === "string" ? (p[k] as string) : d);
 
@@ -35,7 +34,7 @@ function absUrl(base: string, href: string): string {
  * 恒 2，三套 UI 以 page>=pages 停拉，各源在 20–40 条见底，与站方
  * 万级库存脱钩（审计 fix335/audit-007-inventory.md §1，live 旧红
  * harness 实证）。新口径：pages 只许来自下列信号，按优先级——
- * ① 服务端真信号：API 总数字段（iwara count）、HTML 分页导航末页
+ * ① 服务端真信号：API 总数字段、HTML 分页导航末页
  *    （parse.ts lastPageInNav）、响应自带总页数；
  * ② 「下一页」链接实存（HTML 列表模板，nextPageLinkPresent）；
  * ③ 满页推断：本页取回数达到请求页容量（服务端页式 API 的满页是
@@ -452,36 +451,15 @@ export function createHlsSiteAdapter(def: SourceDef): SourceAdapter {
 }
 
 /** (b) WP REST 骨架（秀人网）。
- * JW 校准（Muse 2026-11-21 fix3310/video-add-2，020）：params
- * 声明 jwFile=true 时，正文 JW Player setup 的 file:/image: 字段
- * 经 parse.ts 小解析消费——resolve 在 extractMp4 之前先取 JW
- * file（该形态 URL 含空格、stock 正则恒不命中，JW setup 是播放
- * 器事实源、优先于正文散落的 mp4 链接）；toItem 封面在 <img>
- * 采集落空时回落 JW image。未声明的源逐字走旧行为。
- * Yoast 封面校准（Muse 2026-11-21 fix3312/cover-021，021）：
- * params 声明 yoastCover=true 时，toItem 封面在 <img>/JW 回落
- * 均落空后再回落帖对象 yoast_head_json.twitter_image——Yoast
- * SEO 发出的社交图字段、与 featured_media 同一文件、就在列表
- * 载荷内一次取数可得（021 接线时「封面不在 REST 载荷内」的
- * 结论只查了正文/excerpt 的 <img>，逐 key 穷尽复核后订正，
- * 证据 fix3312/evidence/cover-021.md）。Yoast 个别帖不发该
- * 字段时如实留空、不合成地址。未声明的源逐字走旧行为。 */
+ * （fix3314：JW 回落（原 020 专用）与 Yoast 封面回落（原 021 专
+ * 用）随视频板块整组删除同删——两 opt-in 的唯一声明源均已摘
+ * 除，见 fix3314/release-note-3314.md。） */
 export function createWpRestAdapter(def: SourceDef): SourceAdapter {
   const params = (def.adapter.params ?? {}) as Params;
   const restBase = str(params, "restBase", "/wp-json/wp/v2");
   const listPath = str(params, "listPath", "/posts");
-  const jwFile = params.jwFile === true;
-  const yoastCover = params.yoastCover === true;
   const apiUrl = (path: string) => `${def.baseUrls[0]}${restBase}${path}`;
-  interface WpPost { id: number; link: string; title?: { rendered?: string }; content?: { rendered?: string }; excerpt?: { rendered?: string }; categories?: number[]; tags?: number[]; yoast_head_json?: { twitter_image?: string } }
-  /* Yoast 回落取值守卫（Muse 2026-11-21 fix3312 disc-fix 同批，
-   * 清扫潜在-1）：twitter_image 只认字符串——上游畸形数据发数字/
-   * 对象时如实留空，不让非字符串进 SourceItem.cover（其类型声明
-   * 为 string，下游 /img 与 img src 按字符串消费）。 */
-  const yoastImage = (p: WpPost): string => {
-    const v = p.yoast_head_json?.twitter_image;
-    return typeof v === "string" ? v : "";
-  };
+  interface WpPost { id: number; link: string; title?: { rendered?: string }; content?: { rendered?: string }; excerpt?: { rendered?: string }; categories?: number[]; tags?: number[] }
   /* taxonomy 名称映射（Muse 2026-11-20 fix335/f-discovery）：帖子
    * 载荷只有分类/标签的数字 id，名称经 taxonomy 端点解析——分类名
    * 进 cats、标签名进 tags（真标签才进 tags 的口径）；taxonomy 不
@@ -493,7 +471,7 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
     const tags = tax ? names(p.tags, tax.tags) : [];
     return {
       sourceId: def.id, externalId: String(p.id),
-      title: stripTags(p.title?.rendered ?? ""), cover: firstImgSrc(p.excerpt?.rendered ?? "") || firstImgSrc(p.content?.rendered ?? "") || (jwFile ? extractJwImage(p.content?.rendered ?? "") ?? "" : "") || (yoastCover ? yoastImage(p) : ""),
+      title: stripTags(p.title?.rendered ?? ""), cover: firstImgSrc(p.excerpt?.rendered ?? "") || firstImgSrc(p.content?.rendered ?? ""),
       href: p.link, tags, ...(cats.length ? { cats } : {}),
     };
   };
@@ -598,12 +576,6 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
       const content = p.content?.rendered ?? "";
       const m3u8 = extractM3u8(content);
       if (m3u8) return { streams: [{ url: m3u8, kind: "hls" as const }] };
-      /* JW 形态（jwFile 声明源）：setup 的 file: 是播放器事实源，
-       * 先于 extractMp4 兜底（其 URL 含空格、兜底正则恒不命中）。 */
-      if (jwFile) {
-        const jw = extractJwFile(content);
-        if (jw) return { streams: [{ url: jw, kind: "file" as const }] };
-      }
       const mp4 = extractMp4(content);
       if (mp4) return { streams: [{ url: mp4, kind: "file" as const }] };
       // WP 站常见形态：正文只嵌播放器 iframe，流地址在 iframe 页内。
@@ -689,210 +661,3 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
     },
   };
 }
-
-/* ── SHA-1（纯实现，Muse 2026-11-19 fix330 接通批）：Iwara 取流
- * 签名头 X-Version 的摘要算法；同步实现避免 WebView/Node 两环境
- * crypto.subtle 可用性差异，契约以 Node createHash 对照验证。 */
-function sha1Hex(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  const bitLen = bytes.length * 8;
-  const padded = new Uint8Array((((bytes.length + 8) >> 6) + 1) << 6);
-  padded.set(bytes);
-  padded[bytes.length] = 0x80;
-  const dv = new DataView(padded.buffer);
-  dv.setUint32(padded.length - 4, bitLen >>> 0);
-  dv.setUint32(padded.length - 8, Math.floor(bitLen / 0x100000000));
-  let h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476, h4 = 0xc3d2e1f0;
-  const w = new Int32Array(80);
-  for (let off = 0; off < padded.length; off += 64) {
-    for (let i = 0; i < 16; i++) w[i] = dv.getInt32(off + i * 4);
-    for (let i = 16; i < 80; i++) { const x = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]; w[i] = (x << 1) | (x >>> 31); }
-    let a = h0, b = h1, c = h2, d = h3, e = h4;
-    for (let i = 0; i < 80; i++) {
-      let f = 0, k = 0;
-      if (i < 20) { f = (b & c) | (~b & d); k = 0x5a827999; }
-      else if (i < 40) { f = b ^ c ^ d; k = 0x6ed9eba1; }
-      else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }
-      else { f = b ^ c ^ d; k = 0xca62c1d6; }
-      const tmp = (((a << 5) | (a >>> 27)) + f + e + k + w[i]) | 0;
-      e = d; d = c; c = (b << 30) | (b >>> 2); b = a; a = tmp;
-    }
-    h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0; h3 = (h3 + d) | 0; h4 = (h4 + e) | 0;
-  }
-  return [h0, h1, h2, h3, h4].map((h) => (h >>> 0).toString(16).padStart(8, "0")).join("");
-}
-
-/** Iwara fileUrl 签名盐：站点协议固定常数（公开插件 iwara.js 与
- * 独立用户脚本双证据的协议事实、非用户凭据），X-Version =
- * sha1(<fileUrl 末段>_<expires 参数>_<盐>)。站点会轮换签名盐
- * （维护客户端 IwaraTool「verified」API 文档＋gallery-dl 双证据）：
- * 现行盐在前、旧盐兜底，逐个试——轮换期站方对旧签名回空表/错误，
- * 单盐一次判读即终局会把全站取流打成 stream_unavailable
- * （fix337/video-resolve）。 */
-const IWARA_FILE_VERSION_SALTS = [
-  "mSvL05GfEmeEmsEYfGCnVpEjYgTJraJN",
-  "5nFp9kmbNnHdAFhaqMvt",
-] as const;
-
-/** (h) Iwara 公开 API（Muse 2026-11-19 fix330 接通批）：结构据
- * Hentai-Park 公开插件 iwara.js 的协议事实（只借协议/结构、代码
- * 原创）：列表 GET api.iwara.tv/videos?sort=views&page=<0基>&limit
- * → {results:[{id,slug,title,file:{id,duration},user,tags,body}]}；
- * 搜索 GET /search?type=videos&query&page&limit 同形；详情 GET
- * /video/<id>；封面由 file.id 拼 files.iwara.tv/image/thumbnail/
- * <file.id>/thumbnail-00.jpg；取流 GET 详情 fileUrl（带 X-Version
- * 签名头，Rust source_fetch 仅对 files/filesq.iwara.tv 两 host
- * 定向放行该头）→ [{name,src:{view,download}}] mp4 多档取最高档。 */
-/* Iwara 排序值（Muse 2026-11-20 fix335/f-discovery）：/videos 的
- * sort 参数三值（探针实证：views 现行写死默认/date 最新/likes
- * 点赞，返回集与计数各异）；DiscoverySpec 同读本表。 */
-export const IWARA_SORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "views", label: "最热" },
-  { value: "date", label: "最新" },
-  { value: "likes", label: "点赞" },
-];
-
-export function createIwaraAdapter(def: SourceDef): SourceAdapter {
-  const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? IWARA_API_ORIGIN;
-  const siteBase = def.baseUrls.find((u) => !u.includes("api.")) ?? "https://www.iwara.tv";
-  interface IwaraVideo {
-    id?: string; slug?: string; title?: string; body?: string; fileUrl?: string;
-    file?: { id?: string; duration?: number };
-    tags?: { id?: string }[];
-  }
-  const toItem = (v: IwaraVideo): SourceItem | null => {
-    const id = String(v?.id ?? "");
-    const title = String(v?.title ?? "").trim();
-    const fileId = String(v?.file?.id ?? "");
-    if (!/^[A-Za-z0-9]{8,32}$/.test(id) || !title || !fileId) return null;
-    return {
-      sourceId: def.id, externalId: id, title,
-      cover: `https://files.iwara.tv/image/thumbnail/${encodeURIComponent(fileId)}/thumbnail-00.jpg`,
-      href: `${siteBase}/video/${id}/${v.slug ?? ""}`,
-      tags: (v.tags ?? []).map((t) => String(t?.id ?? "")).filter(Boolean),
-      duration: v.file?.duration ? String(v.file.duration) : undefined,
-    };
-  };
-  const getJson = async <T>(url: string, headers?: Record<string, string>): Promise<T> =>
-    JSON.parse(await fetchPage(url, headers)) as T;
-  const listFrom = async (url: string, page: number, size: number) => {
-    const d = await getJson<{ results?: IwaraVideo[]; count?: number }>(url);
-    const rows = Array.isArray(d?.results) ? d.results : [];
-    const items = rows.map(toItem).filter((x): x is SourceItem => x !== null);
-    /* 分页信号（fix335/a-pagination）：响应自带 count 总数字段
-     * （站方 API 协议事实，旧实现未消费、拿本页行数冒充总量）——
-     * 有 count 走真信号 pageOf；缺失/形态异常回落满页推断，满页
-     * 判读用过滤前行数（toItem 剔除的无效行不代表站方页未满）。 */
-    const pagination = typeof d?.count === "number" && Number.isFinite(d.count) && d.count >= 0
-      ? pageOf(d.count, page, size)
-      : { page, size, ...apiSignal(rows.length, page, size) };
-    return { items, pagination };
-  };
-  return {
-    sourceId: def.id,
-    async list(page, size, disc) {
-      /* 排序（fix335/f-discovery）：disc.sort 命中三值才切换，未
-       * 命中/缺省＝views（现行写死值，URL 逐字不变）。 */
-      const sort = disc?.sort && IWARA_SORT_OPTIONS.some((o) => o.value === disc.sort) ? disc.sort : "views";
-      const r = await listFrom(`${apiBase}/videos?sort=${sort}&page=${page - 1}&limit=${size}`, page, size);
-      /* 第一页空 = 解析为空抛错（旧口径不变）；第二页起空是满页
-       * 推断探出的尾页，按 listFrom 的信号收尾返回、不冒充故障。 */
-      if (r.items.length === 0 && page <= 1) throw new SourceParseEmptyError(def.id);
-      return r;
-    },
-    async detail(id) {
-      const v = await getJson<IwaraVideo>(`${apiBase}/video/${id}`);
-      const item = toItem(v);
-      if (!item) throw new Error("Iwara 条目无效");
-      return { ...item, description: String(v.body ?? ""), images: [], episodes: [{ label: "正片", externalId: id }] };
-    },
-    async resolve(id) {
-      /* 取流分段留痕（fix333-m5 P5，与 002 同口径）：detail（详情取数
-       * 得 fileUrl）/fetch（流表取数）/decode（流表判读）三段，任一
-       * 失败或终局无流落 source.resolve_fail，不再只有 fetchHealth
-       * 的 host 级兜底。取数在此内联（不走 getJson）以便分段归属，
-       * 失败行为与原实现一致（抛出点不变、空结果仍回空流表）。 */
-      let detailRaw: string;
-      try {
-        detailRaw = await fetchPage(`${apiBase}/video/${id}`);
-      } catch (e) {
-        traceResolveFailure(def.id, "detail", "detail_fetch_failed", httpStatusOf(e), 0);
-        throw e;
-      }
-      let v: IwaraVideo;
-      try {
-        v = JSON.parse(detailRaw) as IwaraVideo;
-      } catch (e) {
-        traceResolveFailure(def.id, "detail", "detail_decode_failed", undefined, 0);
-        throw e;
-      }
-      const fileUrl = String(v?.fileUrl ?? "");
-      if (!fileUrl) {
-        traceResolveFailure(def.id, "detail", "file_url_unavailable", undefined, 0);
-        return { streams: [] };
-      }
-      /* 签名盐逐个试（fix337/video-resolve）：fileUrl 形态可算签名
-       * 时按 IWARA_FILE_VERSION_SALTS 顺序逐盐取表，任一盐产出候选
-       * 即终局；取数失败/解码失败/非数组/零候选都先换下一盐，全盐
-       * 终局才按旧口径落痕/抛出（留痕只记终局一次、不按盐重复记）。
-       * fileUrl 形态异常算不出签名时退化为单次无签名取数（旧行为）。 */
-      let seg = "";
-      let exp = "";
-      try {
-        const u = new URL(fileUrl);
-        seg = u.pathname.split("/").filter(Boolean).pop() ?? "";
-        exp = u.searchParams.get("expires") ?? "";
-      } catch { /* fileUrl 形态异常：无签名取数、由响应形态决定成败 */ }
-      const versions: (string | undefined)[] = seg && exp
-        ? IWARA_FILE_VERSION_SALTS.map((salt) => sha1Hex(`${seg}_${exp}_${salt}`))
-        : [undefined];
-      type IwaraRow = { name?: string; quality?: string; src?: { view?: string; download?: string }; url?: string };
-      for (let attempt = 0; attempt < versions.length; attempt++) {
-        const last = attempt === versions.length - 1;
-        const version = versions[attempt];
-        let rowsRaw: string;
-        try {
-          rowsRaw = await fetchPage(fileUrl, version ? { "X-Version": version } : undefined);
-        } catch (e) {
-          if (!last) continue;
-          traceResolveFailure(def.id, "fetch", "stream_fetch_failed", httpStatusOf(e), 0);
-          throw e;
-        }
-        let rows: IwaraRow[];
-        try {
-          rows = JSON.parse(rowsRaw) as IwaraRow[];
-        } catch (e) {
-          if (!last) continue;
-          traceResolveFailure(def.id, "decode", "stream_decode_failed", undefined, 0);
-          throw e;
-        }
-        if (!Array.isArray(rows)) {
-          if (!last) continue;
-          traceResolveFailure(def.id, "decode", "stream_table_invalid", undefined, 0);
-          return { streams: [] };
-        }
-        /* 候选地址规范化（fix337/video-resolve）：站方流表的
-         * src.view/download 实为**协议相对地址**（//host/...，
-         * IwaraTool 取画质代码＋gallery-dl 双证据，客户端须补
-         * https:）——旧实现只收 ^https:// 把全部候选滤光，真机
-         * 取数/解码都成功却恒 stream_unavailable（3.3.6 三连）。 */
-        const cands = rows
-          .map((r) => {
-            const raw = r.src?.view ?? r.src?.download ?? r.url ?? "";
-            return { url: raw.startsWith("//") ? `https:${raw}` : raw, q: Number(String(r.name ?? r.quality ?? "").match(/\d+/)?.[0] ?? 0) };
-          })
-          .filter((c) => /^https:\/\//i.test(c.url));
-        cands.sort((a, b) => b.q - a.q);
-        if (cands.length) return { streams: [{ url: cands[0].url, kind: "file" as const }] };
-        if (!last) continue;
-        traceResolveFailure(def.id, "decode", "stream_unavailable", undefined, 0);
-        return { streams: [] };
-      }
-      return { streams: [] };
-    },
-    async search(q, page, size) {
-      return listFrom(`${apiBase}/search?type=videos&query=${encodeURIComponent(q.slice(0, 100))}&page=${page - 1}&limit=${size}`, page, size);
-    },
-  };
-}
-

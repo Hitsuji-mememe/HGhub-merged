@@ -285,16 +285,16 @@ const newCounter = () => ({ calls: 0, listPages: [] as number[] });
 /* ── (e) 旧两维指纹格式迁移：paging 归一 skipped、不冒充抽查过 ── */
 {
   const storage = fakeStorage();
-  const activeDef = getActiveRegistry().sources.find((s) => s.id === "hanime-tv")!;
+  const activeDef = getActiveRegistry().sources.find((s) => s.id === "xiuren")!;
   const legacy = {
-    sourceId: "hanime-tv", at: NOW, listOk: true, itemCount: 5, listFailure: null,
+    sourceId: "xiuren", at: NOW, listOk: true, itemCount: 5, listFailure: null,
     detail: "ok", detailFailure: null, requests: 3,
     tail: "ok", tailKind: "stream", tailFailure: null,
     manifestVersion: getActiveRegistry().manifestVersion, appVersion: getRegistryInfo().appVersion,
   };
-  storage.map.set("hghubx_source_selfcheck_v1", JSON.stringify({ "hanime-tv": legacy }));
+  storage.map.set("hghubx_source_selfcheck_v1", JSON.stringify({ "xiuren": legacy }));
   bindSelfCheckStorage(storage);
-  const migrated = getSelfCheckResults()["hanime-tv"];
+  const migrated = getSelfCheckResults()["xiuren"];
   assert.ok(migrated, "旧两维格式结果迁移保留（同 App∧同清单口径不变）");
   assert.equal(migrated.paging, "skipped", "迁移结果 paging 归一 skipped（旧口径未抽查）");
   assert.equal(migrated.pagingFailure, null, "迁移结果 pagingFailure 归一 null");

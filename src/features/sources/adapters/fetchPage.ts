@@ -16,7 +16,7 @@
  * source_fetch(url, headers?) 签名一致——headers 可选第二参，适配器
  * 需要 Referer/User-Agent 等头时传入；不传即无头，现有调用不受影响。
  * Rust 侧只放行 Referer/User-Agent/Accept/Accept-Language，其余头
- * 丢弃；定向例外只有 X-Version（仅 Iwara 文件 host，见 api/source.rs）。 */
+ * 丢弃（X-Version 定向例外已随 Iwara 源于 fix3314 整删，见 api/source.rs）。 */
 export type FetchPage = (url: string, headers?: Record<string, string>) => Promise<string>;
 
 export class SourceFetchChannelUnavailableError extends Error {

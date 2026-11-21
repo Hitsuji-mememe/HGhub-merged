@@ -16,27 +16,26 @@ import { traceFeed } from "../../shared/lib/feedTrace";
  * 者是已删的归类补判钩子 key 前缀；作用域口径本身在
  * localLibrary 与各消费面不变。 */
 import { Empty } from "../../shared/ui/ui";
-import { IAward, IBack, IChevR, IFilm, IFlame, IGrid, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
+import { IBack, IChevR, IFilm, IFlame, IGrid, ILayers, ISearch, ITag, ITrophy } from "../../shared/ui/icons";
 import { getBuiltinRegistry, sourcesForCategory, sourcesForChannel } from "../sources/registry";
 import { getActiveRegistry } from "../sources/manifest";
 import { SourcePendingNotice, SourceSwitcher, sourceOptionsForCategory, sourceOptionsForChannel } from "../sources/SourceSwitcher";
 import { getSourceLastViewed } from "../sources/healthCheck";
 import { useSourceSelfCheckOnShow } from "../sources/sourceHealth";
 import { isNativeSource, nativeSourceId, sourcesForSurface } from "../sources/surfaces";
-import SourceBrowse from "../sources/SourceBrowse";
 import SourceGallery from "../sources/SourceGallery";
 import { defaultSourceId, resolveSelectedSource } from "../sources/selectedSource";
 
 /* 短剧三类合一（根治包多源线条目5）：原 AI成人短剧 / AI成人漫剧
  * （及原创内的短剧/漫剧子筛）合并为一个「短剧」入口，cate 取
  * ai-duanju 为代表走既有 category 接口。
- * 分类修订（Muse 2026-11-19 最终版 D 线，①用户亲定条目7）：
- * cate="original" 频道显示名改「视频」（cate id 不变、接口不变），
- * 其频道页撤除 ai-manju/ai-duanju 子筛（与短剧频道同内容），只留
- * 全部；短剧频道（ai-duanju）本身不动。 */
+ * 视频频道下线（Muse 2026-11-21 fix3314，用户亲定）：原
+ * cate="original"「视频」频道（2026-11-19 改名沿革在案）随外部
+ * 视频板块整组删除退场——CHANNELS 只剩短剧一行；ChannelPage 对
+ * cate="original" 与 "video:<id>" 深链落下线提示（见下方退场
+ * 分支），不再取数。 */
 export const CHANNELS = [
   { cate: "ai-duanju", name: "短剧", Icon: IFilm },
-  { cate: "original", name: "视频", Icon: IAward },
 ] as const;
 
 /* ── 归类补判钩子已删（Muse 2026-11-20 fix336/ui-fixes）：它在
@@ -58,12 +57,12 @@ export const CHANNELS = [
  *
  * 频道行收敛（Muse 2026-11-20 fix336/ui-fixes，用户亲定「短剧
  * 视频都是折叠的 你图片反而是这么露出来的」）：总览只留频道行
- * ——短剧/视频/吃瓜/图片四行，行集由 overviewRows 单一数组派
- * 生、页头计数＝行数（恒 4），不再有手算偏移；图片/视频源行整
- * 区退场，源一律进频道内页以 chips 切（图片→ChannelPage 的
- * cate="image" 频道分支、视频→视频频道切换器），源状态徽标随
- * chips 的 healthCheck 单一派生呈现。总览纵深自此与注册表规模
- * 脱钩：页头＋四行＋专题/标签/排行榜入口即全部。 */
+ * ——行集由 overviewRows 单一数组派生、页头计数＝行数，不再有
+ * 手算偏移；源行整区退场，源一律进频道内页以 chips 切，源状态
+ * 徽标随 chips 的 healthCheck 单一派生呈现。总览纵深自此与注
+ * 册表规模脱钩：页头＋频道行＋专题/标签/排行榜入口即全部。
+ * （fix3314：视频频道行随视频板块整组删除退场，行集＝短剧/
+ * 吃瓜/图片三行。） */
 export default function Category({ wide, active }: { wide: boolean; active: boolean }) {
   void active; /* 索引为静态派生、无首开预览请求，active 不再门控加载 */
   const { push, setTab } = useStore();
@@ -79,15 +78,14 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
   /* 吃瓜补探名单仍读 surfaces 派生（overview-posts 面，与
    * routeForSurface 互为一致）：索引化后吃瓜的 show-batch 靠本面
    * 索引行渲染处同钩子同口径批量补探（fix333/selfcheck-trigger
-   * 落点不变）。图片/视频源的补探随源行退场迁往各频道页的切换
-   * 器——SourceSwitcher 挂载即对本面选项批量补探，channel-image/
-   * channel-video 两面的 topUp 声明同为 show-batch（fix334-
-   * surfaces 契约对账）。 */
+   * 落点不变）。图片源的补探随源行退场迁往频道页的切换器——
+   * SourceSwitcher 挂载即对本面选项批量补探，channel-image 面的
+   * topUp 声明为 show-batch（fix334-surfaces 契约对账）。 */
   const postsRowSources = sourcesForSurface("overview-posts", activeSources);
   useSourceSelfCheckOnShow(postsRowSources);
-  /* 频道行集（fix336/ui-fixes 单一派生）：四行写死在此一处——
-   * 短剧/视频来自 CHANNELS、吃瓜与图片为固定行；页头计数直接
-   * 读行集长度（恒 4），行增减只改此数组、不再有第二处计数。 */
+  /* 频道行集（fix336/ui-fixes 单一派生）：行集写死在此一处——
+   * 短剧来自 CHANNELS、吃瓜与图片为固定行；页头计数直接读行
+   * 集长度，行增减只改此数组、不再有第二处计数。 */
   const overviewRows: { key: string; title: string; icon: ReactNode; onClick: () => void }[] = [
     ...CHANNELS.map((c) => {
       const ChannelIcon = c.Icon;
@@ -144,12 +142,12 @@ export default function Category({ wide, active }: { wide: boolean; active: bool
             onClick={() => push({ kind: "tags" })} />
         </CollectionLinks>
 
-        {/* 频道索引行（fix336/ui-fixes 后总览全部内容行）：四行
-            由 overviewRows 单一数组渲染——短剧/视频/图片进
-            ChannelPage（图片为 cate="image" 频道分支、页内 chips
-            切源）、吃瓜进 PostsPage；总览不再有源行区，源列示
-            出处迁频道内页切换器与深链（cate="image:<id>"/
-            "video:<id>" 分支保留、资料库回访照常）。 */}
+        {/* 频道索引行（fix336/ui-fixes 后总览全部内容行）：由
+            overviewRows 单一数组渲染——短剧/图片进 ChannelPage
+            （图片为 cate="image" 频道分支、页内 chips 切源）、
+            吃瓜进 PostsPage；总览不再有源行区，源列示出处迁频
+            道内页切换器与深链（cate="image:<id>" 分支保留、资
+            料库回访照常）。 */}
         <section aria-label="频道" className="mb-5 a-rise">
           <div className="flex flex-col gap-2">
             {overviewRows.map((r) => (
@@ -196,13 +194,10 @@ const CHANNEL_SORTS = [
  * 列表，原生空壳 chip 退场后该列表不再经本页呈现，子筛与排序
  * 映射随之移除；原生短剧/吃瓜面不经此常量、不受影响。 */
 
-export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExternalEp }: {
+export function ChannelPage({ cate, name, onBack, wide, openExternalId }: {
   cate: string; name: string; onBack: () => void; wide: boolean;
   /** G4 回访直达（fix334/L3）：透传给深链分支的浏览组件。 */
   openExternalId?: string;
-  /** 续播到集（fix334 清扫已坏-2）：历史回访带入的集序位，只透
-   * 传给视频分支的 SourceBrowse（图集无集数概念、不消费）。 */
-  openExternalEp?: number;
 }) {
   const { push, lineEpoch } = useStore();
   const { preferences } = useContentPreferences();
@@ -213,18 +208,12 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
    * id 字面量（原生判定仍以 isNativeSource 模板判据为准）。 */
   const nativeId = nativeSourceId();
   const nativeLabel = getBuiltinRegistry().find((d) => d.id === nativeId)?.displayName ?? "黄果";
-  /* 频道初始落点（Muse 2026-11-20 fix336/ui-fixes）：
-   * - 视频频道（original）：原生空壳 chip 已退场，初始值只在外
-   *   部视频源里按既有记忆口径定（defaultSourceId：最近打开优
-   *   先、无记忆落首个可用外部源）；无外部源时暂填原生 id 占
-   *   位，下方空名单分支落诚实空态、不渲染原生列表。
-   * - 短剧频道（ai-duanju）：原生为唯一映射源，初始仍为原生。
-   * - 图片频道（cate="image"，本函数下方的频道分支）：同视频口
-   *   径，在已启用图片源里按记忆/首源定初始值。 */
-  const [channelSourceId, setChannelSourceId] = useState<string>(() =>
-    cate === "original"
-      ? defaultSourceId(sourcesForChannel("original", getActiveRegistry().sources), getSourceLastViewed()) ?? nativeId
-      : nativeId);
+  /* 频道初始落点：短剧频道（ai-duanju）原生为唯一映射源，初始
+   * 为原生；图片频道（cate="image"，本函数下方的频道分支）在已
+   * 启用图片源里按记忆/首源定初始值（defaultSourceId：最近打开
+   * 优先、无记忆落首个可用源）。（fix3314：原视频频道落点随视
+   * 频板块删除退场。） */
+  const [channelSourceId, setChannelSourceId] = useState<string>(nativeId);
   const [imageChannelSourceId, setImageChannelSourceId] = useState<string>(() =>
     defaultSourceId(sourcesForCategory("image", getActiveRegistry().sources), getSourceLastViewed()) ?? "");
   /* 注册表口径（整改 D2）：同 Category，读 active 表并订阅刷新 */
@@ -237,31 +226,13 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
   /* 切源片按频道-源映射（Muse 2026-11-19 fix321-F2）：只列对本
    * 频道有真实品类映射的源（sourcesForChannel(cate)），无映射源
    * 不进本频道列表；陈旧选择（来自其他频道）不在本频道映射内时
-   * 回落本频道默认源，不跨频道生效。
-   * fix336/ui-fixes 改落点：视频频道（original）的名单不再含原
-   * 生选项（空壳 chip 退场），回落＝名单首个（外部源）；短剧频
-   * 道名单仍以原生打头、回落原生（名单首位即原生，口径统一为
-   * 「名单内用选择、名单外落首位」）。 */
-  const videoSourceOptions = cate === "original"
-    ? sourceOptionsForChannel(cate)
-    : [{ id: nativeId, label: nativeLabel }, ...sourceOptionsForChannel(cate)];
-  const effectiveChannelSourceId = videoSourceOptions.some((o) => o.id === channelSourceId)
+   * 回落本频道默认源，不跨频道生效。名单以原生打头、回落原生
+   * （名单首位即原生，口径统一为「名单内用选择、名单外落首
+   * 位」）。 */
+  const channelSourceOptions = [{ id: nativeId, label: nativeLabel }, ...sourceOptionsForChannel(cate)];
+  const effectiveChannelSourceId = channelSourceOptions.some((o) => o.id === channelSourceId)
     ? channelSourceId
-    : (videoSourceOptions[0]?.id ?? nativeId);
-  /* 选中态校验（fix333-P2）：与 effective 回落同口径的派生——effective
-   * 已保证 id 在切源片内时 channelSource 必在位，此处只为统一页头/
-   * 提示的 label 口径，不再 `?? id`；若将来回落口径变化，停用态仍
-   * 落停用分支而非「尚未接通」。 */
-  const channelSelected = resolveSelectedSource(
-    effectiveChannelSourceId,
-    sourcesForChannel(cate, getActiveRegistry().sources),
-  );
-  const channelSource = channelSelected.kind === "active" ? channelSelected.def : undefined;
-  /* 外部视频详情开合（Muse 2026-11-20 fix331/covers-header）：SourceBrowse
-   * 详情自带页头，打开时本页外层页头让位（问题②双层标题栏）；频道/
-   * 切源变化时复位，避免残留隐藏态把列表页头吞掉。 */
-  const [browseDetailOpen, setBrowseDetailOpen] = useState(false);
-  useEffect(() => { setBrowseDetailOpen(false); }, [cate, effectiveChannelSourceId]);
+    : (channelSourceOptions[0]?.id ?? nativeId);
   const [serverSort, setServerSort] = useState<(typeof CHANNEL_SORTS)[number]["value"]>("latest");
   /* 原始页落座（Muse 2026-11-19 fix330/ui-fixes，
    * device-verdict-322 #10）：incoming 不预过滤先落座，分页只受
@@ -285,12 +256,10 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
   const lastFailAt = useRef(0);
   const sentinel = useRef<HTMLDivElement>(null);
   const scrollContainer = useRef<HTMLDivElement>(null);
-  /* 外部源三分支的宿主 scroller（fix335/d-scroll）：下传给
-   * SourceGallery/SourceBrowse 供滚动恢复 hook 读写——三分支各自
-   * 独立 ref（同一时刻只挂一个分支，互不串扰）。 */
+  /* 外部源分支的宿主 scroller（fix335/d-scroll）：下传给
+   * SourceGallery 供滚动恢复 hook 读写——两分支各自独立 ref
+   * （同一时刻只挂一个分支，互不串扰）。 */
   const imageScroller = useRef<HTMLDivElement>(null);
-  const videoScroller = useRef<HTMLDivElement>(null);
-  const channelScroller = useRef<HTMLDivElement>(null);
   const imageChannelScroller = useRef<HTMLDivElement>(null);
 
   const loadMore = async (reset = false, sortOverride: string = serverSort) => {
@@ -307,10 +276,8 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
        * 迟到响应被 race 丢弃。 */
       traceFeed("page.request", { list: `channel:${cate}`, page: next, reset });
       const startedAt = Date.now();
-      /* 取数口径（fix336/ui-fixes 后）：本函数只服务短剧频道的原
-       * 生列表（视频频道走外部源分支、图片频道走 SourceGallery，
-       * 都不经此），一律走 category 接口；原「视频」频道的原生
-       * 视频接口专属臂随空壳退场删除。 */
+      /* 取数口径：本函数只服务短剧频道的原生列表（图片频道走
+       * SourceGallery、不经此），一律走 category 接口。 */
       const res = await withRequestTimeout(api.category(cate, next, 20, sortOverride));
       if (seq !== requestSeq.current) return;
       const pageRaw = res?.items || [];
@@ -352,12 +319,10 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
   };
 
   useEffect(() => {
-    /* 图片源页（cate="image:<id>"）与视频源页（cate="video:<id>"）
-     * 不走黄果频道接口，数据由 SourceGallery/SourceBrowse 经适配
-     * 器供给，本 effect 直接跳过。图片频道（cate="image"）与视频
-     * 频道（cate="original"）同理：前者走 SourceGallery、后者只
-     * 剩外部源分支走 SourceBrowse，原生列表状态不消费、一并跳
-     * 过（fix336/ui-fixes）。 */
+    /* 图片源页（cate="image:<id>"）与图片频道（cate="image"）不
+     * 走黄果频道接口，数据由 SourceGallery 经适配器供给，本
+     * effect 直接跳过；视频深链与原视频频道（cate="video:<id>"/
+     * "original"）落下线提示分支、同样不消费原生列表状态。 */
     if (cate.startsWith("image:") || cate.startsWith("video:") || cate === "image" || cate === "original") return;
     setRawPages([]); setPage(0); setPages(1);
     setServerSort("latest"); setSearching(false);
@@ -467,49 +432,13 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
       </div>
     );
   }
-  /* 视频源页（Muse 2026-11-19 fix330-riban-surfaces）：cate=
-   * "video:<源id>" 为视频单源深链的入口约定（与 image: 同构、
-   * 复用既有 channel 栈页，不新增路由 kind；原总览「视频源」
-   * 分区入口已于 fix336/ui-fixes 退场，本深链保留供资料库回访
-   * 等寻址场景）。源不在 active 注册表（如清单覆盖后停用）或
-   * blocked 时维持诚实提示页、不拉数据；其余经 SourceBrowse
-   * 走适配器真取数。 */
-  const videoSourceId = cate.startsWith("video:") ? cate.slice("video:".length) : null;
-  /* 选中态校验（fix333-P2）：与图片深链页同口径。 */
-  const videoSelected = videoSourceId
-    ? resolveSelectedSource(
-        videoSourceId,
-        sourcesForCategory("video", getActiveRegistry().sources),
-      )
-    : undefined;
-  const videoSource = videoSelected?.kind === "active" ? videoSelected.def : undefined;
-  if (videoSourceId) {
-    return (
-      <div className="ios-page absolute inset-0 bg-bg flex flex-col">
-        {!browseDetailOpen && (
-          <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
-            <div className="ios-subpage-bar">
-              <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
-              <div className="flex-1 min-w-0">
-                <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
-                <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">视频 · 数据源：{videoSelected?.label ?? ""}</div>
-              </div>
-            </div>
-          </div>
-        )}
-        <div ref={videoScroller} className="flex-1 scroll-y pb-8">
-          {!videoSource || videoSource.maturity === "blocked" ? (
-            <SourcePendingNotice displayName={videoSelected?.label ?? name} maturity={videoSource?.maturity} note={videoSource?.note} selectedKind={videoSelected?.kind} />
-          ) : (
-            <SourceBrowse def={videoSource} onDetailOpenChange={setBrowseDetailOpen} openExternalId={openExternalId} openExternalEp={openExternalEp} scrollerRef={videoScroller} />
-          )}
-        </div>
-      </div>
-    );
-  }
-  /* 视频频道无外部源（fix336/ui-fixes）：名单为空时落诚实空态
-   * ——原生空壳已退场，不许回落原生列表冒充频道内容。 */
-  if (cate === "original" && videoSourceOptions.length === 0) {
+  /* 视频板块下线落点（Muse 2026-11-21 fix3314，用户亲定整组
+   * 删除）：原视频源页（cate="video:<源id>" 经 SourceBrowse 取数）
+   * 与视频频道（cate="original"）均已退场——历史/资料库里的陈旧
+   * 视频深链寻址到此落诚实下线提示，不拉数据、不白屏；新入口
+   * 不再产生这两种 cate（CHANNELS 已摘行、资料库视频回访经
+   * surfaces 派生落 not-applicable 在本面之前已被告知）。 */
+  if (cate === "original" || cate.startsWith("video:")) {
     return (
       <div className="ios-page absolute inset-0 bg-bg flex flex-col">
         <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
@@ -517,43 +446,12 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
             <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
             <div className="flex-1 min-w-0">
               <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
-              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">暂无可用视频源</div>
+              <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">视频板块已下线</div>
             </div>
           </div>
         </div>
         <div className="flex-1 scroll-y pb-8">
-          <Empty icon={<IAward size={26} />} title="暂无可用视频源" sub="当前没有已启用的外部视频源" />
-        </div>
-      </div>
-    );
-  }
-  /* 外部视频源（Muse 2026-11-19 最终版 D 线，①用户点名＋②实锤
-   * createAdapter 生产调用为 0）：blocked 维持既有诚实提示页；
-   * 其余（stable/probe）经 SourceBrowse 走适配器真取数，失败错误
-   * 态＋重试，不回落黄果数据冒充。fix336/ui-fixes 后视频频道
-   * （original）恒走本分支（原生选项已退场）；短剧频道选到外部
-   * 映射源时同走本分支。 */
-  if (cate === "original" || effectiveChannelSourceId !== nativeId) {
-    return (
-      <div className="ios-page absolute inset-0 bg-bg flex flex-col">
-        {!browseDetailOpen && (
-          <div className="ios-subpage-header shrink-0" style={{ paddingTop: "var(--sat, 0px)" }}>
-            <div className="ios-subpage-bar">
-              <Button aria-label="返回" onClick={onBack} className="ios-nav-btn"><IBack size={20} /></Button>
-              <div className="flex-1 min-w-0">
-                <h1 className="text-[17px] font-bold text-on leading-tight truncate">{name}</h1>
-                <div role="status" className="text-[12px] text-mut leading-tight mt-0.5">数据源：{channelSelected.label}</div>
-              </div>
-            </div>
-            <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={effectiveChannelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
-          </div>
-        )}
-        <div ref={channelScroller} className="flex-1 scroll-y pb-8">
-          {!channelSource || channelSource.maturity === "blocked" ? (
-            <SourcePendingNotice displayName={channelSelected.label} maturity={channelSource?.maturity} note={channelSource?.note} selectedKind={channelSelected.kind} />
-          ) : (
-            <SourceBrowse def={channelSource} onDetailOpenChange={setBrowseDetailOpen} scrollerRef={channelScroller} />
-          )}
+          <Empty icon={<IFilm size={26} />} title="视频板块已下线" sub="该板块已移除，短剧、吃瓜与图片板块不受影响" />
         </div>
       </div>
     );
@@ -570,15 +468,14 @@ export function ChannelPage({ cate, name, onBack, wide, openExternalId, openExte
           </div>
           <Button onClick={() => setSearching(true)} aria-label="搜索短剧" className="ios-nav-btn"><ISearch size={18} /></Button>
         </div>
-        {/* 本分支自 fix336/ui-fixes 起只服务短剧频道（视频频道恒
-            走外部源分支），排序片与切源片无条件渲染。 */}
+        {/* 本分支只服务短剧频道，排序片与切源片无条件渲染。 */}
         <div className="pb-3 flex flex-wrap gap-2">
           {CHANNEL_SORTS.map((s) => (
             <Button aria-pressed={serverSort === s.value} key={s.value} onClick={() => changeServerSort(s.value)}
               className="ios-filter-pill">{s.label}</Button>
           ))}
         </div>
-        <div className="pb-3"><SourceSwitcher options={videoSourceOptions} value={effectiveChannelSourceId} onChange={setChannelSourceId} ariaLabel="视频数据源切换" /></div>
+        <div className="pb-3"><SourceSwitcher options={channelSourceOptions} value={effectiveChannelSourceId} onChange={setChannelSourceId} ariaLabel="数据源切换" /></div>
       </div>
       <div ref={scrollContainer} className="flex-1 scroll-y pt-3.5 pb-8" aria-busy={loading}>
         {items.length > 0 && replacing && <p role="status" className="mb-3 text-[12px] text-mut">{loading ? "正在更新，暂时保留上次结果…" : "当前显示上次结果，请重试以更新筛选。"}</p>}

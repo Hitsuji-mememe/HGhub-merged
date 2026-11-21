@@ -54,9 +54,9 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8"
 
 /* ── (d) UI 消费面保留 kind ── */
 {
-  const browse = read("../sources/SourceBrowse.tsx");
-  assert.ok(browse.includes("streamKind: stream.kind"), "SourceBrowse 从 resolve 首条流保留 kind");
-  assert.ok(browse.includes("streamKind={detail.streamKind}"), "SourceBrowse 把 kind 传给 Player");
+  /* 断言适配（fix3314）：SourceBrowse 随视频板块删除退役，其两条
+   * kind 透传断言随宿主同删；file 腿的 UI 消费面由 SourcePosts 与
+   * Search/copyLoader 继续全覆盖（下方断言不变）。 */
   const posts = read("../sources/SourcePosts.tsx");
   assert.ok(posts.includes("streamKind: res.streams[0]?.kind"), "SourcePosts 从 resolve 首条流保留 kind");
   assert.ok(posts.includes("streamKind={detail.streamKind}"), "SourcePosts 把 kind 传给 Player");

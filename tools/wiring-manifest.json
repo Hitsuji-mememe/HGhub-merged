@@ -251,15 +251,6 @@
       "min": 2
     },
     {
-      "id": "fin-d-create-adapter-browse",
-      "item": "最终版D线 外部视频源浏览页生产调用 createAdapter",
-      "files": [
-        "src/features/sources/SourceBrowse.tsx"
-      ],
-      "symbol": "createAdapter",
-      "min": 2
-    },
-    {
       "id": "fin-d-create-adapter-gallery",
       "item": "最终版D线 图片图集页生产调用 createAdapter",
       "files": [
@@ -284,15 +275,6 @@
         "src/features/sources/manifest.ts"
       ],
       "symbol": "REMOTE_MANIFEST_URL",
-      "min": 2
-    },
-    {
-      "id": "fin-d-source-browse-mounted",
-      "item": "最终版D线 ChannelPage 非黄果视频分支挂载 SourceBrowse",
-      "files": [
-        "src/features/category/Category.tsx"
-      ],
-      "symbol": "SourceBrowse",
       "min": 2
     },
     {
@@ -525,7 +507,6 @@
       "id": "fix321-f2-true-empty-copy",
       "item": "F2 真空文案与解析失败分离（SourceBrowse/SourceGallery 空态）",
       "files": [
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/sources/SourceGallery.tsx"
       ],
       "symbol": "列表确为空",
@@ -1391,94 +1372,6 @@
       "min": 2
     },
     {
-      "id": "fix330-hanime-api-adapter",
-      "item": "3.3.0接通批HanimeAPI线 hanime-api 模板适配器 createHanimeApiAdapter（定义＋工厂分发）",
-      "symbol": "createHanimeApiAdapter",
-      "files": [
-        "src/features/sources/adapters/hanimeApi.ts",
-        "src/features/sources/adapters/index.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix330-hanime-fetch-origins",
-      "item": "3.3.0接通批HanimeAPI线 模板取页 origin 声明 HANIME_GUEST_ORIGIN（fetchOrigins 声明＋hanimeApi 共用常数）",
-      "symbol": "HANIME_GUEST_ORIGIN",
-      "files": [
-        "src/features/sources/adapters/fetchOrigins.ts",
-        "src/features/sources/adapters/hanimeApi.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix330-hanime-fetchpost-seam",
-      "item": "3.3.0接通批HanimeAPI线 定向 POST 接缝 setFetchPost（fetchPost 定义＋main.tsx 启动注入）",
-      "symbol": "setFetchPost",
-      "files": [
-        "src/features/sources/adapters/fetchPost.ts",
-        "src/main.tsx"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix330-hanime-rust-post-scoped",
-      "item": "3.3.0接通批HanimeAPI线 Rust source_post 对 auth.hanime.tv 定向放行 HANIME_AUTH_ORIGIN（定义＋过滤消费）",
-      "symbol": "HANIME_AUTH_ORIGIN",
-      "files": [
-        "src-tauri/src/api/source.rs"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix330-hanime-rust-command",
-      "item": "3.3.0接通批HanimeAPI线 Rust source_post 命令接线（api/source 定义＋lib.rs generate_handler 注册）",
-      "symbol": "source_post",
-      "files": [
-        "src-tauri/src/api/source.rs",
-        "src-tauri/src/lib.rs"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix330-hanime-fanout-search",
-      "item": "3.3.0接通批HanimeAPI线 扇出搜索结构门登记 hanime-api 模板（multiSourceSearch SEARCH_TEMPLATES）；fix333-M3 改判：登记点随探针派生迁至 templateSegments 探针表，本条改绑登记文件",
-      "symbol": "hanime-api",
-      "files": [
-        "src/features/search/multiSourceSearch.ts",
-        "src/features/sources/adapters/templateSegments.ts"
-      ],
-      "min": 1
-    },
-    {
-      "id": "fix330-iwara-api-adapter",
-      "item": "3.3.0接通批新适配器线 Iwara 公开 API 适配器 createIwaraAdapter（模板定义＋工厂分发）",
-      "symbol": "createIwaraAdapter",
-      "files": [
-        "src/features/sources/adapters/templates.ts",
-        "src/features/sources/adapters/index.ts"
-      ],
-      "min": 2
-    },
-    {
-      "id": "fix330-iwara-shared-origin",
-      "item": "3.3.0接通批新适配器线 Iwara API origin 单一常数 IWARA_API_ORIGIN（声明定义＋模板声明表＋适配器回落消费）",
-      "symbol": "IWARA_API_ORIGIN",
-      "files": [
-        "src/features/sources/adapters/fetchOrigins.ts",
-        "src/features/sources/adapters/templates.ts"
-      ],
-      "min": 3
-    },
-    {
-      "id": "fix330-iwara-xversion-scoped",
-      "item": "3.3.0接通批新适配器线 Rust source_fetch 对 X-Version 仅 Iwara 文件 host 定向放行 X_VERSION_SCOPED_ORIGINS（定义＋过滤消费）",
-      "symbol": "X_VERSION_SCOPED_ORIGINS",
-      "files": [
-        "src-tauri/src/api/source.rs"
-      ],
-      "min": 2
-    },
-    {
       "id": "fix330-ui-album-window",
       "item": "fix330/ui-fixes 图集舞台窗口化：当前张±2 五帧挂载（data-album-frame 定 key；窗口 ±1→±2 为 fix3311/polish 预取加宽）、邻图预取，快翻不空白",
       "symbol": "data-album-frame",
@@ -1536,15 +1429,6 @@
       "min": 1
     },
     {
-      "id": "fix330-riban-channel-video-branch",
-      "item": "fix330-riban-surfaces ChannelPage video:<源id> 深链分支经 SourceBrowse 取数（blocked 走诚实提示）",
-      "symbol": "SourceBrowse def={videoSource}",
-      "files": [
-        "src/features/category/Category.tsx"
-      ],
-      "min": 1
-    },
-    {
       "id": "fix330-riban-copy-loader",
       "item": "fix330-riban-surfaces 搜索副本加载核 loadSearchCopy（copyLoader 定义＋Search 生产消费；video/drama 先 detail 后 resolve）",
       "symbol": "loadSearchCopy",
@@ -1583,15 +1467,6 @@
       "min": 3
     },
     {
-      "id": "fix331-hanime-resolve-trace",
-      "item": "3.3.2修复hanime-403线 取流分段留痕 traceResolveFailure（hanimeApi 定义＋resolve 三段生产调用；source.resolve_fail 只带稳定编号/段名/固定码/状态/尝试序）",
-      "symbol": "traceResolveFailure",
-      "files": [
-        "src/features/sources/adapters/hanimeApi.ts"
-      ],
-      "min": 2
-    },
-    {
       "id": "fix331-covers-banner-script",
       "item": "fix331/covers-header 列表封面第三载体：firstCoverSrc 在 img/loader 属性落空时识别内联脚本 loadBannerDirect 第一参数直址（source-005 真站形态）",
       "files": [
@@ -1608,16 +1483,6 @@
       ],
       "symbol": "coverSrc ? absUrl(base, coverSrc)",
       "min": 1
-    },
-    {
-      "id": "fix331-header-yield",
-      "item": "fix331/covers-header 外部视频详情页头让位：SourceBrowse onDetailOpenChange 回报详情开合，ChannelPage 据 browseDetailOpen 隐藏外层页头（video: 与频道切源两分支）",
-      "files": [
-        "src/features/sources/SourceBrowse.tsx",
-        "src/features/category/Category.tsx"
-      ],
-      "symbol": "onDetailOpenChange",
-      "min": 3
     },
     {
       "id": "fix331-image-surface-trace",
@@ -1660,10 +1525,9 @@
     },
     {
       "id": "fix331-reliability-onview-topup",
-      "item": "fix331/source-reliability 进入浏览面补探 useSourceSelfCheckOnView：视频/帖子/图集三浏览面各须在位",
+      "item": "fix331/source-reliability 进入浏览面补探 useSourceSelfCheckOnView：视频/帖子/图集两浏览面各须在位",
       "symbol": "useSourceSelfCheckOnView",
       "files": [
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/sources/SourcePosts.tsx",
         "src/features/sources/SourceGallery.tsx"
       ],
@@ -1828,16 +1692,6 @@
     },
     {
       "files": [
-        "src/features/sources/adapters/resolveTrace.ts",
-        "src/features/sources/adapters/hanimeApi.ts"
-      ],
-      "id": "fix333-m5-resolve-trace-shared",
-      "item": "fix333-m5 P5 取流分段留痕共享落点：resolveTrace 定义 traceResolveFailure＋生产调用落 source.resolve_fail；fix339/registry-cut-2 断言适配（2026-11-21）：templates 三源（iwara/hanime1/hentaihaven）调用点随各批摘除退役，生产调用方收敛为 002 hanimeApi，本条改绑 hanimeApi.ts，覆盖面（定义＋生产调用＋同落 resolve_fail）不变",
-      "min": 2,
-      "symbol": "traceResolveFailure"
-    },
-    {
-      "files": [
         "src/shared/diagnostics/resolveFailLines.ts",
         "src/shared/diagnostics/diagnosticReport.ts"
       ],
@@ -1964,7 +1818,6 @@
     {
       "each": true,
       "files": [
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/search/Search.tsx"
       ],
       "id": "fix334-g3-episodes-derivation",
@@ -1974,7 +1827,6 @@
     {
       "each": true,
       "files": [
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/search/Search.tsx"
       ],
       "id": "fix334-g3-episode-picker",
@@ -1992,15 +1844,6 @@
     },
     {
       "files": [
-        "src/features/sources/SourceBrowse.tsx"
-      ],
-      "id": "fix334-g3-sourcebrowse-detail",
-      "item": "结构批 L2／G3：SourceBrowse openItem 并发取 detail 供选集（失败降级不阻断取流）",
-      "min": 1,
-      "symbol": "adapter.detail(item.externalId)"
-    },
-    {
-      "files": [
         "src/shared/model/localLibrary.ts",
         "src/shared/model/store.tsx",
         "src/features/account/Profile.tsx"
@@ -2012,7 +1855,6 @@
     },
     {
       "files": [
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/sources/SourcePosts.tsx",
         "src/features/sources/SourceGallery.tsx",
         "src/features/search/Search.tsx"
@@ -2024,7 +1866,6 @@
     },
     {
       "files": [
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/search/Search.tsx"
       ],
       "id": "fix334-g4-history-wiring",
@@ -2034,12 +1875,11 @@
     },
     {
       "files": [
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/sources/SourcePosts.tsx",
         "src/features/sources/SourceGallery.tsx"
       ],
       "id": "fix334-g4-open-external",
-      "item": "结构批 L3／G4：三浏览组件消费回访直达 openExternalId（首屏命中才开、消费一次）",
+      "item": "结构批 L3／G4：两浏览组件消费回访直达 openExternalId（首屏命中才开、消费一次）",
       "min": 3,
       "symbol": "openExternalId"
     },
@@ -2073,11 +1913,10 @@
     {
       "files": [
         "src/features/sources/SourceGallery.tsx",
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/sources/SourcePosts.tsx"
       ],
       "id": "fix335-d-scroll-capture",
-      "item": "fix335/d-scroll 滚动恢复：三浏览组件打开详情/图集前经 useScrollKeeper 的 captureScroll 存宿主 scrollTop（key＝面＋源），回列表后 hook 写回；摘除任一面的 capture 调用即红",
+      "item": "fix335/d-scroll 滚动恢复：两浏览组件打开详情/图集前经 useScrollKeeper 的 captureScroll 存宿主 scrollTop（key＝面＋源），回列表后 hook 写回；摘除任一面的 capture 调用即红",
       "min": 3,
       "symbol": "captureScroll"
     },
@@ -2095,24 +1934,22 @@
     {
       "each": true,
       "files": [
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/sources/SourceGallery.tsx",
         "src/features/sources/SourcePosts.tsx"
       ],
       "id": "fix335-f-discovery-bar",
-      "item": "fix335/f-discovery 发现维度条：三浏览组件列表态顶部共用 DiscoveryBar（只渲染 DiscoverySpec 已登记维度）；摘除任一面的渲染即红",
+      "item": "fix335/f-discovery 发现维度条：两浏览组件列表态顶部共用 DiscoveryBar（只渲染 DiscoverySpec 已登记维度）；摘除任一面的渲染即红",
       "min": 1,
       "symbol": "<DiscoveryBar"
     },
     {
       "each": true,
       "files": [
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/sources/SourceGallery.tsx",
         "src/features/sources/SourcePosts.tsx"
       ],
       "id": "fix335-f-discovery-keeper-key",
-      "item": "fix335/f-discovery 滚动指纹隔离：三浏览组件的 useScrollKeeper key 由 discFingerprint 扩为「面:源:指纹」，切换发现维度后位置按新指纹隔离；摘除任一面的指纹接线即红",
+      "item": "fix335/f-discovery 滚动指纹隔离：两浏览组件的 useScrollKeeper key 由 discFingerprint 扩为「面:源:指纹」，切换发现维度后位置按新指纹隔离；摘除任一面的指纹接线即红",
       "min": 1,
       "symbol": "discFingerprint"
     },
@@ -2181,15 +2018,6 @@
       "min": 1
     },
     {
-      "id": "fix336-discovery-collapse",
-      "item": "fix336/ui-fixes DiscoveryBar 默认单行横滑＋展开入口：展开开关带 aria-expanded，默认 flex-nowrap 横滑、展开才 flex-wrap 全量（契约 fix336-ui-fixes (D) 另钉两形态字面）",
-      "files": [
-        "src/features/sources/DiscoveryBar.tsx"
-      ],
-      "symbol": "aria-expanded",
-      "min": 1
-    },
-    {
       "id": "fix336-category-image-channel",
       "item": "fix336/ui-fixes 图片频道页：ChannelPage cate=image 分支经 sourceOptionsForCategory(image) 出 chips 名单（摘此派生图片频道无源可切），与 cate=image:<id> 深链分支分工",
       "files": [
@@ -2220,9 +2048,8 @@
     },
     {
       "id": "fix337-selfcheck-list-success-faces",
-      "item": "fix337/008-detail 成功信号接线：noteSourceListSuccess 必须在三浏览面 list 成功点位都在（摘任一面该面回到旧结论与真实成功并存展示）",
+      "item": "fix337/008-detail 成功信号接线：noteSourceListSuccess 必须在两浏览面 list 成功点位都在（摘任一面该面回到旧结论与真实成功并存展示）",
       "files": [
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/sources/SourcePosts.tsx",
         "src/features/sources/SourceGallery.tsx"
       ],
@@ -2386,22 +2213,11 @@
       "min": 1
     },
     {
-      "id": "fix3312-yoast-cover",
-      "item": "fix3312/cover-021 封面回落：wp-rest 模板在 def 声明 yoastCover 时，toItem 封面链末位回落 yoast_head_json.twitter_image（摘掉声明或消费点，021 列表封面回到全空）",
-      "symbol": "yoastCover",
-      "files": [
-        "src/features/sources/adapters/templates.ts",
-        "src/features/sources/registry.ts"
-      ],
-      "min": 2
-    },
-    {
       "id": "fix3312-disc-persist-wiring",
-      "item": "fix3312/discovery-b 兴趣直达：discState.useDiscState 定义＋三浏览面消费（disc 按源落盘 hghubx_disc_v1、重开直达上次筛选）；摘任一消费面该面回到关 App 即忘",
+      "item": "fix3312/discovery-b 兴趣直达：discState.useDiscState 定义＋两浏览面消费（disc 按源落盘 hghubx_disc_v1、重开直达上次筛选）；摘任一消费面该面回到关 App 即忘",
       "symbol": "useDiscState",
       "files": [
         "src/features/sources/discState.ts",
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/sources/SourceGallery.tsx",
         "src/features/sources/SourcePosts.tsx"
       ],
@@ -2429,11 +2245,10 @@
     },
     {
       "id": "fix3313-card-taxon-subtitle",
-      "item": "fix3313/discovery-tail 卡片汉化：taxonLabels.cardTaxonSubtitle 定义＋三浏览面卡片副标题消费（与筛选行同口径、只改显示串）；摘任一消费面该面卡片回到全英文原名",
+      "item": "fix3313/discovery-tail 卡片汉化：taxonLabels.cardTaxonSubtitle 定义＋两浏览面卡片副标题消费（与筛选行同口径、只改显示串）；摘任一消费面该面卡片回到全英文原名",
       "symbol": "cardTaxonSubtitle",
       "files": [
         "src/features/sources/taxonLabels.ts",
-        "src/features/sources/SourceBrowse.tsx",
         "src/features/sources/SourceGallery.tsx",
         "src/features/sources/SourcePosts.tsx"
       ],

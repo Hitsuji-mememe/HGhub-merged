@@ -107,13 +107,6 @@ export const NAMED_SOURCES: SourceDef[] = [
     note: "现行生产源：帖子板块 remen-chigua + 视频线路 /api，包既有 api 调用不重写",
   },
   {
-    id: "hanime-tv", displayName: "Hanime.tv", kind: "video", category: "video",
-    adapter: { template: "hanime-api", params: {} },
-    baseUrls: ["https://hanime.tv"],
-    enabled: true, order: 24, maturity: "probe",
-    capabilities: HLS_CAPS, network: PROBE_NET, note: "3.3.0 接通批（fix330-hanime-api）：换 hanime-api 模板走站点官方 API v11（协议据 Hentai-Park 公开插件原文＋本机实测对账）。列表/搜索/详情＝guest API 全量目录 GET guest.freeanimehentai.net/api/v11/search_hvs（无签名、无服务端分页、客户端排序/过滤/切片；实测 HTTP 200、3474 条、4.5MB——Rust 取页对该 (origin,path) 定向放宽上限至 12MB、全局 4MB 不变）；详情目录未收录时回落详情页 og 元信息。播放＝握手链：ct.hanime.tv 取 CSRF → AES-256-GCM 信封（密钥/签名为公开协议常数）POST auth.hanime.tv/api/v11/handshake（x-signature web2 签名头）→ x-token 响应头回信封解密得 /hls/<画质>/ 流表。通道定性（复核旧 F2b 结论属实）：原 GET-only 取页三处不通（POST 方法无入口/签名头被 filter_source_headers 丢弃/响应头不可见）→ 本批以 Rust source_post 定向扩展打通（仅 auth.hanime.tv origin＋固定头名单＋仅回 x-token 一个响应头，GET 契约与全局白名单不变）。协议级实证（2026-11-19 本机机房出口）：目录/CSRF/握手三端点均 200、流表 3 档、HLS 清单 200 且 #EXTM3U 形态合法；App 侧未真机验 → 代码就绪未验证、维持 probe",
-  },
-  {
     id: "51chigua", displayName: "51吃瓜网", kind: "post", category: "posts",
     adapter: { template: "chigua", params: { listPath: "/page/{page}/", itemLinkPattern: "/archives/", detailPath: "/archives/{id}", searchPath: "/search/{q}/{page}/", cardContainer: "article", announcementCats: ["往期活动"], contestCat: "每日大赛", contestTitlePrefix: "每日大赛之【", staffVerify: { maxBodyChars: 100000, maxBodyImages: 26 }, categoryPath: "/category/{slug}/{page}/", discoveryCategories: [{ slug: "wpcz", name: "今日吃瓜每日更新" }, { slug: "cbdj", name: "AI成人短剧热播推荐" }, { slug: "whhj", name: "网黄合集" }, { slug: "mrdg", name: "吃瓜榜单", rank: true }, { slug: "qghj", name: "瓜友点播" }, { slug: "rdsj", name: "热门大瓜", rank: true, hot: true }, { slug: "bkdg", name: "必看大瓜" }, { slug: "ysyl", name: "成人视频" }, { slug: "lldd", name: "伦理道德" }, { slug: "gcjq", name: "国产视频" }, { slug: "thjx", name: "探花精选" }, { slug: "xsxy", name: "学生校园" }, { slug: "whhl", name: "网红黑料" }, { slug: "snsn", name: "骚男骚女" }, { slug: "whmx", name: "明星爆料" }, { slug: "hwcg", name: "海外吃瓜" }, { slug: "rrcg", name: "人人吃瓜" }, { slug: "ldcg", name: "领导干部" }, { slug: "jpll", name: "软萌甜妹" }, { slug: "sjb", name: "竞技吃瓜" }, { slug: "qubk", name: "吃瓜看戏" }, { slug: "dcbq", name: "擦边撩骚" }, { slug: "zzs", name: "性爱技巧" }, { slug: "cgxw", name: "吃瓜新闻" }, { slug: "51djc", name: "51原创短剧" }, { slug: "yczq", name: "原创博主" }] } },
     baseUrls: ["https://51cg1.com"],
@@ -150,12 +143,6 @@ export const NAMED_SOURCES: SourceDef[] = [
     capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：本站为 WP 站、/wp-json/wp/v2/posts 列表实测可达、详情正文实测 103 张图（图集型、wp-rest detail.images 承接）；原 HTML slug 列表参数作废",
   },
   {
-    id: "iwara", displayName: "Iwara", kind: "video", category: "video",
-    adapter: { template: "iwara-api", params: {} }, baseUrls: ["https://www.iwara.tv", "https://api.iwara.tv"],
-    enabled: true, order: 54, maturity: "probe", capabilities: HLS_CAPS, network: PROBE_NET,
-    note: "fix330 接通批启用：专用 API 适配器（api.iwara.tv /videos 列表、/search 搜索段、/video/<id> 详情、fileUrl＋X-Version 签名取流，结构据公开插件 iwara.js 协议事实＋解析夹具实证）；住宅出口四级验收全通在案（source-verify-20261119，引存档）；本机机房出口为 CF 403（出口形态、非站点结论）；App 侧未真机验 → probe。【fix3310/video-add-2 试装恢复 2026-11-21】同 009 试装口径：3.3.9 删除批删码、本批原样恢复（含签名链与 Rust X-Version 定向放行），过关才回归、不过删回",
-  },
-  {
     id: "everia", displayName: "Everia", kind: "image", category: "image",
     adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
     baseUrls: ["https://everia.club"],
@@ -170,22 +157,6 @@ export const NAMED_SOURCES: SourceDef[] = [
     enabled: true, order: 123, maturity: "probe",
     capabilities: NO_CAPS, network: PROBE_NET,
     note: "fix338/realphoto-add 新增（2026-11-20）：真人图片候选准入 C2（候选调查 fix338/evidence/realphoto-candidates.md §三）——hls-site 锚点骨架按校准点落地：列表 /album/?p={page}（导航末页 1800）；itemLinkRegex 收紧条目形态（裸子串 /album/ 会误收分类页/隐藏空锚/分页锚，实测 132 vs 真卡 25）；详情服务端分页 ?p=N 每页 10 张、detailPageParam 逐页组装整册＋detailImagePattern 只留本册全尺寸图（内容区混排他人图集缩略图 40 张须滤）；图床 img.xsnvshen.com 防盗链判据＝Referer 须本站域且路径以 /album/ 开头（无 Referer/根 Referer 均 403、本批实测矩阵），详情图经 /img 的 p= 参数带详情页 Referer 进候选链（见 net/edge.rs）；搜索未验 caps.search 维持 false；编号 019（order 123 置末）；App 侧未真机验 → probe",
-  },
-  {
-    id: "hentaigasm", displayName: "HentaiGasm", kind: "video", category: "video",
-    adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts", jwFile: true } },
-    baseUrls: ["https://hentaigasm.com"],
-    enabled: true, order: 124, maturity: "probe",
-    capabilities: { search: false, episodes: false, hevc: false },
-    network: PROBE_NET, note: "fix3310/video-add-2 新增（2026-11-21）：视频候选准入 V1（候选调查 fix339/evidence/video-candidates.md，播放级实证）——wp-rest 列表/详情与 018 同模板；流地址在正文 JW Player setup 的 file: 字段（hgasm2.com MP4 直链、文件名含空格），经 opt-in 参数 jwFile 走 parse.ts 小解析提取、封面回落 JW image:（hgasm1.com）；全链非 CF（主站 Apache＋文件域 nginx 直连、无令牌无挑战）；内容以 Raw（无字幕）为主、单档无多画质；搜索未验 caps.search 维持 false；编号 020（order 124）；流走 kind=file 新播放腿（fix3310/file-playback-leg），App 侧未真机验 → probe",
-  },
-  {
-    id: "hentaiplay", displayName: "HentaiPlay", kind: "video", category: "video",
-    adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts", yoastCover: true } },
-    baseUrls: ["https://hentaiplay.net"],
-    enabled: true, order: 125, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false },
-    network: PROBE_NET, note: "fix3310/video-add-2 新增（2026-11-21）：视频候选准入 V2（候选调查 fix339/evidence/video-candidates.md，播放级实证）——wp-rest 与 018 逐字同形、零新适配器代码：content.rendered 直含 hentaiplanet.info MP4 直链（stock extractMp4 命中）、搜索端点实拉 20 条真结果 caps.search=true；封面订正（fix3312/cover-021，2026-11-21）：接线时「封面不在 REST 载荷内」只查了正文/excerpt 的 <img>——逐 key 穷尽复核实证封面一直在载荷内：yoast_head_json.twitter_image 直载封面 URL（与 featured_media 同一文件、详情页 twitter:image 同值；站点无 og:image），经 yoastCover opt-in 在 toItem 封面链末位回落消费、列表一次取数可得，实测三页 60 帖 59 帖有值；Yoast 个别帖不发该字段（约 1/60）如实留空、不合成地址；主站 CF 前置仅取页面、文件域 Apache 非 CF（与 009/010 死因结构不同）；英文字幕、单档无多画质；编号 021（order 125）；流走 kind=file 新播放腿，App 侧未真机验 → probe",
   },
 ];
 

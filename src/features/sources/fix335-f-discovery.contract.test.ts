@@ -49,7 +49,6 @@ import {
   createChiguaAdapter, createDanbooruAdapter, createWpRestAdapter,
   readDiscoveryCategories, readDiscoveryRanks,
 } from "./adapters/templates.ts";
-import { createHanimeApiAdapter } from "./adapters/hanimeApi.ts";
 import { setFetchPage } from "./adapters/fetchPage.ts";
 import { discFingerprint, type SourceDef } from "./types.ts";
 
@@ -69,7 +68,7 @@ const recorder = (body: string | ((url: string) => string)) => {
 /* ── (A) 登记表 ── */
 {
   const expectDiscovery: Record<string, boolean> = {
-    huangguo: true, "hanime-tv": true, "51chigua": true, meiridasai: true,
+    huangguo: true, "51chigua": true, meiridasai: true,
     feedheiliao: true, xiuren: true, pornpics: false, cosplaytele: true,
     pixibb: true, nudecosplay: true, gelbooru: false,
   };
@@ -144,10 +143,9 @@ const recorder = (body: string | ((url: string) => string)) => {
     assert.equal(s.tagFilter, true, `${id} 标签过滤登记`);
     assert.deepEqual(s.sorts?.map((o) => o.value), ["", "date-asc"], `${id} 排序两值`);
   }
-  const s002 = discoverySpecFor(def("hanime-tv"));
-  assert.equal(s002.categories?.source, "taxonomy", "002 分类走目录聚合");
-  assert.equal(s002.tagFilter, true);
-  assert.deepEqual(s002.sorts?.map((o) => o.value), ["", "views"], "002 排序两值");
+  /* 断言适配（fix3314）：002（hanime-tv）随视频板块整组删除退场
+   * ——原登记断言改钉不在册事实，hanime-api 模板登记随之消失。 */
+  assert.ok(!getBuiltinRegistry().some((d) => d.id === "hanime-tv"), "002 已摘除注册表（fix3314）");
 }
 
 /* ── (B) 适配器行为 ── */
@@ -252,27 +250,7 @@ const recorder = (body: string | ((url: string) => string)) => {
   await a.list(1, 20, { sort: "order:bogus" });
   assert.equal(urls[2], urls[0], "未登记值回落缺省");
 }
-{ // 002 客户端重排（构造目录：views 序与最新序故意不同）
-  const catalog = JSON.stringify({ data: [
-    { slug: "row-a", name: "A", brand: "BrandX", views: 10, created_at_unix: 300, tags: ["t1"], cover_url: "" },
-    { slug: "row-b", name: "B", brand: "BrandY", views: 99, created_at_unix: 200, tags: ["t2"], cover_url: "" },
-    { slug: "row-c", name: "C", brand: "BrandX", views: 50, created_at_unix: 100, tags: ["t1", "t2"], cover_url: "" },
-  ] });
-  recorder(catalog);
-  const a = createHanimeApiAdapter(def("hanime-tv"));
-  const rd = await a.list(1, 20);
-  assert.deepEqual(rd.items.map((i) => i.externalId), ["row-a", "row-b", "row-c"], "002 缺省＝最新序（created 降序）");
-  assert.deepEqual(rd.items[0].cats, ["BrandX"], "002 brand 进 cats");
-  const rv = await a.list(1, 20, { sort: "views" });
-  assert.deepEqual(rv.items.map((i) => i.externalId), ["row-b", "row-c", "row-a"], "002 views 重排（返回集顺序确实变化）");
-  const rb = await a.list(1, 20, { category: "BrandX" });
-  assert.deepEqual(rb.items.map((i) => i.externalId), ["row-a", "row-c"], "002 brand 过滤");
-  const rt = await a.list(1, 20, { tag: "t2" });
-  assert.deepEqual(rt.items.map((i) => i.externalId), ["row-b", "row-c"], "002 tag 过滤");
-  const tax = await a.taxonomy!();
-  assert.deepEqual(tax.categories, [{ id: "BrandX", name: "BrandX", count: 2 }, { id: "BrandY", name: "BrandY", count: 1 }], "002 taxonomy 由目录聚合计数");
-  assert.deepEqual(tax.tags.map((t) => t.id), ["t1", "t2"], "002 taxonomy 标签计数序");
-}
+/* 002 客户端重排块随 hanimeApi 适配器整删退役（fix3314）。 */
 
 /* ── (C) 指纹规范化 ── */
 {
@@ -291,9 +269,12 @@ const recorder = (body: string | ((url: string) => string)) => {
   assert.ok(bar.includes('status === "down"'), "DiscoveryBar 只在 down（列表段失败）时降级");
   assert.ok(bar.includes("发现维度暂不可用"), "DiscoveryBar 降级明示文案");
   assert.ok(bar.includes("useSourceHealthResults"), "DiscoveryBar 订阅自检结果（恢复自动可用）");
-  assert.ok(bar.includes("TAXONOMY_CHIP_LIMIT"), "DiscoveryBar chips Top-N 截断");
+  assert.ok(bar.includes("TAXONOMY_CHIP_LIMIT"), "DiscoveryBar 分类 chips Top-N 截断");
+  /* fix3314/header-slim 呈现口径：排序分段开关＋标签底部弹层。 */
+  assert.ok(bar.includes("SegmentedControl"), "排序改分段开关（fix3314）");
+  assert.ok(bar.includes("<Sheet open={tagSheetOpen}"), "标签改底部弹层（fix3314）");
+  assert.ok(bar.includes("selectedTagCount"), "筛选按钮带已选标签数徽标（fix3314）");
   for (const [file, listCall] of [
-    ["./SourceBrowse.tsx", "adapter.list(next, 20, discArg)"],
     ["./SourceGallery.tsx", "adapter.list(next, 20, discArg)"],
     ["./SourcePosts.tsx", "adapter.list(next, pageSize, discArg)"],
   ] as const) {

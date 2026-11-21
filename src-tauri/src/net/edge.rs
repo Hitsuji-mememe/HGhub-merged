@@ -1,4 +1,4 @@
-use super::client::{client_for, get_with_dns, get_with_headers, post_with_headers};
+use super::client::{client_for, get_with_dns, get_with_headers};
 use super::line::{base, normalize_base, trusted_auth_origin};
 use super::redact::{err_text, heal_client};
 use super::{MEDIA_DNS_ROUTES, NEXT_EDGE, NEXT_REQUEST};
@@ -247,26 +247,6 @@ pub async fn edge(
 /// 多源适配器取页的响应体上限：与清单/API 同档（4MB，audit6 P2-13 口径）。
 pub const PAGE_TEXT_MAX_BYTES: usize = 4 * 1024 * 1024;
 
-/// 取页上限的定向例外（Muse 2026-11-19 fix330-hanime-api）：Hanime
-/// guest 目录端点 /api/v11/search_hvs 是全量目录单发（无服务端分页，
-/// 参数被忽略——2026-11-19 本机实测恒回全量），实测体量 4.5MB 已超
-/// 全局 4MB；其官方客户端自带 12MB 守卫。仅当 (origin, path) 恰为该
-/// 端点时上限取 12MB，其余一切取页仍 4MB——不是全局放宽。
-pub const HANIME_CATALOG_ORIGIN: &str = "https://guest.freeanimehentai.net";
-pub const HANIME_CATALOG_PATH: &str = "/api/v11/search_hvs";
-pub const HANIME_CATALOG_MAX_BYTES: usize = 12 * 1024 * 1024;
-
-pub fn page_text_cap(url: &str) -> usize {
-    if let Ok(parsed) = url::Url::parse(url) {
-        if parsed.origin().ascii_serialization() == HANIME_CATALOG_ORIGIN
-            && parsed.path() == HANIME_CATALOG_PATH
-        {
-            return HANIME_CATALOG_MAX_BYTES;
-        }
-    }
-    PAGE_TEXT_MAX_BYTES
-}
-
 /// 流式累计器：逐块追加，累计超过上限立即报错中断，不整段读入内存。
 pub(crate) struct CappedBody {
     buf: Vec<u8>,
@@ -318,7 +298,7 @@ pub async fn fetch_page_text_with_headers(
             .map_err(|_| format!("请求头值无效：{name}"))?;
         validated.push((name.clone(), value.clone()));
     }
-    let cap = page_text_cap(url);
+    let cap = PAGE_TEXT_MAX_BYTES;
     let mut resp = get_with_headers(url, Duration::from_secs(20), &validated).await?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
@@ -331,46 +311,6 @@ pub async fn fetch_page_text_with_headers(
         body.push(&chunk)?;
     }
     Ok(String::from_utf8_lossy(&body.into_bytes()).into_owned())
-}
-
-/// 定向 POST 取页（Muse 2026-11-19 fix330-hanime-api）：只供
-/// api::source::source_post 调用，origin/头名单已在命令层按
-/// HANIME_AUTH_ORIGIN 定向校验完毕。返回 (HTTP 状态, x-token 响应头,
-/// 正文)——状态不折叠成错误：握手端点的失败形态（CSRF 失效需重取
-/// 后重试一次）要由适配器读正文 error_id 判读；x-token 是全仓唯一
-/// 被回传的响应头，且只在该定向通道出现。响应体仍走 4MB 流式上限，
-/// 不跟重定向。正文/令牌一律不入日志（不变量 10）。
-pub async fn fetch_page_post(
-    url: &str,
-    request_body: &str,
-    headers: &[(String, String)],
-) -> Result<(u16, Option<String>, String), String> {
-    let mut validated: Vec<(String, String)> = Vec::with_capacity(headers.len());
-    for (name, value) in headers {
-        let parsed_name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
-            .map_err(|_| format!("请求头名称无效：{name}"))?;
-        if parsed_name == reqwest::header::HOST || parsed_name == reqwest::header::CONTENT_LENGTH {
-            return Err(format!("请求头不许覆盖：{name}"));
-        }
-        reqwest::header::HeaderValue::from_str(value)
-            .map_err(|_| format!("请求头值无效：{name}"))?;
-        validated.push((name.clone(), value.clone()));
-    }
-    let mut resp = post_with_headers(url, request_body, Duration::from_secs(20), &validated).await?;
-    let status = resp.status().as_u16();
-    let x_token = resp
-        .headers()
-        .get("x-token")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-    if resp.content_length().is_some_and(|n| n > PAGE_TEXT_MAX_BYTES as u64) {
-        return Err(format!("响应体超过 {} 字节上限", PAGE_TEXT_MAX_BYTES));
-    }
-    let mut body = CappedBody::new(PAGE_TEXT_MAX_BYTES);
-    while let Some(chunk) = resp.chunk().await.map_err(|e| err_text(&e))? {
-        body.push(&chunk)?;
-    }
-    Ok((status, x_token, String::from_utf8_lossy(&body.into_bytes()).into_owned()))
 }
 
 /// fetch_bytes 的默认流式上限（分片档，P2-13 资源类分档：分片
@@ -605,18 +545,6 @@ mod tests {
         ] {
             assert!(fetch_page_text(raw).await.is_err(), "{raw} 必须被目标校验拒绝");
         }
-    }
-
-    /* fix330-hanime-api：取页上限定向例外只认 (guest origin,
-     * /api/v11/search_hvs) 精确一对——同 origin 其他路径、带查询的
-     * 同路径（查询不改 path、仍属该端点）、仿冒子域一律回 4MB。 */
-    #[test]
-    fn page_text_cap_scoped_to_hanime_catalog_endpoint() {
-        assert_eq!(page_text_cap("https://guest.freeanimehentai.net/api/v11/search_hvs"), HANIME_CATALOG_MAX_BYTES);
-        assert_eq!(page_text_cap("https://guest.freeanimehentai.net/api/v11/videos/1/comments"), PAGE_TEXT_MAX_BYTES);
-        assert_eq!(page_text_cap("https://guest.freeanimehentai.net.evil.example/api/v11/search_hvs"), PAGE_TEXT_MAX_BYTES);
-        assert_eq!(page_text_cap("https://hanime.tv/api/v11/search_hvs"), PAGE_TEXT_MAX_BYTES);
-        assert_eq!(page_text_cap("not a url"), PAGE_TEXT_MAX_BYTES);
     }
 
     /* fix331/gallery-device：媒体 Referer 候选链——外站目标必须含

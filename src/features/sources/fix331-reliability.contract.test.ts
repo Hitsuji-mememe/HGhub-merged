@@ -340,7 +340,7 @@ function mkResult(def: SourceDef, over: Partial<SourceSelfCheckResult> = {}): So
    * 事实（旧码上必红），徽标单一派生覆盖不减。 */
   assert.ok(!category.includes("sourceHealthBadgeText"), "总览源行退场后 Category 不再直读徽标派生（收敛切换器）");
 
-  for (const rel of ["./SourceBrowse.tsx", "./SourcePosts.tsx", "./SourceGallery.tsx"]) {
+  for (const rel of ["./SourcePosts.tsx", "./SourceGallery.tsx"]) {
     assert.ok(read(rel).includes("useSourceSelfCheckOnView"), `${rel} 进入浏览面触发补探`);
   }
 

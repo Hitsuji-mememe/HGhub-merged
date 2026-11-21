@@ -147,13 +147,15 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
  * 证），名单 9→12 源；020 搜索未验 caps.search=false 维持出局；
  * hanime1/iwara 退出下方负向组、yandere 仍不在册（判定口径不变）。
  * 契约适配（fix3311/registry-cleanup，2026-11-21）：009 试装判删回、
- * 名单 12→11 源、hanime1 回下方负向组；iwara 不连坐（判定口径不变）。 */
+ * 名单 12→11 源、hanime1 回下方负向组；iwara 不连坐（判定口径不变）。
+ * 契约适配（fix3314，2026-11-21）：视频四源整组摘除，名单 11→8 源、
+ * 四源改入下方「不在册」负向断言组（判定口径不变）。 */
 {
   const included = getBuiltinRegistry().filter((d) => searchPolicyFor(d).include).map((d) => d.id);
   assert.deepEqual(
     included,
-    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "iwara", "pixibb", "nudecosplay", "everia", "hentaiplay"],
-    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix3311 后 11 源）",
+    ["huangguo", "51chigua", "meiridasai", "xiuren", "cosplaytele", "pixibb", "nudecosplay", "everia"],
+    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix3314 后 8 源）",
   );
   assert.ok(!getBuiltinRegistry().some((d) => d.id === "rule34video"), "rule34video 已摘除注册表（用户裁定），不进扇出也不在册");
   assert.ok(!getBuiltinRegistry().some((d) => d.id === "pornpics"), "pornpics 已退役摘除注册表（fix335/g-sources），不进扇出也不在册");
@@ -188,6 +190,10 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
    * 断言适配（fix3311）：hanime1 判删回、回本组；iwara 在册不变。 */
   for (const id of ["yandere", "hanime1"]) {
     assert.ok(!getBuiltinRegistry().some((d) => d.id === id), `${id} 已摘除、不在册（fix339/fix3311）`);
+  }
+  /* 已摘除源不在册（fix3314）：视频四源整组删除，同口径。 */
+  for (const id of ["hanime-tv", "iwara", "hentaigasm", "hentaiplay"]) {
+    assert.ok(!getBuiltinRegistry().some((d) => d.id === id), `${id} 已摘除、不在册（fix3314）`);
   }
 }
 

@@ -225,10 +225,8 @@ export function applyExternalCollected(state: LibraryState, kind: ExternalKind, 
 }
 
 /**
- * 外部历史写入的纯形态：行 t=0/dur=0（外部无秒级进度事实，「续播」
- * 只恢复到集、不到秒——恢复消费在 Profile 回访链：ep 经
- * openExternalEp 透传 SourceBrowse 按 ordinal 起播，fix334 清扫
- * 已坏-2 补实现），集数＝写入时 ordinal；快照同写（已有快照
+ * 外部历史写入的纯形态：行 t=0/dur=0（外部无秒级进度事实），
+ * 集数＝写入时 ordinal；快照同写（已有快照
  * 的 kind 优先，历史首写默认 video——历史只来自播放面）。
  * ordinal 口径：episodeOrdinal 的 0＝未知（externalId 不在 choices
  * 内），不是「第 0 集」——按未提供集数处理（historyRowState 既有

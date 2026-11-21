@@ -33,7 +33,7 @@ import { TEMPLATE_IDS } from "./adapters/templates.ts";
  * ——hanime1/iwara（3.3.8 一轮修复后真机仍不可播、整组删无第三
  * 轮）、yandere（单图帖与 danbooru 同标准删），命名源 11→9、目录
  * 源 5→4、CORE_IDS 移除 hanime1/iwara、三源并入负向名单；远程熔
- * 断样本由同 category 保留源 hanime-tv 接替（先例同口径）；danbooru-api
+ * 断样本由同 category 保留源 xiuren 接替（先例同口径）；danbooru-api
  * 模板由 gelbooru 在册承接、不随 yandere 退役。
  * 断言适配（fix3310/video-add-2，2026-11-21）：009/010 按用户授权
  * 试装恢复（播放腿补齐后试一轮、过关才回归），命名源 9→13、
@@ -43,21 +43,20 @@ import { TEMPLATE_IDS } from "./adapters/templates.ts";
  * 断言适配（fix3311/registry-cleanup，2026-11-21）：009 试装判删回
  * （真机协议 v4 探针取流网络类失败、按试装规则删回），命名源
  * 13→12、CORE_IDS 移除 hanime1、hanime1 回负向名单；010 不连坐、
- * 其启用事实断言保留。 */
+ * 其启用事实断言保留。
+ * 断言适配（fix3314，2026-11-21）：用户亲定视频板块整组删除——
+ * xiuren/iwara/hentaigasm/hentaiplay 四源摘除，命名源 12→8、
+ * CORE_IDS 移除四源并入负向名单；清单熔断样本由保留源 xiuren
+ * 接替（先例同口径），D2 的 UI getter 断言随之改钉 image 品类。 */
 const CORE_IDS = [
-  "huangguo", "hanime-tv", "51chigua", "feedheiliao", "meiridasai",
+  "huangguo", "51chigua", "feedheiliao", "meiridasai",
   "xiuren", "cosplaytele",
-  /* 断言适配（fix3310/video-add-2，2026-11-21）：hanime1/iwara 试装
-   * 恢复回加（见文件头）；hentaigasm/hentaiplay 为视频补位新源。
-   * 断言适配（fix3311/registry-cleanup）：hanime1 试装判删回移除、
-   * iwara 保留。 */
-  "iwara",
   /* 断言适配（fix338/realphoto-add，集成对账 2026-11-20）：真人图片
    * 新源 everia/xsnvshen 以命名源入册（候选准入＋生产取页栈实拉全
-   * 通，证据 fix338/evidence/realphoto-add.md），保留集 9→11；
-   * fix339 后保留集 11→9（摘 hanime1/iwara）。 */
+   * 通，证据 fix338/evidence/realphoto-add.md）。（fix3314：视频四
+   * 源 xiuren/iwara/hentaigasm/hentaiplay 已整组摘除，见文件
+   * 头。） */
   "everia", "xsnvshen",
-  "hentaigasm", "hentaiplay",
 ];
 
 /* ── 注册表完整性 ── */
@@ -65,11 +64,12 @@ const CORE_IDS = [
   const ids = new Set(BUILTIN_SOURCES.map((s) => s.id));
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
   for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
-  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 12（fix3311/registry-cleanup 摘 hanime1 试装判删回；此前 fix3310/video-add-2 试装恢复 hanime1/iwara＋新增 hentaigasm/hentaiplay、fix339 摘 hanime1/iwara、fix338 摘 danbooru/hentaihaven、加 everia/xsnvshen，更早已摘 rule34video/pornpics）");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 8（fix3314 摘视频四源 xiuren/iwara/hentaigasm/hentaiplay；此前 fix3311 摘 hanime1、fix338 摘 danbooru/hentaihaven、加 everia/xsnvshen，更早已摘 rule34video/pornpics）");
   /* 瘦身负向不变量：被删源不得回流注册表（App 内不得出现）。 */
   for (const goneId of ["rouvideo", "91video", "pornhub", "xvideos", "swag", "fyptt", "redgifs", "fc2",
     "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91", "rule34video", "pornpics",
-    "danbooru", "hentaihaven", "konachan", "yandere", "hanime1"]) {
+    "danbooru", "hentaihaven", "konachan", "yandere", "hanime1",
+    "hanime-tv", "iwara", "hentaigasm", "hentaiplay"]) {
     assert.ok(!ids.has(goneId), `瘦身删除源 ${goneId} 不在册`);
   }
   assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
@@ -115,30 +115,6 @@ const CORE_IDS = [
       }
     }
   }
-  /* 断言适配（fix3310/video-add-2，2026-11-21）：hanime1/iwara 启用
-   * 事实断言随试装恢复回滚（fix330 接通批口径原样）：两源已写专用
-   * 适配器并启用、maturity 仍 probe（App 未真机验不上调）；试装
-   * 性质由注册表 note 与本批证据承载、过关才转正式回归。
-   * 断言适配（fix3311/registry-cleanup）：hanime1 判删回、本循环
-   * 只剩 iwara。 */
-  for (const probeId of ["iwara"]) {
-    const s = BUILTIN_SOURCES.find((x) => x.id === probeId)!;
-    assert.equal(s.enabled, true, `${probeId} fix330 接通批已启用（fix3310 试装恢复）`);
-    assert.notEqual(s.adapter.template, "none", `${probeId} 已有专用适配器`);
-    assert.equal(s.maturity, "probe");
-  }
-  /* 新源事实（fix3310/video-add-2）：020/021 均 wp-rest 视频源、
-   * 020 声明 JW 小解析 opt-in、021 搜索已实证。 */
-  {
-    const g = BUILTIN_SOURCES.find((x) => x.id === "hentaigasm")!;
-    assert.equal(g.adapter.template, "wp-rest", "hentaigasm 走 wp-rest 模板");
-    assert.equal((g.adapter.params as Record<string, unknown>).jwFile, true, "hentaigasm 声明 jwFile 小解析");
-    assert.equal(g.enabled, true, "hentaigasm enabled");
-    const p = BUILTIN_SOURCES.find((x) => x.id === "hentaiplay")!;
-    assert.equal(p.adapter.template, "wp-rest", "hentaiplay 走 wp-rest 模板");
-    assert.equal(p.capabilities.search, true, "hentaiplay 搜索已实证");
-    assert.equal(p.enabled, true, "hentaiplay enabled");
-  }
   assert.equal(getBuiltinRegistry()[0].id, "huangguo", "order 第一顺位为黄果");
 }
 
@@ -146,25 +122,25 @@ const CORE_IDS = [
 assert.equal(validateManifest(null), null);
 assert.equal(validateManifest({ manifestVersion: "x" }), null);
 assert.equal(validateManifest({ manifestVersion: 2, minAppVersion: "2.0.0", sources: [{ id: 1 }] }), null);
-assert.ok(validateManifest({ manifestVersion: 2, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: false }] }));
+assert.ok(validateManifest({ manifestVersion: 2, minAppVersion: "2.0.0", sources: [{ id: "xiuren", enabled: false }] }));
 
 /* ── 三段回退 ── */
 const memStorage = () => {
   const m = new Map<string, string>();
   return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); }, map: m };
 };
-const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: false }] };
+const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ id: "xiuren", enabled: false }] };
 
 { // 远程好清单 → remote 生效 + 写 last-good + 熔断位生效
   const st = memStorage();
   const r = await resolveRegistry({ fetcher: async () => goodManifest, storage: st, appVersion: "2.2.0" });
   assert.equal(r.source, "remote");
   assert.equal(r.manifestVersion, 7);
-  assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, false, "远程熔断下线 hanime-tv");
+  assert.equal(r.sources.find((s) => s.id === "xiuren")!.enabled, false, "远程熔断下线 xiuren");
   assert.ok(st.map.has(MANIFEST_CACHE_KEY), "好清单写入 last-good");
   const info = getRegistryInfo();
   assert.equal(info.manifestVersion, 7);
-  assert.equal(info.sources.find((s) => s.id === "hanime-tv")!.origin, "https://hanime.tv", "getRegistryInfo 生效 origin");
+  assert.equal(info.sources.find((s) => s.id === "xiuren")!.origin, "https://xiuren.biz", "getRegistryInfo 生效 origin");
 }
 { // 坏清单 → last-good
   const st = memStorage();
@@ -177,15 +153,15 @@ const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ i
   const r = await resolveRegistry({ fetcher: async () => { throw new Error("net down"); }, storage: memStorage(), appVersion: "2.2.0" });
   assert.equal(r.source, "builtin");
   assert.equal(r.sources.length, BUILTIN_SOURCES.length);
-  assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, true, "内置口径 hanime-tv enabled");
+  assert.equal(r.sources.find((s) => s.id === "xiuren")!.enabled, true, "内置口径 xiuren enabled");
 }
 { // minAppVersion 高于当前 → 不生效 → 内置
   const r = await resolveRegistry({
-    fetcher: async () => ({ manifestVersion: 9, minAppVersion: "9.9.9", sources: [{ id: "hanime-tv", enabled: false }] }),
+    fetcher: async () => ({ manifestVersion: 9, minAppVersion: "9.9.9", sources: [{ id: "xiuren", enabled: false }] }),
     storage: memStorage(), appVersion: "2.2.0",
   });
   assert.equal(r.source, "builtin");
-  assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, true);
+  assert.equal(r.sources.find((s) => s.id === "xiuren")!.enabled, true);
 }
 { // applyManifest 不增删源
   const merged = applyManifest(getBuiltinRegistry(), validateManifest(goodManifest)!);
@@ -199,21 +175,20 @@ const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ i
 import { readFileSync } from "node:fs";
 import { getActiveRegistry } from "./manifest.ts";
 import { sourcesForCategory } from "./registry.ts";
-{ // fake fetcher 把 hanime-tv 熔断 → active 表与 UI getter 同步反映
-  // （断言适配 fix330/ui-fixes：原熔断样本 rule34video 已按用户裁定
-  // 摘除注册表，同 category 保留源 iwara 接替，覆盖不变；断言适配
-  // fix339/registry-cut-2：iwara 已摘除，同 category 保留源 hanime-tv
-  // 接替，覆盖不变）
+{ // fake fetcher 把 xiuren 熔断 → active 表与 UI getter 同步反映
+  // （断言适配沿革：熔断样本随源摘除逐次由保留源接替——rule34video
+  // →iwara→hanime-tv；fix3314 视频四源整组摘除后由 xiuren 接替，
+  // 覆盖不变）
   const st = memStorage();
   const r = await resolveRegistry({
-    fetcher: async () => ({ manifestVersion: 11, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: false }] }),
+    fetcher: async () => ({ manifestVersion: 11, minAppVersion: "2.0.0", sources: [{ id: "xiuren", enabled: false }] }),
     storage: st, appVersion: "2.2.0",
   });
   assert.equal(r.source, "remote");
-  assert.equal(getActiveRegistry().sources.find((s) => s.id === "hanime-tv")!.enabled, false, "active 表反映远程熔断");
-  const uiVideo = sourcesForCategory("video", getActiveRegistry().sources);
-  assert.ok(!uiVideo.some((s) => s.id === "hanime-tv"), "UI 消费 getter（active 表）不再列出被熔断源");
-  assert.ok(sourcesForCategory("video").some((s) => s.id === "hanime-tv"), "对照：内置表口径仍含 hanime-tv（证明覆盖来自 active 而非内置变更）");
+  assert.equal(getActiveRegistry().sources.find((s) => s.id === "xiuren")!.enabled, false, "active 表反映远程熔断");
+  const uiImage = sourcesForCategory("image", getActiveRegistry().sources);
+  assert.ok(!uiImage.some((s) => s.id === "xiuren"), "UI 消费 getter（active 表）不再列出被熔断源");
+  assert.ok(sourcesForCategory("image").some((s) => s.id === "xiuren"), "对照：内置表口径仍含 xiuren（证明覆盖来自 active 而非内置变更）");
 }
 { // 接线文本断言：三处 UI 读 active 表 + 订阅事件；main 启动调用 resolveRegistry
   const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -227,36 +202,36 @@ import { sourcesForCategory } from "./registry.ts";
  * 本地 last-good 时不生效、不覆盖缓存；相等/更高才接受。 ── */
 { // 远程 v3 < last-good v7 → 用 last-good，缓存不被覆盖
   const st = memStorage();
-  st.setItem(MANIFEST_CACHE_KEY, JSON.stringify(goodManifest)); // v7：hanime-tv 熔断
+  st.setItem(MANIFEST_CACHE_KEY, JSON.stringify(goodManifest)); // v7：xiuren 熔断
   const r = await resolveRegistry({
-    fetcher: async () => ({ manifestVersion: 3, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: true }] }),
+    fetcher: async () => ({ manifestVersion: 3, minAppVersion: "2.0.0", sources: [{ id: "xiuren", enabled: true }] }),
     storage: st, appVersion: "2.2.0",
   });
   assert.equal(r.source, "last-good", "低版本远程清单被防回滚拒绝");
   assert.equal(r.manifestVersion, 7);
-  assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, false, "仍按 last-good 的熔断位");
+  assert.equal(r.sources.find((s) => s.id === "xiuren")!.enabled, false, "仍按 last-good 的熔断位");
   assert.equal(JSON.parse(st.map.get(MANIFEST_CACHE_KEY)!).manifestVersion, 7, "last-good 缓存未被低版本覆盖");
 }
 { // 远程 v7 == last-good v7 → 接受远程
   const st = memStorage();
   st.setItem(MANIFEST_CACHE_KEY, JSON.stringify(goodManifest));
   const r = await resolveRegistry({
-    fetcher: async () => ({ manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: true }] }),
+    fetcher: async () => ({ manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ id: "xiuren", enabled: true }] }),
     storage: st, appVersion: "2.2.0",
   });
   assert.equal(r.source, "remote", "同版本远程清单可接受");
-  assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, true);
+  assert.equal(r.sources.find((s) => s.id === "xiuren")!.enabled, true);
 }
 
 /* ── D7 明文 http 起点收口（Muse 2026-11-19 整改，G5 P1-4 前半）：
  * 远程/缓存清单的 baseUrls 只许 https；内置注册表不经 validateManifest、
  * 不受影响（已 grep 核实内置 baseUrls 全 https 且校验仅用于清单路径）。 ── */
 assert.equal(
-  validateManifest({ manifestVersion: 8, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", baseUrls: ["http://hanime.tv"] }] }),
+  validateManifest({ manifestVersion: 8, minAppVersion: "2.0.0", sources: [{ id: "xiuren", baseUrls: ["http://xiuren.biz"] }] }),
   null, "清单 baseUrls 含 http → 整份丢弃",
 );
 assert.ok(
-  validateManifest({ manifestVersion: 8, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", baseUrls: ["https://hanime.tv"] }] }),
+  validateManifest({ manifestVersion: 8, minAppVersion: "2.0.0", sources: [{ id: "xiuren", baseUrls: ["https://xiuren.biz"] }] }),
   "清单 baseUrls 全 https → 通过",
 );
 

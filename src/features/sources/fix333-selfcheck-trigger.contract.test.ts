@@ -228,7 +228,7 @@ function mkResult(def: SourceDef, over: Partial<SourceSelfCheckResult> = {}): So
   const switcher = read("./SourceSwitcher.tsx");
   assert.ok(switcher.includes("useSourceSelfCheckOnShow"), "源切换器挂载时对展示选项源触发批量补探（频道页/帖子页经切换器覆盖）");
 
-  for (const rel of ["./SourceBrowse.tsx", "./SourcePosts.tsx", "./SourceGallery.tsx"]) {
+  for (const rel of ["./SourcePosts.tsx", "./SourceGallery.tsx"]) {
     assert.ok(read(rel).includes("useSourceSelfCheckOnView"), `${rel} 浏览面单源补探保持在位（本批不改浏览面）`);
   }
 }
@@ -301,7 +301,7 @@ function mkResult(def: SourceDef, over: Partial<SourceSelfCheckResult> = {}): So
   const hooks = read("./sourceHealth.ts");
   assert.ok(hooks.includes("reprobeSelfCheckOnListSuccess"), "sourceHealth 成功信号口走 healthCheck 统一推翻入口");
   assert.ok(hooks.includes("noteSourceListSuccess"), "浏览面成功信号口在位");
-  for (const rel of ["./SourceBrowse.tsx", "./SourcePosts.tsx", "./SourceGallery.tsx"]) {
+  for (const rel of ["./SourcePosts.tsx", "./SourceGallery.tsx"]) {
     assert.ok(read(rel).includes("noteSourceListSuccess"), `${rel} list 成功后发成功信号（自检误报跨频道同治）`);
   }
 }

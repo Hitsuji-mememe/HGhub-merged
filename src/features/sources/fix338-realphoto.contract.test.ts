@@ -40,9 +40,12 @@ const byId = (id: string): SourceDef => {
    * （order 53/54、居两源之前）＋新增 020/021（order 124/125、居
    * 注册表末两位），注册表 13→17 源，两源位置 14/15、不再居末。
    * 断言适配（fix3311/registry-cleanup，2026-11-21）：009 判删回
-   * （居两源之前），注册表 17→16 源，两源位置 13/14。 */
-  assert.equal(registry.indexOf(everia), 12, "everia 为注册表第 13 位（编号 018）");
-  assert.equal(registry.indexOf(xsnvshen), 13, "xsnvshen 为注册表第 14 位（编号 019）");
+   * （居两源之前），注册表 17→16 源，两源位置 13/14。
+   * 断言适配（fix3314，2026-11-21）：视频四源整组摘除，注册表
+   * 16→12 源；居两源之前者摘 002（order 24）/010（order 54），
+   * 两源位置 11/12、重居注册表末两位。 */
+  assert.equal(registry.indexOf(everia), 10, "everia 为注册表第 11 位（编号 018）");
+  assert.equal(registry.indexOf(xsnvshen), 11, "xsnvshen 为注册表第 12 位（编号 019）");
   assert.equal(everia.adapter.template, "wp-rest", "everia 走 wp-rest 模板实例化");
   assert.equal(everia.kind, "image");
   assert.equal(everia.enabled, true);

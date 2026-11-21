@@ -12,7 +12,6 @@ import { installLayoutDiagnostics } from "./shared/diagnostics/layoutDiagnostics
 import { scheduleGpuProbe } from "./shared/diagnostics/gpuProbe";
 import { registerSrProbeV2 } from "./features/playback/srProbe";
 import { setFetchPage } from "./features/sources/adapters/fetchPage";
-import { setFetchPost } from "./features/sources/adapters/fetchPost";
 import { recordFetchResult } from "./features/sources/adapters/fetchHealth";
 import { FALLBACK_APP_VERSION, getActiveRegistry, getRegistryInfo, resolveRegistry, revertActiveSourceParams } from "./features/sources/manifest";
 import { sourceFetchAllowlistOrigins } from "./features/sources/allowlist";
@@ -45,17 +44,6 @@ setFetchPage(async (url, headers) => {
     recordFetchResult(url, false, Math.round(performance.now() - t0), String(e));
     throw e;
   }
-});
-
-/* 定向 POST 接缝接线（Muse 2026-11-19 fix330-hanime-api）：Rust
- * source_post 命令（仅 auth.hanime.tv origin＋固定头名单＋仅回
- * x-token 响应头）在此一处注入，供 Hanime 握手使用；契约见
- * features/sources/adapters/fetchPost.ts。正文/令牌不经任何日志。 */
-setFetchPost(async (url, body, headers) => {
-  return await invoke<{ status: number; body: string; xToken: string | null }>(
-    "source_post",
-    headers ? { url, body, headers } : { url, body },
-  );
 });
 
 /* 远程清单启动接通（Muse 2026-11-19 整改 D2，P0-3）：fetchPage 注入后

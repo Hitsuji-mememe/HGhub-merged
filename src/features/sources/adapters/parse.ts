@@ -334,33 +334,6 @@ export function extractMp4(html: string): string | null {
   return all[0];
 }
 
-/** JW Player setup 小解析（Muse 2026-11-21 fix3310/video-add-2，
- * 020 校准，证据 fix3310/evidence/video-add.md §一）：正文内嵌
- * jwplayer(...).setup({...}) 的站，流地址在 setup 对象的 file:
- * 字段、封面在 image: 字段——文件名含空格（未编码），extractMp4
- * 的无空格正则与 firstImgSrc 的 <img> 采集都恒不命中。锚定首个
- * .setup( 之后 4000 字内的首个同名字段（setup 对象本体在前，
- * 其后的 advertising 等块不取），URL 以引号为界整段捕获，空格
- * 编码为 %20（站方原串含字面空格、请求形态须编码，候选实证同
- * 口径）。只供 wp-rest 模板声明 jwFile 的源消费，未声明源不走。 */
-function extractJwSetupField(html: string, field: string): string | null {
-  const setup = /\.setup\s*\(/.exec(html);
-  if (!setup) return null;
-  const region = html.slice(setup.index, setup.index + 4000);
-  const re = new RegExp(`\\b"?${field}"?\\s*:\\s*"([^"]+?)"`, "i");
-  const reSq = new RegExp(`\\b"?${field}"?\\s*:\\s*'([^']+?)'`, "i");
-  const url = (re.exec(region) ?? reSq.exec(region))?.[1]?.trim();
-  return url ? url.replace(/ /g, "%20") : null;
-}
-
-export function extractJwFile(html: string): string | null {
-  const url = extractJwSetupField(html, "file");
-  return url && /\.mp4(?:\?|$)/i.test(url) ? url : null;
-}
-
-export function extractJwImage(html: string): string | null {
-  return extractJwSetupField(html, "image");
-}
 
 export function extractIframeSrc(html: string): string | null {
   const m = /<iframe\b[^>]*\bsrc="([^"]+)"/i.exec(html);

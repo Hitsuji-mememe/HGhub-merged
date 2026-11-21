@@ -49,7 +49,7 @@ import { readFileSync } from "node:fs";
 import { getBuiltinRegistry, sourcesForCategory } from "../sources/registry.ts";
 import { defaultSourceId } from "../sources/selectedSource.ts";
 import { dedupeTagOptions, normalizeDiscoveryName } from "../sources/discoveryOptions.ts";
-import { routeForSurface, sourcesForSurface } from "../sources/surfaces.ts";
+import { SURFACES, routeForSurface, sourcesForSurface } from "../sources/surfaces.ts";
 import { assembleAlbumGallery } from "../sources/albumGallery.ts";
 import type { SourceItem } from "../sources/types.ts";
 
@@ -97,16 +97,12 @@ const ctx = { active: R1, builtin: R1 };
        * yandere 摘除，名单 7→6 源。 */
       "everia", "xsnvshen"],
     "图片频道名单＝已启用图片源（注册表序；fix339 后 6 源）");
-  assert.deepEqual(sourcesForSurface("channel-video", R1).map((d) => d.id),
-    /* 断言适配（fix3310/video-add-2）：009/010 试装恢复＋020/021
-     * 补位，视频名单 1→5 源（注册表序）。
-     * 断言适配（fix3311/registry-cleanup）：009 判删回，名单 5→4 源。 */
-    ["hanime-tv", "iwara", "hentaigasm", "hentaiplay"],
-    "视频频道名单＝已启用外部视频源（原生不在名单；fix3311 后四源）");
+  /* 断言适配（fix3314）：视频频道面与视频深链面已随视频板块整
+   * 组删除退场（SURFACES 无此两面、声明 native-not-in-video-
+   * channel 同删）；原视频名单/声明断言改钉退场事实。 */
+  assert.ok(!SURFACES.some((m) => (m.id as string) === "channel-video"), "channel-video 面已删（fix3314）");
+  assert.ok(!SURFACES.some((m) => (m.id as string) === "deeplink-video"), "deeplink-video 面已删（fix3314）");
   const native = R1.find((s) => s.id === "huangguo")!;
-  assert.deepEqual(routeForSurface("channel-video", native, ctx),
-    { kind: "not-applicable", declaration: "native-not-in-video-channel" },
-    "原生×视频频道＝空壳退场声明出局");
   assert.deepEqual(routeForSurface("channel-drama", native, ctx), { kind: "native" },
     "原生×短剧频道不受影响（仍走原生面）");
 }
@@ -127,11 +123,18 @@ const ctx = { active: R1, builtin: R1 };
 
   /* DiscoveryBar 收敛接线。 */
   const bar = read("../sources/DiscoveryBar.tsx");
-  assert.ok(bar.includes("dedupeTagOptions(categoryOptions, all, disc.tag)"), "标签行消费同名剔除（分类集＋已选保留）");
-  assert.ok(bar.includes("aria-expanded={expanded}"), "展开入口带 aria-expanded（展开才全量平铺）");
-  assert.ok(bar.includes("flex-nowrap") && bar.includes("overflow-x-auto"), "默认形态＝单行横滑");
-  assert.ok(bar.includes("flex-wrap"), "展开形态＝全量平铺（flex-wrap）");
-  assert.ok(bar.includes("TAXONOMY_CHIP_LIMIT"), "Top-N 上限口径不变");
+  assert.ok(bar.includes("dedupeTagOptions(categoryOptions, all, disc.tag)"), "标签池消费同名剔除（分类集＋已选保留）");
+  /* 断言适配（fix3314/header-slim）：fix336 的行内展开/收起与行内
+   * 标签行退场——主界面只剩瘦筛选栏（排序分段开关＋分类单行横
+   * 滑），标签改底部弹层平铺全量；原「展开才全量平铺」断言改钉
+   * 新形态三件：分段开关在位、分类行恒单行横滑、弹层 flex-wrap
+   * 平铺＋筛选按钮开层。 */
+  assert.ok(bar.includes("SegmentedControl") && bar.includes('aria-label="排序"'), "排序＝小号分段开关（fix3314）");
+  assert.ok(bar.includes("flex-nowrap") && bar.includes("overflow-x-auto"), "分类行＝单行横滑");
+  assert.ok(bar.includes("<Sheet open={tagSheetOpen}") && bar.includes("flex-wrap"), "标签弹层＝底部 Sheet 平铺网格（fix3314）");
+  assert.ok(bar.includes("setTagSheetOpen(true)"), "「筛选」按钮开弹层（fix3314）");
+  assert.ok(!bar.includes("aria-expanded={expanded}"), "行内展开/收起已退场（fix3314）");
+  assert.ok(bar.includes("TAXONOMY_CHIP_LIMIT"), "分类 Top-N 上限口径不变（标签弹层不再受此限）");
 
   /* 总览四行：行集单一派生＋计数＝行数＋图片行进频道页。 */
   const category = read("./Category.tsx");
@@ -147,9 +150,11 @@ const ctx = { active: R1, builtin: R1 };
   assert.ok(category.includes("defaultSourceId("), "频道初始落点经记忆口径派生（图片/视频共用）");
   assert.ok(category.includes("SourceGallery def={imageChannelSource}"), "图片频道经 SourceGallery 取数");
 
-  /* 视频频道：默认即外部源、不存在能点到的恒空入口。 */
-  assert.ok(category.includes('cate === "original" || effectiveChannelSourceId !== nativeId'), "视频频道恒走外部源分支");
-  assert.ok(category.includes("暂无可用视频源"), "无外部源时落诚实空态（不回落原生空壳）");
+  /* 视频频道：随视频板块整组删除退场（fix3314）——原「恒走外部
+   * 源分支」断言改钉下线提示分支与组件退场事实。 */
+  assert.ok(category.includes('cate === "original" || cate.startsWith("video:")'), "视频频道/深链落下线提示分支（fix3314）");
+  assert.ok(category.includes("视频板块已下线"), "下线提示文案在位（fix3314）");
+  assert.ok(!category.includes("<SourceBrowse"), "SourceBrowse 挂载已退场（fix3314）");
   assert.ok(!category.includes("api.originalVideos"), "原生视频取数臂已退场");
   assert.ok(!category.includes("partitionCardsByResolvedKind(rawItems"), "原生视频品类分组已退场");
 

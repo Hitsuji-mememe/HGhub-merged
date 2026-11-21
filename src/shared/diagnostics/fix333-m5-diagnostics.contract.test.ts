@@ -54,19 +54,19 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8"
  * download 段留痕随适配器同删、改验负向（与 011 episode 同口
  * 径）；010 三段在位不变） ── */
 {
+  /* 断言适配（fix3314）：002 hanimeApi 与 010 wp-rest jw 分支随视
+   * 频板块整组删除退场，traceResolveFailure 的生产调用点全数消
+   * 失；设施定义（resolveTrace.ts）与读侧（留痕节）保留在位——
+   * 写侧无调用方这一事实记入 fix3314 审计登记（瘦身候选），本节
+   * 改钉「定义在位＋全部旧段负向」。 */
+  const rt = read("../../features/sources/adapters/resolveTrace.ts");
+  assert.ok(rt.includes("export function traceResolveFailure"), "留痕设施定义保留在位（fix3314 审计登记其写侧无调用方）");
   const tpl = read("../../features/sources/adapters/templates.ts");
-  const api = read("../../features/sources/adapters/hanimeApi.ts");
-  for (const seg of ["csrf", "handshake", "decode"]) {
-    assert.ok(api.includes(`traceResolveFailure(def.id, "${seg}"`), `002 hanimeApi 段留痕在位：${seg}`);
+  assert.ok(!tpl.includes("traceResolveFailure"), "templates 留痕调用点已随 jw 分支退场（fix3314）");
+  for (const seg of ["detail", "fetch", "decode", "watch", "download", "episode", "csrf", "handshake"]) {
+    assert.ok(!tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `段 ${seg} 留痕不在 templates（fix3314）`);
   }
-  assert.ok((api.match(/traceResolveFailure\(/g) ?? []).length >= 6, "002 留痕调用点成规模（非点缀；其一为跨行调用、按调用符计）");
-  for (const seg of ["detail", "fetch", "decode"]) {
-    assert.ok(tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `010 段留痕在位：${seg}（fix3310 恢复、fix3311 保留）`);
-  }
-  for (const seg of ["watch", "download"]) {
-    assert.ok(!tpl.includes(`traceResolveFailure(def.id, "${seg}"`), `009 ${seg} 段留痕已随适配器试装判删退役（fix3311）`);
-  }
-  assert.ok(!tpl.includes('traceResolveFailure(def.id, "episode"'), "011 集页段留痕已随适配器删除退役（fix338）");
+  assert.throws(() => read("../../features/sources/adapters/hanimeApi.ts"), "hanimeApi.ts 已整删（fix3314）");
 }
 
 /* ── (1) P5：结构化留痕节行为 ── */

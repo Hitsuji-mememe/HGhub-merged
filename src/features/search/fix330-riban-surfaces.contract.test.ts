@@ -38,8 +38,7 @@ import { readFileSync } from "node:fs";
 import { getBuiltinRegistry } from "../sources/registry.ts";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem } from "../sources/types.ts";
 import { setFetchPage } from "../sources/adapters/fetchPage.ts";
-import { setFetchPost, type FetchPostResult } from "../sources/adapters/fetchPost.ts";
-import { createHanimeApiAdapter, sealEnvelope } from "../sources/adapters/hanimeApi.ts";
+import { createWpRestAdapter } from "../sources/adapters/templates.ts";
 import { loadSearchCopy, copyCacheKey, type CopyLoaderDeps } from "./copyLoader.ts";
 import { assembleSearchGallery } from "./searchGallery.ts";
 import type { CopyRef, MergedHit } from "./multiSourceSearch.ts";
@@ -56,18 +55,20 @@ const def = (id: string): SourceDef => {
  * 由下方源码文本断言守）。 */
 function makeAdapterDirect(d: SourceDef): SourceAdapter {
   switch (d.adapter.template) {
-    case "hanime-api": return createHanimeApiAdapter(d);
+    case "wp-rest": return createWpRestAdapter(d);
     default: throw new Error(`unexpected template ${d.adapter.template}`);
   }
 }
 
 /** 跑一条「搜索结果 → 点开详情」完整场景：先经适配器 search
  * 拿真实结果条目，再以生产加载核打开；detail 调用计数由包装
- * 适配器实测（旧行为 video 分支 detail 调用恒为 0）。 */
+ * 适配器实测（旧行为 video 分支 detail 调用恒为 0；本批后
+ * video kind 已无生产消费者，场景改由存活 image kind 承接——
+ * 加载核对各 kind 的 detail 先行口径不变，见 copyLoader 头注）。 */
 async function runOpenScenario(
   sourceId: string,
   searchCall: (a: SourceAdapter) => Promise<SourceItem>,
-): Promise<{ item: SourceItem; streamUrl?: string; detail?: SourceDetail; detailCalls: number }> {
+): Promise<{ item: SourceItem; images?: string[]; detail?: SourceDetail; detailCalls: number }> {
   const d = def(sourceId);
   const raw = makeAdapterDirect(d);
   const item = await searchCall(raw);
@@ -84,52 +85,45 @@ async function runOpenScenario(
     detailCache,
   };
   const copy: CopyRef = { sourceId, sourceName: d.displayName, weight: 40, hot: 0, seq: 0, item };
-  const got = await loadSearchCopy("video", copy, deps);
+  const got = await loadSearchCopy("image", copy, deps);
   assert.ok(detailCalls >= 1, `${sourceId} 点开详情必须先走适配器 detail 段（旧行为恒为 0 次）`);
   assert.ok(got.detail, `${sourceId} 详情面拿到 detail（旧行为单副本恒 undefined）`);
   assert.equal(got.detail?.externalId, item.externalId, `${sourceId} detail 与搜索条目同一条目`);
   assert.equal(detailCache.get(copyCacheKey(copy))?.externalId, item.externalId, `${sourceId} detail 入生产缓存（副本切换复用）`);
-  assert.ok(got.streamUrl, `${sourceId} 点开后继续到取流、产出可播放地址`);
-  return { item, streamUrl: got.streamUrl, detail: got.detail, detailCalls };
+  assert.ok(got.images && got.images.length > 0, `${sourceId} 点开后产出图集（image kind 出口）`);
+  return { item, images: got.images, detail: got.detail, detailCalls };
 }
 
-/* ── source-002（hanime-api）：目录搜索 → detail（目录行）→
- * 握手 resolve（CSRF＋信封 POST 夹具链） ── */
+/* ── 存活承接场景（wp-rest 图片源）：搜索 → detail（单帖）→ 图集。
+ * 原 source-002（hanime-api）完整场景随视频板块整组删除退役
+ * （fix3314）——其握手/信封链覆盖对象已不存在；加载核 detail
+ * 先行＋缓存＋出口形态的覆盖由本场景承接、不降。 ── */
 {
-  const catalogJson = fx("hanime-search-hvs.json");
-  const sourcesPayload = JSON.stringify({
-    sources: [
-      { kind: "normal", src: "/hls/480/FixtureToken480", height: 480 },
-      { kind: "normal", src: "/hls/720/FixtureToken720", height: 720 },
-    ],
-  });
-  const sealed = await sealEnvelope(sourcesPayload, new Uint8Array([9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 1, 2]));
-  const envelopeJson = JSON.stringify({ v: 1, alg: "AES-256-GCM", iv: sealed.iv, tag: sealed.tag, data: sealed.data });
-  const xToken = Buffer.from(envelopeJson, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  let postCalls = 0;
+  const post = {
+    id: 11, link: "https://xiuren.example/p11",
+    title: { rendered: "帖十一" }, excerpt: { rendered: "摘要" },
+    content: { rendered: '<p><img src="https://img.example/11a.jpg"><img src="https://img.example/11b.jpg"></p>' },
+    categories: [23], tags: [7],
+  };
   setFetchPage(async (url) => {
-    if (url.includes("search_hvs")) return catalogJson;
-    if (url.includes("csrf-token")) return JSON.stringify({ csrf_token: "fixture-csrf", csrf_token_expires_at: 1795107769 });
+    if (url.includes("/posts/11")) return JSON.stringify(post);
+    if (url.includes("/posts?")) return JSON.stringify([post]);
+    if (url.includes("/categories?")) return JSON.stringify([{ id: 23, name: "Hot Girl", count: 50 }]);
+    if (url.includes("/tags?")) return JSON.stringify([{ id: 7, name: "长腿", count: 99 }]);
     throw new Error(`unexpected fetch ${url}`);
   });
-  setFetchPost(async (url): Promise<FetchPostResult> => {
-    assert.ok(url.includes("/api/v11/handshake"), "握手 POST 发 auth 域 handshake 端点");
-    postCalls += 1;
-    return { status: 200, body: "{}", xToken };
-  });
-  const r = await runOpenScenario("hanime-tv", async (a) => {
-    const hit = await a.search!("unicorn", 1, 10);
-    assert.equal(hit.items.length, 1, "source-002 搜索出条目（真机同形态：搜索可达）");
+  const r = await runOpenScenario("xiuren", async (a) => {
+    const hit = await a.search!("帖", 1, 10);
+    assert.equal(hit.items.length, 1, "wp-rest 源搜索出条目");
     return hit.items[0];
   });
-  assert.equal(r.item.externalId, "fixture-slug-one", "source-002 条目 id 为目录 slug");
-  assert.equal(r.streamUrl, "https://hanime.tv/hls/720/FixtureToken720", "source-002 取流经握手链产出最高画质 HLS");
-  assert.ok(postCalls >= 1, "source-002 resolve 真走 fetchPost 定向接缝（握手已达）");
+  assert.equal(r.item.externalId, "11", "条目 id 为帖 id");
+  assert.deepEqual(r.images, ["https://img.example/11a.jpg", "https://img.example/11b.jpg"], "图集＝detail 正文图序");
 }
 
-/* source-010（hanime1）与 source-011（iwara-api）两条完整场景已随
- * fix339/registry-cut-2 两源摘除＋适配器删码同删退役；加载核本身的
- * 覆盖由上方 source-002 场景与下方生产调用点断言承接、不降。 */
+/* 原 source-002/010/011 场景均已退役（002 随 fix3314 视频板块
+ * 删除、010/011 随 fix339 摘除）；加载核覆盖由上方 wp-rest 场景
+ * 与下方生产调用点断言承接。 */
 
 /* ── 生产调用点（源码文本断言）：Search 消费加载核、工厂分发
  * 齐全 ── */
@@ -139,8 +133,10 @@ async function runOpenScenario(
   assert.ok(searchSrc.includes('from "./copyLoader"'), "Search 导入 copyLoader 单一出处");
   const factory = readFileSync(new URL("../sources/adapters/index.ts", import.meta.url), "utf8");
   /* 适配（fix338）：hentaihaven-api 已删码，分发断言收口三模板。
-   * 适配（fix339）：iwara-api/hanime1 已删码，分发断言收口 hanime-api。 */
-  for (const [tpl, fn] of [["hanime-api", "createHanimeApiAdapter"]] as const) {
+   * 适配（fix339）：iwara-api/hanime1 已删码，分发断言收口 hanime-api。
+   * 适配（fix3314）：hanime-api/iwara-api 随视频板块删码，分发断言
+   * 改钉存活模板全集。 */
+  for (const [tpl, fn] of [["wp-rest", "createWpRestAdapter"], ["chigua", "createChiguaAdapter"], ["hls-site", "createHlsSiteAdapter"], ["danbooru-api", "createDanbooruAdapter"]] as const) {
     assert.ok(factory.includes(`case "${tpl}": return ${fn}(def)`), `工厂分发 ${tpl} → ${fn}`);
   }
 }

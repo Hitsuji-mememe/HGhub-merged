@@ -44,9 +44,10 @@ const def = (id: string): SourceDef => {
   cardTaxonSubtitle("xiuren", input);
   assert.deepEqual(input, ["Maid", "XiuRen"], "只产出显示串、不改写条目数据（value 不变）");
 }
-/* ── (A) 接线：三浏览面卡片副标题经 cardTaxonSubtitle、旧裸文案已撤 ── */
+/* ── (A) 接线：两浏览面卡片副标题经 cardTaxonSubtitle、旧裸文案已撤
+ * （断言适配 fix3314：SourceBrowse 随视频板块删除退役）。 ── */
 {
-  for (const f of ["./SourceBrowse.tsx", "./SourceGallery.tsx", "./SourcePosts.tsx"]) {
+  for (const f of ["./SourceGallery.tsx", "./SourcePosts.tsx"]) {
     const src = read(f);
     assert.ok(src.includes("cardTaxonSubtitle"), `${f} 卡片副标题接汉化`);
     assert.ok(!src.includes('item.tags?.slice(0, 2).join(" · ")'), `${f} 旧裸 tags 副标题已撤`);

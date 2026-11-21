@@ -113,29 +113,12 @@ const def = (id: string) => {
   assert.ok(r.streams[0]?.url.includes(".m3u8"), "黑料网详情可取 HLS 流");
 }
 
-/* ── Hanime.tv：断言适配（3.3.0 fix330-hanime-api 接通批）——
- * F2b 期结论「结构已明、通道不通」经本批复核属实后已被定向扩展
- * 打通（Rust source_post 仅 auth origin＋固定头名单＋仅回 x-token；
- * 协议级实证四级形态合法），原「维持 probe＋note 写卡点」断言由
- * fix330-hanime-api 契约接棒；此处只守注册表侧不变量：模板已换
- * hanime-api、App 侧未真机验仍 probe、note 为纯技术记录。 ── */
+/* ── 视频四源：fix3314 按用户亲定整组摘除注册表（视频板块删
+ * 除）——原 Hanime/Iwara 在册事实断言改为不在册断言，强度不变。 ── */
 {
-  const d = def("hanime-tv");
-  assert.equal(d.adapter.template, "hanime-api", "Hanime 已换 hanime-api 模板（官方 API v11）");
-  assert.equal(d.maturity, "probe", "Hanime 维持 probe（代码就绪未验证）");
-  assert.ok(d.note?.includes("handshake"), "Hanime note 写明握手协议段");
-  assert.ok(d.note?.includes("代码就绪未验证"), "Hanime note 标注 App 侧未真机验");
-}
-
-/* ── Iwara：fix339/registry-cut-2 曾按用户定案摘除注册表（3.3.8 一轮
- * 修复后真机仍不可播、整组删无第三轮）；fix3310/video-add-2 按用户
- * 授权试装恢复（播放腿补齐后试一轮），原不在册断言回滚为模板/启用
- * 事实断言，强度不变。 ── */
-{
-  const d = def("iwara");
-  assert.equal(d.adapter.template, "iwara-api", "Iwara 恢复 iwara-api 专用模板（fix3310 试装）");
-  assert.equal(d.enabled, true, "Iwara 试装启用");
-  assert.equal(d.maturity, "probe", "Iwara 维持 probe（App 侧未真机验）");
+  for (const gone of ["hanime-tv", "iwara", "hentaigasm", "hentaiplay"]) {
+    assert.ok(!getBuiltinRegistry().some((s) => s.id === gone), `${gone} 已摘除注册表（fix3314 视频板块删除）`);
+  }
 }
 
 /* ── PornPics：fix335/g-sources 已按用户裁定退役摘除注册表（hls-site
