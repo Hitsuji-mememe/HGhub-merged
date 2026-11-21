@@ -304,6 +304,27 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   不收、回落原名）只供 chip 显示文案与搜索反查，`value` 永
   不经映射、点选回传站方原值；原名退到 chip 的 title/
   aria-label 供查对。契约同上（A–H 八段）。
+  fix3313/discovery-tail（2026-11-21，收尾批）：发现尾巴三项——
+  ①卡片汉化：三浏览面卡片副标题经 `taxonLabels.cardTaxonSubtitle`
+  出显示串，与筛选行同口径（源表优先/共享兜底/未收录回落原名），
+  条目 `tags` 原名逐字不动。②标签搜索长尾：`SourceAdapter` 新增
+  可选 `searchTags`（仅 wp-rest 实现，tags 端点 `search` 参数）；
+  `DiscoveryBar` 搜索态经 `serverTagSearchTerms` 派生词（英文原词
+  直搜、中文经反查索引取英文键、上限 3）防抖补取、与本地名单经
+  `mergeTaxonEntries` 按 id 合并成池后走既有去重/置顶/过滤管线；
+  未实现该能力的源搜索仍只覆盖已加载名单（002 目录聚合即全集、
+  无长尾问题；吃瓜三源无标签筛选、不在范围）。③taxonomy 失效
+  自检：`SourceAdapter` 新增可选 `taxonExists`（仅 wp-rest 实现，
+  单条端点直查，404→false、其余失败→null）；taxonomy 到手后
+  `resolveStaleDiscFields` 核对落盘 disc——名单内保留；名单外有
+  探针时仅 404 清值（长尾真条目与未知都保留），无探针时缺席即
+  清；失效字段经 onDiscChange 回落落盘并记诊断账本事件
+  `disc.taxon_stale_category/tag`（导出尾段可判读），不新造 UI。
+  自检纪元/协议不 bump：两项新能力均为可选增量，不改 list/
+  detail/resolve 的取页与解析切片。契约
+  `fix3313-discovery-tail.contract.test.ts`（基点先红），wiring
+  条目 fix3313-* 四条。证据 `~/workspace/hghub/fix3313/evidence/
+  discovery-tail-report.md`。
   fix335/e-category（2026-11-20）：分类总览索引化（设计
   `fix335/design-category-hub.md` 方案②，用户真机反馈纵深过大
   ＋样式不统一）——总览删全部预览段（频道横滑预览/吃瓜

@@ -158,6 +158,35 @@ export function taxonKeysForChineseQuery(query: string): Set<string> {
   return out;
 }
 
+/** 卡片副标题的标签文案（Muse 2026-11-21 fix3313/discovery-tail
+ * ①）：列表卡片此前只显英文原名（汉化只落在发现行 chip）——现与
+ * 筛选行同口径经 taxonDisplayLabel 出显示串（源表优先/共享兜底/
+ * 未收录回落原名），上限与连接符沿用旧副标题形态（2 条、「 · 」）。
+ * 只产出显示串：条目数据（tags 原名）逐字不动，详情/屏蔽等下游
+ * 消费的仍是原名。 */
+export function cardTaxonSubtitle(sourceId: string, tags: readonly string[] | undefined, limit = 2): string {
+  return (tags ?? []).slice(0, limit)
+    .map((t) => taxonDisplayLabel(sourceId, { value: t, label: t }))
+    .join(" · ");
+}
+
+/** 服务端标签搜索的派生词（fix3313/discovery-tail ②）：WP tags
+ * 端点的 search 参数按站方名（英文/拼音）子串检索——非中文词直
+ * 搜原词；中文词端点无从命中，改经中文反查索引取英文原名键补
+ * 搜（与本地匹配同一反查口径）。派生词数上限 3，防一词多译时
+ * 请求放大；空词返回空数组（不发请求）。 */
+export function serverTagSearchTerms(query: string): string[] {
+  const q = query.trim();
+  if (!q) return [];
+  const terms: string[] = [];
+  if (!/[㐀-鿿]/.test(q)) terms.push(q);
+  for (const k of taxonKeysForChineseQuery(q)) {
+    if (terms.length >= 3) break;
+    if (!terms.includes(k)) terms.push(k);
+  }
+  return terms.slice(0, 3);
+}
+
 /** 标签行内搜索的单条匹配：原名子串（不分大小写；value 为非数字
  * 形态时同查——002 的 value 即原名）或中文译名经反查键命中。 */
 export function tagOptionMatchesQuery(

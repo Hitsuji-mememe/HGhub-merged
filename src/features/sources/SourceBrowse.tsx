@@ -56,6 +56,7 @@ import { episodeChoicesForSurface, episodeOrdinal, type EpisodeChoice } from "./
 import { EpisodePicker } from "./EpisodePicker";
 import DiscoveryBar from "./DiscoveryBar";
 import { useDiscState } from "./discState.ts";
+import { cardTaxonSubtitle } from "./taxonLabels.ts";
 import { discFingerprint, EMPTY_LIST_DISCOVERY, type ListDiscovery } from "./types.ts";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
@@ -415,7 +416,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
         <div className="ios-media-grid" data-ui="media-grid">
           {items.map((item) => (
             <MediaCard key={item.externalId} title={item.title} cover={item.cover} surface="source-browse"
-              subtitle={item.tags?.slice(0, 2).join(" · ") || def.displayName}
+              subtitle={cardTaxonSubtitle(def.id, item.tags) || def.displayName}
               onOpen={() => void openItem(item)} />
           ))}
         </div>

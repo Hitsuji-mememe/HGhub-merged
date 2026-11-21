@@ -14,6 +14,7 @@
  * 户点掉后不再回来（下次渲染时 disc.tag 已清、照常剔除）。
  */
 import type { DiscoveryOption } from "./adapters/templateCapabilities.ts";
+import type { ListDiscovery, SourceTaxonomy, TaxonEntry } from "./types.ts";
 
 export function normalizeDiscoveryName(name: string): string {
   return name.trim().toLowerCase();
@@ -37,6 +38,61 @@ export function pinRecentOptions(
   for (const o of options) (rank.has(o.value) ? pinned : rest).push(o);
   pinned.sort((a, b) => (rank.get(a.value) ?? 0) - (rank.get(b.value) ?? 0));
   return [...pinned, ...rest];
+}
+
+/**
+ * taxonomy 条目合并（Muse 2026-11-21 fix3313/discovery-tail ②）：
+ * 本地已加载名单与服务端补取结果按 id 合并——先到先得（本地项
+ * 优先、序不变），补取项按到达序殿后；同 id 重复只留一份。
+ */
+export function mergeTaxonEntries(
+  base: readonly TaxonEntry[],
+  extra: readonly TaxonEntry[],
+): TaxonEntry[] {
+  const seen = new Set(base.map((e) => e.id));
+  const out = [...base];
+  for (const e of extra) {
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
+    out.push(e);
+  }
+  return out;
+}
+
+/**
+ * 落盘 disc 的 taxonomy 失效判定（fix3313/discovery-tail ③）：站方
+ * 改 taxonomy id 后，落盘的 category/tag 指向已不存在的条目、列表
+ * 被静默过滤为空。本函数只判定不清值（清值与留痕由调用方做）：
+ * - 值在已加载 taxonomy 名单内 → 保留（探针不参与判定）。
+ * - 名单外且适配器有存在性探针 → 探针明确 false（站方 404）才判
+ *   失效；true（名单窗口外的真条目，如标签 Top-100 之外）与 null
+ *   （网络失败等未知）都保留——未知不是空，不拿探不到冒充失效。
+ * - 名单外且无探针 → 该适配器的 taxonomy 即全集（如 002 本地目录
+ *   聚合），缺席即失效。
+ * sort/period 非 taxonomy 字段，不在本判定范围。scope 限定查哪些
+ * 字段（调用方按 DiscoverySpec 传入）：params 型分类（吃瓜栏目
+ * slug）的选项来自注册表静态表、不经 taxonomy，不在查验范围。
+ */
+export async function resolveStaleDiscFields(
+  disc: ListDiscovery,
+  taxonomy: SourceTaxonomy,
+  probe: ((kind: "category" | "tag", id: string) => Promise<boolean | null>) | null,
+  scope: { category: boolean; tag: boolean } = { category: true, tag: true },
+): Promise<{ next: ListDiscovery; staleFields: ("category" | "tag")[] }> {
+  const next: ListDiscovery = { ...disc };
+  const staleFields: ("category" | "tag")[] = [];
+  const checks: ("category" | "tag")[] = [];
+  if (scope.category && disc.category && !taxonomy.categories.some((e) => e.id === disc.category)) checks.push("category");
+  if (scope.tag && disc.tag && !taxonomy.tags.some((e) => e.id === disc.tag)) checks.push("tag");
+  for (const field of checks) {
+    const id = field === "category" ? disc.category! : disc.tag!;
+    const stale = probe ? (await probe(field, id)) === false : true;
+    if (stale) {
+      delete next[field];
+      staleFields.push(field);
+    }
+  }
+  return { next, staleFields };
 }
 
 export function dedupeTagOptions(

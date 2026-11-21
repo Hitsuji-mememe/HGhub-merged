@@ -501,14 +501,14 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
    * posts 同在 restBase 下；按计数降序取（chips 的 Top-N 顺序即
    * 端点顺序，适配器不另排序）。模块级缓存只存成功结果，失败删
    * 缓存容许下次重试；list 与 DiscoveryBar 的 taxonomy() 共用。 */
+  const toEntries = (rows: { id?: number; name?: string; count?: number }[]): SourceTaxonomy["categories"] =>
+    rows.flatMap((r) => (typeof r?.id === "number" && typeof r?.name === "string" && r.name
+      ? [{ id: String(r.id), name: stripTags(r.name), ...(typeof r.count === "number" ? { count: r.count } : {}) }]
+      : []));
   const fetchTaxonomy = (): Promise<SourceTaxonomy> => {
     const key = `${def.id}|${apiUrl("")}`;
     const hit = wpTaxonomyCache.get(key);
     if (hit) return hit;
-    const toEntries = (rows: { id?: number; name?: string; count?: number }[]): SourceTaxonomy["categories"] =>
-      rows.flatMap((r) => (typeof r?.id === "number" && typeof r?.name === "string" && r.name
-        ? [{ id: String(r.id), name: stripTags(r.name), ...(typeof r.count === "number" ? { count: r.count } : {}) }]
-        : []));
     const p = (async (): Promise<SourceTaxonomy> => {
       const [cats, tags] = await Promise.all([
         parseJsonArray<{ id?: number; name?: string; count?: number }>(await fetchPage(`${apiUrl("/categories")}?per_page=100&orderby=count&order=desc`), def.id),
@@ -563,6 +563,30 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
       return paged(posts, page, size, tax);
     },
     taxonomy: () => fetchTaxonomy(),
+    /* 标签服务端搜索（Muse 2026-11-21 fix3313/discovery-tail）：
+     * tags 端点 search 参数按名子串检索（站方语义），一次补取
+     * per_page=100——Top-100 名单外的长尾标签靠此直达；结果不进
+     * taxonomy 缓存（名单口径仍是 count 降序 Top-100，补取只供
+     * 搜索态合并池）。 */
+    async searchTags(query) {
+      const q = query.trim();
+      if (!q) return [];
+      return toEntries(parseJsonArray<{ id?: number; name?: string; count?: number }>(
+        await fetchPage(`${apiUrl("/tags")}?search=${encodeURIComponent(q)}&per_page=100`), def.id));
+    },
+    /* 条目存在性探针（fix3313/discovery-tail）：单条端点直查——
+     * 200 且回对象即在；HTTP 404（WP 对不存在的 term 恒回
+     * rest_term_invalid 404）即明确不在；其余失败（网络/5xx/
+     * 解析）一律未知 null，调用方不据此清值。 */
+    async taxonExists(kind, id) {
+      try {
+        const raw = await fetchPage(`${apiUrl(kind === "category" ? "/categories" : "/tags")}/${encodeURIComponent(id)}`);
+        const obj = JSON.parse(raw) as { id?: number };
+        return typeof obj?.id === "number";
+      } catch (e) {
+        return httpStatusOf(e) === 404 ? false : null;
+      }
+    },
     async detail(id) {
       const p = JSON.parse(await fetchPage(`${apiUrl(listPath)}/${id}`)) as WpPost;
       const item = toItem(p);
