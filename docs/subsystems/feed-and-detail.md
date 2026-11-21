@@ -470,6 +470,29 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   此前 gallery/source-list 两面在明细行露英文原名；未知面值回落
   原值。契约 `fix333-m5-diagnostics.contract.test.ts`（含 fix331-
   image-trace (3) 的改钉）。
+  **fix3311/polish 补传**：SourceGallery 网格 MediaCard 此前漏传
+  surface（全仓唯一），其封面失败被并进全局聚合、source-list 分
+  桶恒空；现补 `surface="source-list"`，与 SourcePosts 的
+  source-posts 透传同口径。契约 `fix3311-polish.contract.test.ts` (d)。
+- 外部帖子详情阅读进度条（fix3311/polish P2）：SourcePosts 详情
+  页头下补与原生 PostDetail 逐字同款的 progressbar（订阅宿主滚
+  动容器、口径 scrollTop/(scrollHeight-clientHeight)、无可滚范
+  围记 100），长帖阅读位置此前在外源详情无反馈。契约同上 (b)。
+- 图集查看器三件（fix3311/polish，图片审计 §1.4/§1.5/§1.6/§2.3）：
+  ①缩放——pinch/双击作用于当前帧 transform、判定走
+  `albumZoom.ts` 纯函数，缩放态横滑翻页与点按整体让行、切张/
+  换册复位，点按改 300ms 延迟仲裁判双击；②舞台预取窗口 ±1→±2；
+  ③失败帧点按重试——`Img.onFinalFail`（ui.tsx 新增可选回调，两
+  条终局落点各报一次）登记失败帧、当前帧显弱提示、点按经 nonce
+  换 key 重走 attempt；④封面先行开册——SourceGallery 有封面时
+  以 partial 态即刻开册显封面帧，detail 落地同代次原位补全、失
+  败仍落 error 态。契约同上 (d)(e)。
+- Profile 切线状态保位（fix3311/polish P1）：UI 状态（页签/分
+  段/展开上限）与页面骨架上提未 key 化外层，`lineEpoch` 键只留
+  取数内容层——后台自动选线切线不再把正看历史的用户弹回收藏
+  页签；滚动位置在代次翻转时捕获旧 scrollTop、提交后写回（高
+  度不足静默接受）。收藏/历史/屏蔽/续播数据本体与存储协议未
+  动。契约同上 (a)；审计 `fix3311/evidence/holistic-polish-audit.md` P1。
 - 外部源详情页头让位（同批）：频道页（ChannelPage）在 `video:` 与
   「频道内切外部源」两分支渲染外层页头，其内 SourceBrowse 详情自带
   内层页头——详情打开时外层必须让位（`onDetailOpenChange` 回报、

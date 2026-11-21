@@ -1,6 +1,6 @@
 import { Button, SegmentedControl, Surface } from "../../shared/ui/ios/controls";
 import { Loader } from "../../shared/ui/ios/effects";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { api, APP_VERSION, fmt, fmtTime, isMobile, platform } from "../../shared/api/api";
 import type { Detail, Post } from "../../shared/api/types";
 import { useStore } from "../../shared/model/store";
@@ -13,25 +13,84 @@ import { getBuiltinRegistry } from "../sources/registry";
 import { useContentPreferences } from "../../shared/model/contentPreferences";
 import { IBack, IChevR, IClock, IHeart, ISettings, IStar, IUser } from "../../shared/ui/icons";
 
-/* 线路变化时丢弃缓存详情重挂载（旧实现另有 accountScope 成分，账号
- * 体系拆除后身份恒定，只剩 lineEpoch 代次）。 */
-export default function Profile({ wide, active = true }: { wide: boolean; active?: boolean }) {
-  const { lineEpoch } = useStore();
-  return <ProfileContent key={lineEpoch} wide={wide} active={active} />;
-}
+type ProfileLimits = { favVideo: number; favPost: number; history: number };
 
-function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
-  const { blockReason } = useContentPreferences();
-  const { history, favs, postFavs, setCollected, toast, clearHistory, push, setTab: setMainTab, extRefs } = useStore();
+/* 切线状态保位（Muse 2026-11-21 fix3311/polish P1，整体打磨审计
+ * §6）：旧实现默认导出以 lineEpoch 为 key 整体重挂内容区，
+ * 页签/收藏分段/展开上限/滚动位置全被重置——后台自动选线切一次，
+ * 正看历史的用户被无声弹回「收藏」页签。现行分工：UI 状态（页签/
+ * 分段/展开）与页面骨架（页头/滚动体）住在未 key 化的外层、切线
+ * 保持；只有内容区的取数缓存（详情缓存/失败集/重拉代次）随
+ * lineEpoch 丢弃重挂，旧线路数据不冒充新线路结果（不变量 2 不
+ * 变）。滚动位置由外层在代次翻转的渲染期先捕获旧值、提交后在新
+ * 内容就位窗口内（1.5s 上限）钳制写回，高度不足静默接受（照
+ * useScrollKeeper/PostDetail F9 先例口径）。 */
+export default function Profile({ wide, active = true }: { wide: boolean; active?: boolean }) {
+  const { lineEpoch, push, setTab: setMainTab } = useStore();
   const [tab, setTab] = useState<"fav" | "history">("fav");
   const [favKind, setFavKind] = useState<"video" | "post">("video");
+  const [limits, setLimits] = useState<ProfileLimits>({ favVideo: 12, favPost: 12, history: 12 });
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const epochRef = useRef(lineEpoch);
+  const savedScrollRef = useRef(0);
+  const restoreUntilRef = useRef(0);
+  if (epochRef.current !== lineEpoch) {
+    /* 渲染期捕获：此刻 DOM 仍是旧代次内容，scrollTop 为切线前真值。 */
+    epochRef.current = lineEpoch;
+    savedScrollRef.current = bodyRef.current?.scrollTop ?? savedScrollRef.current;
+    restoreUntilRef.current = Date.now() + 1500;
+  }
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el || !savedScrollRef.current || Date.now() > restoreUntilRef.current) return;
+    const max = Math.max(0, el.scrollHeight - el.clientHeight);
+    const target = Math.min(savedScrollRef.current, max);
+    if (Math.abs(el.scrollTop - target) > 2) el.scrollTop = target;
+  });
+  return (
+    <div className="ios-page absolute inset-0 bg-bg flex flex-col">
+      <div className="ios-page-heading shrink-0 px-4 flex items-center">
+        {/* 出入口同位（2026-11-18 第9项裁定）：左上返回回播放器 */}
+        {isMobile && (
+          <Button onClick={() => setMainTab("home")} aria-label="返回播放器" className="ios-icon-button shrink-0 mr-2.5">
+            <IBack size={17} />
+          </Button>
+        )}
+        <h1 className="ios-page-title text-on">我的</h1>
+        {isMobile && (
+          <Button onClick={() => push({ kind: "settings" })} aria-label="设置"
+            className="ios-icon-button ml-auto">
+            <ISettings size={17} strokeWidth={1.7} />
+          </Button>
+        )}
+      </div>
+
+      <div ref={bodyRef} className="ios-page-body flex-1 scroll-y px-4 pt-2 pb-24">
+        {/* 「我的」只有本机收藏/观看历史：登录脸已于 2.2.0 移除，账号
+            体系（同步/分桶/登出）于 3.3.0 拆除，资料库纯本地。 */}
+        <ProfileContent key={lineEpoch} wide={wide} active={active}
+          tab={tab} setTab={setTab} favKind={favKind} setFavKind={setFavKind}
+          limits={limits} setLimits={setLimits} />
+        <div className="text-center text-[12px] text-dim mt-5">HGhubX {APP_VERSION} · {platform === "android" ? "Android" : platform === "ios" ? "iOS" : platform === "macos" ? "macOS" : platform === "linux" ? "Linux" : "Windows"} 客户端</div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileContent({ wide, active, tab, setTab, favKind, setFavKind, limits, setLimits }: {
+  wide: boolean; active: boolean;
+  tab: "fav" | "history"; setTab: Dispatch<SetStateAction<"fav" | "history">>;
+  favKind: "video" | "post"; setFavKind: Dispatch<SetStateAction<"video" | "post">>;
+  limits: ProfileLimits; setLimits: Dispatch<SetStateAction<ProfileLimits>>;
+}) {
+  const { blockReason } = useContentPreferences();
+  const { history, favs, postFavs, setCollected, toast, clearHistory, push, extRefs } = useStore();
   const [videoCache, setVideoCache] = useState<Record<number, Detail>>({});
   const videoCacheRef = useRef(videoCache);
   videoCacheRef.current = videoCache;
   const [postCache, setPostCache] = useState<Record<number, Post>>({});
   const postCacheRef = useRef(postCache);
   postCacheRef.current = postCache;
-  const [limits, setLimits] = useState({ favVideo: 12, favPost: 12, history: 12 });
   const [failedIds, setFailedIds] = useState<number[]>([]);
   const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -156,28 +215,8 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
   };
 
   return (
-    <div className="ios-page absolute inset-0 bg-bg flex flex-col">
-      <div className="ios-page-heading shrink-0 px-4 flex items-center">
-        {/* 出入口同位（2026-11-18 第9项裁定）：左上返回回播放器 */}
-        {isMobile && (
-          <Button onClick={() => setMainTab("home")} aria-label="返回播放器" className="ios-icon-button shrink-0 mr-2.5">
-            <IBack size={17} />
-          </Button>
-        )}
-        <h1 className="ios-page-title text-on">我的</h1>
-        {isMobile && (
-          <Button onClick={() => push({ kind: "settings" })} aria-label="设置"
-            className="ios-icon-button ml-auto">
-            <ISettings size={17} strokeWidth={1.7} />
-          </Button>
-        )}
-      </div>
-
-      <div className="ios-page-body flex-1 scroll-y px-4 pt-2 pb-24">
-        {/* 「我的」只有本机收藏/观看历史：登录脸已于 2.2.0 移除，账号
-            体系（同步/分桶/登出）于 3.3.0 拆除，资料库纯本地。 */}
-
-        {/* 我的内容 */}
+    <>
+      {/* 我的内容 */}
         <SegmentedControl className="mt-4" aria-label="我的内容" activeIndex={tab === "fav" ? 0 : 1}>
           {([["fav", "我的收藏"], ["history", "观看历史"]] as const).map(([k, l]) => (
             <Button aria-pressed={tab === k} key={k} onClick={() => setTab(k)}>{l}</Button>
@@ -280,9 +319,6 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
           )}
           {clearError && !clearOpen && <p role="alert" className="mt-2 text-[13px] text-danger">{clearError}</p>}
         </div>
-
-        <div className="text-center text-[12px] text-dim mt-5">HGhubX {APP_VERSION} · {platform === "android" ? "Android" : platform === "ios" ? "iOS" : platform === "macos" ? "macOS" : platform === "linux" ? "Linux" : "Windows"} 客户端</div>
-      </div>
       <Modal open={!!blockedPrompt} onClose={() => { if (!removingBlocked) setBlockedPrompt(null); }} label="内容已屏蔽">
         {blockedPrompt && (
           <div className="p-5">
@@ -324,7 +360,7 @@ function ProfileContent({ wide, active }: { wide: boolean; active: boolean }) {
           </div>
         </div>
       </Modal>
-    </div>
+    </>
   );
 }
 

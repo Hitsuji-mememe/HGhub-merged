@@ -100,6 +100,29 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
    * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
   const { captureScroll } = useScrollKeeper(`posts:${def.id}${discFp ? `:${discFp}` : ""}`, scrollerRef, detail === null && items.length > 0);
   const pageSize = compact ? 8 : 20;
+  /* 阅读进度（Muse 2026-11-21 fix3311/polish P2，整体打磨审计
+   * §3）：原生 PostDetail 有阅读进度条、本面此前没有，同品类阅读
+   * 体验一处有一处无。本面详情与列表共用宿主 scroller（无自有滚
+   * 动体），进度读宿主 scrollerRef：打开详情时归零并订阅 scroll，
+   * 口径与原生同式（scrollTop/(scrollHeight-clientHeight)，无可
+   * 滚范围记 100）；关闭/切源随 detail 变化退订。scrollerRef 未传
+   * 的形态（compact 总览）不进详情、进度恒 0 不渲染。 */
+  const [readProgress, setReadProgress] = useState(0);
+  const detailScrollRef = scrollerRef;
+  const detailOpenForProgress = detail !== null;
+  useEffect(() => {
+    if (!detailOpenForProgress) { setReadProgress(0); return undefined; }
+    const el = detailScrollRef?.current;
+    if (!el) return undefined;
+    const update = () => {
+      const range = el.scrollHeight - el.clientHeight;
+      setReadProgress(range > 0 ? Math.round((el.scrollTop / range) * 100) : 100);
+    };
+    setReadProgress(0);
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    return () => el.removeEventListener("scroll", update);
+  }, [detailOpenForProgress, detailScrollRef]);
 
   /* 站务型推广帖异步验杀（fix333/promo-004）：仅声明 staffVerify
    * 的源（当前只有 feedheiliao）生效——列表先正常渲染，后台逐条
@@ -308,6 +331,9 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
             {fav ? <IStarF size={17} className="text-amber" /> : <IStar size={17} />}
           </Button>
         </div>
+        {/* 阅读进度条（P2）：与原生 PostDetail 同款呈现（h-1 主色
+            填充），值由宿主 scroller 订阅驱动（见状态处注）。 */}
+        <div role="progressbar" aria-label="阅读进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={readProgress} className="h-1 shrink-0 bg-s3 overflow-hidden"><div className="h-full bg-primary" style={{ width: `${readProgress}%` }} /></div>
         {detail.phase === "loading" && (
           <div className="flex justify-center py-16"><Loader className="w-8 h-8 spinner" /></div>
         )}

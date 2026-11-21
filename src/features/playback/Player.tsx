@@ -20,6 +20,7 @@ import { useStore } from "../../shared/model/store";
 import { effectiveSrMode, SuperResSvgDefs, getSvgFilterUrl, srVideoFilterMode } from "./SuperResCanvas";
 import SrCanvas from "./SrCanvas";
 import { createHlsPlayerConfig, currentLineSeedBps, lockHighestStartLevel } from "./hlsConfig";
+import PlaybackErrorCard from "./PlaybackErrorCard";
 
 type Props = {
   src: string;              // 原始 m3u8 地址
@@ -304,9 +305,11 @@ export default function Player({
       />
 
       {errMsg && (
-        <div role="alert" className="absolute left-2 top-2 z-30 max-w-[80%] rounded bg-black/70 px-2 py-1 text-[12px] leading-tight text-red-300 break-all">
-          <span>{errMsg}</span>
-          <Button onClick={retry} disabled={!active} className="ml-2 px-2 py-1 text-white">重试</Button>
+        /* 错误呈现统一（fix3311/polish G1）：与 Feed 全屏面共用
+         * PlaybackErrorCard——旧左上小横幅（裸串＋行内钮）退场，
+         * 本面定位为覆满播放器区居中；重试仍走 proxyRecovery 既有链。 */
+        <div className="absolute inset-0 z-30 flex items-center justify-center">
+          <PlaybackErrorCard detail={errMsg} onRetry={retry} retryDisabled={!active} />
         </div>
       )}
 

@@ -120,7 +120,7 @@ export function ToastHost() {
 }
 
 /* ——— 图片（骨架 + 渐显，自动走本地解密协议） ——— */
-export function Img({ src, alt = "", className = "", eager = false, raw = false, loadingIndicator = false, fit = "cover", surface, page }: {
+export function Img({ src, alt = "", className = "", eager = false, raw = false, loadingIndicator = false, fit = "cover", surface, page, onFinalFail }: {
   src: string; alt?: string; className?: string; eager?: boolean; raw?: boolean; loadingIndicator?: boolean;
   /* fit（Muse 2026-11-19 3.2.1修复F6线）：默认 cover 与既有封面口径
    * 不变；全屏图集查看器传 contain——照片完整贴边、不裁切。 */
@@ -133,10 +133,14 @@ export function Img({ src, alt = "", className = "", eager = false, raw = false,
    * 的详情页地址，透传 cover() 的 page 参进 /img Referer 候选链；
    * 列表封面等无页面上下文的面不传、行为不变。 */
   page?: string;
+  /* 终局失败上报（Muse 2026-11-21 fix3311/polish，图片审计
+   * §1.6/§4.3）：attempt 烧光落终局 failed 时回调一次，供宿主呈
+   * 现失败态（如查看器失败帧点按重试）；不传则行为逐字不变。 */
+  onFinalFail?: () => void;
 }) {
   const url = raw ? src : cover(src, 480, page);
   // 每个地址独立持有状态，避免换图后的 effect 把缓存命中的 onLoad 重置掉。
-  return <ImageLoad key={url} url={url} alt={alt} className={className} eager={eager} raw={raw} loadingIndicator={loadingIndicator} fit={fit} surface={surface} origin={urlFingerprint(src)} />;
+  return <ImageLoad key={url} url={url} alt={alt} className={className} eager={eager} raw={raw} loadingIndicator={loadingIndicator} fit={fit} surface={surface} origin={urlFingerprint(src)} onFinalFail={onFinalFail} />;
 }
 
 /* 封面加载状态机（Muse 2026-11-19 fix2 A3）：loading→decoded→
@@ -155,12 +159,16 @@ export function Img({ src, alt = "", className = "", eager = false, raw = false,
  * （请求已在路上，滚出视口不等于没在加载）。 */
 type ImgState = "loading" | "decoded" | "displayed" | "failed";
 const IMG_ATTEMPT_TIMEOUT_MS = 20_000;
-function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "cover", surface, origin }: {
+function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "cover", surface, origin, onFinalFail }: {
   url: string; alt: string; className: string; eager: boolean; raw: boolean; loadingIndicator: boolean; fit?: "cover" | "contain";
   /* 段位与源地址指纹（fix331/covers-header）：url 是本地路由包装后的
    * 地址（host 恒为本地），归属上游只看 origin（包装前 src 的
    * host#长度指纹，不记全文，守日志不变量）。 */
   surface?: string; origin?: string;
+  /* 终局失败上报（fix3311/polish）：两条终局落点（attempt 超时/重试
+   * 烧光的 effect 路径与 img error 事件路径）在 setState("failed")
+   * 同点各回调一次；非终局重试不报。 */
+  onFinalFail?: () => void;
 }) {
   const [state, setState] = useState<ImgState>("loading");
   const [attempt, setAttempt] = useState(0);
@@ -245,6 +253,7 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
           lastMs: Date.now() - startedAt,
         });
         setState("failed");
+        onFinalFail?.();
       }
     };
     const timer = window.setTimeout(() => failOrRetry("timeout"), IMG_ATTEMPT_TIMEOUT_MS);
@@ -290,6 +299,7 @@ function ImageLoad({ url, alt, className, eager, raw, loadingIndicator, fit = "c
               lastMs: Date.now() - (attemptStartRef.current || Date.now()),
             });
             setState("failed");
+            onFinalFail?.();
           }
         }}
         className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"} transition-opacity duration-300 ${ok ? "opacity-100" : "opacity-0"}`} draggable={false} />}
