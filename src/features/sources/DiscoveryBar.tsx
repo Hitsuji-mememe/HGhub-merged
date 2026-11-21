@@ -33,7 +33,7 @@ import { createAdapter } from "./adapters/index.ts";
 import { discoverySpecFor, hasDiscovery, type DiscoveryOption } from "./adapters/templateCapabilities.ts";
 import { classifySelfCheckResult } from "./healthCheck.ts";
 import { dedupeTagOptions, pinRecentOptions } from "./discoveryOptions.ts";
-import { tagOptionMatchesQuery, taxonKeysForChineseQuery } from "./taxonLabels.ts";
+import { tagOptionMatchesQuery, taxonKeysForChineseQuery, taxonZhLabel } from "./taxonLabels.ts";
 import { useSourceHealthResults } from "./sourceHealth.ts";
 import type { ListDiscovery, SourceDef, SourceTaxonomy } from "./types.ts";
 
@@ -151,9 +151,19 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
     return top;
   })();
 
-  const pill = (key: string, label: string, pressed: boolean, onClick: () => void) => (
-    <Button key={key} aria-pressed={pressed} disabled={down} onClick={onClick} className="ios-filter-pill shrink-0">{label}</Button>
+  const pill = (key: string, label: string, pressed: boolean, onClick: () => void, originalName?: string) => (
+    <Button key={key} aria-pressed={pressed} disabled={down} onClick={onClick}
+      title={originalName} aria-label={originalName ? `${label}（原名 ${originalName}）` : undefined}
+      className="ios-filter-pill shrink-0">{label}</Button>
   );
+  /* 分类/标签 chip 的汉化显示（fix3312/discovery-b 第 3 段）：只换
+   * 显示文案——有译名显中文、原名退到 title/aria-label 供查对；
+   * value 与点选回传逐字不变，筛选行为与未汉化时一致。未收录
+   * （专名/歧义词）回落原名。排序/榜单行是登记表中文原名，不经此。 */
+  const taxonPill = (prefix: string, o: DiscoveryOption, pressed: boolean, onClick: () => void) => {
+    const zh = taxonZhLabel(def.id, o.label);
+    return pill(`${prefix}:${o.value}`, zh ?? o.label, pressed, onClick, zh ? o.label : undefined);
+  };
   const row = (label: string, children: React.ReactNode, forceWrap = false) => (
     <div className="flex items-start gap-2 py-1">
       <span className="w-8 shrink-0 pt-1.5 text-[12px] text-mut">{label}</span>
@@ -172,7 +182,7 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
       {spec.categories && categoryOptions.length > 0 && row("分类", [
         pill("cat:__all", "全部", !disc.category, () => setCategory(undefined)),
         ...categoryOptions.map((o) =>
-          pill(`cat:${o.value}`, o.label, disc.category === o.value, () => setCategory(disc.category === o.value ? undefined : o.value))),
+          taxonPill("cat", o, disc.category === o.value, () => setCategory(disc.category === o.value ? undefined : o.value))),
       ])}
       {/* 标签行内搜索（fix3312/discovery-b）：仅当标签全集超过
        * Top-N（截断真实发生）时出现；输入中文经译名反查命中英
@@ -188,7 +198,7 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
       {spec.tagFilter && tagOptions.length > 0 && row("标签", [
         pill("tag:__all", "全部", !disc.tag, () => setTag(undefined)),
         ...tagOptions.map((o) =>
-          pill(`tag:${o.value}`, o.label, disc.tag === o.value, () => setTag(disc.tag === o.value ? undefined : o.value))),
+          taxonPill("tag", o, disc.tag === o.value, () => setTag(disc.tag === o.value ? undefined : o.value))),
       ], searching)}
       {spec.tagFilter && searching && tagOptions.length === 0 && taxonomy !== null && (
         <p role="status" className="py-1 pl-10 text-[12px] text-mut">未找到匹配的标签</p>

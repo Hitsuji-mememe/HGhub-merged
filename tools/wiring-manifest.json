@@ -2398,6 +2398,16 @@
       "min": 4
     },
     {
+      "id": "fix3312-taxon-labels-display",
+      "item": "fix3312/discovery-b 有限集汉化：taxonLabels 映射表＋DiscoveryBar taxonPill 显示消费（只改显示文案、value 不经映射）；摘消费点分类/标签行回到全英文原名",
+      "symbol": "taxonZhLabel",
+      "files": [
+        "src/features/sources/taxonLabels.ts",
+        "src/features/sources/DiscoveryBar.tsx"
+      ],
+      "min": 2
+    },
+    {
       "id": "fix3312-disc-recent-pinning",
       "item": "fix3312/discovery-b 最近用过置顶：pinRecentOptions 定义（discoveryOptions）＋DiscoveryBar 分类/标签两行消费；摘消费点最近用过不再置顶、兴趣直达只剩落盘一半",
       "symbol": "pinRecentOptions",

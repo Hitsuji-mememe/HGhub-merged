@@ -21,7 +21,7 @@
 import { normalizeDiscoveryName } from "./discoveryOptions.ts";
 import type { DiscoveryOption } from "./adapters/templateCapabilities.ts";
 
-/* 共享题材词表：002 题材词全集（61 中可译 56）、020 全集（35 中
+/* 共享题材词表：002 题材词全集（61 中可译 57）、020 全集（35 中
  * 可译 32）、021 高频段与各 WP 源 Top 标签中的题材词子集，含跨
  * 源拼写变体（分写/连写/单复数）。专名与年份、厂牌、平台名不收。 */
 export const SHARED_TAXON_LABELS_ZH: Record<string, string> = {
@@ -36,6 +36,7 @@ export const SHARED_TAXON_LABELS_ZH: Record<string, string> = {
   "Double Penatration": "双插", "Inflation": "膨胀", "Rimjob": "舔肛",
   "Rim Job": "舔肛", "DeepThroat": "深喉", "Deep Throat": "深喉",
   "Facesitting": "坐脸", "Squirting": "潮吹", "Urination": "排尿",
+  "POV": "第一人称",
   "Watersports": "放尿", "Scat": "粪便", "Beastiality": "兽交",
   "Bestiality": "兽交", "Rape": "强奸", "Mind Break": "精神崩坏",
   "Mind Control": "精神控制", "Brainwashed": "洗脑", "Hypnosis": "催眠",

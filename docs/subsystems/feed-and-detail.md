@@ -292,6 +292,18 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   重保留）；上段契约与 wiring 两条（gallery-notaxonomy/
   gallery-strip）随之删除，回滚与后续兴趣直达/汉化由契约
   `fix3312-discovery-b.contract.test.ts` 钉住。
+  fix3312/discovery-b 第二、三段（2026-11-21，选项 B 本体）：
+  兴趣直达——`discState.useDiscState` 把 disc 按源落盘
+  （`hghubx_disc_v1`，归一化读回、与账号会话无关）＋最近用
+  过的分类/标签记录，三浏览面共用；`DiscoveryBar` 两行最近
+  用过置顶（截断前置顶、选中项补回行尾），标签行加行内搜索
+  （全集超 Top-N 才出现，中文经译名反查命中英文原标签）；
+  `SourcePosts` compact 形态钉死空 disc，存量筛选不漏进总览
+  预览。有限集汉化——`taxonLabels` 映射表（共享题材词 181 条
+  ＋逐源分类 30 条，2026-11-21 生产同路实拉造表；专名/歧义
+  不收、回落原名）只供 chip 显示文案与搜索反查，`value` 永
+  不经映射、点选回传站方原值；原名退到 chip 的 title/
+  aria-label 供查对。契约同上（A–H 八段）。
   fix335/e-category（2026-11-20）：分类总览索引化（设计
   `fix335/design-category-hub.md` 方案②，用户真机反馈纵深过大
   ＋样式不统一）——总览删全部预览段（频道横滑预览/吃瓜

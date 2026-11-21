@@ -33,7 +33,10 @@ import {
   applyDiscSelection, loadDiscStateMap, normalizeDiscStateMap, saveDiscStateMap,
   DISC_RECENT_LIMIT, DISC_STATE_KEY, type DiscStateMap,
 } from "./discState.ts";
-import { tagOptionMatchesQuery, taxonKeysForChineseQuery } from "./taxonLabels.ts";
+import {
+  tagOptionMatchesQuery, taxonKeysForChineseQuery, taxonZhLabel, taxonDisplayLabel,
+  SHARED_TAXON_LABELS_ZH, SOURCE_TAXON_LABELS_ZH,
+} from "./taxonLabels.ts";
 import type { SourceDef } from "./types.ts";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -187,4 +190,59 @@ const def = (id: string): SourceDef => {
   assert.ok(bar.includes("tagOptionMatchesQuery"), "DiscoveryBar 标签搜索接匹配函数");
 }
 
-console.log("fix3312-discovery-b contract (segments 1-2): PASS");
+/* ── (H) 汉化映射：覆盖、回落、只改显示不改 value ── */
+{
+  /* 覆盖钉（名单＝2026-11-21 生产同路实拉原表）：002 题材词全集
+   * 61 中 57 可译、020 全集 35 中 32 可译——下列即全集逐字。 */
+  const tags002 = ["blow job", "hd", "big boobs", "creampie", "censored", "plot", "school girl",
+    "uncensored", "facial", "anal", "harem", "bondage", "boob job", "virgin", "toys", "fantasy",
+    "gangbang", "hand job", "public sex", "yuri", "glasses", "monster", "x-ray", "incest",
+    "teacher", "vanilla", "ahegao", "tentacle", "masturbation", "cosplay", "maid", "ntr",
+    "swimsuit", "milf", "watersports", "comedy", "orgy", "threesome", "horror", "ugly bastard",
+    "dark skin", "pov", "mind break", "lactation", "mind control", "nurse", "futanari",
+    "foot job", "inflation", "rimjob", "scat", "pregnant", "tsundere", "nekomimi", "softcore", "trap", "yaoi"];
+  for (const n of tags002) assert.ok(taxonZhLabel("hanime-tv", n) !== null, `002 题材词有译名：${n}`);
+  const tags020 = ["Blowjob", "Creampie", "Vanilla", "Rape", "Boobjob", "Gangbang", "Uncensored",
+    "Harem", "Virgin", "Exhibition", "Series", "Anal", "Exclusive", "Sex Toy", "Motion Anime",
+    "Bondage", "Masturbation", "Incest", "Cheating", "Yuri", "School", "Fantasy", "Swimsuit",
+    "X-Ray", "Maid", "Monster", "Tentacle", "Demon", "Footjob", "Futanari", "Nurse", "Preview"];
+  for (const n of tags020) assert.ok(taxonZhLabel("hentaigasm", n) !== null, `020 题材词有译名：${n}`);
+
+  /* 不收录钉：歧义/专名/同形——回落原名是设计、不是缺漏。 */
+  for (const [id, n] of [
+    ["hanime-tv", "filmed"], ["hanime-tv", "bdsm"], ["hanime-tv", "2000-year-old dragon girl"],
+    ["hentaigasm", "Season"], ["pixibb", "Almost Real"], ["pixibb", "Hot Games"],
+    ["nudecosplay", "Waifu AI"], ["xiuren", "Hot Girl"], ["xiuren", "DJAWA"],
+    ["hentaiplay", "Pink Pineapple"], ["cosplaytele", "Genshin Impact"], ["everia", "Graphis"],
+  ] as const) {
+    assert.equal(taxonZhLabel(id, n), null, `不译（歧义/专名）：${id}/${n}`);
+  }
+
+  /* 逐源分类：源表优先、共享兜底。 */
+  assert.equal(taxonZhLabel("everia", "Japan"), "日本", "018 地域桶走源表");
+  assert.equal(taxonZhLabel("everia", "Cosplay"), "角色扮演", "018 分类共享词走共享表");
+  assert.equal(taxonZhLabel("hentaiplay", "RAW"), "生肉", "021 属性桶走源表");
+  assert.equal(taxonZhLabel("xiuren", "XiuRen"), "秀人网", "006 厂牌中文名走源表");
+  assert.equal(taxonZhLabel("xiuren", "Maid"), "女仆", "006 标签题材词走共享表");
+  assert.equal(taxonZhLabel("pixibb", "Uncategorized"), "未分类", "通用桶走共享表");
+
+  /* 显示层：有译名显中文、无译名原样；option 本体不被改写。 */
+  const opt = { value: "56", label: "Maid" };
+  assert.equal(taxonDisplayLabel("xiuren", opt), "女仆", "显示文案＝译名");
+  assert.deepEqual(opt, { value: "56", label: "Maid" }, "option 不被改写（value 即筛选真值）");
+  assert.equal(taxonDisplayLabel("xiuren", { value: "999", label: "Unknown Tag" }), "Unknown Tag", "未收录回落原名");
+
+  /* 表规模（防整表误删）：共享＋源表合计与逐源条数下限。 */
+  const sharedCount = Object.keys(SHARED_TAXON_LABELS_ZH).length;
+  assert.ok(sharedCount >= 170, `共享题材词表规模（实际 ${sharedCount}）`);
+  for (const [id, min] of [["everia", 4], ["hentaiplay", 6], ["pixibb", 3], ["nudecosplay", 3], ["xiuren", 14]] as const) {
+    assert.ok(Object.keys(SOURCE_TAXON_LABELS_ZH[id]).length >= min, `${id} 源表条数`);
+  }
+
+  /* 接线：分类/标签 chip 经 taxonPill 显示、排序行不经汉化。 */
+  const bar = read("./DiscoveryBar.tsx");
+  assert.ok(bar.includes("taxonPill"), "DiscoveryBar 分类/标签 chip 经汉化显示");
+  assert.ok(bar.includes("pill(`sort:${o.value}`, o.label"), "排序行保持登记原名、不经汉化改写");
+}
+
+console.log("fix3312-discovery-b contract (segments 1-3): PASS");
