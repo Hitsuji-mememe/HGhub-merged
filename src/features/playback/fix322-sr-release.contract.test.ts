@@ -112,11 +112,19 @@ import { WebGpuSrEngine } from "./webgpuSr.ts";
   assert.ok(/noteHoldSrPresent\(doneAt\)/.test(src), "SR 呈现时刻须以完成时刻 doneAt 入剖面");
 }
 
-/* ── ③ 报告判读面：分段值与尾窗最大间隔须出现在报告源码 ── */
+/* ── ③ 报告判读面：分段值与尾窗最大间隔须出现在报告源码 ──
+ * 断言适配（2026-11-21 fix3311/small-features 第 0 步）：剖面/尾窗行
+ * 的格式化自 diagnosticReport 抽为纯模块 holdProfileLines（仿
+ * flowSegments/levelFacts 先例，供契约行为测试直接消费），字段读出
+ * 点随之迁到该模块；本节改钉「报告经 formatHoldProfileLines 出行
+ * ＋该模块读出两字段」，覆盖强度不变（原断言的两字段仍逐字钉死、
+ * 另加报告侧接线）。 */
 {
   const report = readFileSync(new URL("../../shared/diagnostics/diagnosticReport.ts", import.meta.url), "utf8");
-  assert.ok(report.includes("release_to_sr_present_ms"), "报告须读出 release_profile 分段（release_to_sr_present_ms）");
-  assert.ok(report.includes("post_max_gap_ms"), "报告须读出 hold.jank 尾窗最大帧间隔（post_max_gap_ms）");
+  assert.ok(report.includes("formatHoldProfileLines(holdEvents)"), "报告长按节须经 formatHoldProfileLines 出剖面/尾窗行");
+  const lines = readFileSync(new URL("../../shared/diagnostics/holdProfileLines.ts", import.meta.url), "utf8");
+  assert.ok(lines.includes("release_to_sr_present_ms"), "报告须读出 release_profile 分段（release_to_sr_present_ms）");
+  assert.ok(lines.includes("post_max_gap_ms"), "报告须读出 hold.jank 尾窗最大帧间隔（post_max_gap_ms）");
 }
 
 console.log("fix322-sr-release.contract: all assertions passed");
