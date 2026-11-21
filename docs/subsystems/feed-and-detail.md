@@ -284,6 +284,14 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   test.ts`（纯函数＋适配器级过滤实证＋面门控接线＋登记表不
   动）；证据 `~/workspace/hghub/fix3311/evidence/discovery-
   rework.md`。
+  【本段已被回滚】fix3312/discovery-b（2026-11-21，用户真机
+  实报聚合源分类行被砍后不可用＋当日改令，调查
+  `fix3312/evidence/discovery-design-research.md` 选项 B）：
+  `noTaxonomyRows` 门控与 `stripDiscTaxonomy` 整体撤销、图片
+  面恢复排序＋分类＋标签三行（3.3.10 行为，fix336 同名标签去
+  重保留）；上段契约与 wiring 两条（gallery-notaxonomy/
+  gallery-strip）随之删除，回滚与后续兴趣直达/汉化由契约
+  `fix3312-discovery-b.contract.test.ts` 钉住。
   fix335/e-category（2026-11-20）：分类总览索引化（设计
   `fix335/design-category-hub.md` 方案②，用户真机反馈纵深过大
   ＋样式不统一）——总览删全部预览段（频道横滑预览/吃瓜
