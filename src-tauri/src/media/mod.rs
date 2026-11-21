@@ -113,7 +113,7 @@ mod byte_lru_tests {
 pub(crate) use response::fixture_response;
 use hls::{dec, load_playlist};
 use image::load_image;
-use segment::{is_media_file_target, load_segment, load_segment_head, load_segment_ranged, load_segment_unranged, RangedError};
+use segment::{is_media_file_target, load_segment, load_segment_head, load_segment_ranged, load_segment_ranged_stream, load_segment_unranged, load_segment_unranged_stream, RangedError};
 use response::{apply_byte_range, respond, segment_response, PROXIED_IMAGE_CACHE_CONTROL};
 
 /// 本平台自定义协议的完整基址。
@@ -235,6 +235,114 @@ pub async fn handle(path: &str, query: &str, origin: &str, range: Option<&str>, 
         serde_json::json!({"route": route, "resource": crate::playback_log::resource_id(&target), "status": response.status().as_u16(), "bytes": response.body().len(), "content_type": response.headers().get("Content-Type").and_then(|v| v.to_str().ok()), "content_range": response.headers().get("Content-Range").and_then(|v| v.to_str().ok()), "elapsed_ms": started.elapsed().as_millis() as u64}),
     );
     response
+}
+
+/// 媒体响应双形态（Muse 2026-11-21 fix3313/startup-stream）：
+/// Full＝整响应已物化（handle 的既有形态，hg:// 协议层与全部
+/// 非流式面只认它）；Streamed＝头已定案、体走通道逐块回吐——
+/// 只有两个套接字入口（ios_media_http/linux_http）消费本形态，
+/// 协议层 responder 只能整响应、不参与。
+pub enum MediaResponse {
+    Full(Response<Vec<u8>>),
+    Streamed {
+        head: Response<Vec<u8>>,
+        body: segment::MediaBodyRx,
+    },
+}
+
+/// 流式体通道的接收端（套接字入口命名用；定义在 segment）。
+pub type MediaBodyRx = segment::MediaBodyRx;
+
+/// 流式体的结束日志转发：逐块透传并计数，通道收尾/出错/消费方
+/// 掉线时补记 proxy.end（streamed 标记、实发字节、是否完整）——
+/// 流式形态下 handle 的同步 proxy.end 无从知道实发量，故由本
+/// 转发器在流终点记账，口径与 handle 的 proxy.end 同事件名。
+fn stream_with_end_log(
+    mut body: segment::MediaBodyRx,
+    target: &str,
+    status: u16,
+    started: std::time::Instant,
+) -> segment::MediaBodyRx {
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, String>>(8);
+    let resource = crate::playback_log::resource_id(target);
+    tokio::spawn(async move {
+        let mut bytes: u64 = 0;
+        let mut completed = false;
+        loop {
+            match body.recv().await {
+                Some(Ok(chunk)) => {
+                    bytes += chunk.len() as u64;
+                    if tx.send(Ok(chunk)).await.is_err() {
+                        break;
+                    }
+                }
+                Some(Err(e)) => {
+                    let _ = tx.send(Err(e)).await;
+                    break;
+                }
+                None => {
+                    completed = true;
+                    break;
+                }
+            }
+        }
+        crate::playback_log::record(
+            "proxy.end",
+            serde_json::json!({"route": "segment_or_key", "resource": resource, "status": status, "bytes": bytes, "streamed": true, "completed": completed, "elapsed_ms": started.elapsed().as_millis() as u64}),
+        );
+    });
+    rx
+}
+
+/// handle 的流式对应入口（仅两个套接字入口调用）：/seg ∧ GET ∧
+/// 媒体文件目标时先试流式直通（segment::load_segment_ranged_
+/// stream / load_segment_unranged_stream）——定案（含后缀区间的
+/// 缓冲结论）直接采用，Fallback 复刻 handle 的旧整段臂（同一
+/// load_segment＋segment_response＋apply_byte_range 链，日志不
+/// 重记 begin）；其余一切面（HEAD、/img、/hls、非媒体文件目标、
+/// 缺 u）逐字委派 handle，与旧行为零差异。
+pub async fn handle_stream(path: &str, query: &str, origin: &str, range: Option<&str>, head: bool) -> MediaResponse {
+    if path != "/seg" || head {
+        return MediaResponse::Full(handle(path, query, origin, range, head).await);
+    }
+    let target = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("u="))
+        .map(dec)
+        .unwrap_or_default();
+    if target.is_empty() || !is_media_file_target(&target) {
+        return MediaResponse::Full(handle(path, query, origin, range, head).await);
+    }
+    let started = std::time::Instant::now();
+    crate::playback_log::record(
+        "proxy.begin",
+        serde_json::json!({"route": "segment_or_key", "resource": crate::playback_log::resource_id(&target)}),
+    );
+    let attempt = match range {
+        Some(r) => load_segment_ranged_stream(&target, r).await,
+        None => load_segment_unranged_stream(&target).await,
+    };
+    let response = match attempt {
+        Ok(MediaResponse::Streamed { head, body }) => {
+            let status = head.status().as_u16();
+            let body = stream_with_end_log(body, &target, status, started);
+            return MediaResponse::Streamed { head, body };
+        }
+        Ok(MediaResponse::Full(resp)) => resp,
+        Err(RangedError::Fatal(status, message)) => {
+            respond(status, "text/plain", message.into_bytes(), "no-store")
+        }
+        Err(RangedError::Fallback) => match load_segment(&target).await {
+            Ok((ctype, bytes)) => segment_response(&target, ctype.as_deref(), bytes.as_ref().clone(), origin),
+            Err(e) => respond(502, "text/plain", e.into_bytes(), "no-store"),
+        },
+    };
+    let response = apply_byte_range(response, range);
+    crate::playback_log::record(
+        "proxy.end",
+        serde_json::json!({"route": "segment_or_key", "resource": crate::playback_log::resource_id(&target), "status": response.status().as_u16(), "bytes": response.body().len(), "content_type": response.headers().get("Content-Type").and_then(|v| v.to_str().ok()), "content_range": response.headers().get("Content-Range").and_then(|v| v.to_str().ok()), "elapsed_ms": started.elapsed().as_millis() as u64}),
+    );
+    MediaResponse::Full(response)
 }
 
 #[cfg(test)]
@@ -738,6 +846,205 @@ mod tests {
         println!("[device-chain-seg2] HEAD never → status={} elapsed={never_ms:?}", never.status());
         assert_eq!(never.status(), 502, "永不响应 HEAD 必须 502 定案");
         assert!(never_ms < Duration::from_secs(25), "不得落级联双倍等待（≥40s），实耗 {never_ms:?}");
+    }
+
+    /// 设备链模拟（Muse 2026-11-21 fix3313/startup-stream）：file 流
+    /// 起播 TTFB 的完整链验证——节流替身（~/workspace/hghub/fix3313/
+    /// seg-stream-double.py，127.0.0.1:17892）以 ≈350KB/s 匀速滴流
+    /// 32MiB 规律字节（与 fix3310 替身同式），经生产代理注入＋
+    /// linux_http 真实套接字（17650）发 /seg 请求，量客户端视角的
+    /// 响应头到达/首字节/整窗完成三时刻。定因（fix3312 调查）：旧
+    /// 形态整窗物化后才回吐——4MB 窗在该速率下 ≈12s，TTFB＝整窗耗
+    /// 时（本用例在 3.3.12 码上首字节 ≈12s＝证伪点）；流式回吐后
+    /// 首字节应回到首 burst 量级（断言 ≤2s），而整窗完成仍 ≈12s
+    /// （节流真实生效的对照面）。字节守恒逐窗逐字节＋整文件 FNV
+    /// 哈希与本地公式流对齐（/full.mp4 不节流档走完整性面）。
+    /// 运行：先起替身 python3 seg-stream-double.py，再
+    /// cargo test --lib device_chain_seg_file_stream -- --ignored --nocapture
+    /// 须单发、勿与同类测试并发同跑（共用进程全局代理会串扰）。
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    #[ignore = "设备链模拟：需要 fix3313 节流替身（127.0.0.1:17892），手动运行"]
+    async fn device_chain_seg_file_stream() {
+        use std::time::{Duration, Instant};
+        let base = std::env::var("DEVICE_CHAIN_SEG_BASE")
+            .unwrap_or_else(|_| "http://upstream.example".to_string());
+        let stub = std::env::var("DEVICE_CHAIN_SEG_STUB3")
+            .unwrap_or_else(|_| "http://127.0.0.1:17892".to_string());
+        let proxy_dir = std::env::temp_dir().join(format!("hghubx-stream-proxy-{}", std::process::id()));
+        std::fs::create_dir_all(&proxy_dir).expect("代理目录");
+        crate::proxy::bind(&proxy_dir);
+        crate::proxy::set("custom", &stub).expect("指向替身代理");
+        crate::linux_http::start();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        const TOTAL: u64 = 32 * 1024 * 1024;
+        const WINDOW: u64 = segment::RANGED_WINDOW_MAX_BYTES;
+        fn expected_byte(i: u64) -> u8 {
+            match i {
+                0..=2 => 0,
+                3 => 0x18,
+                4 => b'f',
+                5 => b't',
+                6 => b'y',
+                7 => b'p',
+                8 => b'i',
+                9 => b's',
+                10 => b'o',
+                11 => b'm',
+                _ => (i % 251) as u8,
+            }
+        }
+        fn fnv1a(bytes: &[u8], mut hash: u64) -> u64 {
+            for b in bytes {
+                hash ^= *b as u64;
+                hash = hash.wrapping_mul(0x100000001b3);
+            }
+            hash
+        }
+        let client = reqwest::Client::builder().no_proxy().build().expect("驱动客户端");
+        let seg_url = |path: &str| {
+            let url = format!("{base}{path}");
+            format!("http://127.0.0.1:17650/seg?u={}", enc(&url))
+        };
+        // 一发 /seg 请求的客户端计时：(状态, Content-Range, 头到达,
+        // 首字节, 收全时刻, 实体字节)。max_read 限制最多读多少字节
+        // （seek 面只验首段即断开，省节流时间）。
+        async fn timed_get(
+            client: &reqwest::Client,
+            url: String,
+            range: Option<&str>,
+            max_read: usize,
+        ) -> (u16, Option<String>, Duration, Option<Duration>, Duration, Vec<u8>) {
+            let started = Instant::now();
+            let mut req = client.get(url);
+            if let Some(r) = range {
+                req = req.header("Range", r);
+            }
+            let mut resp = req.send().await.expect("请求发出");
+            let status = resp.status().as_u16();
+            let content_range = resp
+                .headers()
+                .get("content-range")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+            let t_headers = started.elapsed();
+            let mut body = Vec::new();
+            let mut t_first: Option<Duration> = None;
+            while body.len() < max_read {
+                match resp.chunk().await.expect("读体") {
+                    Some(chunk) => {
+                        if t_first.is_none() {
+                            t_first = Some(started.elapsed());
+                        }
+                        let take = (max_read - body.len()).min(chunk.len());
+                        body.extend_from_slice(&chunk[..take]);
+                        if take < chunk.len() {
+                            break;
+                        }
+                    }
+                    None => break,
+                }
+            }
+            (status, content_range, t_headers, t_first, started.elapsed(), body)
+        }
+
+        // A 开放区间（起播形态）：首字节 ≤2s、整窗 ≈12s、逐字节守恒。
+        let (status, cr, t_head, t_first, t_all, body) =
+            timed_get(&client, seg_url("/big.mp4"), Some("bytes=0-"), usize::MAX).await;
+        println!("[device-chain-stream] A open → status={status} headers={t_head:?} first={t_first:?} all={t_all:?} bytes={}", body.len());
+        assert_eq!(status, 206);
+        assert_eq!(cr.as_deref(), Some(format!("bytes 0-{}/{TOTAL}", WINDOW - 1).as_str()));
+        assert_eq!(body.len() as u64, WINDOW);
+        assert!(body.iter().enumerate().all(|(i, b)| *b == expected_byte(i as u64)), "A 窗逐字节守恒");
+        assert!(t_all >= Duration::from_secs(8), "整窗在节流下应 ≈12s（节流对照面），实耗 {t_all:?}");
+        let t_first = t_first.expect("A 应有首字节");
+        assert!(t_first <= Duration::from_secs(2), "流式回吐首字节必须 ≤2s（旧码整窗物化 ≈12s），实耗 {t_first:?}");
+
+        // B seek 到中段：首字节同样 ≤2s、偏移字节守恒（只读首 256KB）。
+        let seek_at = 20_000_000u64;
+        let (status, cr, _th, t_first, _ta, body) = timed_get(
+            &client,
+            seg_url("/big.mp4"),
+            Some(&format!("bytes={seek_at}-")),
+            256 * 1024,
+        )
+        .await;
+        println!("[device-chain-stream] B seek → status={status} first={t_first:?} bytes={}", body.len());
+        assert_eq!(status, 206);
+        assert_eq!(cr.as_deref(), Some(format!("bytes {seek_at}-{}/{TOTAL}", seek_at + WINDOW - 1).as_str()));
+        assert!(body.iter().enumerate().all(|(i, b)| *b == expected_byte(seek_at + i as u64)), "B 首段逐字节守恒");
+        let t_first = t_first.expect("B 应有首字节");
+        assert!(t_first <= Duration::from_secs(2), "seek 首字节必须 ≤2s，实耗 {t_first:?}");
+
+        // C 裸 GET（无 Range）：首窗 206 语义不变、首字节 ≤2s。
+        let (status, cr, _th, t_first, _ta, body) =
+            timed_get(&client, seg_url("/big.mp4"), None, usize::MAX).await;
+        println!("[device-chain-stream] C bare → status={status} first={t_first:?} bytes={}", body.len());
+        assert_eq!(status, 206);
+        assert_eq!(cr.as_deref(), Some(format!("bytes 0-{}/{TOTAL}", WINDOW - 1).as_str()));
+        assert_eq!(body.len() as u64, WINDOW);
+        assert!(body.iter().enumerate().all(|(i, b)| *b == expected_byte(i as u64)), "C 窗逐字节守恒");
+        let t_first = t_first.expect("C 应有首字节");
+        assert!(t_first <= Duration::from_secs(2), "裸 GET 首字节必须 ≤2s，实耗 {t_first:?}");
+
+        // D 后缀区间：尾段守恒（探针＋显式窗形态）。
+        let suffix = 262_144u64;
+        let (status, cr, _th, _tf, _ta, body) = timed_get(
+            &client,
+            seg_url("/big.mp4"),
+            Some(&format!("bytes=-{suffix}")),
+            usize::MAX,
+        )
+        .await;
+        println!("[device-chain-stream] D suffix → status={status} bytes={}", body.len());
+        assert_eq!(status, 206);
+        assert_eq!(cr.as_deref(), Some(format!("bytes {}-{}/{TOTAL}", TOTAL - suffix, TOTAL - 1).as_str()));
+        assert!(body.iter().enumerate().all(|(i, b)| *b == expected_byte(TOTAL - suffix + i as u64)), "D 尾段逐字节守恒");
+
+        // E 整文件完整性（/full.mp4 不节流）：逐窗拼齐，FNV 哈希与
+        // 本地公式流一致、总长守恒。
+        let mut hash = 0xcbf29ce484222325u64;
+        let mut assembled = 0u64;
+        let mut at = 0u64;
+        while at < TOTAL {
+            let end = (at + WINDOW - 1).min(TOTAL - 1);
+            let (status, _cr, _th, _tf, _ta, body) = timed_get(
+                &client,
+                seg_url("/full.mp4"),
+                Some(&format!("bytes={at}-{end}")),
+                usize::MAX,
+            )
+            .await;
+            assert_eq!(status, 206, "E 窗 {at}-{end} 必须 206");
+            assert_eq!(body.len() as u64, end - at + 1, "E 窗 {at}-{end} 长度守恒");
+            hash = fnv1a(&body, hash);
+            assembled += body.len() as u64;
+            at = end + 1;
+        }
+        let mut expected_hash = 0xcbf29ce484222325u64;
+        let mut i = 0u64;
+        while i < TOTAL {
+            let n = (TOTAL - i).min(65536);
+            let chunk: Vec<u8> = (0..n).map(|k| expected_byte(i + k)).collect();
+            expected_hash = fnv1a(&chunk, expected_hash);
+            i += n;
+        }
+        println!("[device-chain-stream] E full → assembled={assembled} hash={hash:016x} expected={expected_hash:016x}");
+        assert_eq!(assembled, TOTAL);
+        assert_eq!(hash, expected_hash, "整文件哈希必须与公式流一致");
+
+        // F HEAD：仍只回元信息、秒级。
+        let started = Instant::now();
+        let resp = client.head(seg_url("/big.mp4")).send().await.expect("HEAD 发出");
+        let head_ms = started.elapsed();
+        println!("[device-chain-stream] F head → status={} elapsed={head_ms:?}", resp.status());
+        assert_eq!(resp.status().as_u16(), 200);
+        assert_eq!(
+            resp.headers().get("content-length").and_then(|v| v.to_str().ok()).map(|s| s.to_string()),
+            Some(TOTAL.to_string())
+        );
+        assert!(head_ms < Duration::from_secs(5), "HEAD 元信息必须秒级，实耗 {head_ms:?}");
     }
 
     /// 联网测试：默认跳过，手动跑 `cargo test --lib -- --ignored`。

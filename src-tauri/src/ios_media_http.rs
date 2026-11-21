@@ -72,6 +72,18 @@ enum Handler {
 }
 
 impl Handler {
+    /// 流式对应入口（fix3313/startup-stream）：Media 走 media::
+    /// handle_stream——/seg 媒体文件 GET 命中流式直通时头先行、
+    /// 体逐块回吐；其余形态在 handle_stream 内逐字委派 handle，
+    /// 以 Full 返回。Fixture 恒 Full（夹具无上游、无流式面）。
+    async fn response_stream(&self, request: &Request, origin: &str) -> crate::media::MediaResponse {
+        match self {
+            Self::Media => crate::media::handle_stream(&request.path, &request.query, origin, request.range.as_deref(), request.head).await,
+            #[cfg(test)]
+            Self::Fixture(_) => crate::media::MediaResponse::Full(self.response(request, origin).await),
+        }
+    }
+
     async fn response(&self, request: &Request, origin: &str) -> Response<Vec<u8>> {
         match self {
             Self::Media => crate::media::handle(&request.path, &request.query, origin, request.range.as_deref(), request.head).await,
@@ -225,8 +237,15 @@ async fn serve(mut stream: TcpStream, endpoint: &Endpoint, handler: &Handler) ->
         Ok(request) => request,
         Err(status) => return write_response(&mut stream, head, None, error_response(status)).await,
     };
-    let response = handler.response(&request, &endpoint.origin).await;
-    write_response(&mut stream, request.head, request.origin.as_deref(), response).await
+    let response = handler.response_stream(&request, &endpoint.origin).await;
+    match response {
+        crate::media::MediaResponse::Full(response) => {
+            write_response(&mut stream, request.head, request.origin.as_deref(), response).await
+        }
+        crate::media::MediaResponse::Streamed { head, body } => {
+            write_streamed_response(&mut stream, request.origin.as_deref(), head, body).await
+        }
+    }
 }
 
 async fn write_response(
@@ -251,27 +270,66 @@ async fn write_response(
     } else {
         body.len()
     };
-    let mut headers = format!("HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n",
+    let headers = header_block(status, &parts.headers, wire_len, origin);
+    stream.write_all(headers.as_bytes()).await?;
+    if !head { stream.write_all(&body).await?; }
+    stream.shutdown().await
+}
+
+/// 响应头块组装（write_response 与流式写线共用，逐字同一口径：
+/// 自备 Content-Length/Connection/Cache-Control，转发其余头，
+/// Origin 回显规则不变）。
+fn header_block(
+    status: tauri::http::StatusCode,
+    headers: &tauri::http::HeaderMap,
+    wire_len: usize,
+    origin: Option<&str>,
+) -> String {
+    let mut out = format!("HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n",
         status.as_u16(), status.canonical_reason().unwrap_or("Response"), wire_len);
-    for (name, value) in &parts.headers {
+    for (name, value) in headers {
         if matches!(name.as_str(), "content-length" | "connection" | "transfer-encoding" | "cache-control" | "access-control-allow-origin" | "vary") {
             continue;
         }
         if let Ok(value) = value.to_str() {
-            headers.push_str(name.as_str());
-            headers.push_str(": ");
-            headers.push_str(value);
-            headers.push_str("\r\n");
+            out.push_str(name.as_str());
+            out.push_str(": ");
+            out.push_str(value);
+            out.push_str("\r\n");
         }
     }
     if let Some(origin) = origin {
-        headers.push_str("Access-Control-Allow-Origin: ");
-        headers.push_str(origin);
-        headers.push_str("\r\nVary: Origin\r\n");
+        out.push_str("Access-Control-Allow-Origin: ");
+        out.push_str(origin);
+        out.push_str("\r\nVary: Origin\r\n");
     }
-    headers.push_str("\r\n");
+    out.push_str("\r\n");
+    out
+}
+
+/// 流式写线（fix3313/startup-stream）：头先行、体逐块回吐，首
+/// 字节不等整窗。写线长度以头部 Content-Length 为准（流式头由
+/// media::response::range_window_head_response 按窗口长写入，
+/// 体本身不在内存里、无从以体长为准）。通道 Err＝上游中途失
+/// 败：立即断连（Err 返回后 socket 被丢弃），已承诺长度不足
+/// 量——绝不以正常 shutdown 把截断冒充完整响应。
+async fn write_streamed_response(
+    stream: &mut TcpStream,
+    origin: Option<&str>,
+    head: Response<Vec<u8>>,
+    mut body: crate::media::MediaBodyRx,
+) -> io::Result<()> {
+    let (parts, _) = head.into_parts();
+    let wire_len = parts.headers.get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    let headers = header_block(parts.status, &parts.headers, wire_len, origin);
     stream.write_all(headers.as_bytes()).await?;
-    if !head { stream.write_all(&body).await?; }
+    while let Some(chunk) = body.recv().await {
+        let chunk = chunk.map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e))?;
+        stream.write_all(&chunk).await?;
+    }
     stream.shutdown().await
 }
 
