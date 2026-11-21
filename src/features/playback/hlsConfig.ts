@@ -67,7 +67,10 @@ export function createHlsPlayerConfig(opts: {
     nudgeOffset: 0.25,
     nudgeMaxRetry: 6,
     manifestLoadingTimeOut: 20000,
-    manifestLoadingMaxRetry: 4,
+    /* 清单内部重试只留 1 次（fix3313）：清单级收敛归恢复层有界重试
+     * （≤2 次 loadSource）＋起播无进展预算（10s）管辖——旧值 4 与
+     * 恢复层相乘成 ≈25 发、分钟级静默转圈（fix3312 定因 §4）。 */
+    manifestLoadingMaxRetry: 1,
     fragLoadingTimeOut: 25000,
     fragLoadingMaxRetry: 6,
     fragLoadingRetryDelay: 400,
