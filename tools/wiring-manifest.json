@@ -2404,6 +2404,16 @@
         "src/features/playback/WebGpuSrCanvas.tsx"
       ],
       "min": 1
+    },
+    {
+      "id": "fix3312-yoast-cover",
+      "item": "fix3312/cover-021 封面回落：wp-rest 模板在 def 声明 yoastCover 时，toItem 封面链末位回落 yoast_head_json.twitter_image（摘掉声明或消费点，021 列表封面回到全空）",
+      "symbol": "yoastCover",
+      "files": [
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/registry.ts"
+      ],
+      "min": 2
     }
   ]
 }

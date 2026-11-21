@@ -181,11 +181,11 @@ export const NAMED_SOURCES: SourceDef[] = [
   },
   {
     id: "hentaiplay", displayName: "HentaiPlay", kind: "video", category: "video",
-    adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
+    adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts", yoastCover: true } },
     baseUrls: ["https://hentaiplay.net"],
     enabled: true, order: 125, maturity: "probe",
     capabilities: { search: true, episodes: false, hevc: false },
-    network: PROBE_NET, note: "fix3310/video-add-2 新增（2026-11-21）：视频候选准入 V2（候选调查 fix339/evidence/video-candidates.md，播放级实证）——wp-rest 与 018 逐字同形、零新适配器代码：content.rendered 直含 hentaiplanet.info MP4 直链（stock extractMp4 命中）、搜索端点实拉 20 条真结果 caps.search=true；已知限制：封面不在 REST 载荷内（正文只有 <video><source>、无 <img>），列表封面为空＝诚实无封面态；主站 CF 前置仅取页面、文件域 Apache 非 CF（与 009/010 死因结构不同）；英文字幕、单档无多画质；编号 021（order 125）；流走 kind=file 新播放腿，App 侧未真机验 → probe",
+    network: PROBE_NET, note: "fix3310/video-add-2 新增（2026-11-21）：视频候选准入 V2（候选调查 fix339/evidence/video-candidates.md，播放级实证）——wp-rest 与 018 逐字同形、零新适配器代码：content.rendered 直含 hentaiplanet.info MP4 直链（stock extractMp4 命中）、搜索端点实拉 20 条真结果 caps.search=true；封面订正（fix3312/cover-021，2026-11-21）：接线时「封面不在 REST 载荷内」只查了正文/excerpt 的 <img>——逐 key 穷尽复核实证封面一直在载荷内：yoast_head_json.twitter_image 直载封面 URL（与 featured_media 同一文件、详情页 twitter:image 同值；站点无 og:image），经 yoastCover opt-in 在 toItem 封面链末位回落消费、列表一次取数可得，实测三页 60 帖 59 帖有值；Yoast 个别帖不发该字段（约 1/60）如实留空、不合成地址；主站 CF 前置仅取页面、文件域 Apache 非 CF（与 009/010 死因结构不同）；英文字幕、单档无多画质；编号 021（order 125）；流走 kind=file 新播放腿，App 侧未真机验 → probe",
   },
 ];
 
