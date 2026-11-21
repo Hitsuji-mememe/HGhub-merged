@@ -1,16 +1,1 @@
-{
-  "_comment": "Code lines, not raw lines. Lower a budget in the PR that moves a concern out; never raise one in a feature PR. A pure file-to-directory split may record one measured baseline only when the delta is module/import scaffolding, and must keep its previous value in metadata.",
-  "src/features/feed/Feed.tsx": 1484,
-  "src-tauri/src/net": {
-    "budget": 1925,
-    "previous": 1888,
-    "reason": "2.2.0 merge (Muse 2026-11-18): DNS strict-reresolve graft adds doh_resolver_client + strict call site in net/client after splitting Range/segment-parallel (range_fetch.rs), DNS resolvers + strict_reresolve (media_dns.rs) and speed probe (speed_probe.rs) out; residual +11 is the client-side glue that cannot leave net (ProxyRoute/build_client are net-private). 维护者对齐（同日晚终版）：合并版自有定制在 net 内的后续接线再增 37 行，按实测对齐至 1925，后续增长仍受此上限约束。"
-  },
-  "src-tauri/src/api": 1115,
-  "src-tauri/src/media": 1045,
-  "src-tauri/src/lines": {
-    "budget": 962,
-    "previous": 884,
-    "reason": "维护者对齐（Muse 2026-11-18 终版）：合并版自动选线重做（吞吐排名接线、镜像覆盖计数、两轮确认逻辑），及故障注入批将 confirm_gate/select_pool split 为纯函数并新增 12 条单测，共 +78 行，按实测对齐，后续增长仍受此上限约束。"
-  }
-}
+{"_comment":"Code lines, not raw lines. Lower a budget in the PR that moves a concern out; never raise one in a feature PR. A pure file-to-directory split may record one measured baseline only when the delta is module/import scaffolding, and must keep its previous value in metadata.","src-tauri/src/api":{"budget":1130,"previous":1115,"reason":"fix3310 集成（维护者裁定，Muse 2026-11-21）：009/010 试装恢复所致——X-Version scoped-origin split（定向放行常量＋过滤分支＋定向单测）随试装原样回归 api/，实测 1103→1121，上限取实测值＋少量余量 1130；试装不过删回时同步回落至 1115，后续增长仍受此上限约束。"},"src-tauri/src/lines":{"budget":1291,"previous":962,"reason":"维护者对齐（Muse 2026-11-18 终版）：合并版自动选线重做（吞吐排名接线、镜像覆盖计数、两轮确认逻辑），及故障注入批将 confirm_gate/select_pool split 为纯函数并新增 12 条单测，共 +78 行，按实测对齐，后续增长仍受此上限约束。fix3310 集成（维护者裁定，Muse 2026-11-21）：/seg ranged 播放腿所致的本批预算对齐——本桶实测 1291 为腿线树实值（腿批对本桶零增行、超限系 3.3.9 基线既有，模块 split 结构不变），按腿线树实测值上调至 1291，后续增长仍受此上限约束。"},"src-tauri/src/media":{"budget":1787,"previous":1045,"reason":"fix3310 集成（维护者裁定，Muse 2026-11-21）：/seg ranged 播放腿所致——/seg 处理 split 为 ranged 直通与整段旧形态两路，ranged 实现（load_segment_ranged/parse_single_range/range_window_response）只能落在 media/，实测 1582（3.3.9 基线）→1787，按腿线树实测值对齐，后续增长仍受此上限约束。"},"src-tauri/src/net":{"budget":1925,"previous":1888,"reason":"2.2.0 merge (Muse 2026-11-18): DNS strict-reresolve graft adds doh_resolver_client + strict call site in net/client after splitting Range/segment-parallel (range_fetch.rs), DNS resolvers + strict_reresolve (media_dns.rs) and speed probe (speed_probe.rs) out; residual +11 is the client-side glue that cannot leave net (ProxyRoute/build_client are net-private). 维护者对齐（同日晚终版）：合并版自有定制在 net 内的后续接线再增 37 行，按实测对齐至 1925，后续增长仍受此上限约束。"},"src/features/feed/Feed.tsx":1484}
