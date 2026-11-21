@@ -474,6 +474,14 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
   const yoastCover = params.yoastCover === true;
   const apiUrl = (path: string) => `${def.baseUrls[0]}${restBase}${path}`;
   interface WpPost { id: number; link: string; title?: { rendered?: string }; content?: { rendered?: string }; excerpt?: { rendered?: string }; categories?: number[]; tags?: number[]; yoast_head_json?: { twitter_image?: string } }
+  /* Yoast 回落取值守卫（Muse 2026-11-21 fix3312 disc-fix 同批，
+   * 清扫潜在-1）：twitter_image 只认字符串——上游畸形数据发数字/
+   * 对象时如实留空，不让非字符串进 SourceItem.cover（其类型声明
+   * 为 string，下游 /img 与 img src 按字符串消费）。 */
+  const yoastImage = (p: WpPost): string => {
+    const v = p.yoast_head_json?.twitter_image;
+    return typeof v === "string" ? v : "";
+  };
   /* taxonomy 名称映射（Muse 2026-11-20 fix335/f-discovery）：帖子
    * 载荷只有分类/标签的数字 id，名称经 taxonomy 端点解析——分类名
    * 进 cats、标签名进 tags（真标签才进 tags 的口径）；taxonomy 不
@@ -485,7 +493,7 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
     const tags = tax ? names(p.tags, tax.tags) : [];
     return {
       sourceId: def.id, externalId: String(p.id),
-      title: stripTags(p.title?.rendered ?? ""), cover: firstImgSrc(p.excerpt?.rendered ?? "") || firstImgSrc(p.content?.rendered ?? "") || (jwFile ? extractJwImage(p.content?.rendered ?? "") ?? "" : "") || (yoastCover ? p.yoast_head_json?.twitter_image ?? "" : ""),
+      title: stripTags(p.title?.rendered ?? ""), cover: firstImgSrc(p.excerpt?.rendered ?? "") || firstImgSrc(p.content?.rendered ?? "") || (jwFile ? extractJwImage(p.content?.rendered ?? "") ?? "" : "") || (yoastCover ? yoastImage(p) : ""),
       href: p.link, tags, ...(cats.length ? { cats } : {}),
     };
   };

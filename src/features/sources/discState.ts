@@ -13,7 +13,7 @@
  * 模块不碰任何凭据/会话）。写入失败静默——本次会话内状态仍
  * 生效，只是重开不恢复，不冒充已保存。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import type { ListDiscovery } from "./types.ts";
 
 export const DISC_STATE_KEY = "hghubx_disc_v1";
@@ -55,23 +55,30 @@ function cleanRecents(v: unknown): string[] {
   return out;
 }
 
+/** 按键写记录：用 defineProperty 而非赋值——键为 "__proto__" 时
+ * 普通赋值会改写对象原型而非存下记录，读回还会经原型泄漏字段
+ * （Muse 2026-11-21 fix3312 disc-fix，清扫潜在-2 同批守卫）。 */
+function setRecord(map: DiscStateMap, id: string, record: SourceDiscRecord): void {
+  Object.defineProperty(map, id, { value: record, enumerable: true, writable: true, configurable: true });
+}
+
 /** 落盘原文 → 规范状态：形状不符的条目整条丢弃，不拿坏数据冒充筛选。 */
 export function normalizeDiscStateMap(raw: unknown): DiscStateMap {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const out: DiscStateMap = {};
   for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (!v || typeof v !== "object") continue;
+    if (!v || typeof v !== "object" || Array.isArray(v)) continue;
     const r = v as Record<string, unknown>;
-    out[id] = {
+    setRecord(out, id, {
       disc: cleanDisc(r.disc),
       recentCategories: cleanRecents(r.recentCategories),
       recentTags: cleanRecents(r.recentTags),
-    };
+    });
   }
   const keys = Object.keys(out);
   if (keys.length <= DISC_SOURCE_LIMIT) return out;
   const trimmed: DiscStateMap = {};
-  for (const k of keys.slice(keys.length - DISC_SOURCE_LIMIT)) trimmed[k] = out[k];
+  for (const k of keys.slice(keys.length - DISC_SOURCE_LIMIT)) setRecord(trimmed, k, out[k]);
   return trimmed;
 }
 
@@ -110,28 +117,55 @@ export function applyDiscSelection(
   };
   const out: DiscStateMap = { ...map };
   delete out[sourceId];
-  out[sourceId] = record;
+  setRecord(out, sourceId, record);
   const keys = Object.keys(out);
   if (keys.length <= DISC_SOURCE_LIMIT) return out;
   const trimmed: DiscStateMap = {};
-  for (const k of keys.slice(keys.length - DISC_SOURCE_LIMIT)) trimmed[k] = out[k];
+  for (const k of keys.slice(keys.length - DISC_SOURCE_LIMIT)) setRecord(trimmed, k, out[k]);
   return trimmed;
 }
 
-/** 三浏览面共用：挂载时读回落盘状态、变更即写回（首次渲染不回
- * 写，避免把刚读回的值原样写一遍）。 */
+/* ── 模块级单例 store（Muse 2026-11-21 fix3312 disc-fix，修
+ * 3.3.12 清扫「已坏-1」）：三个浏览面在 App 里常驻并存（已访问
+ * 页签 hidden＋inert 保持挂载、栈页面非顶层 inert 保持挂载），
+ * 旧实现每实例挂载时各读一份整图快照、变更时整图回写——两面
+ * 交错写时，后写面用挂载时的旧快照整图覆盖，静默抹掉先写面刚
+ * 落盘的选择。改单例 store：全 App 一份状态，写入恒以 store
+ * 当前值为基按源应用 applyDiscSelection，任何实例都不持可回写
+ * 的旧快照；变更经订阅通知全部已挂载面即时读到新值。 ── */
+let storeMap: DiscStateMap | null = null;
+const storeListeners = new Set<() => void>();
+
+/** store 当前快照：首次访问时从落盘惰性读入，之后恒返回同一
+ * 引用、仅在 updateDiscState 时整体替换（useSyncExternalStore
+ * 的快照口径）。 */
+export function getDiscStateSnapshot(): DiscStateMap {
+  if (storeMap === null) storeMap = loadDiscStateMap();
+  return storeMap;
+}
+
+export function subscribeDiscState(listener: () => void): () => void {
+  storeListeners.add(listener);
+  return () => { storeListeners.delete(listener); };
+}
+
+/** 选择变更的唯一写入口：以 store 当前值为基按源应用变更、
+ * 落盘、通知全部订阅者。调用方手里的旧快照引用不参与写入。 */
+export function updateDiscState(sourceId: string, next: ListDiscovery): void {
+  storeMap = applyDiscSelection(getDiscStateSnapshot(), sourceId, next);
+  saveDiscStateMap(storeMap);
+  for (const l of [...storeListeners]) l();
+}
+
+/** 三浏览面共用：订阅单例 store，读到的恒是全 App 当前状态、
+ * 任一面的变更即时同步到其余已挂载面。 */
 export function useDiscState(): {
   discStateMap: DiscStateMap;
   applyDisc: (sourceId: string, next: ListDiscovery) => void;
 } {
-  const [map, setMap] = useState<DiscStateMap>(() => loadDiscStateMap());
-  const mounted = useRef(false);
-  useEffect(() => {
-    if (!mounted.current) { mounted.current = true; return; }
-    saveDiscStateMap(map);
-  }, [map]);
+  const map = useSyncExternalStore(subscribeDiscState, getDiscStateSnapshot, getDiscStateSnapshot);
   const applyDisc = useCallback((sourceId: string, next: ListDiscovery) => {
-    setMap((m) => applyDiscSelection(m, sourceId, next));
+    updateDiscState(sourceId, next);
   }, []);
   return { discStateMap: map, applyDisc };
 }
