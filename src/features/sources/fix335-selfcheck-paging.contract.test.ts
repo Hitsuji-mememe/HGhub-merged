@@ -29,6 +29,10 @@
  * 接缝、引擎维持 resolve-only 口径，各计数断言（视频全链＋抽
  * 查＝4 等）不变；覆盖不降，实拉段口径由 fix339-probe-fidelity
  * 契约承接。
+ * 断言适配（2026-11-21 fix3310/file-playback-leg）：协议 v4 取
+ * 流实拉按 kind 分支、SELF_CHECK_PROTOCOL_VERSION 3→4，(d)
+ * 协议常量断言随之改判；硬预算仍 5、各计数断言不变；覆盖不
+ * 降，file 分支口径由 fix3310-file-probe 契约承接。
  */
 import assert from "node:assert/strict";
 import {
@@ -243,7 +247,7 @@ const newCounter = () => ({ calls: 0, listPages: [] as number[] });
 /* ── (d) 预算常量与协议版本 ── */
 {
   assert.equal(SELF_CHECK_MAX_REQUESTS_PER_SOURCE, 5, "硬预算 = 5（列表＋分页抽查＋详情＋取流解析＋清单实拉）");
-  assert.equal(SELF_CHECK_PROTOCOL_VERSION, 3, "自检协议 v3＝全链＋分页抽查＋清单实拉口径");
+  assert.equal(SELF_CHECK_PROTOCOL_VERSION, 4, "自检协议 v4＝全链＋分页抽查＋取流实拉按 kind 分支口径（fix3310 适配）");
 }
 
 /* ── (e) 落盘归一：旧结果缺 paging 字段读入归一 skipped、新格式往返保真 ── */

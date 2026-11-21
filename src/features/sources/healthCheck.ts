@@ -85,11 +85,20 @@
  * 播放路径（本地 /hls 路由→Rust 清单腿）上被请求，3.3.8 真机
  * 009/010 即死在探针视野之外（自检判取流可达、点播清单取数
  * dns_error 全灭）。现取流段 = resolve 解出首条流地址后，经注
- * 入接缝 probeManifest 以播放器逐字相同的 URL 实拉清单（生产
- * 实现 manifestProbe.ts），取回且魔数校验通过（清单腿 200 的
- * 定义）才判可达；「取流可达」语义自此＝播放器能取到清单。
+ * 入接缝 probeStream 以播放器逐字相同的 URL 实拉清单（生产实
+ * 现 manifestProbe.ts），取回且魔数校验通过（清单腿 200 的定
+ * 义）才判可达；「取流可达」语义自此＝播放器能取到清单。
  * 接缝未注入时（契约隔离）维持 resolve-only 旧口径，生产装配
  * 恒注入（三处接线由契约文本断言钉住）。
+ *
+ * file 流分支（2026-11-21 fix3310/file-playback-leg）：接缝入参
+ * 由裸地址改为整条流（{url, kind}）——kind:"file" 的 MP4 直链
+ * 没有清单，包 /hls 实拉必被魔数判别 502（与播放侧同病：播放
+ * 链 fix3310 前同样只认清单）。生产实现对 file 流改走播放同路
+ * /seg 以 Range 实拉首段字节、ftyp 魔数通过才判可达（与播放第
+ * 一步同构）；HLS 分支逐字不变。「取流可达」语义自此＝播放器
+ * 能取到该流的第一步字节。探测步骤变更 → 协议版本 bump 至
+ * v4；纪元不 bump（论证见 SELF_CHECK_ADAPTER_EPOCH 注释）。
  *
  * 分页抽查（2026-11-20 fix335/selfcheck-paging 补）：分页信号
  * （fix335/a-pagination 新信号体系）只保证信号形态自洽，信号说
@@ -110,7 +119,7 @@
  * 记「解析为空」，详情/取流步的未分类失败各记「详情失败」/「取流
  * 失败」，余者「其他」。各段分开记：后段失败不翻前段结论。 */
 
-import type { SourceAdapter, SourceDef, SourceDetail } from "./types.ts";
+import type { SourceAdapter, SourceDef, SourceDetail, SourceStream } from "./types.ts";
 import { SourceParseEmptyError } from "./adapters/templates.ts";
 import { classifyFetchError } from "./adapters/fetchErrorClassify.ts";
 import { getActiveRegistry, getRegistryInfo } from "./manifest.ts";
@@ -119,8 +128,8 @@ export const SELF_CHECK_STORAGE_KEY = "hghubx_source_selfcheck_v1";
 /** 每源请求硬预算：列表 1 页＋（信号称有下一页时）分页抽查第 2
  * 页 1 页＋（有条目时）详情 1 条＋（视频类）取流解析 1 次＋清单
  * 实拉 1 次。按适配器调用计（口径定义见
- * SourceSelfCheckResult.requests；清单实拉经本地 /hls 路由、
- * 同口径计 1）。 */
+ * SourceSelfCheckResult.requests；取流实拉经本地 /hls 路由
+ * （file 流经 /seg 路由），同口径计 1）。 */
 export const SELF_CHECK_MAX_REQUESTS_PER_SOURCE = 5;
 export const SELF_CHECK_LIST_PAGE_SIZE = 20;
 /** 启动延迟：避开启动/注册表解析/首屏取页高峰。 */
@@ -139,8 +148,11 @@ export const SELF_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
  * fidelity）＝v2＋取流段清单实拉（每源预算 5）——取流段的探测
  * 步骤由「resolve 解出流地址」变为「解出后经播放同路实拉清
  * 单」，v2 结果的取流结论（resolve-only 口径、含 3.3.8 真机假
- * 绿）按指纹不符判过期补探。 */
-export const SELF_CHECK_PROTOCOL_VERSION = 3;
+ * 绿）按指纹不符判过期补探；现行 v4（2026-11-21 fix3310/
+ * file-playback-leg）＝v3＋取流段按流 kind 分支（接缝入参改整
+ * 条流、file 流走 /seg Range 实拉＋ftyp 判读，每源预算不变仍
+ * 5）——探测步骤变更，v3 结果按指纹不符判过期补探。 */
+export const SELF_CHECK_PROTOCOL_VERSION = 4;
 /** 适配器纪元（指纹维度二）：取页/解析行为变更到可能改变探测结
  * 论时 bump——覆盖面是整条取页链：adapters/ 下模板、解析、内置
  * 参数形态，以及取页链形态层（Rust net 的 UA/指纹层、信封与重
@@ -175,7 +187,16 @@ export const SELF_CHECK_PROTOCOL_VERSION = 3;
  * ＋魔数校验），纪元 4 的取流结论（resolve-only 口径）可能整类
  * 翻转（3.3.8 真机假绿即其形态），一律按过期补探、不许带进
  * 3.3.9；同批协议版本 v3（探测步骤变更）并行 bump，两维各自
- * 的作废理由独立成立。 */
+ * 的作废理由独立成立。
+ * fix3310/file-playback-leg（2026-11-21）纪元不 bump 的论证：
+ * 本批 adapters/ 下取页/解析行为零变更（file 流分支只动探针
+ * 的实拉形态与播放侧分流，均属协议维度——已 bump 至 v4）；
+ * 存量纪元 5 结果的取流结论全部来自 HLS 流（注册表内现无任
+ * 何源的取流段产出 file 流），其依据链（resolve＋/hls 实拉）
+ * 本批逐字不变、无结论可因本批变更而翻转；且协议 v4 bump 本
+ * 身已使全部旧结果按指纹不符判过期补探——纪元再 bump 不改变
+ * 任何一条结果的新鲜度判定，只会污染「纪元＝适配器行为」这
+ * 一维的语义。 */
 export const SELF_CHECK_ADAPTER_EPOCH = 5;
 /** 最近打开记录落盘键（hghubx_*，不变量 7）：源 id → 最近一次
  * 进入其浏览面的时刻；只记 id/时刻（不变量 10），供批量补探
@@ -221,7 +242,7 @@ export interface SourceSelfCheckResult {
    * 派生）。迁移哨兵空串＝旧结果的该源切片无法证实未变。 */
   sourceScope: string;
   /** 本次自检的适配器调用数（≤ 硬预算）。口径（唯一定义，fix333-m5
-   * O2）：列表/分页抽查/详情/取流解析/清单实拉五次调用各计 1，与 HTTP 请求数不是
+   * O2）：列表/分页抽查/详情/取流解析/取流实拉五次调用各计 1，与 HTTP 请求数不是
    * 一回事——一次调用内可含多次 HTTP（如 002 取流一次调用含 CSRF
    * 取令牌 GET＋握手 POST 共 2 次 HTTP、计 1）。旧口径只叫「请求数」，与真实网络量对不上、
    * 判读易误读；诊断呈现恒带「适配器调用口径」标注（见
@@ -609,25 +630,27 @@ function notifySelfCheckResults(): void {
 export interface SelfCheckEngineDeps {
   createAdapterFor: (def: SourceDef) => SourceAdapter | null;
   now: () => number;
-  /** 取流段清单实拉接缝（fix339/probe-fidelity）：入参为 resolve
-   * 解出的首条流地址（播放器实际消费的那一条），经播放同路取
-   * 清单——成功（取回且魔数校验通过）才 resolve、失败抛错。
-   * 生产实现＝manifestProbe.probeStreamManifestViaPlayback，
-   * 由生产装配显式注入；未注入（契约隔离）时取流段维持
-   * resolve-only 旧口径（见文件头「清单实拉」）。 */
-  probeManifest?: (streamUrl: string) => Promise<void>;
+  /** 取流段实拉接缝（fix339/probe-fidelity 立、fix3310 更名扩
+   * 形）：入参为 resolve 解出的首条流整条（{url, kind}，播放器
+   * 实际消费的那一条），生产实现按 kind 经播放同路实拉——HLS
+   * 取清单、file 取 /seg 首段字节，均须取回且魔数校验通过才
+   * resolve、失败抛错。生产实现＝manifestProbe.
+   * probeStreamViaPlayback，由生产装配显式注入；未注入（契约
+   * 隔离）时取流段维持 resolve-only 旧口径（见文件头「清单
+   * 实拉」「file 流分支」）。 */
+  probeStream?: (stream: SourceStream) => Promise<void>;
 }
 
 /** 单源自检：列表 1 页（记成败＋条目数），信号称有下一页时抽
  * 查第 2 页 1 页（记一致性，见文件头「分页抽查」），有条目再取
  * 1 条详情（记可达/失败），详情可达后按品类补末段——视频类抽
  * 同 1 条目续探 1 次取流（只取流不播放，零流记失败），解出流
- * 地址后经 probeManifest 接缝实拉 1 次清单（接缝在场时，见文
- * 件头「清单实拉」）；posts 正文段与 image 图集段复用详情响应
- * 判定（正文 HTML/图集图数为空记解析为空）。全程 ≤
- * SELF_CHECK_MAX_REQUESTS_PER_SOURCE 个请求——本函数只有
- * list（第 1 页与抽查第 2 页）/detail/resolve/清单实拉五处调
- * 用点，结构上不可能超预算。本函数不抛错：一
+ * 后经 probeStream 接缝按 kind 实拉 1 次（接缝在场时，见文件
+ * 头「清单实拉」「file 流分支」）；posts 正文段与 image 图集
+ * 段复用详情响应判定（正文 HTML/图集图数为空记解析为空）。全
+ * 程 ≤ SELF_CHECK_MAX_REQUESTS_PER_SOURCE 个请求——本函数只
+ * 有 list（第 1 页与抽查第 2 页）/detail/resolve/取流实拉五处
+ * 调用点，结构上不可能超预算。本函数不抛错：一
  * 切失败都收敛成结果里的失败形态。 */
 export async function runSourceSelfCheck(def: SourceDef, deps: SelfCheckEngineDeps): Promise<SourceSelfCheckResult> {
   const base: SourceSelfCheckResult = {
@@ -694,15 +717,17 @@ export async function runSourceSelfCheck(def: SourceDef, deps: SelfCheckEngineDe
       base.requests += 1;
       const resolved = await adapter.resolve(firstId);
       if (resolved.streams.length > 0) {
-        /* 清单实拉（fix339/probe-fidelity）：resolve 只证明流地址
-         * 可解析出——播放器能取到清单才是「取流可达」。接缝在场
-         * 时对首条流（播放器实际消费的那一条）经播放同路实拉
-         * 1 次，失败与解析失败同段记（分类走同一 selfCheck-
-         * FailureKind，清单腿的精确形态另有 source.resolve_fail
-         * 留痕在诊断导出）；接缝缺席（契约隔离）维持解出即 ok。 */
-        if (deps.probeManifest) {
+        /* 取流实拉（fix339/probe-fidelity＋fix3310 按 kind 分
+         * 支）：resolve 只证明流地址可解析出——播放器能取到该流
+         * 的第一步字节（HLS＝清单、file＝/seg 首段）才是「取流
+         * 可达」。接缝在场时对首条流（播放器实际消费的那一条，
+         * 整条含 kind 传入）经播放同路实拉 1 次，失败与解析失
+         * 败同段记（分类走同一 selfCheckFailureKind，媒体腿的
+         * 精确形态另有 source.resolve_fail 留痕在诊断导出）；接
+         * 缝缺席（契约隔离）维持解出即 ok。 */
+        if (deps.probeStream) {
           base.requests += 1;
-          await deps.probeManifest(resolved.streams[0].url);
+          await deps.probeStream(resolved.streams[0]);
         }
         base.tail = "ok";
       } else {
@@ -746,7 +771,7 @@ function resolveDeps(partial: PartialDeps): SelfCheckDeps {
   return {
     getSources: partial.getSources ?? (() => getActiveRegistry().sources),
     createAdapterFor: partial.createAdapterFor,
-    probeManifest: partial.probeManifest,
+    probeStream: partial.probeStream,
     now: partial.now ?? (() => Date.now()),
     storage: partial.storage,
     delay: partial.delay ?? ((ms) => new Promise<void>((resolve) => {
@@ -792,10 +817,10 @@ const topUpInFlight = new Set<string>();
 
 export interface SelfCheckTopUpDeps {
   createAdapterFor: (def: SourceDef) => SourceAdapter | null;
-  /** 取流段清单实拉接缝（fix339/probe-fidelity）：生产接线
+  /** 取流段实拉接缝（fix339 立、fix3310 扩形）：生产接线
    * （sourceHealth.ts）显式注入生产实现，透传给引擎；契约隔离
    * 时缺席、维持 resolve-only 口径（见文件头「清单实拉」）。 */
-  probeManifest?: (streamUrl: string) => Promise<void>;
+  probeStream?: (stream: SourceStream) => Promise<void>;
   now?: () => number;
   /** 批量补探排序：本面当前选中源 id（最先探；单源补探不读）。 */
   selectedId?: string | null;
@@ -815,7 +840,7 @@ function launchTopUp(def: SourceDef, deps: SelfCheckTopUpDeps, force = false): P
     if (force ? !selfCheckEligible(def) : !selfCheckNeedsProbe(def, getSelfCheckResults(), now)) return null;
     if (topUpInFlight.has(def.id)) return null;
     topUpInFlight.add(def.id);
-    return runSourceSelfCheck(def, { createAdapterFor: deps.createAdapterFor, probeManifest: deps.probeManifest, now: () => now })
+    return runSourceSelfCheck(def, { createAdapterFor: deps.createAdapterFor, probeStream: deps.probeStream, now: () => now })
       .then((result) => { saveSelfCheckResult(result); })
       .catch(() => { /* 旁路：补探失败不影响浏览 */ })
       .finally(() => { topUpInFlight.delete(def.id); });
@@ -1025,7 +1050,7 @@ export function selfCheckDiagLines(
   }
   const checked = ok + partial + down;
   return [
-    `源自检（最近自检口径，与本会话取页分开）：已检 ${checked} · 可用 ${ok} · 部分可用 ${partial} · 不可用 ${down} · 未自检 ${sources.length - checked} · 请求数＝适配器调用口径（列表/分页抽查/详情/取流解析/清单实拉各计 1，一次调用内可含多次 HTTP）`,
+    `源自检（最近自检口径，与本会话取页分开）：已检 ${checked} · 可用 ${ok} · 部分可用 ${partial} · 不可用 ${down} · 未自检 ${sources.length - checked} · 请求数＝适配器调用口径（列表/分页抽查/详情/取流解析/取流实拉各计 1，一次调用内可含多次 HTTP）`,
     ...per,
   ];
 }

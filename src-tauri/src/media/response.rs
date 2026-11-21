@@ -174,6 +174,36 @@ pub(super) fn segment_response(
     )
 }
 
+/// ranged 直通的 206 整形（Muse 2026-11-21 fix3310/file-playback-leg）：
+/// 上游已按请求区间回字节（segment::load_segment_ranged），这里只
+/// 补 Content-Range/Accept-Ranges 并以窗口字节为体；状态 206 使
+/// handle 末端的 apply_byte_range 原样直通（其只整形 200）。
+/// 调用方保证 bytes 非空且 start+len-1 < total。
+pub(super) fn range_window_response(
+    ctype: Option<&str>,
+    bytes: Vec<u8>,
+    start: u64,
+    total: u64,
+) -> Response<Vec<u8>> {
+    use tauri::http::HeaderValue;
+    let end = start + bytes.len() as u64 - 1;
+    let mut response = respond(
+        206,
+        ctype.unwrap_or("application/octet-stream"),
+        bytes,
+        PROXIED_MEDIA_CACHE_CONTROL,
+    );
+    response
+        .headers_mut()
+        .insert("Accept-Ranges", HeaderValue::from_static("bytes"));
+    response.headers_mut().insert(
+        "Content-Range",
+        HeaderValue::from_str(&format!("bytes {start}-{end}/{total}"))
+            .unwrap_or_else(|_| HeaderValue::from_static("bytes */*")),
+    );
+    response
+}
+
 /// Socket tests supply bytes without contacting an upstream. They use the same
 /// playlist rewrite, MIME detection and range implementation as real requests.
 #[cfg(test)]

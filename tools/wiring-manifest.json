@@ -2290,14 +2290,42 @@
     },
     {
       "id": "fix339-probe-manifest-live-pull",
-      "item": "fix339/probe-fidelity 自检取流段清单实拉：manifestProbe 定义＋main.tsx 调度/F8 两装配＋sourceHealth.ts 三补探接线显式注入（摘任一装配点该路径回到 resolve-only 假绿）",
-      "symbol": "probeStreamManifestViaPlayback",
+      "item": "fix339/probe-fidelity 自检取流段实拉（原清单实拉）：manifestProbe 定义＋main.tsx 调度/F8 两装配＋sourceHealth.ts 三补探接线显式注入（摘任一装配点该路径回到 resolve-only 假绿）。fix3310/file-playback-leg 改绑（2026-11-21）：接缝更名 probeManifest→probeStream、生产实现更名 probeStreamManifestViaPlayback→probeStreamViaPlayback 并按 kind 分支，覆盖面（1 定义＋5 注入点）不变",
+      "symbol": "probeStreamViaPlayback",
       "files": [
         "src/features/sources/manifestProbe.ts",
         "src/main.tsx",
         "src/features/sources/sourceHealth.ts"
       ],
       "each": true
+    },
+    {
+      "id": "fix3310-file-playback-split",
+      "item": "fix3310/file-playback-leg 播放分流：playbackSource 按 streamKind 把 file 流包本地 /seg 走 native（摘掉分支 file 流回到包 /hls 必 502 的无播放路径形态）",
+      "symbol": "streamKind === \"file\"",
+      "files": [
+        "src/features/playback/mediaTransport.ts"
+      ],
+      "min": 1
+    },
+    {
+      "id": "fix3310-seg-ranged-passthrough",
+      "item": "fix3310/file-playback-leg /seg ranged 直通：handle 在带 Range∧媒体文件目标时调 load_segment_ranged 同区间单次取数（摘掉接线大文件 MP4 回到整段拼片必超限 502）",
+      "symbol": "load_segment_ranged",
+      "files": [
+        "src-tauri/src/media/mod.rs",
+        "src-tauri/src/media/segment.rs"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix3310-probe-file-branch",
+      "item": "fix3310/file-playback-leg 自检 file 分支：manifestProbe 对 kind:\"file\" 经 segment() 走 /seg Range 实拉＋ftyp 判读（摘掉分支 file 流自检回到包 /hls 必败假红）",
+      "symbol": "stream.kind === \"file\"",
+      "files": [
+        "src/features/sources/manifestProbe.ts"
+      ],
+      "min": 1
     }
   ]
 }

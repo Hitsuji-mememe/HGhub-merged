@@ -46,7 +46,7 @@ import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
 type DetailState =
   | { phase: "loading"; item: SourceItem }
-  | { phase: "ready"; item: SourceItem; detail: SourceDetail; streamUrl: string | null; play: boolean }
+  | { phase: "ready"; item: SourceItem; detail: SourceDetail; streamUrl: string | null; streamKind: "hls" | "file" | undefined; play: boolean }
   | { phase: "error"; item: SourceItem; message: string };
 
 export default function SourcePosts({ def, compact = false, onShowAll, onSettledEmpty, openExternalId, scrollerRef }: {
@@ -249,7 +249,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
         adapter.resolve(item.externalId).catch(() => ({ streams: [] as { url: string; kind: "hls" | "file" }[] })),
       ]);
       if (mySeq !== detailSeq.current) return;
-      setDetail({ phase: "ready", item, detail: d, streamUrl: res.streams[0]?.url ?? null, play: false });
+      setDetail({ phase: "ready", item, detail: d, streamUrl: res.streams[0]?.url ?? null, streamKind: res.streams[0]?.kind, play: false });
     } catch (e) {
       if (mySeq === detailSeq.current) { setDetail({ phase: "error", item, message: (e as Error).message || "详情加载失败" }); }
     }
@@ -347,7 +347,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
                 胶囊圆角继承裁切（PostDetail 同批修复口径）。 */}
             <div className="relative w-full bg-black mx-auto mt-5" style={{ height: "min(48vh, 420px)" }}>
               {detail.play && detail.streamUrl ? (
-                <Player src={detail.streamUrl} poster={cover(detail.detail.cover || detail.item.cover)} autoPlay active controls
+                <Player src={detail.streamUrl} streamKind={detail.streamKind} poster={cover(detail.detail.cover || detail.item.cover)} autoPlay active controls
                   scopeKey={`${def.id}:${detail.item.externalId}`}
                   diagnosticContext={{ view: "source_posts", source_id: def.id }}
                   className="w-full h-full" />

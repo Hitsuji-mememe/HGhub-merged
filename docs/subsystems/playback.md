@@ -51,6 +51,14 @@
    `streams.hevc`/`video_url_hevc` 回退；`preferHevc` 且存在 `streams.hevc` 时优先 HEVC。播放器拿到的是上游 m3u8，
    通过 `playbackSource` 转成 `${LOCAL}/hls?u=...`；已经是 `/hls`、`/seg` 的本地地址
    不会被重复包裹。
+   外部源（SourceBrowse/SourcePosts/Search）的 resolve 结果另带流形态 kind
+   （fix3310/file-playback-leg，2026-11-21）：UI 三面把 `streams[0].kind` 与地址成对
+   保留、经 Player/VideoSurface 的 `streamKind` 透传进 `playbackSource`——
+   kind:"file"（MP4 直链，无清单）包本地 `/seg` 直连、恒走 native 引擎；缺省与
+   "hls" 包 `/hls`，行为逐字不变。SR 对 file 流的定性（同批落账）：file 流与既有
+   native 播放（会话级原生降级、/seg 直通）同一形态——SrCanvas 照常挂载、按探针
+   门与 mode 接管呈现，密度采样无 HLS 分片 ingest 故恒为「未知」、判档走未知口
+   径，rVFC 帧率判档与引擎无关照常工作；不为 file 流新开 SR 行为面。
 2. `VideoSurface` 在 `Hls.isSupported()` 且不是直通 `/seg` 时创建 hls.js；
    否则进入原生 `<video>`。iOS 原生传输调用 `media_http_origin`，把能力前缀拼到
    `127.0.0.1` 的 `/hls`/`/seg` 路由；Linux 的 `LOCAL` 固定为

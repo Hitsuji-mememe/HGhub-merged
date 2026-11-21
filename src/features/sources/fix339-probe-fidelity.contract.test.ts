@@ -22,6 +22,14 @@
  * sourceHealth.ts 三处显式注入生产实现，manifestProbe 本体走
  * playlist() 同路 URL）。
  * 不访问真实网络：适配器与实拉接缝均经注入以假实现隔离。
+ *
+ * fix3310/file-playback-leg 断言适配（2026-11-21）：接缝更名
+ * probeManifest→probeStream、入参由裸地址改整条流（{url,kind}）
+ * 以支持 file 流分支；(e) 协议常量随探测步骤变更改判 4（纪元
+ * 5 不变、论证见 healthCheck 纪元注释）；(h) 接线名随生产实现
+ * 更名改绑。本契约覆盖面（实拉翻转/计数/缺席口径/非视频不实
+ * 拉/五处接线）不变，file 分支的新增覆盖在
+ * fix3310-file-probe.contract.test.ts，不在此重复。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -32,7 +40,7 @@ import {
   runSourceSelfCheck,
   selfCheckSegmentText,
 } from "./healthCheck.ts";
-import type { SourceAdapter, SourceDef } from "./types.ts";
+import type { SourceAdapter, SourceDef, SourceStream } from "./types.ts";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const NOW = 1_700_000_000_000;
@@ -75,11 +83,11 @@ function fakeAdapter(behavior: {
   };
 }
 
-function probeRecorder(impl: (url: string) => Promise<void>) {
-  const calls: string[] = [];
+function probeRecorder(impl: (stream: SourceStream) => Promise<void>) {
+  const calls: SourceStream[] = [];
   return {
     calls,
-    fn: async (url: string) => { calls.push(url); await impl(url); },
+    fn: async (stream: SourceStream) => { calls.push(stream); await impl(stream); },
   };
 }
 
@@ -88,10 +96,10 @@ function probeRecorder(impl: (url: string) => Promise<void>) {
   const probe = probeRecorder(async () => { throw new Error("dns 解析失败 connect 不可达"); });
   const r = await runSourceSelfCheck(fakeDef("pf-a"), {
     createAdapterFor: () => fakeAdapter(),
-    probeManifest: probe.fn,
+    probeStream: probe.fn,
     now: () => NOW,
   });
-  assert.deepEqual(probe.calls, [STREAM_URL], "实拉恰对 resolve 首条流地址调 1 次");
+  assert.deepEqual(probe.calls, [{ url: STREAM_URL, kind: "hls" }], "实拉恰对 resolve 首条流（整条含 kind）调 1 次");
   assert.equal(r.detail, "ok", "详情段不受末段影响");
   assert.equal(r.tail, "fail", "清单实拉失败必须翻转取流结论（旧码恒 ok＝假绿）");
   assert.equal(r.tailFailure, "网络类", "清单腿 DNS 形态错误按取流步分类归网络类");
@@ -104,10 +112,10 @@ function probeRecorder(impl: (url: string) => Promise<void>) {
   const probe = probeRecorder(async () => {});
   const r = await runSourceSelfCheck(fakeDef("pf-b"), {
     createAdapterFor: () => fakeAdapter(),
-    probeManifest: probe.fn,
+    probeStream: probe.fn,
     now: () => NOW,
   });
-  assert.deepEqual(probe.calls, [STREAM_URL], "实拉成功路径同样恰调 1 次");
+  assert.deepEqual(probe.calls, [{ url: STREAM_URL, kind: "hls" }], "实拉成功路径同样恰调 1 次");
   assert.equal(r.tail, "ok", "实拉成功（清单取回且魔数通过的等价信号）判取流可达");
   assert.equal(r.tailFailure, null);
   assert.equal(r.requests, 4, "成功路径调用计数同为 4");
@@ -118,7 +126,7 @@ function probeRecorder(impl: (url: string) => Promise<void>) {
   const probe = probeRecorder(async () => {});
   const r = await runSourceSelfCheck(fakeDef("pf-c"), {
     createAdapterFor: () => fakeAdapter({ streams: [] }),
-    probeManifest: probe.fn,
+    probeStream: probe.fn,
     now: () => NOW,
   });
   assert.equal(probe.calls.length, 0, "零流无地址可拉、不得调实拉接缝");
@@ -139,9 +147,9 @@ function probeRecorder(impl: (url: string) => Promise<void>) {
 
 /* ── (e) 协议/纪元/预算常量 ── */
 {
-  assert.equal(SELF_CHECK_PROTOCOL_VERSION, 3, "自检协议 v3＝全链＋分页抽查＋清单实拉");
+  assert.equal(SELF_CHECK_PROTOCOL_VERSION, 4, "自检协议 v4＝全链＋分页抽查＋取流实拉按 kind 分支（fix3310 适配：v3 的清单实拉＋file 流 /seg 实拉）");
   assert.equal(SELF_CHECK_ADAPTER_EPOCH, 5, "适配器纪元 5＝取流结论依据链扩展到媒体取数链");
-  assert.equal(SELF_CHECK_MAX_REQUESTS_PER_SOURCE, 5, "硬预算 5＝列表＋抽查＋详情＋取流解析＋清单实拉");
+  assert.equal(SELF_CHECK_MAX_REQUESTS_PER_SOURCE, 5, "硬预算 5＝列表＋抽查＋详情＋取流解析＋取流实拉");
 }
 
 /* ── (f) 分页抽查与实拉叠加恰 5 ── */
@@ -149,7 +157,7 @@ function probeRecorder(impl: (url: string) => Promise<void>) {
   const probe = probeRecorder(async () => {});
   const r = await runSourceSelfCheck(fakeDef("pf-f"), {
     createAdapterFor: () => fakeAdapter({ signalPages: 3 }),
-    probeManifest: probe.fn,
+    probeStream: probe.fn,
     now: () => NOW,
   });
   assert.equal(r.paging, "ok", "多页信号抽查通过");
@@ -164,28 +172,28 @@ function probeRecorder(impl: (url: string) => Promise<void>) {
   const posts = fakeDef("pf-g", { kind: "post", category: "posts", adapter: { template: "chigua" } });
   const r = await runSourceSelfCheck(posts, {
     createAdapterFor: () => fakeAdapter({ detailHtml: "<p>正文</p>" }),
-    probeManifest: probe.fn,
+    probeStream: probe.fn,
     now: () => NOW,
   });
-  assert.equal(probe.calls.length, 0, "posts 正文段复用详情响应、不经清单实拉");
+  assert.equal(probe.calls.length, 0, "posts 正文段复用详情响应、不经取流实拉");
   assert.equal(r.tail, "ok", "正文段口径不变");
 }
 
 /* ── (h) 生产接线文本断言 ── */
 {
   const main = read("../../main.tsx");
-  const mainInjections = main.split("probeManifest: probeStreamManifestViaPlayback").length - 1;
+  const mainInjections = main.split("probeStream: probeStreamViaPlayback").length - 1;
   assert.ok(mainInjections >= 2, "main.tsx 两处生产装配（调度＋F8 参数验证）显式注入实拉实现");
   assert.ok(main.includes("from \"./features/sources/manifestProbe\""), "main.tsx 注入实现来自 manifestProbe 模块");
   const hooks = read("./sourceHealth.ts");
-  const hookInjections = hooks.split("probeManifest: probeStreamManifestViaPlayback").length - 1;
+  const hookInjections = hooks.split("probeStream: probeStreamViaPlayback").length - 1;
   assert.ok(hookInjections >= 3, "sourceHealth.ts 三处补探接线（单源/成功推翻/批量）显式注入实拉实现");
   const impl = read("./manifestProbe.ts");
-  assert.ok(impl.includes("export async function probeStreamManifestViaPlayback"), "生产实现导出在 manifestProbe.ts");
-  assert.ok(impl.includes("playlist(streamUrl)"), "实拉 URL 经 shared/api 的 playlist() 构造（与播放器逐字同路）");
+  assert.ok(impl.includes("export async function probeStreamViaPlayback"), "生产实现导出在 manifestProbe.ts");
+  assert.ok(impl.includes("playlist(stream.url)"), "hls 分支实拉 URL 经 shared/api 的 playlist() 构造（与播放器逐字同路）");
   const engine = read("./healthCheck.ts");
-  assert.ok(engine.includes("probeManifest: partial.probeManifest"), "调度路径经 resolveDeps 透传接缝");
-  assert.ok(engine.includes("probeManifest: deps.probeManifest"), "补探路径经 launchTopUp 透传接缝");
+  assert.ok(engine.includes("probeStream: partial.probeStream"), "调度路径经 resolveDeps 透传接缝");
+  assert.ok(engine.includes("probeStream: deps.probeStream"), "补探路径经 launchTopUp 透传接缝");
 }
 
 console.log("fix339-probe-fidelity contract OK");

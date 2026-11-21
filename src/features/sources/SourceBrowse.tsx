@@ -62,6 +62,9 @@ type DetailState =
   | { phase: "loading"; item: SourceItem }
   | {
       phase: "ready"; item: SourceItem; detail?: SourceDetail; streamUrl: string;
+      /** 首条流的形态（fix3310 kind 透传）：与 streamUrl 同源于
+       * resolve 结果，Player 据此分流 /hls 与 /seg。 */
+      streamKind: "hls" | "file";
       /** 当前实际在播的集（externalId）：选集换流与 scopeKey 的事实源。 */
       currentEpExternalId: string;
       /** 切集失败的诚实呈现（留当前集继续播，不回落第一集冒充成功）。 */
@@ -257,7 +260,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
           const stream = res.streams[0];
           if (!stream) throw new Error("未解析到可播放地址");
           setDetail({
-            phase: "ready", item, detail: prefetched, streamUrl: stream.url,
+            phase: "ready", item, detail: prefetched, streamUrl: stream.url, streamKind: stream.kind,
             currentEpExternalId: target.externalId,
           });
           return;
@@ -282,7 +285,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
     const d = detailRes.status === "fulfilled" ? detailRes.value : undefined;
     const choices = episodeChoicesForSurface("play-external", def, d);
     setDetail({
-      phase: "ready", item, detail: d, streamUrl: stream.url,
+      phase: "ready", item, detail: d, streamUrl: stream.url, streamKind: stream.kind,
       currentEpExternalId: choices[0]?.externalId ?? item.externalId,
       ...(wantEp ? { epError: `未能恢复到第 ${wantEp} 集，已从第一集播放` } : {}),
     });
@@ -318,7 +321,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
       const res = await adapter.resolve(choice.externalId);
       const stream = res.streams[0];
       if (!stream) throw new Error("未解析到可播放地址");
-      applyIfCurrent({ streamUrl: stream.url, currentEpExternalId: choice.externalId, epError: undefined });
+      applyIfCurrent({ streamUrl: stream.url, streamKind: stream.kind, currentEpExternalId: choice.externalId, epError: undefined });
     } catch (e) {
       applyIfCurrent({ epError: `切换到「${choice.label}」失败：${(e as Error).message || "播放地址解析失败"}（仍在播放当前集）` });
     }
@@ -365,7 +368,7 @@ export default function SourceBrowse({ def, onDetailOpenChange, openExternalId, 
              * audit-player-size 头条）；数据源注记与选集留在 px-4
              * 块内，scopeKey/起播记史口径逐字不变。 */}
             <div className="relative w-full bg-black" style={{ height: "min(48vh, 420px)" }}>
-              <Player src={detail.streamUrl} poster={cover(detail.item.cover)} autoPlay active controls
+              <Player src={detail.streamUrl} streamKind={detail.streamKind} poster={cover(detail.item.cover)} autoPlay active controls
                 scopeKey={`${def.id}:${detail.currentEpExternalId}`}
                 onPlaying={() => {
                   /* G4 历史写入（fix334/L3）：真起播首帧才记，集数＝

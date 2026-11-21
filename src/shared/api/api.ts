@@ -57,6 +57,12 @@ export const cover = (url?: string, _w = 480, page?: string) =>
 /** 播放列表：经本地协议改写分片地址，规避 CORS 与防盗链。 */
 export const playlist = (url: string) => `${LOCAL}/hls?u=${encodeURIComponent(url)}`;
 
+/** 媒体文件直连（Muse 2026-11-21 fix3310/file-playback-leg）：
+ * kind:"file" 的 MP4 直链没有清单可改写，经本地 /seg 路由以
+ * Range 语义直通给原生播放器（Rust 侧对媒体文件目标走 ranged
+ * 直通、其余目标仍走整段分片路径，见 media/segment.rs）。 */
+export const segment = (url: string) => `${LOCAL}/seg?u=${encodeURIComponent(url)}`;
+
 /* ── 调用封装 ───────────────────────────────────────────── */
 
 /** 写一行到应用数据目录 debug.log（用户反馈「打不开」时要的就是它） */

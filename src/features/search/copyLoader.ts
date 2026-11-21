@@ -34,6 +34,9 @@ export function copyCacheKey(c: CopyRef): string {
 
 export interface CopyLoadResult {
   streamUrl?: string;
+  /* 首条流的形态（Muse 2026-11-21 fix3310 kind 透传）：与
+   * streamUrl 同源于 resolve 结果，Search 据此传 Player 分流。 */
+  streamKind?: "hls" | "file";
   detail?: SourceDetail;
   images?: string[];
 }
@@ -73,7 +76,7 @@ export async function loadSearchCopy(
     const res = await adapter.resolve(opts?.episodeExternalId ?? copy.item.externalId);
     const stream = res.streams[0];
     if (!stream) throw new Error("该副本未解析到可播放地址");
-    return { streamUrl: stream.url, detail };
+    return { streamUrl: stream.url, streamKind: stream.kind, detail };
   }
   let detail = deps.detailCache.get(copyCacheKey(copy));
   if (!detail) {

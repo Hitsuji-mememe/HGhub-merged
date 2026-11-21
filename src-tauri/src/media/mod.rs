@@ -113,7 +113,7 @@ mod byte_lru_tests {
 pub(crate) use response::fixture_response;
 use hls::{dec, load_playlist};
 use image::load_image;
-use segment::load_segment;
+use segment::{is_media_file_target, load_segment, load_segment_ranged, RangedError};
 use response::{apply_byte_range, respond, segment_response, PROXIED_IMAGE_CACHE_CONTROL};
 
 /// 本平台自定义协议的完整基址。
@@ -191,10 +191,31 @@ pub async fn handle(path: &str, query: &str, origin: &str, range: Option<&str>) 
             ),
             Err(e) => respond(502, "text/plain", e.into_bytes(), "no-store"),
         },
-        "/seg" => match load_segment(&target).await {
-            Ok((ctype, bytes)) => segment_response(&target, ctype.as_deref(), bytes.as_ref().clone(), origin),
-            Err(e) => respond(502, "text/plain", e.into_bytes(), "no-store"),
-        },
+        "/seg" => {
+            /* file 流 ranged 直通（Muse 2026-11-21 fix3310/file-
+             * playback-leg）：带 Range 头 ∧ 目标为媒体文件时走同
+             * 区间单次取数（segment::load_segment_ranged）——整段
+             * 拼片形态对大文件必超单响应上限恒 502、对中等文件每
+             * 请求整文件重下。直通定案（206/416/HTML 502）直接采
+             * 用；Fallback 与不适用面（无 Range、非媒体文件目标
+             * ——HLS 分片/key/清单子请求）逐字走旧整段形态，末端
+             * apply_byte_range 对 206 原样直通、对旧形态 200 照旧
+             * 切片。 */
+            let ranged = match range {
+                Some(r) if is_media_file_target(&target) => Some(load_segment_ranged(&target, r).await),
+                _ => None,
+            };
+            match ranged {
+                Some(Ok(resp)) => resp,
+                Some(Err(RangedError::Fatal(status, message))) => {
+                    respond(status, "text/plain", message.into_bytes(), "no-store")
+                }
+                _ => match load_segment(&target).await {
+                    Ok((ctype, bytes)) => segment_response(&target, ctype.as_deref(), bytes.as_ref().clone(), origin),
+                    Err(e) => respond(502, "text/plain", e.into_bytes(), "no-store"),
+                },
+            }
+        }
         _ => respond(404, "text/plain", b"not found".to_vec(), "no-store"),
     };
     let response = apply_byte_range(response, range);
@@ -441,6 +462,123 @@ mod tests {
             "清单失败必须留 source.resolve_fail（segment=manifest）行"
         );
         println!("[device-chain-hls] 留痕断言通过");
+    }
+
+    /// 设备链模拟（Muse 2026-11-21 fix3310/file-playback-leg）：
+    /// /seg ranged 直通的完整链验证——经生产代理注入指向文件替身
+    /// （~/workspace/hghub/fix3310/seg-file-double.py，127.0.0.1:
+    /// 17890，目标 http://upstream.example），以 media::handle 生
+    /// 产入口发带 Range 的 /seg 请求。替身 /big.mp4 为 80MiB 规
+    /// 律字节：旧整段拼片形态每片 >16MB 单响应上限必败（本用例
+    /// 在旧码上 502＝证伪点），ranged 直通必须 206＋Content-
+    /// Range 精确＋窗口字节逐字节守恒。慢/挂形态（never/slow30/
+    /// slow3）沿 fix338 截止纪律：有截止、有结论、不误杀慢源。
+    /// 字节规律与替身同式：byte(i)＝[0,0,0,0x18](i<4)｜"ftyp"
+    /// (4<=i<8)｜"isom"(8<=i<12)｜i%251(i>=12)。
+    /// 运行：先起替身 python3 seg-file-double.py，再
+    /// cargo test --lib device_chain_seg_file_range -- --ignored --nocapture
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    #[ignore = "设备链模拟：需要 fix3310 文件替身（127.0.0.1:17890），手动运行"]
+    async fn device_chain_seg_file_range() {
+        use std::time::{Duration, Instant};
+        let base = std::env::var("DEVICE_CHAIN_SEG_BASE")
+            .unwrap_or_else(|_| "http://upstream.example".to_string());
+        let stub = std::env::var("DEVICE_CHAIN_SEG_STUB")
+            .unwrap_or_else(|_| "http://127.0.0.1:17890".to_string());
+        let proxy_dir = std::env::temp_dir().join(format!("hghubx-seg-proxy-{}", std::process::id()));
+        std::fs::create_dir_all(&proxy_dir).expect("代理目录");
+        crate::proxy::bind(&proxy_dir);
+        crate::proxy::set("custom", &stub).expect("指向替身代理");
+
+        const TOTAL: u64 = 80 * 1024 * 1024;
+        fn expected_byte(i: u64) -> u8 {
+            match i {
+                0..=2 => 0,
+                3 => 0x18,
+                4 => b'f',
+                5 => b't',
+                6 => b'y',
+                7 => b'p',
+                8 => b'i',
+                9 => b's',
+                10 => b'o',
+                11 => b'm',
+                _ => (i % 251) as u8,
+            }
+        }
+        let get = |path: &str, range: Option<&str>| {
+            let url = format!("{base}{path}");
+            let q = format!("u={}", enc(&url));
+            let range = range.map(|r| r.to_string());
+            async move { handle("/seg", &q, LOCAL_ORIGIN, range.as_deref()).await }
+        };
+        let header = |resp: &Response<Vec<u8>>, name: &str| {
+            resp.headers().get(name).and_then(|v| v.to_str().ok()).map(|s| s.to_string())
+        };
+
+        // ① 首段窗口：206、Content-Range 精确、ftyp 魔数、逐字节守恒。
+        let head = get("/big.mp4", Some("bytes=0-2047")).await;
+        println!("[device-chain-seg] head → status={}", head.status());
+        assert_eq!(head.status(), 206, "首段窗口必须 206（旧码整段形态在此 502）");
+        assert_eq!(header(&head, "Content-Range").as_deref(), Some(format!("bytes 0-2047/{TOTAL}").as_str()));
+        assert_eq!(head.body().len(), 2048);
+        assert_eq!(&head.body()[4..8], b"ftyp", "首段字节须含 ftyp 魔数");
+        assert!(head.body().iter().enumerate().all(|(i, b)| *b == expected_byte(i as u64)), "首段逐字节守恒");
+
+        // ② 中段窗口：任意偏移 Range 守恒（播放器 seek 的形态）。
+        let mid_start = 40_000_000u64;
+        let mid = get("/big.mp4", Some("bytes=40000000-40001023")).await;
+        assert_eq!(mid.status(), 206);
+        assert_eq!(header(&mid, "Content-Range").as_deref(), Some(format!("bytes 40000000-40001023/{TOTAL}").as_str()));
+        assert!(mid.body().iter().enumerate().all(|(i, b)| *b == expected_byte(mid_start + i as u64)), "中段逐字节守恒");
+
+        // ③ 开放区间：窗口上限内出 206（窗口＝RANGED_WINDOW_MAX_BYTES）。
+        let open = get("/big.mp4", Some("bytes=1000-")).await;
+        assert_eq!(open.status(), 206);
+        assert_eq!(open.body().len() as u64, segment::RANGED_WINDOW_MAX_BYTES, "开放区间按窗口上限服务");
+        assert_eq!(header(&open, "Content-Range").as_deref(),
+            Some(format!("bytes 1000-{}/{TOTAL}", 1000 + segment::RANGED_WINDOW_MAX_BYTES - 1).as_str()));
+
+        // ④ 后缀区间：尾段守恒。
+        let suffix = get("/big.mp4", Some("bytes=-1000")).await;
+        assert_eq!(suffix.status(), 206);
+        assert_eq!(suffix.body().len(), 1000);
+        assert!(suffix.body().iter().enumerate().all(|(i, b)| *b == expected_byte(TOTAL - 1000 + i as u64)), "尾段逐字节守恒");
+
+        // ⑤ HTML 冒充媒体：502（与 segment_response 同罪）。
+        let page = get("/page.mp4", Some("bytes=0-2047")).await;
+        println!("[device-chain-seg] page → status={}", page.status());
+        assert_eq!(page.status(), 502, "HTML 文档冒充媒体必须 502");
+
+        // ⑥ .mp4 路径实为清单：回退旧形态、清单改写 200。
+        let list = get("/list.mp4", Some("bytes=0-2047")).await;
+        println!("[device-chain-seg] list → status={}", list.status());
+        assert_eq!(list.status(), 200, "清单字节须回退清单改写形态");
+        let list_body = String::from_utf8_lossy(list.body()).to_string();
+        assert!(list_body.contains("#EXTM3U") && list_body.contains("/seg?u="), "清单应已改写：{list_body}");
+
+        // ⑦ 永不响应：取数链截止内 502（超时定案、不回退双倍等待）。
+        let started = Instant::now();
+        let never = get("/never.mp4", Some("bytes=0-2047")).await;
+        let never_ms = started.elapsed();
+        println!("[device-chain-seg] never → status={} elapsed={never_ms:?}", never.status());
+        assert_eq!(never.status(), 502, "永不响应必须以 502 明确失败");
+        assert!(never_ms < Duration::from_secs(25), "必须在截止内出结论（回退双倍等待会 ≥40s），实耗 {never_ms:?}");
+
+        // ⑧ 30 秒才响应：不等满 30 秒、截止内判失败。
+        let started = Instant::now();
+        let slow30 = get("/slow30.mp4", Some("bytes=0-2047")).await;
+        let slow30_ms = started.elapsed();
+        println!("[device-chain-seg] slow30 → status={} elapsed={slow30_ms:?}", slow30.status());
+        assert_eq!(slow30.status(), 502, "30 秒响应必须在截止内判失败");
+        assert!(slow30_ms < Duration::from_secs(25), "不得等满上游 30 秒，实耗 {slow30_ms:?}");
+
+        // ⑨ 3 秒慢但健康：206 正常出窗口（不误杀慢源）。
+        let slow3 = get("/slow3.mp4", Some("bytes=0-1023")).await;
+        println!("[device-chain-seg] slow3 → status={}", slow3.status());
+        assert_eq!(slow3.status(), 206, "3 秒慢源必须正常出窗口");
+        assert_eq!(slow3.body().len(), 1024);
     }
 
     /// 联网测试：默认跳过，手动跑 `cargo test --lib -- --ignored`。

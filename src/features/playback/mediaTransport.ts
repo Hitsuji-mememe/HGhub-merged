@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { LOCAL, platform, playlist } from "../../shared/api/api";
+import { LOCAL, platform, playlist, segment } from "../../shared/api/api";
 import { tracePlayback } from "../../shared/diagnostics/playbackDiagnostics";
 
 type PlaybackSource = { engine: "hls.js" | "native"; url: string; route: string };
@@ -35,7 +35,7 @@ export function resetNativeFallbackForTests(): void {
 }
 
 /** Only our own media routes carry a wrapped upstream URL. An upstream ?u= is opaque. */
-export function playbackSource(src: string, hlsSupported: boolean): PlaybackSource {
+export function playbackSource(src: string, hlsSupported: boolean, streamKind?: "hls" | "file"): PlaybackSource {
   let route = "";
   let direct = false;
   try {
@@ -45,7 +45,14 @@ export function playbackSource(src: string, hlsSupported: boolean): PlaybackSour
       direct = source.pathname === "/seg";
     }
   } catch { /* An unwrapped source is passed intact to the playlist route. */ }
-  const url = route ? `${LOCAL}${route}` : playlist(src);
+  /* file 流分流（Muse 2026-11-21 fix3310/file-playback-leg）：适配器
+   * resolve 的 kind:"file"（MP4 直链）没有清单可拉——包 /hls 必被
+   * Rust 清单腿以魔数不符 502。file 流与已包裹的 /seg 地址同形态：
+   * 包本地 /seg 直连、恒走 native 引擎（hls.js 不接管）；SR 随
+   * native 引擎既有口径（画布照常挂载、密度未知判档），与会话级
+   * 原生降级同路，不是本线新开的行为面。HLS 路径逐字不变。 */
+  if (streamKind === "file" && !route) direct = true;
+  const url = route ? `${LOCAL}${route}` : direct ? segment(src) : playlist(src);
   if (!route) route = url.slice(LOCAL.length);
   return { engine: hlsSupported && !direct && !nativeFallback ? "hls.js" : "native", url, route };
 }

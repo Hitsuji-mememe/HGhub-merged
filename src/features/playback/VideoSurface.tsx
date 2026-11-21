@@ -38,6 +38,9 @@ export type VideoHandle = {
 
 type Props = {
   src: string;
+  /* 流形态（Muse 2026-11-21 fix3310）：同 Player——"file" 经
+   * playbackSource 包 /seg 走 native；缺省与 "hls" 同口径。 */
+  streamKind?: "hls" | "file";
   poster?: string;
   autoPlay?: boolean;
   active?: boolean;
@@ -71,7 +74,7 @@ type Props = {
 
 /** 只负责「播」：hls.js + video 元素，控制条由外层渲染。 */
 const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
-  { src, poster, autoPlay = true, active = true, measurementKey = src, diagnosticContext = {}, muted = false, loop = false, fit = "contain", volume = 1, rate = 1,
+  { src, streamKind, poster, autoPlay = true, active = true, measurementKey = src, diagnosticContext = {}, muted = false, loop = false, fit = "contain", volume = 1, rate = 1,
     onTime, onDuration, onSize, onPlaying, onPause, onWaiting, onSeeked, onEnded, onError, onClearError, onFragStats, onClick, className = "" },
   ref,
 ) {
@@ -188,7 +191,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     video.addEventListener("resize", onVideoResize);
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
-    const source = playbackSource(src, Hls.isSupported());
+    const source = playbackSource(src, Hls.isSupported(), streamKind);
     /* 内核源起点：记引擎、清 playing level、吞吐回写按当前线路 base
      * 记账（整改 B3，不再用媒体地址 origin）。 */
     kernel.beginSource(source.engine);
@@ -326,7 +329,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, proxyRecovery.revision]);
+  }, [src, streamKind, proxyRecovery.revision]);
 
   useLayoutEffect(() => { recoveryRef.current?.activityChanged(); }, [active]);
 

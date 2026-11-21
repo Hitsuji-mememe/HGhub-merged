@@ -198,6 +198,205 @@ pub(super) fn clear_cache() {
     }
 }
 
+/* ── file 流 ranged 直通（Muse 2026-11-21 fix3310/file-playback-leg）──
+ * 背景：/seg 旧形态只有整段下载一条路（load_segment→fetch_segment_
+ * bytes 并行拼片成整对象 Vec、整形后本地切片）——拼片单响应上限
+ * 16MB（range_fetch::RANGE_BODY_MAX_BYTES）与全量上限同值，大文
+ * 件（数百 MB 级 MP4）每片必超限、回退全量同超限，恒 502；
+ * 中等文件则每请求整文件入内存重下。kind:"file" 的 MP4 直链走
+ * 本形态：把播放器/探针的单段 Range 映射为对上游的同区间单次
+ * Range 取数（fetch_range_direct，20s 截止、206 偏移校验现成），
+ * 窗口字节原样 206 返回——内存与流量都只随窗口走。
+ * 适用面由 handle 限定：带 Range 头 ∧ 目标路径为媒体文件扩展名；
+ * 其余 /seg 请求（HLS 分片/key/无 Range）逐字走旧形态。
+ * 失败分流：可由旧形态接管的（解析不出的 Range、上游 200 全量
+ * 超限、无总长、切片实为清单）回 Fallback；旧形态同样无结论或
+ * 语义已定的（超时——旧形态共用同一 20s 取数链、只会再挂一遍；
+ * 上游 416；切片为 HTML 文档——与 segment_response 同罪 502）
+ * 直接 Fatal 定案，不双倍等待。 */
+
+/// 开放区间（bytes=a-）单次服务的窗口上限：小于 fetch_range_
+/// direct 的 16MB 单响应上限，留校验余量；播放器要更多字节会
+/// 续发下一段 Range（原生媒体栈的常规形态）。
+pub(super) const RANGED_WINDOW_MAX_BYTES: u64 = 15 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SingleRange {
+    FromTo(u64, u64),
+    From(u64),
+    Suffix(u64),
+}
+
+/// 解析单段 Range 头（bytes=a-b / a- / -n）；多段、双空、逆序、
+/// 后缀 0 一律 None（调用方回退旧形态，由 apply_byte_range 按其
+/// 既有语义处理）。
+pub(super) fn parse_single_range(value: &str) -> Option<SingleRange> {
+    let spec = value.trim().strip_prefix("bytes=")?;
+    if spec.contains(',') {
+        return None;
+    }
+    let (first, last) = spec.split_once('-')?;
+    let (first, last) = (first.trim(), last.trim());
+    match (first.is_empty(), last.is_empty()) {
+        (true, true) => None,
+        (true, false) => last
+            .parse::<u64>()
+            .ok()
+            .filter(|n| *n > 0)
+            .map(SingleRange::Suffix),
+        (false, true) => first.parse::<u64>().ok().map(SingleRange::From),
+        (false, false) => {
+            let start = first.parse::<u64>().ok()?;
+            let end = last.parse::<u64>().ok()?;
+            if end < start {
+                None
+            } else {
+                Some(SingleRange::FromTo(start, end))
+            }
+        }
+    }
+}
+
+/// 目标路径是否为媒体文件（扩展名判别，忽略查询串/片段与大小
+/// 写；与 response::target_claims_playlist 同为路径后缀判别）。
+/// 只认播放器会以文件形态消费的容器扩展名。
+pub(super) fn is_media_file_target(url: &str) -> bool {
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    let lower = path.to_ascii_lowercase();
+    [".mp4", ".m4v", ".mov", ".webm", ".mkv"]
+        .iter()
+        .any(|ext| lower.ends_with(ext))
+}
+
+/// ranged 直通的失败分流（见本节头注）。
+#[derive(Debug)]
+pub(super) enum RangedError {
+    /// 回退旧整段形态（load_segment＋apply_byte_range）。
+    Fallback,
+    /// 直接定案（状态码＋错误原文，handle 以 text/plain 返回）。
+    Fatal(u16, String),
+}
+
+fn ranged_fetch_error(error: String) -> RangedError {
+    if error == "HTTP 416" {
+        return RangedError::Fatal(416, error);
+    }
+    /* 超时定案：取数链自身 20s 截止给出的结论（get_with_dns_h 的
+     * 「请求超时」与 reqwest 的 timed out 同源）——旧形态共用同一
+     * 条链，回退只会再挂满一轮且结论不变（fix338 截止纪律：慢/
+     * 挂形态必须有截止有结论，不双倍等待）。 */
+    let lower = error.to_ascii_lowercase();
+    if error.contains("超时") || lower.contains("timed out") || lower.contains("timeout") {
+        return RangedError::Fatal(502, error);
+    }
+    RangedError::Fallback
+}
+
+/// 切片内容守卫（与 segment_response 同口径）：HTML 文档恒不是
+/// 媒体字节 → Fatal 502；声称为媒体文件却取回清单字节（start=0
+/// 且魔数命中）→ 回退旧形态走清单改写。
+fn ranged_slice_guard(bytes: &[u8], start: u64) -> Result<(), RangedError> {
+    if crate::net::is_html_document(bytes) {
+        return Err(RangedError::Fatal(
+            502,
+            "响应为 HTML 文档而非媒体字节".to_string(),
+        ));
+    }
+    if start == 0 && super::hls::is_playlist_bytes(bytes) {
+        return Err(RangedError::Fallback);
+    }
+    Ok(())
+}
+
+/// 显式区间 [start, end] 的 ranged 取数与整形。
+async fn load_ranged_explicit(
+    url: &str,
+    start: u64,
+    end: u64,
+) -> Result<tauri::http::Response<Vec<u8>>, RangedError> {
+    let fetched = crate::range_fetch::fetch_range_direct(url, start, end)
+        .await
+        .map_err(ranged_fetch_error)?;
+    if fetched.status == 200 {
+        /* 上游忽略 Range：响应即全量实体（≤16MB 由 fetch_range_
+         * direct 流式上限保证，超限在那里已报错回 Fallback）。
+         * 总长即体长，本地切片成 206——与 apply_byte_range 对旧
+         * 形态 200 的切片语义一致，只是免了整段拼片。 */
+        let total = fetched.bytes.len() as u64;
+        if start >= total {
+            return Err(RangedError::Fatal(416, "请求区间越界".to_string()));
+        }
+        ranged_slice_guard(&fetched.bytes, start)?;
+        let slice_end = end.min(total - 1);
+        let slice = fetched.bytes[start as usize..=slice_end as usize].to_vec();
+        return Ok(super::response::range_window_response(
+            fetched.ctype.as_deref(),
+            slice,
+            start,
+            total,
+        ));
+    }
+    /* 206：fetch_range_direct 已校验 Content-Range 起点/终点/长
+     * 度与请求区间一致；总长缺失（*）时无法给出 Content-Range
+     * 总长，回退旧形态。 */
+    let total = fetched.total.ok_or(RangedError::Fallback)?;
+    if fetched.bytes.is_empty() {
+        return Err(RangedError::Fallback);
+    }
+    ranged_slice_guard(&fetched.bytes, start)?;
+    Ok(super::response::range_window_response(
+        fetched.ctype.as_deref(),
+        fetched.bytes,
+        start,
+        total,
+    ))
+}
+
+/// /seg ranged 直通入口（handle 在「带 Range ∧ 媒体文件目标」时
+/// 调用）：单段 Range → 同区间单次上游取数 → 206 窗口响应。
+pub(super) async fn load_segment_ranged(
+    url: &str,
+    range: &str,
+) -> Result<tauri::http::Response<Vec<u8>>, RangedError> {
+    match parse_single_range(range).ok_or(RangedError::Fallback)? {
+        SingleRange::FromTo(start, end) => load_ranged_explicit(url, start, end).await,
+        SingleRange::From(start) => {
+            let end = start.saturating_add(RANGED_WINDOW_MAX_BYTES - 1);
+            load_ranged_explicit(url, start, end).await
+        }
+        SingleRange::Suffix(len) => {
+            /* 后缀区间须先知总长：1 字节探针取 Content-Range 总
+             * 长（206），上游忽略 Range 回 200 时探针体即全量、
+             * 直接尾切。 */
+            let probe = crate::range_fetch::fetch_range_direct(url, 0, 0)
+                .await
+                .map_err(ranged_fetch_error)?;
+            if probe.status == 200 {
+                let total = probe.bytes.len() as u64;
+                if total == 0 {
+                    return Err(RangedError::Fallback);
+                }
+                ranged_slice_guard(&probe.bytes, 0)?;
+                let take = len.min(total);
+                let start = total - take;
+                let slice = probe.bytes[start as usize..].to_vec();
+                return Ok(super::response::range_window_response(
+                    probe.ctype.as_deref(),
+                    slice,
+                    start,
+                    total,
+                ));
+            }
+            let total = probe.total.ok_or(RangedError::Fallback)?;
+            if total == 0 {
+                return Err(RangedError::Fallback);
+            }
+            let take = len.min(total);
+            load_ranged_explicit(url, total - take, total - 1).await
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,6 +556,40 @@ mod tests {
         ));
         assert!(cached_segment(old, url).is_none());
         assert!(cached_segment(new, url).is_none());
+    }
+
+    /* fix3310/file-playback-leg：ranged 直通的纯判别面——单段
+     * Range 解析与媒体文件目标判别。行为面（206 守恒/截止）在
+     * media::tests 的设备链用例 device_chain_seg_file_range。 */
+    #[test]
+    fn parse_single_range_accepts_three_forms() {
+        assert_eq!(parse_single_range("bytes=0-2047"), Some(SingleRange::FromTo(0, 2047)));
+        assert_eq!(parse_single_range("bytes=1024-"), Some(SingleRange::From(1024)));
+        assert_eq!(parse_single_range("bytes=-500"), Some(SingleRange::Suffix(500)));
+        assert_eq!(parse_single_range("bytes=0-0"), Some(SingleRange::FromTo(0, 0)));
+    }
+
+    #[test]
+    fn parse_single_range_rejects_non_single_or_invalid() {
+        assert_eq!(parse_single_range("bytes=0-1,4-5"), None, "多段不走直通");
+        assert_eq!(parse_single_range("bytes=-"), None);
+        assert_eq!(parse_single_range("bytes=-0"), None, "后缀 0 无意义");
+        assert_eq!(parse_single_range("bytes=9-4"), None, "逆序");
+        assert_eq!(parse_single_range("items=0-1"), None, "单位不是 bytes");
+        assert_eq!(parse_single_range("bytes=a-b"), None);
+        assert_eq!(parse_single_range(""), None);
+    }
+
+    #[test]
+    fn media_file_target_matches_container_extensions_only() {
+        assert!(is_media_file_target("https://cdn.example/v/clip.mp4"));
+        assert!(is_media_file_target("https://cdn.example/v/clip.MP4?token=1"));
+        assert!(is_media_file_target("https://cdn.example/v/clip.webm#t=3"));
+        assert!(is_media_file_target("https://cdn.example/v/clip.m4v"));
+        assert!(!is_media_file_target("https://cdn.example/v/playlist.m3u8"));
+        assert!(!is_media_file_target("https://cdn.example/v/seg-0001.ts"));
+        assert!(!is_media_file_target("https://cdn.example/v/key.bin"));
+        assert!(!is_media_file_target("https://cdn.example/mp4/playlist"));
     }
 }
 

@@ -83,6 +83,8 @@ type ExtReady = {
   ordered: CopyRef[];
   active: CopyRef;
   streamUrl?: string;
+  /* 首条流的形态（fix3310 kind 透传，经 CopyLoadResult 同源携带）。 */
+  streamKind?: "hls" | "file";
   detail?: SourceDetail;
   images?: string[];
   /** 单图模型画廊组装（fix337/search-gallery）：组装成立时的入选
@@ -620,7 +622,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
       const value = await loadCopy(merged, current.active, choice.externalId);
       if (!value.streamUrl) throw new Error("未解析到可播放地址");
       setExtDetail((cur) => (cur?.phase === "ready" && stillCurrent(cur.data)
-        ? { phase: "ready", data: { ...cur.data, streamUrl: value.streamUrl, detail: value.detail ?? cur.data.detail, epExternalId: choice.externalId, epError: undefined } }
+        ? { phase: "ready", data: { ...cur.data, streamUrl: value.streamUrl, streamKind: value.streamKind, detail: value.detail ?? cur.data.detail, epExternalId: choice.externalId, epError: undefined } }
         : cur));
     } catch {
       traceCopyFail(current.active.sourceId);
@@ -813,7 +815,7 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
                    * audit-player-size S1）；注记/选集/简介留 px-4。 */}
                   {data.streamUrl ? (
                     <div className="relative w-full bg-black" style={{ height: "min(48vh, 420px)" }}>
-                      <Player src={data.streamUrl} poster={cover(data.active.item.cover)} autoPlay active controls
+                      <Player src={data.streamUrl} streamKind={data.streamKind} poster={cover(data.active.item.cover)} autoPlay active controls
                         scopeKey={`search:${data.active.sourceId}:${currentEpId}`}
                         onPlaying={() => {
                           /* G4 历史写入（fix334/L3）：真起播首帧才记，

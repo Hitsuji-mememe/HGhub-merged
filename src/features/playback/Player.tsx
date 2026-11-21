@@ -23,6 +23,10 @@ import { createHlsPlayerConfig, currentLineSeedBps, lockHighestStartLevel } from
 
 type Props = {
   src: string;              // 原始 m3u8 地址
+  /* 流形态（Muse 2026-11-21 fix3310）：适配器 resolve 的
+   * streams[].kind——"file"（MP4 直链）经 playbackSource 包 /seg
+   * 走 native；缺省与 "hls" 同口径包 /hls。Feed/api.play 不传。 */
+  streamKind?: "hls" | "file";
   poster?: string;          // 已处理好的封面地址（本地协议）
   autoPlay?: boolean;
   active?: boolean;
@@ -45,7 +49,7 @@ type Props = {
 };
 
 export default function Player({
-  src, poster, autoPlay, active = true, muted = false, loop = false, onEnded, onPlaying,
+  src, streamKind, poster, autoPlay, active = true, muted = false, loop = false, onEnded, onPlaying,
   onTogglePlay, onToggleMute, controls = true, className = "", diagnosticContext = {}, scopeKey, volume = 1,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -125,7 +129,7 @@ export default function Player({
      * 重建时样本仍有效，此前在此额外 reset 属误清（重建后头几片退回
      * 无密度判档），与 VideoSurface 不对齐，已删。 */
     const resume = proxyRecovery.resume();
-    const source = playbackSource(src, Hls.isSupported());
+    const source = playbackSource(src, Hls.isSupported(), streamKind);
     /* 内核源起点：记引擎、清 playing level、吞吐账本按当前线路记账。 */
     kernel.beginSource(source.engine);
     let disconnectNative: (() => void) | undefined;
@@ -209,7 +213,7 @@ export default function Player({
       trace("source.cleanup");
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
     };
-  }, [src, autoPlay, proxyRecovery.revision]);
+  }, [src, streamKind, autoPlay, proxyRecovery.revision]);
 
   useLayoutEffect(() => { recoveryRef.current?.activityChanged(); }, [active]);
 

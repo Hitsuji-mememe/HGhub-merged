@@ -113,6 +113,18 @@
    只有 ctype/魔数二选一判定、分支内从不复验，非 doctype 前缀的网页体（脚本页/
    `<head>` 页/纯文本/JSON 错误体）标 mpegurl 即被当清单改写后 200 返回（3.3.7
    真机 source-011 变体清单 levelParsingError）。
+   `/seg` ranged 直通（fix3310/file-playback-leg，2026-11-21）：带单段 Range 头 ∧
+   目标路径为媒体文件扩展名（.mp4/.m4v/.mov/.webm/.mkv）时，`handle` 改走
+   `segment::load_segment_ranged()`——把请求区间映射为对上游的同区间单次 Range
+   取数（`fetch_range_direct`，20s 截止、206 偏移校验），窗口字节以 206＋
+   Content-Range 返回（`response::range_window_response`）；开放区间单次窗口上限
+   15MB，后缀区间先 1 字节探总长。旧整段形态（拼片成整对象再本地切片）单响应
+   上限 16MB，大文件每片必超限恒 502、中等文件每请求整文件重下——file 流
+   （MP4 直链）播放与自检探针都走本形态。失败分流：超时（与旧形态共用同一取数
+   链）/上游 416/HTML 文档直接定案（502/416/502），其余（Range 不可解析、无总
+   长、切片实为清单字节等）回退旧整段形态；无 Range 或非媒体文件目标（HLS 分
+   片/key/嵌套清单）逐字走旧形态。已知边界：HEAD 等无 Range 请求仍走旧整段形
+   态（大文件 HEAD 会 502，播放器与探针均不发无 Range 的文件请求）。
    清单腿总截止与在途合并（fix338/net-fix）：`load_playlist` 取数整体受 15 秒
    deadline 约束（小于 hls.js 的 manifestLoadingTimeOut 20s，失败由 Rust 层先于
    播放器超时以可分类的 502 给出），同 URL 并发经 `PL_LOADING` 与分片共用
