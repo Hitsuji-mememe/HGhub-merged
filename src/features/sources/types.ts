@@ -127,6 +127,16 @@ export interface SourceAdapter {
   /* 发现维度的选项来源（fix335/f-discovery）：仅登记了 taxonomy 型
    * 维度（WP 四源）或客户端型维度（002）的适配器实现。 */
   taxonomy?: () => Promise<SourceTaxonomy>;
+  /* 标签服务端搜索（Muse 2026-11-21 fix3313/discovery-tail）：
+   * taxonomy() 只取 Top-100、千级长尾标签不在名单内——搜索态经
+   * 本能力按词补取。仅 wp-rest 实现（tags 端点 search 参数）；
+   * 未实现的源搜索只覆盖已加载名单（002 目录聚合即全集、无需补取）。 */
+  searchTags?: (query: string) => Promise<TaxonEntry[]>;
+  /* taxonomy 条目存在性探针（fix3313/discovery-tail）：落盘 disc 的
+   * id 不在已加载名单内时定性——true＝站方仍有此条目（名单窗口
+   * 外的真条目）、false＝站方明确不存在（404）、null＝未知（网络
+   * 等失败，不据此清值）。仅 wp-rest 实现（单条端点直查）。 */
+  taxonExists?: (kind: "category" | "tag", id: string) => Promise<boolean | null>;
 }
 
 /** 稳定数值 id：外部字符串 id → 既有模型要求的 number（FNV-1a，稳定可复现）。 */

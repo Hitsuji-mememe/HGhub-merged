@@ -2426,6 +2426,48 @@
         "src/features/sources/DiscoveryBar.tsx"
       ],
       "min": 2
+    },
+    {
+      "id": "fix3313-card-taxon-subtitle",
+      "item": "fix3313/discovery-tail 卡片汉化：taxonLabels.cardTaxonSubtitle 定义＋三浏览面卡片副标题消费（与筛选行同口径、只改显示串）；摘任一消费面该面卡片回到全英文原名",
+      "symbol": "cardTaxonSubtitle",
+      "files": [
+        "src/features/sources/taxonLabels.ts",
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourceGallery.tsx",
+        "src/features/sources/SourcePosts.tsx"
+      ],
+      "min": 4
+    },
+    {
+      "id": "fix3313-tag-server-search",
+      "item": "fix3313/discovery-tail 标签长尾补取：SourceAdapter.searchTags 登记（types）＋wp-rest 实现（templates）＋DiscoveryBar 搜索态消费；摘消费点标签搜索回到只覆盖已加载 Top-100",
+      "symbol": "searchTags",
+      "files": [
+        "src/features/sources/types.ts",
+        "src/features/sources/adapters/templates.ts",
+        "src/features/sources/DiscoveryBar.tsx"
+      ],
+      "min": 3
+    },
+    {
+      "id": "fix3313-disc-stale-resolve",
+      "item": "fix3313/discovery-tail disc 失效判定：discoveryOptions.resolveStaleDiscFields 定义＋DiscoveryBar 消费（名单外经探针 404 才清、未知保留）；摘消费点站方改 taxonomy id 后落盘筛选回到静默过滤为空",
+      "symbol": "resolveStaleDiscFields",
+      "files": [
+        "src/features/sources/discoveryOptions.ts",
+        "src/features/sources/DiscoveryBar.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix3313-disc-stale-record",
+      "item": "fix3313/discovery-tail disc 失效留痕：DiscoveryBar 回落失效字段时经诊断账本 record 记 disc.taxon_stale_*（导出尾段可判读）；摘此行失效回落回到无痕",
+      "symbol": "disc.taxon_stale",
+      "files": [
+        "src/features/sources/DiscoveryBar.tsx"
+      ],
+      "min": 1
     }
   ]
 }

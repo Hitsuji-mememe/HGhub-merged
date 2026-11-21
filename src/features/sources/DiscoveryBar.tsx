@@ -26,16 +26,22 @@
  * 本组件加图片面门控 prop（门控下剥分类/标签两行），用户真机
  * 实报聚合源没分类即不可用、当日改令整体回滚——三面一律按登记
  * spec 渲染，本组件无面门控。后续汉化/兴趣直达见 fix3312 契约。
+ *
+ * 收尾（Muse 2026-11-21 fix3313/discovery-tail）：标签搜索补
+ * 服务端长尾（searchTags 补取并池、口径不变）；落盘 disc 的
+ * taxonomy 值加失效自检（站方改 id 后回落为空＋诊断账本留痕，
+ * 不再静默过滤为空列表）。见 fix3313 契约。
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input } from "../../shared/ui/ios/controls";
+import { record } from "../../shared/diagnostics/eventLedger.ts";
 import { createAdapter } from "./adapters/index.ts";
 import { discoverySpecFor, hasDiscovery, type DiscoveryOption } from "./adapters/templateCapabilities.ts";
 import { classifySelfCheckResult } from "./healthCheck.ts";
-import { dedupeTagOptions, pinRecentOptions } from "./discoveryOptions.ts";
-import { tagOptionMatchesQuery, taxonKeysForChineseQuery, taxonZhLabel } from "./taxonLabels.ts";
+import { dedupeTagOptions, mergeTaxonEntries, pinRecentOptions, resolveStaleDiscFields } from "./discoveryOptions.ts";
+import { serverTagSearchTerms, tagOptionMatchesQuery, taxonKeysForChineseQuery, taxonZhLabel } from "./taxonLabels.ts";
 import { useSourceHealthResults } from "./sourceHealth.ts";
-import type { ListDiscovery, SourceDef, SourceTaxonomy } from "./types.ts";
+import type { ListDiscovery, SourceDef, SourceTaxonomy, TaxonEntry } from "./types.ts";
 
 /* taxonomy 型 chips 上限：只呈现 Top-N（按端点/聚合的计数序），
  * 不许把上千标签全量平铺。params 型栏目表全集有限（≤30），不截断。 */
@@ -66,7 +72,11 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
    * 的定向查找——只管呈现、不进 disc；切源即清，免跨源串词。
    * 匹配含中文反查（taxonLabels：输中文译名命中英文原标签）。 */
   const [tagQuery, setTagQuery] = useState("");
-  useEffect(() => { setTagQuery(""); }, [def.id]);
+  /* 服务端补取的长尾标签（fix3313/discovery-tail）：搜索态经
+   * searchTags 按词补取、与本地名单合并成池；切源清空，查询清
+   * 空不清——已选中/最近用过的长尾标签靠它在行内保持可见可取消。 */
+  const [remoteTags, setRemoteTags] = useState<TaxonEntry[]>([]);
+  useEffect(() => { setTagQuery(""); setRemoteTags([]); }, [def.id]);
   const searching = tagQuery.trim().length > 0;
   const [taxonomy, setTaxonomy] = useState<SourceTaxonomy | null>(null);
   useEffect(() => {
@@ -80,6 +90,55 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def.id, needsTaxonomy]);
+
+  /* 标签长尾补取（fix3313/discovery-tail）：搜索词非空且适配器有
+   * searchTags 时，按派生词（英文原词/中文反查键）防抖补取、结果
+   * 并入 remoteTags 池。补取失败静默——本地名单搜索照常，未知不
+   * 冒充无此标签。 */
+  useEffect(() => {
+    if (!searching || !spec.tagFilter) return undefined;
+    const adapter = createAdapter(def);
+    if (!adapter?.searchTags) return undefined;
+    const terms = serverTagSearchTerms(tagQuery);
+    if (terms.length === 0) return undefined;
+    let live = true;
+    const timer = setTimeout(() => {
+      Promise.all(terms.map((t) => adapter.searchTags!(t).catch(() => [] as TaxonEntry[])))
+        .then((lists) => { if (live) setRemoteTags((prev) => mergeTaxonEntries(prev, lists.flat())); })
+        .catch(() => { /* 补取失败：只用本地名单 */ });
+    }, 250);
+    return () => { live = false; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tagQuery, searching, def.id, spec.tagFilter]);
+
+  /* 落盘 disc 的 taxonomy 失效自检（fix3313/discovery-tail）：站方
+   * 改 taxonomy id 后旧值静默过滤为空列表——taxonomy 到手后核对
+   * 一次：名单外的值经 resolveStaleDiscFields 判定（wp-rest 走
+   * taxonExists 探针、404 才清；无探针的适配器 taxonomy 即全集、
+   * 缺席即清），失效字段回落为空（经 onDiscChange 落盘）并记一
+   * 条诊断账本事件（disc.taxon_stale_*，导出尾段可判读）。同一
+   * 「源＋disc 值」组合只查一次，探针未知时保留原值不重复打扰。 */
+  const staleCheckKeyRef = useRef("");
+  useEffect(() => {
+    if (!taxonomy || !needsTaxonomy) return undefined;
+    const key = `${def.id}|${disc.category ?? ""}|${disc.tag ?? ""}`;
+    if (staleCheckKeyRef.current === key) return undefined;
+    staleCheckKeyRef.current = key;
+    let live = true;
+    const adapter = createAdapter(def);
+    resolveStaleDiscFields(disc, taxonomy, adapter?.taxonExists ?? null, {
+      category: spec.categories?.source === "taxonomy",
+      tag: spec.tagFilter === true,
+    }).then(({ next, staleFields }) => {
+      if (!live || staleFields.length === 0) return;
+      for (const field of staleFields) {
+        record(`disc.taxon_stale_${field}`, { source: def.id, field, value: disc[field] });
+      }
+      onDiscChange(next);
+    }).catch(() => { /* 判定异常：保留原值（未知不是空） */ });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taxonomy, def.id, needsTaxonomy]);
 
   if (!hasDiscovery(spec)) return null;
 
@@ -134,7 +193,10 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
    * TAG_SEARCH_LIMIT——长尾标签靠搜索直达（调查选项 B）。 */
   const tagOptions: DiscoveryOption[] = (() => {
     if (!spec.tagFilter) return [];
-    const all = (taxonomy?.tags ?? []).map((e) => ({ value: e.id, label: e.name }));
+    /* 选项池＝本地 taxonomy 名单＋服务端补取的长尾（fix3313/
+     * discovery-tail）：补取项殿后，Top-N 截断与置顶口径不变。 */
+    const all = mergeTaxonEntries(taxonomy?.tags ?? [], remoteTags)
+      .map((e) => ({ value: e.id, label: e.name }));
     const deduped = dedupeTagOptions(categoryOptions, all, disc.tag);
     const pinned = pinRecentOptions(deduped, recentTags ?? []);
     if (searching) {

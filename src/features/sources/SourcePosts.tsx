@@ -42,6 +42,7 @@ import { useTitleFallback } from "./titleFallback.ts";
 import { noteSourceListSuccess, useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import DiscoveryBar from "./DiscoveryBar";
 import { useDiscState } from "./discState.ts";
+import { cardTaxonSubtitle } from "./taxonLabels.ts";
 import { discFingerprint, EMPTY_LIST_DISCOVERY, type ListDiscovery } from "./types.ts";
 import type { SourceDef, SourceDetail, SourceItem } from "./types.ts";
 
@@ -418,7 +419,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
         <div className="ios-media-grid" data-ui="media-grid">
           {visibleItems.map((item) => (
             <MediaCard key={item.externalId} title={item.title} cover={item.cover} surface="source-posts"
-              subtitle={item.tags?.slice(0, 2).join(" · ") || def.displayName}
+              subtitle={cardTaxonSubtitle(def.id, item.tags) || def.displayName}
               onOpen={() => void openItem(item)} />
           ))}
         </div>
