@@ -11,9 +11,9 @@
     "reason": "维护者对齐（Muse 2026-11-18 终版）：合并版自动选线重做（吞吐排名接线、镜像覆盖计数、两轮确认逻辑），及故障注入批将 confirm_gate/select_pool split 为纯函数并新增 12 条单测，共 +78 行，按实测对齐，后续增长仍受此上限约束。fix3310 集成（维护者裁定，Muse 2026-11-21）：/seg ranged 播放腿所致的本批预算对齐——本桶实测 1291 为腿线树实值（腿批对本桶零增行、超限系 3.3.9 基线既有，模块 split 结构不变），按腿线树实测值上调至 1291，后续增长仍受此上限约束。"
   },
   "src-tauri/src/media": {
-    "budget": 1980,
-    "previous": 1787,
-    "reason": "fix3311 集成（维护者裁定，Muse 2026-11-21）：file 流播放腿修复所致——/seg 处理在 fix3310 的 split 两路（ranged 直通/整段旧形态）上再分出 HEAD 元信息腿（load_segment_head）与无 Range 首窗腿（load_segment_unranged），mod.rs 按方法×Range 形态三路分流，响应类型归一（media_mime_for_target）同落 media/，实测 1787→1980（勘误基线：3.3.9 media 实测 1498、ranged 增量 +289，见 fix3310 集成报告勘误），按腿线树实测值对齐，后续增长仍受此上限约束。"
+    "budget": 2367,
+    "previous": 1980,
+    "reason": "fix3311 集成（维护者裁定，Muse 2026-11-21）：file 流播放腿修复所致——/seg 处理在 fix3310 的 split 两路（ranged 直通/整段旧形态）上再分出 HEAD 元信息腿（load_segment_head）与无 Range 首窗腿（load_segment_unranged），mod.rs 按方法×Range 形态三路分流，响应类型归一（media_mime_for_target）同落 media/，实测 1787→1980（勘误基线：3.3.9 media 实测 1498、ranged 增量 +289，见 fix3310 集成报告勘误），按腿线树实测值对齐，后续增长仍受此上限约束。fix3313 集成（维护者裁定，Muse 2026-11-21）：020 起播流式直通所致——/seg 媒体文件 GET 改渐进回吐，media/ 新增流式分流（MediaResponse{Full,Streamed}＋handle_stream 试流式判据、load_segment_ranged_stream/load_segment_unranged_stream 两腿、range_window_head_response、流终点记账）与设备链 harness；窥头/中继泵已按 range_fetch 拆分先例移出本桶（落 range_fetch.rs fetch_range_stream/peek_stream_prefix/spawn_range_relay），余 2367 为流式特性本体＋harness 实测值，集成树复测 1980→2367 按实测对齐，后续增长仍受此上限约束。"
   },
   "src-tauri/src/net": {
     "budget": 1925,
