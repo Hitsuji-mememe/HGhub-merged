@@ -2384,6 +2384,28 @@
         "src/features/playback/WebGpuSrCanvas.tsx"
       ],
       "min": 1
+    },
+    {
+      "id": "fix3312-disc-persist-wiring",
+      "item": "fix3312/discovery-b 兴趣直达：discState.useDiscState 定义＋三浏览面消费（disc 按源落盘 hghubx_disc_v1、重开直达上次筛选）；摘任一消费面该面回到关 App 即忘",
+      "symbol": "useDiscState",
+      "files": [
+        "src/features/sources/discState.ts",
+        "src/features/sources/SourceBrowse.tsx",
+        "src/features/sources/SourceGallery.tsx",
+        "src/features/sources/SourcePosts.tsx"
+      ],
+      "min": 4
+    },
+    {
+      "id": "fix3312-disc-recent-pinning",
+      "item": "fix3312/discovery-b 最近用过置顶：pinRecentOptions 定义（discoveryOptions）＋DiscoveryBar 分类/标签两行消费；摘消费点最近用过不再置顶、兴趣直达只剩落盘一半",
+      "symbol": "pinRecentOptions",
+      "files": [
+        "src/features/sources/discoveryOptions.ts",
+        "src/features/sources/DiscoveryBar.tsx"
+      ],
+      "min": 2
     }
   ]
 }

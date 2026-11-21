@@ -28,7 +28,12 @@ import { getBuiltinRegistry } from "./registry.ts";
 import { discoverySpecFor } from "./adapters/templateCapabilities.ts";
 import { createWpRestAdapter } from "./adapters/templates.ts";
 import { setFetchPage } from "./adapters/fetchPage.ts";
-import { dedupeTagOptions } from "./discoveryOptions.ts";
+import { dedupeTagOptions, pinRecentOptions } from "./discoveryOptions.ts";
+import {
+  applyDiscSelection, loadDiscStateMap, normalizeDiscStateMap, saveDiscStateMap,
+  DISC_RECENT_LIMIT, DISC_STATE_KEY, type DiscStateMap,
+} from "./discState.ts";
+import { tagOptionMatchesQuery, taxonKeysForChineseQuery } from "./taxonLabels.ts";
 import type { SourceDef } from "./types.ts";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -91,4 +96,95 @@ const def = (id: string): SourceDef => {
   assert.deepEqual(deduped.map((o) => o.value), ["9"], "同名标签仍被剔除（fix336 行为不变）");
 }
 
-console.log("fix3312-discovery-b contract (segment 1): PASS");
+/* ── (D) disc 落盘：往返、归一化、最近用过规则 ── */
+{
+  /* localStorage 替身（node 无此全局；只测本模块的读写口径）。 */
+  const backing = new Map<string, string>();
+  (globalThis as Record<string, unknown>).localStorage = {
+    getItem: (k: string) => backing.get(k) ?? null,
+    setItem: (k: string, v: string) => { backing.set(k, v); },
+    removeItem: (k: string) => { backing.delete(k); },
+  };
+
+  let m: DiscStateMap = {};
+  m = applyDiscSelection(m, "xiuren", { category: "23", tag: "7" });
+  assert.deepEqual(m.xiuren.disc, { category: "23", tag: "7" }, "disc 按源落记录");
+  assert.deepEqual(m.xiuren.recentCategories, ["23"], "首次选分类进最近用过");
+  assert.deepEqual(m.xiuren.recentTags, ["7"], "首次选标签进最近用过");
+
+  m = applyDiscSelection(m, "xiuren", { category: "45", tag: "7" });
+  assert.deepEqual(m.xiuren.recentCategories, ["45", "23"], "换分类新值置顶、旧值留位");
+  assert.deepEqual(m.xiuren.recentTags, ["7"], "标签同值重选不重排");
+
+  m = applyDiscSelection(m, "xiuren", { tag: "7" });
+  assert.deepEqual(m.xiuren.disc, { tag: "7" }, "disc 整体替换（清分类即删字段）");
+  assert.deepEqual(m.xiuren.recentCategories, ["45", "23"], "清除分类不动最近用过（清除不是用过）");
+
+  m = applyDiscSelection(m, "everia", { sort: "date-asc" });
+  assert.deepEqual(m.everia.recentCategories, [], "只改排序不产生最近分类");
+
+  saveDiscStateMap(m);
+  assert.ok(backing.has(DISC_STATE_KEY), "状态写入自有键");
+  assert.deepEqual(loadDiscStateMap(), m, "存→读往返逐字一致（重开直达上次筛选的数据基础）");
+
+  const dirty = normalizeDiscStateMap({
+    good: { disc: { category: "1", sort: 5, tag: "" }, recentCategories: ["1", "1", 2, "3"], recentTags: "x" },
+    bad: 42, worse: { disc: null },
+  });
+  assert.deepEqual(dirty.good.disc, { category: "1" }, "归一化：非字符串/空串字段丢弃");
+  assert.deepEqual(dirty.good.recentCategories, ["1", "3"], "归一化：最近列表去重去坏值");
+  assert.deepEqual(dirty.good.recentTags, [], "归一化：非数组最近列表归零");
+  assert.ok(!("bad" in dirty), "归一化：非对象条目整条丢弃");
+  assert.deepEqual(normalizeDiscStateMap("nope"), {}, "归一化：顶层非对象归零");
+  assert.deepEqual(normalizeDiscStateMap(null), {}, "归一化：空值归零");
+
+  let cap: DiscStateMap = {};
+  for (let i = 0; i < DISC_RECENT_LIMIT + 3; i++) {
+    cap = applyDiscSelection(cap, "s", { tag: `t${i}` });
+  }
+  assert.equal(cap.s.recentTags.length, DISC_RECENT_LIMIT, "最近用过有上限、不无界生长");
+  assert.equal(cap.s.recentTags[0], `t${DISC_RECENT_LIMIT + 2}`, "上限内保留最近的");
+}
+
+/* ── (E) 最近用过置顶：recents 序即优先级、其余稳定 ── */
+{
+  const opts = [
+    { value: "a", label: "A" }, { value: "b", label: "B" },
+    { value: "c", label: "C" }, { value: "d", label: "D" },
+  ];
+  assert.deepEqual(pinRecentOptions(opts, ["c", "a"]).map((o) => o.value),
+    ["c", "a", "b", "d"], "命中项按 recents 序置顶、其余相对序不变");
+  assert.deepEqual(pinRecentOptions(opts, []).map((o) => o.value),
+    ["a", "b", "c", "d"], "无 recents 时原序");
+  assert.deepEqual(pinRecentOptions(opts, ["x"]).map((o) => o.value),
+    ["a", "b", "c", "d"], "recents 含已下架值时不报错不乱序");
+}
+
+/* ── (F) 标签搜索中文反查：输中文命中英文原标签 ── */
+{
+  const maid = { value: "56", label: "Maid" };
+  const keys = taxonKeysForChineseQuery("女仆");
+  assert.ok(keys.has("maid"), "反查索引：女仆 → maid");
+  assert.equal(tagOptionMatchesQuery(maid, "女仆", keys), true, "输中文命中英文标签（WP 数字 id 形态）");
+  assert.equal(tagOptionMatchesQuery({ value: "maid", label: "maid" }, "女仆", keys), true, "输中文命中英文标签（002 原名 value 形态）");
+  assert.equal(tagOptionMatchesQuery(maid, "mai", taxonKeysForChineseQuery("mai")), true, "英文子串仍按原名匹配");
+  assert.equal(tagOptionMatchesQuery(maid, "护士", taxonKeysForChineseQuery("护士")), false, "不相关中文不误命中");
+  assert.equal(tagOptionMatchesQuery({ value: "999", label: "Some Proper Name" }, "女仆", keys), false, "未收录专名不被中文误命中");
+  assert.equal(tagOptionMatchesQuery(maid, "", new Set()), true, "空查询恒匹配（不滤）");
+}
+
+/* ── (G) 兴趣直达接线（源码文本断言） ── */
+{
+  for (const f of ["./SourceBrowse.tsx", "./SourceGallery.tsx", "./SourcePosts.tsx"]) {
+    assert.ok(read(f).includes("useDiscState"), `${f} 接 disc 落盘 hook`);
+    assert.ok(read(f).includes("recentCategories"), `${f} 向 DiscoveryBar 下传最近分类`);
+  }
+  const posts = read("./SourcePosts.tsx");
+  assert.ok(posts.includes("compact ? EMPTY_LIST_DISCOVERY"), "SourcePosts compact 形态钉死空 disc（存量筛选不漏进总览预览）");
+  const bar = read("./DiscoveryBar.tsx");
+  assert.ok(bar.includes("pinRecentOptions"), "DiscoveryBar 消费最近用过置顶");
+  assert.ok(bar.includes("taxonKeysForChineseQuery"), "DiscoveryBar 标签搜索接中文反查");
+  assert.ok(bar.includes("tagOptionMatchesQuery"), "DiscoveryBar 标签搜索接匹配函数");
+}
+
+console.log("fix3312-discovery-b contract (segments 1-2): PASS");

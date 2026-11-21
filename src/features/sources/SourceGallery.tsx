@@ -23,6 +23,7 @@ import { createAdapter } from "./adapters/index.ts";
 import { noteSourceListSuccess, useSourceSelfCheckOnView } from "./sourceHealth.ts";
 import { assembleAlbumGallery } from "./albumGallery.ts";
 import DiscoveryBar from "./DiscoveryBar";
+import { useDiscState } from "./discState.ts";
 import { discFingerprint, EMPTY_LIST_DISCOVERY, type ListDiscovery } from "./types.ts";
 import type { SourceDef, SourceItem } from "./types.ts";
 
@@ -66,16 +67,18 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
   const sentinelRef = useRef<HTMLDivElement>(null);
   /* 发现维度（fix335/f-discovery）：同 SourceBrowse 口径——disc 按
    * 源 id 隔离、指纹进滚动恢复 key，空 disc 时 key 与 D 线逐字一致。 */
-  const [discMap, setDiscMap] = useState<Record<string, ListDiscovery>>({});
-  /* 图片面与视频/吃瓜面同口径（fix3312/discovery-b 回滚
-   * fix3311 的图片面失效化）：disc 原值直进 list 参数与滚动指纹，
-   * 分类/标签行恢复渲染——聚合源靠分类组织，砍行即不可用。 */
-  const disc = discMap[def.id] ?? EMPTY_LIST_DISCOVERY;
+  /* disc 落盘（fix3312/discovery-b 兴趣直达）：按源存本地、重开
+   * 直达上次筛选（discState.useDiscState，三面共用）；图片面与
+   * 视频/吃瓜面同口径（回滚 fix3311 的图片面失效化）：disc 原
+   * 值直进 list 参数与滚动指纹，分类/标签行恢复渲染——聚合源
+   * 靠分类组织，砍行即不可用。 */
+  const { discStateMap, applyDisc: applyDiscState } = useDiscState();
+  const disc = discStateMap[def.id]?.disc ?? EMPTY_LIST_DISCOVERY;
   const discFp = discFingerprint(disc);
   const discArg = discFp ? disc : undefined;
   const applyDisc = useCallback((next: ListDiscovery) => {
-    setDiscMap((m) => ({ ...m, [def.id]: next }));
-  }, [def.id]);
+    applyDiscState(def.id, next);
+  }, [applyDiscState, def.id]);
   /* 滚动恢复（fix335/d-scroll）：相册分支替换列表期间宿主 scroller
    * 高度塌缩、scrollTop 被钳 0——打开相册前 capture、回列表且数据
    * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
@@ -290,7 +293,9 @@ export default function SourceGallery({ def, openExternalId, scrollerRef }: {
 
   return (
     <div className="px-4 pt-2">
-      <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc} />
+      <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc}
+        recentCategories={discStateMap[def.id]?.recentCategories}
+        recentTags={discStateMap[def.id]?.recentTags} />
       {items.length > 0 && err && (
         <div role="status" className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-mut">
           <span>{err}</span><Button className="px-3 text-primary" onClick={() => void load(false)}>重试</Button>

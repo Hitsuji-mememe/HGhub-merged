@@ -28,22 +28,31 @@
  * spec 渲染，本组件无面门控。后续汉化/兴趣直达见 fix3312 契约。
  */
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "../../shared/ui/ios/controls";
+import { Button, Input } from "../../shared/ui/ios/controls";
 import { createAdapter } from "./adapters/index.ts";
 import { discoverySpecFor, hasDiscovery, type DiscoveryOption } from "./adapters/templateCapabilities.ts";
 import { classifySelfCheckResult } from "./healthCheck.ts";
-import { dedupeTagOptions } from "./discoveryOptions.ts";
+import { dedupeTagOptions, pinRecentOptions } from "./discoveryOptions.ts";
+import { tagOptionMatchesQuery, taxonKeysForChineseQuery } from "./taxonLabels.ts";
 import { useSourceHealthResults } from "./sourceHealth.ts";
 import type { ListDiscovery, SourceDef, SourceTaxonomy } from "./types.ts";
 
 /* taxonomy 型 chips 上限：只呈现 Top-N（按端点/聚合的计数序），
  * 不许把上千标签全量平铺。params 型栏目表全集有限（≤30），不截断。 */
 const TAXONOMY_CHIP_LIMIT = 24;
+/* 标签行内搜索命中上限：搜索态已是定向查找，给足长尾覆盖即可，
+ * 不许一次把上千命中全量平铺成墙。 */
+const TAG_SEARCH_LIMIT = 60;
 
-export default function DiscoveryBar({ def, disc, onDiscChange }: {
+export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories, recentTags }: {
   def: SourceDef;
   disc: ListDiscovery;
   onDiscChange: (next: ListDiscovery) => void;
+  /** 最近用过的分类/标签 value（fix3312/discovery-b 兴趣直达）：
+   * 宿主从落盘 disc 状态（discState）下传，行内按此置顶；缺省
+   * 不置顶、呈现与旧行为一致。 */
+  recentCategories?: string[];
+  recentTags?: string[];
 }) {
   const spec = useMemo(() => discoverySpecFor(def), [def]);
   const healthResults = useSourceHealthResults();
@@ -53,6 +62,12 @@ export default function DiscoveryBar({ def, disc, onDiscChange }: {
   /* 展开态（fix336/ui-fixes）：默认收敛单行，展开才全量平铺；
    * 只管呈现、不进 disc——指纹与滚动 key 口径不受影响。 */
   const [expanded, setExpanded] = useState(false);
+  /* 标签行内搜索（fix3312/discovery-b）：长名单（Top-N 截断之外）
+   * 的定向查找——只管呈现、不进 disc；切源即清，免跨源串词。
+   * 匹配含中文反查（taxonLabels：输中文译名命中英文原标签）。 */
+  const [tagQuery, setTagQuery] = useState("");
+  useEffect(() => { setTagQuery(""); }, [def.id]);
+  const searching = tagQuery.trim().length > 0;
   const [taxonomy, setTaxonomy] = useState<SourceTaxonomy | null>(null);
   useEffect(() => {
     setTaxonomy(null);
@@ -93,22 +108,44 @@ export default function DiscoveryBar({ def, disc, onDiscChange }: {
     onDiscChange(next);
   };
 
-  const categoryOptions: DiscoveryOption[] = !spec.categories
-    ? []
-    : spec.categories.source === "params"
-      ? spec.categories.options
-      : (taxonomy?.categories ?? []).slice(0, TAXONOMY_CHIP_LIMIT).map((e) => ({ value: e.id, label: e.name }));
+  /* 分类：最近用过先置顶再取 Top-N（fix3312/discovery-b）——置顶
+   * 在截断之前，上次用过的分类重开即在队首、不被 Top-N 挤出；
+   * 已选中分类若仍被挤出（002 厂牌 174 个），同标签口径补回行
+   * 尾——选中态必须可见可取消。params 型栏目表全集有限、不截
+   * 断不置顶（吃瓜榜单序即站方序）。 */
+  const categoryOptions: DiscoveryOption[] = (() => {
+    if (!spec.categories) return [];
+    if (spec.categories.source === "params") return spec.categories.options;
+    const all = (taxonomy?.categories ?? []).map((e) => ({ value: e.id, label: e.name }));
+    const pinned = pinRecentOptions(all, recentCategories ?? []);
+    const top = pinned.slice(0, TAXONOMY_CHIP_LIMIT);
+    if (disc.category && !top.some((o) => o.value === disc.category)) {
+      const sel = pinned.find((o) => o.value === disc.category);
+      if (sel) top.push(sel);
+    }
+    return top;
+  })();
   /* 标签先与分类同名剔除再取 Top-N（fix336/ui-fixes）：剔除在
    * 截断之前，被同名项占掉的名额由后续不同名标签补回；比对的
    * 分类集＝本条实际呈现的分类选项（categoryOptions）。已选中
-   * 标签若被 Top-N 截断挤出，补回行尾——选中态必须可见可取消。 */
+   * 标签若被 Top-N 截断挤出，补回行尾——选中态必须可见可取消。
+   * 最近用过置顶同分类口径（fix3312/discovery-b）：置顶在截断
+   * 之前。搜索态改走全量（去重后）匹配、不吃 Top-N，命中上限
+   * TAG_SEARCH_LIMIT——长尾标签靠搜索直达（调查选项 B）。 */
   const tagOptions: DiscoveryOption[] = (() => {
     if (!spec.tagFilter) return [];
     const all = (taxonomy?.tags ?? []).map((e) => ({ value: e.id, label: e.name }));
     const deduped = dedupeTagOptions(categoryOptions, all, disc.tag);
-    const top = deduped.slice(0, TAXONOMY_CHIP_LIMIT);
+    const pinned = pinRecentOptions(deduped, recentTags ?? []);
+    if (searching) {
+      const zhKeys = taxonKeysForChineseQuery(tagQuery);
+      return pinned
+        .filter((o) => tagOptionMatchesQuery(o, tagQuery, zhKeys))
+        .slice(0, TAG_SEARCH_LIMIT);
+    }
+    const top = pinned.slice(0, TAXONOMY_CHIP_LIMIT);
     if (disc.tag && !top.some((o) => o.value === disc.tag)) {
-      const sel = deduped.find((o) => o.value === disc.tag);
+      const sel = pinned.find((o) => o.value === disc.tag);
       if (sel) top.push(sel);
     }
     return top;
@@ -117,10 +154,10 @@ export default function DiscoveryBar({ def, disc, onDiscChange }: {
   const pill = (key: string, label: string, pressed: boolean, onClick: () => void) => (
     <Button key={key} aria-pressed={pressed} disabled={down} onClick={onClick} className="ios-filter-pill shrink-0">{label}</Button>
   );
-  const row = (label: string, children: React.ReactNode) => (
+  const row = (label: string, children: React.ReactNode, forceWrap = false) => (
     <div className="flex items-start gap-2 py-1">
       <span className="w-8 shrink-0 pt-1.5 text-[12px] text-mut">{label}</span>
-      <div className={expanded
+      <div className={expanded || forceWrap
         ? "flex flex-1 min-w-0 flex-wrap gap-1.5"
         : "flex flex-1 min-w-0 flex-nowrap gap-1.5 overflow-x-auto"}>{children}</div>
     </div>
@@ -137,11 +174,25 @@ export default function DiscoveryBar({ def, disc, onDiscChange }: {
         ...categoryOptions.map((o) =>
           pill(`cat:${o.value}`, o.label, disc.category === o.value, () => setCategory(disc.category === o.value ? undefined : o.value))),
       ])}
+      {/* 标签行内搜索（fix3312/discovery-b）：仅当标签全集超过
+       * Top-N（截断真实发生）时出现；输入中文经译名反查命中英
+       * 文原标签、英文按原名子串匹配。搜索只过滤呈现、不进 disc。 */}
+      {spec.tagFilter && (taxonomy?.tags.length ?? 0) > TAXONOMY_CHIP_LIMIT && (
+        <div className="flex items-center gap-2 py-1">
+          <span className="w-8 shrink-0 text-[12px] text-mut">找标签</span>
+          <Input value={tagQuery} onChange={(e) => setTagQuery(e.target.value)}
+            placeholder="输入中文或英文找标签" aria-label="找标签"
+            style={{ minHeight: 36 }} className="flex-1 px-3 py-1 text-[13px]" />
+        </div>
+      )}
       {spec.tagFilter && tagOptions.length > 0 && row("标签", [
         pill("tag:__all", "全部", !disc.tag, () => setTag(undefined)),
         ...tagOptions.map((o) =>
           pill(`tag:${o.value}`, o.label, disc.tag === o.value, () => setTag(disc.tag === o.value ? undefined : o.value))),
-      ])}
+      ], searching)}
+      {spec.tagFilter && searching && tagOptions.length === 0 && taxonomy !== null && (
+        <p role="status" className="py-1 pl-10 text-[12px] text-mut">未找到匹配的标签</p>
+      )}
       {(categoryOptions.length > 0 || tagOptions.length > 0) && (
         <div className="flex justify-end">
           <Button aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}
