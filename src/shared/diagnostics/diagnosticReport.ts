@@ -30,6 +30,7 @@ import { fetchObservationSectionLines } from "./fetchObservations";
 import { cacheCountersSnapshot } from "../../features/feed/cacheMap";
 import { formatSrProductionLines, formatSrProbeLines, getSrProductionStats, getSrProbeResult } from "./gpuProbe";
 import { summarizeHoldEvents } from "../../features/feed/holdJank";
+import { formatHoldProfileLines } from "./holdProfileLines";
 import { feedTraceSnapshot, feedTraceSummary, imageSurfaceLabel} from "../lib/feedTrace";
 
 type Json = Record<string, unknown>;
@@ -829,13 +830,11 @@ if (hs.bypass.maxGapMs !== null || hs.bypass.postMaxGapMs !== null) lines.push(`
  * 值从不进报告——账本尾段又被播放器心跳挤出导出窗，报告侧实际判
  * 读不了松手帧成本落在哪一段（首帧/SR 尝试/SR 呈现/主线程长任务）。
  * 现印最近 3 条剖面分段＋两桶松手尾窗最大帧间隔（hold.jank 的
- * post_max_gap_ms），量级在报告内可直接判读。 */
-const msOr = (v: unknown): string => { const n = num(v); return n === null ? "—" : `${n}ms`; };
-for (const p of holdEvents.filter(e => e.name === "hold.release_profile").slice(-3)) {
-const d = p.data ?? {};
-const bucket = d.sr_engaged === true ? "SR 接管" : d.sr_engaged === false ? "判档直通" : "未标记";
-lines.push(`松手剖面[${bucket}]：首帧 ${msOr(d.release_to_first_frame_ms)} · SR 尝试 ${msOr(d.release_to_sr_attempt_ms)} · 尝试→呈现 ${msOr(d.sr_attempt_to_present_ms)} · SR 呈现 ${msOr(d.release_to_sr_present_ms)} · 长任务max ${msOr(d.longtask_max_ms)}`);
-}
+ * post_max_gap_ms），量级在报告内可直接判读。
+ * 第 0 步扩印（fix3311，格式化抽纯函数 formatHoldProfileLines）：
+ * 剖面行再补预期呈现差/mediaTime/SR 画布龄/画布重挂/HLS 重建，
+ * 并与同次松手的 hold.jank 行同号配对印出逐次尾窗分布。 */
+for (const l of formatHoldProfileLines(holdEvents)) lines.push(l);
 const worstPostGap = (engaged: boolean): number | null => {
 let worst: number | null = null;
 for (const e of holdEvents) {

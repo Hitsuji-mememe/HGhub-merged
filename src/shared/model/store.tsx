@@ -239,6 +239,7 @@ type Store = {
   volume: number; setVolume: (v: number) => void;
   rate: number; setRate: (v: number) => void;
   searchHist: string[]; addSearch: (q: string) => void; clearSearchHist: () => void;
+  removeSearchHist: (items: readonly string[]) => void;
   strictSecurity: boolean; strictSecurityReady: boolean; securityPending: boolean; cliRelaxed: boolean; setStrictSecurity: (on: boolean) => Promise<void>;
   toasts: Toast[]; toast: (msg: string, icon?: Toast["icon"]) => void;
   /** 线路切换计数：变了就让列表页重挂载，重新拉一遍数据 */
@@ -448,6 +449,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setP((s) => ({ ...s, searchHist: [t, ...s.searchHist.filter((x) => x !== t)].slice(0, 12) }));
   }, []);
   const clearSearchHist = useCallback(() => setP((s) => ({ ...s, searchHist: [] })), []);
+  /* 批量删历史（fix3311/small-features，上游 #184 拣选）：按选集
+   * 过滤、其余条目逐字保留；与 addSearch/clearSearchHist 同一
+   * Persist 键、setP 即时落盘，存储口径不变。 */
+  const removeSearchHist = useCallback((items: readonly string[]) => {
+    if (!items.length) return;
+    const drop = new Set(items);
+    setP((s) => ({ ...s, searchHist: s.searchHist.filter((x) => !drop.has(x)) }));
+  }, []);
 
   const setFs = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setFsState((prev) => (typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v));
@@ -523,12 +532,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     fsIdleSecs: p.fsIdleSecs,
     srMode: p.srMode, setSrMode, cycleSrMode,
     srPref: p.srPref, setSrPref,
-    searchHist: p.searchHist, addSearch, clearSearchHist,
+    searchHist: p.searchHist, addSearch, clearSearchHist, removeSearchHist,
     strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     get toasts() { return toastList; }, toast, lineEpoch,
   }), [theme, themePreference, tab, setTab, stack, push, openRootPage, pop,
     p, library,
-    setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setSrMode, cycleSrMode, setSrPref, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
+    setMuted, setMuteOnStartup, setSwipeEp, setPreferHevc, setSrMode, cycleSrMode, setSrPref, setVolume, addSearch, clearSearchHist, removeSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toast, lineEpoch, fs, setFs, clean, setClean, tabBarHeld, setTabBarHeld]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -2365,6 +2365,55 @@
         "src/features/sources/manifestProbe.ts"
       ],
       "min": 1
+    },
+    {
+      "id": "fix3311-search-history-batch-delete",
+      "item": "fix3311/small-features 搜索历史批量删（上游 #184）：store removeSearchHist 定义＋SearchHistory 组件消费（摘任一端批量删回到只有清空全量）",
+      "symbol": "removeSearchHist",
+      "files": [
+        "src/shared/model/store.tsx",
+        "src/features/search/SearchHistory.tsx"
+      ],
+      "each": true
+    },
+    {
+      "id": "fix3311-search-history-shared-ui",
+      "item": "fix3311/small-features 搜索历史共用组件：Search 与 InplaceSearch 两面都渲染 SearchHistory（长按多选只此一处实现，摘一面该面回到自绘 chips 无多选）",
+      "symbol": "SearchHistory",
+      "files": [
+        "src/features/search/Search.tsx",
+        "src/features/search/InplaceSearch.tsx"
+      ],
+      "each": true
+    },
+    {
+      "id": "fix3311-hold-profile-delta",
+      "item": "fix3311/small-features 长按第 0 步：剖面器落行 rvfc_expected_display_delta_ms（holdJank 生产）＋报告格式化消费（holdProfileLines 印预期呈现差，摘任一端形态 A 判别量回到不可见）",
+      "symbol": "rvfc_expected_display_delta_ms",
+      "files": [
+        "src/features/feed/holdJank.ts",
+        "src/shared/diagnostics/holdProfileLines.ts"
+      ],
+      "each": true
+    },
+    {
+      "id": "fix3311-hold-profile-lines-wiring",
+      "item": "fix3311/small-features 长按第 0 步报告出行：diagnosticReport 长按节经 formatHoldProfileLines 出剖面/尾窗配对行（摘接线报告回到只印桶计数）",
+      "symbol": "formatHoldProfileLines",
+      "files": [
+        "src/shared/diagnostics/diagnosticReport.ts",
+        "src/shared/diagnostics/holdProfileLines.ts"
+      ],
+      "each": true
+    },
+    {
+      "id": "fix3311-hold-attempt-after-did",
+      "item": "fix3311/small-features attempt 归因修正：WebGpuSrCanvas 只在 processFrame 受理（did=true）后记 noteHoldSrAttempt（改回调用前无条件记，丢弃帧重新冒充首帧尝试、剖面虚高一帧间隔）",
+      "symbol": "if (did) noteHoldSrAttempt(attemptAt);",
+      "files": [
+        "src/features/playback/WebGpuSrCanvas.tsx"
+      ],
+      "min": 1
     }
   ]
 }

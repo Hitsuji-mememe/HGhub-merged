@@ -10,6 +10,7 @@ import { MediaCard, RankRow } from "../../shared/ui/cards";
 import { FilteredContent } from "../../shared/ui/FilteredContent";
 import { Empty, Img } from "../../shared/ui/ui";
 import { SearchTags } from "./SearchTags";
+import { SearchHistory } from "./SearchHistory";
 import { IBack, IChevR, IClose, IFilm, IFireF, IPlayF, IRefresh, ISearch, IStar, IStarF, ITrophy } from "../../shared/ui/icons";
 import { withRequestTimeout } from "../../shared/lib/withTimeout";
 import { registerOverlayBack } from "../../shared/lib/back";
@@ -135,7 +136,7 @@ function ExtTitleFallbackPump({ def, items, onOverrides }: {
 const EMPTY_EXT_TITLE_OVERRIDES: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map();
 
 export default function Search({ active, wide }: { active: boolean; wide: boolean }) {
-  const { push, searchHist, addSearch, clearSearchHist, lineEpoch, setTab: setMainTab,
+  const { push, searchHist, addSearch, lineEpoch, setTab: setMainTab,
     isFav, setExternalCollected, addExternalHistory, actionPending, toast, setTabBarHeld } = useStore();
   /* G4 历史写入去重键（源:条目:当前集）：同集重复 playing 不重复
    * 记、换集/换条目自动再记（fix334/L3，与 SourceBrowse 同口径）。 */
@@ -1046,15 +1047,10 @@ export default function Search({ active, wide }: { active: boolean; wide: boolea
 
             {searchHist.length > 0 && (
               <Surface role="region" aria-label="搜索历史" className="mt-4 rounded-(--r-md) bg-s2 p-3.5 a-rise">
-                <div className="flex items-center justify-between gap-2">
-                  <h2 className="text-[14px] font-semibold text-on/90">搜索历史</h2>
-                  <Button onClick={clearSearchHist} className="-mr-2 px-2 inline-flex items-center justify-end text-[12px] text-mut pressable">清空</Button>
-                </div>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {searchHist.map((h) => (
-                    <Button key={h} onClick={() => { setQ(h); submit(h); }} className="ios-filter-pill text-on/90">{h}</Button>
-                  ))}
-                </div>
+                <SearchHistory onPick={(h) => { setQ(h); submit(h); }}
+                  titleClassName="text-[14px] font-semibold text-on/90"
+                  clearClassName="-mr-2 px-2 inline-flex items-center justify-end text-[12px] text-mut pressable"
+                  chipsClassName="mt-3" chipClassName="ios-filter-pill text-on/90" />
               </Surface>
             )}
 

@@ -144,6 +144,21 @@
   over33/over50/max、尾窗 post_*，计数求和、最大间隔取最大）。
   采样器与剖面器零改动，3.2.1 整帧冻结形态仍计卡顿。回归见
   `fix330-diag-hold-ruler.contract.test.ts`。
+  第 0 步判读面（2026-11-21 fix3311，根因调查 hold-release-jank
+  §5）：只改测量不改体感——剖面落行补
+  `rvfc_expected_display_delta_ms`（expectedDisplayTime 相对
+  release 的差，与 release 同为 performance 时间原点：差≈帧间隔
+  量级指向媒体引擎重定时、差≈0 而分段迟到指向主线程阻塞，形态 A
+  二选一的判别量）；报告剖面/尾窗行改经纯函数
+  `holdProfileLines.formatHoldProfileLines` 出行，增印预期呈现差、
+  mediaTime、SR 画布龄、画布重挂、HLS 重建，并给剖面行与其后
+  ~600ms 的同次 hold.jank 行加同号配对序号（逐次分布可判读、
+  不再只有桶聚合；孤儿 jank 不占号）。attempt 归因修正：
+  WebGpuSrCanvas 只在 processFrame 返回 did=true 后才记
+  noteHoldSrAttempt（时刻仍取调用前的提交时刻）——旧实现调用前
+  无条件记，松手首帧撞在飞帧被丢弃时 attempt 落死帧、剖面虚高
+  约一帧间隔（形态 B）。回归见
+  `fix3311-hold-step0.contract.test.ts`。
 - 代理恢复落点（最终版 B3 线，裁定条目 4）：useProxyPlaybackRecovery
   的 pending 快照在存续期间跟随用户 seek——元素 seeking 事件把
   快照 time 更新为最新 seek 目标，restore 落点以用户最新位置为

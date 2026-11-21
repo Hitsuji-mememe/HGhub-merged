@@ -146,6 +146,13 @@ export function createHoldReleaseProfiler(
       rvfc_media_time: frameMeta?.mediaTime ?? null,
       rvfc_presented_frames: frameMeta?.presentedFrames ?? null,
       rvfc_expected_display_time: frameMeta?.expectedDisplayTime ?? null,
+      /* 预期呈现相对 release 的差（fix3311 第 0 步判读面）：与 t0
+       * 同为 performance 时间原点（rVFC metadata 的 expectedDisplayTime
+       * 与 release 的 performance.now() 同原点）。形态 A 二选一的判别
+       * 量：差≈帧间隔量级＝媒体引擎已把该帧排晚（重定时）；差≈0 而
+       * 分段迟到＝帧本该按时呈现、回调被主线程阻塞推迟。无 metadata
+       * （rAF 回落）记 null、不伪造 0。调查见 fix3311 hold-release-jank §3 裁定 9。 */
+      rvfc_expected_display_delta_ms: frameMeta?.expectedDisplayTime == null ? null : Math.round(frameMeta.expectedDisplayTime - t0),
       /* 主线程长任务（B3 任务 2）：不支持记 null，支持且无任务记 0 */
       longtask_count: longtask === null ? null : longtask.count,
       longtask_max_ms: longtask === null ? null : Math.round(longtask.max),

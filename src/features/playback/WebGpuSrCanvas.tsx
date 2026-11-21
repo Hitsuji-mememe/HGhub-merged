@@ -228,13 +228,20 @@ export default function WebGpuSrCanvas({
           /* 帧预算按倍速核销（fin-e2 条目 2）：srFrameBudgetMs 把
            * playbackRate 纳入预算，1.25x/1.5x 不再被旧 1000/fps 误判
            * 超标；呈现档 mode 同步入引擎（fin-e2 条目 3 两档差异）。
-           * 松手剖面（B 线＋fix322/sr 口径）：attempt 在提交前记；
-           * present 不在此记——processFrame 返回只是提交完成，呈现
-           * 时刻由引擎 onFrameDone 在工作落定时以 doneAt 回报。 */
+           * 松手剖面（B 线＋fix322/sr 口径）：present 不在此记——
+           * processFrame 返回只是提交完成，呈现时刻由引擎
+           * onFrameDone 在工作落定时以 doneAt 回报。
+           * attempt 归因修正（fix3311 第 0 步，调查 §4-①）：旧实现在
+           * processFrame 调用前无条件记 attempt——松手后第一帧撞上
+           * 在飞帧被丢弃（did=false）时，attempt 落在死帧上、present
+           * 只能等下一帧受理完成，剖面虚高约一帧间隔（形态 B）。
+           * 现只记受理帧：调用返回 did=true 后才以调用前的提交时刻
+           * attemptAt 记账（时刻口径不变、丢弃帧不进剖面）。只修
+           * 测量，帧处理行为逐字不变。 */
           const intervalMs = srFrameBudgetMs(fps, video.playbackRate);
           const attemptAt = performance.now();
-          noteHoldSrAttempt(attemptAt);
           const did = eng.processFrame(video, intervalMs, { dst, src, mode: srPresentModeFor(modeRef.current) });
+          if (did) noteHoldSrAttempt(attemptAt);
           if (did) pendingSrAttemptAt = attemptAt;
           if (did) lastMediaTime = video.currentTime;
           if (did && !presentedRef.current) {
