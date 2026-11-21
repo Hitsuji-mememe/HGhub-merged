@@ -30,13 +30,6 @@
  * 的原生空壳 chip 同批退场，channel-video × 原生改以声明
  * native-not-in-video-channel 显式出局。面数 20 → 19。
  *
- * fix3314 集成（2026-11-21，用户亲定视频板块整组删除）：视频频
- * 道面（channel-video）与视频深链面（deeplink-video）随板块删
- * 除整面退场，声明 native-not-in-video-channel 同删（无格可
- * 用）；channel-drama 的外部浏览尾巴（SourceBrowse 已删、无外
- * 部承接组件）收敛为声明出局，play-external 品类收敛为帖子。
- * 面数 19 → 17。
- *
  * 语义约定：
  * - route 回答「该面与该源的关系」：native＝走仓内既有 api 通道
  *   （仅 001）；browse＝经外部浏览组件/加载器接通；notice＝诚实提示
@@ -76,10 +69,9 @@ import { searchPolicyFor } from "../search/multiSourceSearch.ts";
 import { selfCheckEligible } from "./healthCheck.ts";
 import type { SourceCategory, SourceDef } from "./types.ts";
 
-/* ── 面枚举与元数据（17 面，与设计 §1.1 同编号语义；原第 21 面
+/* ── 面枚举与元数据（19 面，与设计 §1.1 同编号语义；原第 21 面
  * M20 diag-inapp 为死面已于 fix334/L4 删除，总览源行两面已于
- * fix336 删除、channel-image 同批新增，视频两面已于 fix3314
- * 随视频板块删除，见文件头） ── */
+ * fix336 删除、channel-image 同批新增，见文件头） ── */
 export interface SurfaceMeta {
   id: string;
   /** 面的品类口径：具体品类／all＝跨品类／native-only＝原生构成面。 */
@@ -98,8 +90,10 @@ export const SURFACES = [
   { id: "overview-channels", category: "native-only", topUp: "none" },
   { id: "overview-posts", category: "posts", topUp: "show-batch" },
   { id: "channel-drama", category: "video", topUp: "none" },
+  { id: "channel-video", category: "video", topUp: "show-batch" },
   { id: "channel-image", category: "image", topUp: "show-batch" },
   { id: "deeplink-image", category: "image", topUp: "view-single" },
+  { id: "deeplink-video", category: "video", topUp: "view-single" },
   { id: "posts-page", category: "posts", topUp: "show-batch" },
   { id: "search-fanout", category: "all", topUp: "none" },
   { id: "search-external-detail", category: "all", topUp: "none" },
@@ -116,7 +110,7 @@ export const SURFACES = [
 export type SurfaceId = (typeof SURFACES)[number]["id"];
 
 export type BrowseComponent =
-  | "SourcePosts" | "SourceGallery"
+  | "SourceBrowse" | "SourcePosts" | "SourceGallery"
   | "SearchFanout" | "SearchExternalDetail" | "ProfileLibrary";
 
 export type SurfaceRoute =
@@ -146,7 +140,10 @@ export const SURFACE_DECLARATIONS: Record<string, { reason: string }> = {
     reason: "外部源×首页/总览频道/发现面：原生构成面（D-1 默认口径＝有意原生专属；改口径时改本声明一处、契约全表复核，设计声明 d）",
   },
   "no-drama-mapping": {
-    reason: "外部 video 源×短剧频道：短剧频道只走原生通道，外部源无承接组件（原 SourceBrowse 已随 fix3314 视频板块删除退场）；sourcesForChannel(ai-duanju) 映射属实为空（设计声明 e 沿革）",
+    reason: "外部 video 源×短剧频道：sourcesForChannel(ai-duanju) 要求 capabilities.episodes，当前无外部源满足（属实为空）；012 的多集是里番分集、非短剧品类（设计声明 e）",
+  },
+  "native-not-in-video-channel": {
+    reason: "原生主源×视频频道：原生视频面是确认门空壳（唯一能产「视频」确认的上游品类端点已下线、频道恒空，fix336 调查定案），fix336 起视频频道切源只列外部源、默认落首个可用外部源；原生面保留于短剧频道与吃瓜面，不受影响",
   },
   "no-inplace-search": {
     reason: "外部源×站内搜索：浏览面无站内搜索入口，全局扇出已覆盖外部搜索，面内搜索为原生 api 专用（D-5 默认口径，设计声明 f）",
@@ -193,7 +190,7 @@ const LISTED: SurfaceRoute = { kind: "listed" };
 
 /** 可寻址面：以陈旧/任意 id 寻址时 def 缺失落 gone 提示的面。 */
 const ADDRESSED: ReadonlySet<SurfaceId> = new Set([
-  "overview-posts", "posts-page", "deeplink-image",
+  "overview-posts", "posts-page", "deeplink-image", "deeplink-video",
   "detail-post", "detail-gallery", "play-external",
 ]);
 
@@ -232,13 +229,25 @@ export function routeForSurface(
       return browseOrNoAdapter(def, "SourcePosts");
     }
 
-    /* 短剧频道：只走原生通道；外部 video 源以声明 e 出局（频道
-     * 映射属实为空、且原承接组件 SourceBrowse 已随视频板块删
-     * 除退场，fix3314），外部源不充数。 */
+    /* 短剧频道：频道映射属实为空（声明 e），外部源不充数。 */
     case "channel-drama": {
       if (isNativeSource(def)) return NATIVE;
       if (def.category !== "video") return na("category-mismatch");
-      return na("no-drama-mapping");
+      if (!sourcesForChannel("ai-duanju", ctx.active).some((d) => d.id === def.id)) return na("no-drama-mapping");
+      return def.maturity === "blocked" ? notice("blocked") : browseOrNoAdapter(def, "SourceBrowse");
+    }
+
+    /* 视频频道：切源片＝频道映射的外部源（fix336 起原生空壳
+     * chip 退场、原生以声明出局，见声明表）；停用源不进选项、
+     * 选择回落首个可用外部源（现行 effectiveChannelSourceId
+     * 口径），故停用落 not-enabled 而非提示——与深链面的「寻址
+     * 即提示」分工不同。 */
+    case "channel-video": {
+      if (isNativeSource(def)) return na("native-not-in-video-channel");
+      if (def.category !== "video") return na("category-mismatch");
+      if (!def.enabled) return na("not-enabled");
+      if (!sourcesForChannel("original", ctx.active).some((d) => d.id === def.id)) return na("category-mismatch");
+      return def.maturity === "blocked" ? notice("blocked") : browseOrNoAdapter(def, "SourceBrowse");
     }
 
     /* 图片频道（fix336 新增，与 channel-video 同构）：切源片＝
@@ -253,16 +262,16 @@ export function routeForSurface(
       return browseOrNoAdapter(def, "SourceGallery");
     }
 
-    /* 深链：寻址单源——在册走组件、blocked/停用/下线各落其提示。
-     * （fix3314：原 deeplink-video 面随视频板块删除退场，视频类
-     * 陈旧回访在资料库面直接落不可用告知。） */
-    case "deeplink-image": {
-      if (def.category !== "image") return na("category-mismatch");
-      const s = sel("image");
+    /* 深链：寻址单源——在册走组件、blocked/停用/下线各落其提示。 */
+    case "deeplink-image":
+    case "deeplink-video": {
+      const cat: SourceCategory = surface === "deeplink-image" ? "image" : "video";
+      if (def.category !== cat) return na("category-mismatch");
+      const s = sel(cat);
       if (s.kind === "disabled") return notice("disabled");
       if (s.kind === "gone") return notice("gone");
       if (def.maturity === "blocked") return notice("blocked");
-      return browseOrNoAdapter(def, "SourceGallery");
+      return browseOrNoAdapter(def, cat === "image" ? "SourceGallery" : "SourceBrowse");
     }
 
     /* 搜索扇出/外部详情：纳入只从 searchPolicyFor（结构门），001
@@ -300,19 +309,18 @@ export function routeForSurface(
       return browseOrNoAdapter(def, "SourceGallery");
     }
 
-    /* 外部播放：resolve 链的可用性——品类（帖子）×在册×非
-     * blocked×detail 段在；宿主为 SourcePosts 与搜索详情层，路由
-     * 只答可达性、component 记主宿主。（fix3314：视频品类随板块
-     * 删除退出本面。） */
+    /* 外部播放：resolve 链的可用性——品类（帖/视频）×在册×非
+     * blocked×detail 段在；宿主组件按品类（SourcePosts/SourceBrowse
+     * 与搜索详情层）分发，路由只答可达性、component 记主宿主。 */
     case "play-external": {
       if (isNativeSource(def)) return NATIVE;
-      if (def.category !== "posts") return na("category-mismatch");
+      if (def.category !== "posts" && def.category !== "video") return na("category-mismatch");
       const s = sel(def.category);
       if (s.kind === "disabled") return notice("disabled");
       if (s.kind === "gone") return notice("gone");
       if (def.maturity === "blocked") return notice("blocked");
       if (!templateCapabilitiesFor(def).detailPlay) return na("no-adapter");
-      return browseOrNoAdapter(def, "SourcePosts");
+      return browseOrNoAdapter(def, def.category === "posts" ? "SourcePosts" : "SourceBrowse");
     }
 
     /* 资料库：原生已接；外部源自 fix334/L3（G4）起经 extRefs 快照

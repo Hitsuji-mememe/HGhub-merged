@@ -45,7 +45,8 @@ const originOf = (u: string): string => { try { return new URL(u).origin; } catc
 
 /* 可取页口径（测试侧独立复算，不复用生产派生函数的内部判定）：
  * enabled ∧ 非 blocked ∧ 模板经 fetchPage 取页（native/preview/none 不经 source_fetch）。 */
-const FETCH_TEMPLATES = ["chigua", "wp-rest", "hls-site", "danbooru-api"];
+/* 断言适配（fix3315）：hanime-api 随 hanime-tv 恢复回加；iwara-api 保持删除不回加。 */
+const FETCH_TEMPLATES = ["chigua", "wp-rest", "hls-site", "danbooru-api", "hanime-api"];
 const fetchable = (s: SourceDef): boolean =>
   s.enabled && s.maturity !== "blocked" && FETCH_TEMPLATES.includes(s.adapter.template);
 
@@ -75,12 +76,15 @@ function assertFetchableCovered(sources: SourceDef[], allow: Set<string>, label:
 const builtin = getBuiltinRegistry();
 const testRegistry = builtin;
 
-/* ── 声明层：现行模板声明全集为空、已删模板无残留 ── */
+/* ── 声明层：现行模板声明除 hanime-api 外全集为空、已删模板无残留 ──
+ * 断言适配（fix3315）：hanime-api 随 hanime-tv 恢复、声明三 origin 回归；
+ * iwara-api 保持删除退役。 */
 for (const t of TEMPLATE_IDS) {
+  if (t === "hanime-api") continue;
   assert.deepEqual(templateFetchOrigins(t), [], `模板 ${t} 当前无 baseUrls 之外的取页 origin 声明`);
   assert.ok(Object.prototype.hasOwnProperty.call(TEMPLATE_FETCH_ORIGINS, t), `模板 ${t} 在声明表内有条目（空集亦须显式在册）`);
 }
-assert.equal(TEMPLATE_FETCH_ORIGINS["hanime-api" as keyof typeof TEMPLATE_FETCH_ORIGINS], undefined, "hanime-api 模板声明随模板删除退役");
+assert.deepEqual(TEMPLATE_FETCH_ORIGINS["hanime-api"], ["https://guest.freeanimehentai.net", "https://ct.hanime.tv", "https://auth.hanime.tv"], "hanime-api 模板声明取页 origin = guest 目录＋ct CSRF＋auth 握手（fix3315 恢复）");
 assert.equal(TEMPLATE_FETCH_ORIGINS["iwara-api" as keyof typeof TEMPLATE_FETCH_ORIGINS], undefined, "iwara-api 模板声明随模板删除退役");
 assert.deepEqual(templateFetchOrigins("unknown-template"), [], "未知模板无取页 origin");
 
@@ -149,11 +153,16 @@ assert.deepEqual(templateFetchOrigins("unknown-template"), [], "未知模板无�
   assert.ok(!allow.has("https://hanime1.me"), "hanime1 已摘除：origin 不入白名单（fix3311）");
   assert.ok(!allow.has("https://yande.re"), "yandere 已摘除：origin 不入白名单（fix339）");
   /* fix3314：视频四源整组摘除，其全部 origin（含原模板声明的取流
-   * origin）一律不入白名单。 */
+   * origin）一律不入白名单。
+   * 断言适配（fix3315）：hanime-tv/hentaiplay 恢复——其 origin 回正向；
+   * iwara/hentaigasm 保持删除、负向不变。 */
   for (const o of ["https://hanime.tv", "https://guest.freeanimehentai.net", "https://ct.hanime.tv", "https://auth.hanime.tv",
-    "https://www.iwara.tv", "https://api.iwara.tv", "https://files.iwara.tv", "https://filesq.iwara.tv",
-    "https://hentaigasm.com", "https://hentaiplay.net"]) {
-    assert.ok(!allow.has(o), `视频板块已删：${o} 不入白名单（fix3314）`);
+    "https://hentaiplay.net"]) {
+    assert.ok(allow.has(o), `已恢复源：${o} 在白名单内（fix3315）`);
+  }
+  for (const o of ["https://www.iwara.tv", "https://api.iwara.tv", "https://files.iwara.tv", "https://filesq.iwara.tv",
+    "https://hentaigasm.com"]) {
+    assert.ok(!allow.has(o), `保持删除：${o} 不入白名单（fix3314/fix3315）`);
   }
   /* 清单远程下线 xiuren（enabled=false）→ 其 origin 退出白名单 */
   const off = validateManifest({
@@ -173,7 +182,7 @@ assert.deepEqual(templateFetchOrigins("unknown-template"), [], "未知模板无�
   const main = read("../../main.tsx");
   assert.ok(main.includes("sourceFetchAllowlistOrigins(getActiveRegistry().sources)"), "main.tsx 白名单推送只消费派生函数结果");
   assert.ok(!main.includes("flatMap((s) => s.baseUrls)"), "main.tsx 不再内联只从 baseUrls 拼白名单的旧派生");
-  assert.ok(!main.includes("setFetchPost"), "main.tsx 定向 POST 接缝注入随握手链删除退役（fix3314）");
+  assert.ok(main.includes("setFetchPost"), "main.tsx 定向 POST 接缝注入在位（fix3315 随 hanime 握手链恢复）");
 }
 
 console.log("fix321-f2c.contract: all assertions passed");

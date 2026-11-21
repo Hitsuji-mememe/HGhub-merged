@@ -53,6 +53,7 @@ export const EPISODES_FORM_BY_TEMPLATE: Record<string, EpisodesForm> = {
   "hls-site": "single", // htmlDetail 同上
   "wp-rest": "none", // detail episodes: []
   "danbooru-api": "none", // detail episodes: []
+  "hanime-api": "single", // hanimeApi detail 单条「正片」
 };
 
 /** 模板的 episodes 产出形态；未登记/未知模板回落 none（不冒充有集数）。 */
@@ -186,6 +187,20 @@ export function discoverySpecFor(def: SourceDef): DiscoverySpec {
         ],
         sortDefault: "",
         evidence: `taxonomy 端点与 orderby/过滤参数经探针实证（${F_EVIDENCE}）`,
+      };
+    case "hanime-api":
+      /* 002 客户端维度：目录全量在本地缓存，brand 过滤/tag 过滤/
+       * views 重排全在内存（服务端无对应参数）。danbooru-api 模
+       * 板不在此列——无选项来源、标签走既有搜索段。 */
+      return {
+        categories: { source: "taxonomy", options: [] },
+        tagFilter: true,
+        sorts: [
+          { value: "", label: "最新" },
+          { value: "views", label: "最热" },
+        ],
+        sortDefault: "",
+        evidence: `目录行 brand/tags/views 字段与客户端重排经探针实证（${F_EVIDENCE}）`,
       };
     default:
       /* hls-site/native 及未实证模板：一律

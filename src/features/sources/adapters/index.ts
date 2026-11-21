@@ -5,6 +5,7 @@
  */
 import type { SourceAdapter, SourceDef } from "../types";
 import { createNativeHuangguoAdapter } from "./nativeHuangguo";
+import { createHanimeApiAdapter } from "./hanimeApi";
 import { createChiguaAdapter, createDanbooruAdapter, createHlsSiteAdapter, createWpRestAdapter } from "./templates";
 export function createAdapter(def: SourceDef): SourceAdapter | null {
   switch (def.adapter.template) {
@@ -13,6 +14,7 @@ export function createAdapter(def: SourceDef): SourceAdapter | null {
     case "wp-rest": return createWpRestAdapter(def);
     case "hls-site": return createHlsSiteAdapter(def);
     case "danbooru-api": return createDanbooruAdapter(def);
+    case "hanime-api": return createHanimeApiAdapter(def);
     default: return null;
   }
 }

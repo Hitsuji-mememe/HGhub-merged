@@ -141,11 +141,8 @@ check("面1-场景①：《警界之花》在总览不出现（构造性满足�
  * fix336/ui-fixes 适配（契约变化、非削弱）：原生视频空壳 chip
  * 退场后，cate=original 不再有原生列表——频道内容改由外部源
  * SourceBrowse 承载（各源自有列表、不经原生 feed 混合分页，
- * 无从套用本面的 incoming 复刻）。
- * fix3314 再适配（契约变化、非削弱）：视频板块整组删除后
- * SourceBrowse 与外部源分支同删，cate=original 落下线提示分支、
- * 不取数。本面自此钉两件事：①生产绑
- * 定改钉退场事实＋视频频道落下线提示分支（旧码上必红）；
+ * 无从套用本面的 incoming 复刻）。本面自此钉两件事：①生产绑
+ * 定改钉退场事实＋视频频道恒走外部源分支（旧码上必红）；
  * ②行为复刻改钉「原生呈现集恒空」——任何原生条目都不可能以
  * 原生列表形态出现在视频频道（原检查的防错目标＝多集条目混
  * 进视频频道，在新形态下由构造满足且更强）。短剧频道（面 2
@@ -161,9 +158,7 @@ check("面2-生产绑定：原生视频列表退场与 Category.tsx 字面对齐
   assert.ok(!categorySrc.includes("partitionCardsByResolvedKind(rawItems"), "原生视频分组调用已退场");
   assert.ok(!categorySrc.includes("暂无已确认条目"), "确认门诚实终态已随空壳退场");
   assert.ok(!categorySrc.includes("api.originalVideos"), "原生视频取数臂已退场");
-  assert.ok(categorySrc.includes('cate === "original" || cate.startsWith("video:")'), "视频频道与视频深链落下线提示分支（fix3314）");
-  assert.ok(!categorySrc.includes("<SourceBrowse"), "外部视频浏览组件已随视频板块删除退场（fix3314）");
-  assert.ok(!categorySrc.includes("sources/SourceBrowse"), "Category 不再导入 SourceBrowse（fix3314）");
+  assert.ok(categorySrc.includes('cate === "original" || effectiveChannelSourceId !== nativeId'), "视频频道恒走外部源分支（默认落外部源、无恒空原生入口）");
 });
 check("面2-original 频道列表：原生呈现集恒空（fix336 构造性满足）", () => {
   const list = channelIncoming("original", [jingjieChannel, singleChannel, juruChannel, noEpChannel]);

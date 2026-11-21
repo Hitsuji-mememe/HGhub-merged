@@ -69,12 +69,9 @@ const builtinImages = sourcesForCategory("image", getBuiltinRegistry());
 /* ── 跨分类 id：内置查表不按分类，落 disabled（选单按分类出，跨分类
  * 选中态经 UI 不可达；万一到达，补救动作与停用相同——请用户切换）。 ── */
 {
-  /* 断言适配（fix3314）：跨分类样本原用 hanime-tv（video），该源已
-   * 随视频板块摘除（现落 gone、由上组承接），样本改存活跨分类源
-   * xiuren（image 対 posts），覆盖不变。 */
-  const r = resolveSelectedSource("xiuren", builtinPosts);
+  const r = resolveSelectedSource("hanime-tv", builtinPosts);
   assert.equal(r.kind, "disabled", "跨分类已知源 id 落 disabled");
-  assert.equal(r.label, "秀人网", "跨分类已知源显示内置显示名");
+  assert.equal(r.label, "Hanime.tv", "跨分类已知源显示内置显示名");
 }
 
 /* ── 文案钉死：disabled 分支含停用口径、不含假文案；pending 原口径逐字保留 ──
@@ -109,10 +106,8 @@ const builtinImages = sourcesForCategory("image", getBuiltinRegistry());
    * 其 selectedKind 调用点随面删除；余三面（图片深链/视频深链/
    * 频道外源）仍逐面传三态 kind，口径不变。
    * 计数再适配（fix336/ui-fixes）：图片频道分支（cate="image"）
-   * 新增一面同口径传三态 kind，三面→四面，覆盖增加。
-   * 计数再适配（fix3314）：视频深链面与频道外源面随视频板块删除
-   * 退场，四面→两面（图片深链/图片频道），逐面传三态口径不变。 */
-  assert.equal(cat.split("selectedKind={").length - 1, 2, "Category 两面传三态 kind（图片深链/图片频道）");
+   * 新增一面同口径传三态 kind，三面→四面，覆盖增加。 */
+  assert.equal(cat.split("selectedKind={").length - 1, 4, "Category 四面传三态 kind（图片深链/视频深链/频道外源/图片频道）");
 }
 
 /* ── 调用点不再用内部 id 作页头/提示回落 ── */

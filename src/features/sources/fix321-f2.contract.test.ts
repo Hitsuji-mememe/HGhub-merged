@@ -35,18 +35,21 @@ const def = (id: string) => {
     assert.equal(s.capabilities.episodes, true, `短剧频道源 ${s.id} 必须有分集能力（真实品类映射）`);
     assert.equal(s.enabled, true, "频道列表只列已启用源");
   }
-  /* 断言适配（fix3314）：视频四源整组摘除后注册表已无 video 源，
-   * 两频道映射均为空集——原逐源样本断言（rule34video→iwara→
-   * hanime-tv 沿革）由空集断言接替：映射函数对空集如实返回空、
-   * 不冒充有源；谓词本身的双向覆盖由 fix321-f2-accept (A) 的合
-   * 成源断言承接。 */
-  assert.deepEqual(drama, [], "短剧频道映射为空（注册表已无 video 源，fix3314）");
+  /* 断言适配（3.2.2 瘦身）：名单收口到保留集——保留的 video 源
+   * （里番）同样无分集能力、不进短剧列表，且仍在「视频」频道。
+   * 断言适配（fix330/ui-fixes）：rule34video 已摘除，样本改 iwara。
+   * 断言适配（fix339/registry-cut-2）：iwara 已摘除，样本收口为
+   * 唯一保留 video 源 hanime-tv。 */
+  for (const id of ["hanime-tv"]) {
+    assert.ok(!drama.some((s) => s.id === id), `${id} 无短剧品类映射、不进短剧频道切源列表`);
+  }
   const original = sourcesForChannel("original", getBuiltinRegistry());
-  assert.deepEqual(original, [], "原视频频道映射为空（视频板块已删，fix3314）");
+  for (const id of ["hanime-tv"]) {
+    assert.ok(original.some((s) => s.id === id), `${id} 仍在「视频」频道切源列表（其他频道不受影响）`);
+  }
   const category = read("../category/Category.tsx");
   assert.ok(category.includes("sourceOptionsForChannel(cate)"), "ChannelPage 切源片按频道映射取源（非全量 video 源）");
-  const switcher = read("./SourceSwitcher.tsx");
-  assert.ok(switcher.includes("sourcesForChannel"), "切源片名单经 sourcesForChannel 频道映射派生（陈旧选择不跨频道生效）");
+  assert.ok(category.includes("sourcesForChannel(cate"), "ChannelPage 源查找按频道映射（陈旧选择不跨频道生效）");
 }
 
 /* ── (b) 浏览面只显示已启用源：分类总览不再渲染未启用源块；
@@ -91,12 +94,9 @@ const def = (id: string) => {
 {
   setFetchPage(async () => fx("real-hanime-home.html"));
   const historicalDef = {
-    id: "hanime-tv", displayName: "Hanime.tv", kind: "video", category: "video",
-    baseUrls: ["https://hanime.tv"], enabled: true, order: 24, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false },
-    network: { mode: "probe-required" },
+    ...def("hanime-tv"),
     adapter: { template: "hls-site", params: { listPath: "/", itemLinkPattern: "/videos/hentai/", detailPath: "/videos/hentai/{id}" } },
-  } as unknown as ReturnType<typeof def>;
+  } as ReturnType<typeof def>;
   const a = createHlsSiteAdapter(historicalDef);
   const list = await a.list(1, 20);
   assert.ok(list.items.length >= 2, `Hanime 真站结构解析出条目（实得 ${list.items.length}）`);
@@ -158,9 +158,7 @@ for (const [id, shell, pattern] of [["spa-nav", SPA_SHELL_NAV_ONLY, "/video/"], 
  * 失败态分离（失败走 err 通道、真空不再写「已取数但列表为空」
  * 冒充成功口径由解析层抛错保证）。 ── */
 {
-  /* 断言适配（fix3314）：SourceBrowse 已随视频板块删除退场，本组
-   * 只剩 SourceGallery 承接同一真空文案口径。 */
-  for (const rel of ["./SourceGallery.tsx"]) {
+  for (const rel of ["./SourceBrowse.tsx", "./SourceGallery.tsx"]) {
     const src = read(rel);
     assert.ok(!src.includes("适配器已取数，但列表为空"), `${rel} 删除假成功空页文案`);
     assert.ok(src.includes("列表确为空"), `${rel} 真空文案与解析失败分离`);

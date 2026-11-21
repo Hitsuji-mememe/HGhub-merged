@@ -1,7 +1,7 @@
 {
   "name": "hghubx",
   "private": true,
-  "version": "3.3.14",
+  "version": "3.3.15",
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "scripts": {

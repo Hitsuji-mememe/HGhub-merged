@@ -43,11 +43,7 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
 /* ── 条目7：分类修订 ── */
 {
   const category = read("../category/Category.tsx");
-  /* 断言适配（fix3314）：视频频道随视频板块整组删除退场——原
-   * 「original 改名视频」断言改钉退场事实：CHANNELS 无 original
-   * 行、ChannelPage 对 original 落下线提示分支。 */
-  assert.ok(!category.includes('{ cate: "original", name: "视频"'), "视频频道行已随视频板块删除退场（fix3314）");
-  assert.ok(category.includes('cate === "original" || cate.startsWith("video:")'), "原视频频道/深链落下线提示分支（fix3314）");
+  assert.ok(category.includes('{ cate: "original", name: "视频"'), "original 频道显示名改「视频」");
   assert.ok(!category.includes('"ai-manju"'), "Category 代码无 ai-manju 子筛值残留（注释中的撤除说明除外）");
   /* 断言适配（fix336/ui-fixes）：ORIGINAL_CATES/originalSort 随原
    * 生视频列表（空壳）退场整删——条目7「子筛只留全部」的口径由
@@ -100,15 +96,13 @@ for (const rel of ["../../../src-tauri/tauri.conf.json", "../../../src-tauri/tau
 
 /* ── 外部源接通：createAdapter 生产调用者 >0（接线断言） ── */
 {
+  const browse = read("./SourceBrowse.tsx");
   const gallery = read("./SourceGallery.tsx");
-  const posts = read("./SourcePosts.tsx");
   const category = read("../category/Category.tsx");
-  /* 断言适配（fix3314）：SourceBrowse 已随视频板块删除退场，
-   * createAdapter 的生产调用者收口为 SourceGallery/SourcePosts
-   * 两面（与 Search 外部详情），逐面在位断言不变。 */
+  assert.ok(browse.includes("createAdapter(def)"), "SourceBrowse 生产调用 createAdapter");
   assert.ok(gallery.includes("createAdapter(def)"), "SourceGallery 生产调用 createAdapter");
-  assert.ok(posts.includes("createAdapter(def)"), "SourcePosts 生产调用 createAdapter");
-  assert.ok(category.includes("<SourceGallery def={imageChannelSource}"), "ChannelPage 图片频道分支挂载 SourceGallery");
+  assert.ok(category.includes("<SourceBrowse def={channelSource}"), "ChannelPage 非黄果分支挂载 SourceBrowse");
+  assert.ok(category.includes('channelSource.maturity === "blocked"'), "blocked 视频源仍走诚实提示分支");
   assert.ok(category.includes('imageSource.maturity === "blocked"'), "blocked 图片源仍走诚实提示分支");
 }
 

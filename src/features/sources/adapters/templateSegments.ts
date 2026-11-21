@@ -2,7 +2,7 @@
  * 模板段结构事实（Muse 2026-11-20 fix333-M3，3.3.2 清扫 P9 收口）。
  *
  * 此前「哪个模板真有 search 方法」有两处口径：工厂本体（templates.ts
- * 的 create* 函数）与搜索层 multiSourceSearch.ts 手抄
+ * 与 hanimeApi.ts 的 create* 函数）与搜索层 multiSourceSearch.ts 手抄
  * 的 SEARCH_TEMPLATES / DETAIL_PLAY_TEMPLATES 副本集合——新模板接通
  * 须两处同步、漏改即静默漂移（3.3.0 三模板接通靠人工同步三处登记）。
  * 现段事实的唯一出处＝工厂本身：本模块逐模板以探针 def 实例化、
@@ -28,6 +28,7 @@
  * 逐字钉死——工厂删掉 search 时契约先红，不会静默漂移。
  */
 import type { SourceAdapter, SourceDef } from "../types.ts";
+import { createHanimeApiAdapter } from "./hanimeApi.ts";
 import {
   createChiguaAdapter, createDanbooruAdapter,
   createHlsSiteAdapter, createWpRestAdapter,
@@ -39,6 +40,7 @@ const PROBE_FACTORIES: Record<string, (def: SourceDef) => SourceAdapter> = {
   "wp-rest": createWpRestAdapter,
   "hls-site": createHlsSiteAdapter,
   "danbooru-api": createDanbooruAdapter,
+  "hanime-api": createHanimeApiAdapter,
 };
 
 const probeDef = (template: string): SourceDef => ({

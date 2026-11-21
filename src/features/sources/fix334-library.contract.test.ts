@@ -181,17 +181,14 @@ assert.equal(typeof lib.applyExternalHistory, "function", "L3 须暴露 applyExt
   const R1 = getBuiltinRegistry();
   const ctx: SurfaceContext = { active: R1, builtin: R1 };
   const byId = (id: string) => R1.find((d) => d.id === id)!;
-  /* 断言适配（fix3314）：002 随视频板块删除退场，G4 已接通正例改
-   * 由存活外部源 xiuren（图集）承接；视频类 extRefs 回访口径改钉
-   * §7 的 Profile 早退告知（存量快照仍可解析、点开明示不可用）。 */
-  assert.deepEqual(routeForSurface("library", byId("xiuren"), ctx),
-    { kind: "browse", component: "ProfileLibrary" }, "006×M17 G4 已接通（extRefs 回访）");
+  assert.deepEqual(routeForSurface("library", byId("hanime-tv"), ctx),
+    { kind: "browse", component: "ProfileLibrary" }, "002×M17 G4 已接通（extRefs 回访）");
   assert.deepEqual(routeForSurface("library", byId("huangguo"), ctx), { kind: "native" }, "001×M17 原生不变");
   assert.deepEqual(routeForSurface("library", byId("gelbooru"), ctx),
     { kind: "not-applicable", declaration: "not-enabled" }, "未启用源×M17 仍显式不适用");
   const members = sourcesForSurface("library", R1).map((d) => d.id);
-  assert.ok(!members.includes("hanime-tv") && members.includes("51chigua") && members.includes("xiuren"),
-    "M17 成员含已启用外部源（帖/图集）、不含已删视频源（fix3314）");
+  assert.ok(members.includes("hanime-tv") && members.includes("51chigua") && members.includes("xiuren"),
+    "M17 成员含已启用外部源（帖/视频/图集）");
   /* 适配（fix335/g-sources）：yandere 已启用进成员；未启用例改挂 gelbooru/pixiv。
    * 适配（fix338/registry-cut）：konachan 已摘除，改验不在成员（不在册即不入资料库面）。
    * 适配（fix339/registry-cut-2）：yandere 已摘除，成员正例改 everia，
@@ -203,18 +200,24 @@ assert.equal(typeof lib.applyExternalHistory, "function", "L3 须暴露 applyExt
    * 新进、四源启用即入成员；yandere 不恢复、仍不在成员。
    * 适配（fix3311/registry-cleanup）：hanime1 试装判删回、改验不
    * 在成员；iwara 与两新源成员不变。 */
-  /* 适配（fix3314）：iwara/020/021 随视频板块删除，成员正例改验不在成员。 */
-  for (const id of ["yandere", "hanime1", "iwara", "hentaigasm", "hentaiplay"]) {
-    assert.ok(!members.includes(id), `M17 成员不含已摘除源 ${id}（fix339/fix3311）`);
+  /* 适配（fix3315）：hentaiplay 恢复仍在成员；iwara/hentaigasm 保持
+   * 删除、改验不在成员。 */
+  for (const id of ["hentaiplay"]) {
+    assert.ok(members.includes(id), `M17 成员含已启用源 ${id}（fix3310/fix3315 恢复）`);
+  }
+  for (const id of ["yandere", "hanime1", "iwara", "hentaigasm"]) {
+    assert.ok(!members.includes(id), `M17 成员不含已摘除源 ${id}（fix339/fix3311/fix3314）`);
   }
   assert.ok(!members.includes("gelbooru") && !members.includes("pixiv"), "M17 成员不含未启用源");
 }
 
 /* ══ 7. 逐面接线文本断言 ══ */
 {
-  /* 断言适配（fix3314）：SourceBrowse 随视频板块整删退场，其收藏/
-   * 历史/openExternalId 三条接线断言随宿主同删；存活宿主
-   * （SourcePosts/SourceGallery/Search）的同名接线覆盖不变。 */
+  const browse = srcText("./SourceBrowse.tsx");
+  assert.ok(browse.includes("setExternalCollected"), "SourceBrowse 详情头收藏钮接 setExternalCollected");
+  assert.ok(browse.includes("addExternalHistory"), "SourceBrowse 播放写外部历史");
+  assert.ok(browse.includes("onPlaying"), "SourceBrowse 历史写入挂 Player onPlaying 首帧");
+  assert.ok(browse.includes("openExternalId"), "SourceBrowse 消费回访 openExternalId");
   const posts = srcText("./SourcePosts.tsx");
   assert.ok(posts.includes("setExternalCollected"), "SourcePosts 详情头收藏钮接 setExternalCollected");
   assert.ok(posts.includes("openExternalId"), "SourcePosts 消费回访 openExternalId");
@@ -228,17 +231,20 @@ assert.equal(typeof lib.applyExternalHistory, "function", "L3 须暴露 applyExt
   assert.ok(profile.includes("extRefs"), "Profile 读 extRefs 快照出卡");
   assert.ok(profile.includes("routeForSurface"), "Profile 回访路由经 surfaces 派生消费");
   assert.ok(profile.includes("openExternalId"), "Profile 点开外部卡带 openExternalId 直达");
-  /* 续播到集回访链退役（fix3314）：openExternalEp 透传链只有视频
-   * 回访消费、随视频板块同删——改钉退场事实与存量 video 快照的
-   * 诚实落点：Profile 对 video 类 extRefs 直接明示不可用、不进
-   * 任何已删面；image/post 回访链（上方断言）不受影响。 */
-  assert.ok(profile.includes('if (ref.kind === "video")'), "Profile 对 video 类快照早退（fix3314）");
-  assert.ok(profile.includes('toast("该来源已不可用", "info")'), "video 类快照点开明示不可用（fix3314）");
-  assert.ok(!profile.includes("openExternalEp:"), "Profile 无 openExternalEp 透传字段（注释提及退役沿革不在此限，fix3314）");
+  /* 续播到集回访链（fix334 清扫已坏-2：此前 ep 只记录与显示、
+   * 回访无路径消费，点开恒回第一集而文档已按已交付宣称——本段
+   * 逐环钉透传/消费形，断言由清扫修复线任务书授权）：历史行 ep
+   * 经 Profile→Page→App→ChannelPage 透传 SourceBrowse，openItem
+   * 按 ordinal 取回目标集起播（设计 §4.4 机制）。 */
+  assert.ok(profile.includes("openExternal(ref, progress?.ep)"), "Profile 历史点开外部视频带记录集数");
+  assert.ok(profile.includes("openExternalEp: startEp"), "Profile push 频道页带 openExternalEp");
   const app = srcText("../../app/App.tsx");
-  assert.ok(!app.includes("openExternalEp"), "App 无 openExternalEp 装配（fix3314 退役）");
+  assert.ok(app.includes("openExternalEp={page.openExternalEp}"), "App 装配透传 openExternalEp 到频道页");
   const category = srcText("../category/Category.tsx");
-  assert.ok(!category.includes("openExternalEp"), "ChannelPage 无 openExternalEp 透传（fix3314 退役）");
+  assert.ok(category.includes("openExternalEp={openExternalEp}"), "ChannelPage 透传 openExternalEp 到 SourceBrowse");
+  assert.ok(browse.includes("openExternalEp?: number"), "SourceBrowse 声明 openExternalEp 入参");
+  assert.ok(browse.includes("openItem(target, openExternalEp)"), "SourceBrowse 回访消费 openExternalEp 起播");
+  assert.ok(browse.includes("[wantEp - 1]") && browse.includes("adapter.resolve(target.externalId)"), "SourceBrowse 按 ordinal 取回目标集 resolve");
   const store = srcText("../../shared/model/store.tsx");
   assert.ok(store.includes("setExternalCollected") && store.includes("addExternalHistory") && store.includes("extRefs"),
     "store 暴露 extRefs＋两封装");

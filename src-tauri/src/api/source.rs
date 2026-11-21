@@ -19,6 +19,50 @@ use std::sync::RwLock;
 pub const ALLOWED_SOURCE_HEADERS: [&str; 4] =
     ["referer", "user-agent", "accept", "accept-language"];
 
+/// Hanime 握手 POST 定向通道（Muse 2026-11-19 fix330-hanime-api）：
+/// 站点官方播放协议要求向 auth.hanime.tv/api/v11/handshake 发一次
+/// POST（AES-256-GCM 加密信封＋web2 签名头），响应经 x-token 头回
+/// 加密信封。按定向放行的模式收紧：
+/// POST 只许这一个 origin、只许 HANIME_POST_HEADERS 固定头名单、
+/// 响应只回 x-token 一个头；GET 契约（source_fetch）一字不变，
+/// 全局头白名单不放宽。信封密钥/签名均为站点公开协议常数（非用户
+/// 凭据），正文与令牌不入日志（不变量 10）。
+/// （fix3314 曾随视频整组删除同删，fix3315 随 hanime 源恢复捡回；
+/// 同批的 X-Version 定向放行属 Iwara 签名链、不恢复，
+/// filter_source_headers 维持 fix3314 的单参形态。）
+pub const HANIME_AUTH_ORIGIN: &str = "https://auth.hanime.tv";
+pub const HANIME_POST_HEADERS: [&str; 7] = [
+    "referer",
+    "origin",
+    "content-type",
+    "x-signature",
+    "x-signature-version",
+    "x-time",
+    "x-csrf-token",
+];
+/// 握手请求体上限：信封 JSON 为小体量，64KB 足量，超出即拒绝。
+pub const SOURCE_POST_MAX_BODY_BYTES: usize = 64 * 1024;
+
+pub fn filter_source_post_headers(
+    headers: Vec<(String, String)>,
+    target_origin: Option<&str>,
+) -> Result<Vec<(String, String)>, String> {
+    if target_origin != Some(HANIME_AUTH_ORIGIN) {
+        return Err("POST 取页只许定向 origin（auth.hanime.tv）".to_string());
+    }
+    let mut out = Vec::new();
+    for (name, value) in headers {
+        let lower = name.to_ascii_lowercase();
+        if lower == "host" || lower == "content-length" {
+            return Err(format!("请求头不许覆盖：{name}"));
+        }
+        if HANIME_POST_HEADERS.contains(&lower.as_str()) {
+            out.push((name, value));
+        }
+    }
+    Ok(out)
+}
+
 pub fn filter_source_headers(
     headers: Vec<(String, String)>,
 ) -> Result<Vec<(String, String)>, String> {
@@ -96,9 +140,51 @@ pub async fn source_fetch(
     crate::net::fetch_page_text_with_headers(&url, &headers).await
 }
 
+/// source_post 的返回形状（前端 adapters/fetchPost.ts 对齐）：
+/// status 为上游 HTTP 状态（不折叠，适配器据此判读 CSRF 重试），
+/// body 为响应正文，xToken 仅当上游回了 x-token 头时出现。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourcePostResult {
+    pub status: u16,
+    pub body: String,
+    pub x_token: Option<String>,
+}
+
+/// 定向 POST 取页（Muse 2026-11-19 fix330-hanime-api）：签名
+/// source_post(url: string, body: string, headers?: Record<string,
+/// string>) -> Promise<{ status, body, xToken }>。目标 origin 必须
+/// 同时在生效注册表白名单内且恰为 HANIME_AUTH_ORIGIN，头只放行
+/// HANIME_POST_HEADERS 固定名单，请求体上限 64KB；其余一切 POST
+/// 一律拒绝——本命令不是通用 POST 通道。
+#[tauri::command]
+pub async fn source_post(
+    url: String,
+    body: String,
+    headers: Option<HashMap<String, String>>,
+) -> Result<SourcePostResult, String> {
+    {
+        let guard = SOURCE_ALLOWLIST
+            .read()
+            .map_err(|_| "源白名单状态异常".to_string())?;
+        check_origin_allowed(guard.as_ref(), &url)?;
+    }
+    if body.len() > SOURCE_POST_MAX_BODY_BYTES {
+        return Err(format!("请求体超过 {} 字节上限", SOURCE_POST_MAX_BODY_BYTES));
+    }
+    let headers: Vec<(String, String)> = headers
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    let target_origin = normalize_origin(&url);
+    let headers = filter_source_post_headers(headers, target_origin.as_deref())?;
+    let (status, x_token, text) = crate::net::fetch_page_post(&url, &body, &headers).await?;
+    Ok(SourcePostResult { status, body: text, x_token })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{check_origin_allowed, filter_source_headers, normalize_origin};
+    use super::{check_origin_allowed, filter_source_headers, filter_source_post_headers, normalize_origin};
     use std::collections::HashSet;
 
     fn pairs(v: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -126,6 +212,33 @@ mod tests {
         let names: Vec<&str> = out.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["Referer", "user-agent", "ACCEPT", "Accept-Language"]);
         assert!(out.iter().all(|(n, _)| n.to_lowercase() != "cookie" && n.to_lowercase() != "authorization"));
+    }
+
+    /* fix330-hanime-api：POST 定向过滤——只对 auth.hanime.tv 放行、
+     * 只保留固定头名单（签名/CSRF/Origin/Referer/Content-Type），
+     * Cookie/Authorization 等一律丢弃；其余 origin（含仿冒子域）
+     * 直接拒绝而非降级 GET 名单。 */
+    #[test]
+    fn post_headers_scoped_to_hanime_auth_origin() {
+        let kept = filter_source_post_headers(pairs(&[
+            ("Cookie", "sid=secret"),
+            ("Authorization", "Bearer token"),
+            ("Referer", "https://hanime.tv/videos/hentai/x"),
+            ("Origin", "https://hanime.tv"),
+            ("Content-Type", "application/json"),
+            ("x-signature", "deadbeef"),
+            ("X-Signature-Version", "web2"),
+            ("x-time", "1700000000"),
+            ("x-csrf-token", "tok"),
+            ("X-Custom", "1"),
+        ]), Some("https://auth.hanime.tv"))
+        .expect("定向 origin 应放行");
+        let names: Vec<String> = kept.iter().map(|(n, _)| n.to_lowercase()).collect();
+        assert_eq!(names, ["referer", "origin", "content-type", "x-signature", "x-signature-version", "x-time", "x-csrf-token"]);
+        for origin in [Some("https://hanime.tv"), Some("https://auth.hanime.tv.evil.example"), Some("https://api.example.com"), None] {
+            assert!(filter_source_post_headers(pairs(&[("x-signature", "s")]), origin).is_err(), "非 auth.hanime.tv origin 必须拒绝 POST");
+        }
+        assert!(filter_source_post_headers(pairs(&[("Host", "evil.example")]), Some("https://auth.hanime.tv")).is_err());
     }
 
     #[test]

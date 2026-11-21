@@ -92,7 +92,7 @@ export const SHARED_TAXON_LABELS_ZH: Record<string, string> = {
 };
 
 /* 逐源分类表：018 地域桶 4（Cosplay/Uncategorized 走共享表）、
- * 012 题材桶 4
+ * 021 属性桶 6（Uncensored/Preview 走共享表）、012 题材桶 4
  * （Anime/Cosplay/Uncategorized 走共享表、Almost Real/Hot Games
  * 语义不明不收）、013 题材桶 3（Nude/Uncategorized 走共享表、
  * Waifu AI 译法不一不收）、006 厂牌中文名 14（Hot Girl 无公认
@@ -102,6 +102,11 @@ export const SHARED_TAXON_LABELS_ZH: Record<string, string> = {
 export const SOURCE_TAXON_LABELS_ZH: Record<string, Record<string, string>> = {
   everia: {
     "Japan": "日本", "China": "中国", "Korea": "韩国", "Thailand": "泰国",
+  },
+  hentaiplay: {
+    "Hentai Anime": "动画里番", "English Subbed": "英文字幕",
+    "Hentai": "里番", "New Hentai": "最新里番", "RAW": "生肉",
+    "3D Hentai": "3D里番",
   },
   pixibb: {
     "Eu Girls": "欧美美女", "AI Lookbook": "AI图集", "Toon Girls": "卡通女郎",

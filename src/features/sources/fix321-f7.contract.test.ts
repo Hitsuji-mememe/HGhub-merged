@@ -123,14 +123,11 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
    * hentaigasm/hentaiplay 新进，四源启用即进自检名单（正向组）；
    * yandere 不恢复、留在负向组。
    * 断言适配（fix3311/registry-cleanup）：hanime1 试装判删回、移出
-   * 正向组并入负向组；iwara 与两新源正向不变。
-   * 断言适配（fix3314）：视频四源整组摘除，iwara/hentaigasm/
-   * hentaiplay 移出正向组并入负向组。 */
-  for (const id of ["huangguo", "xiuren", "everia"]) {
+   * 正向组并入负向组；iwara 与两新源正向不变。 */
+  /* 断言适配（fix3315）：iwara/hentaigasm 保持删除、自检名单正向组移除两源；
+   * hanime-tv/hentaiplay 恢复、正向不变。 */
+  for (const id of ["huangguo", "hanime-tv", "everia", "hentaiplay"]) {
     assert.ok(ids.includes(id), `已启用源 ${id} 在自检名单`);
-  }
-  for (const id of ["iwara", "hentaigasm", "hentaiplay"]) {
-    assert.ok(!ids.includes(id), `已摘除源 ${id} 不在自检名单（fix3314）`);
   }
   for (const id of ["danbooru", "hentaihaven", "konachan"]) {
     assert.ok(!ids.includes(id), `已摘除源 ${id} 不在自检名单（fix338）`);
@@ -174,16 +171,16 @@ function fakeAdapter(behavior: { listItems?: number; listError?: unknown; detail
 
 /* ── (c) 频率上限：结果未过期（TTL 内）不重探、过期才重探 ── */
 {
-  const hanimeDef = getBuiltinRegistry().find((s) => s.id === "xiuren")!;
+  const hanimeDef = getBuiltinRegistry().find((s) => s.id === "hanime-tv")!;
   const fresh: SourceSelfCheckResult = {
-    sourceId: "xiuren", at: NOW - 1000, listOk: true, itemCount: 3,
+    sourceId: "hanime-tv", at: NOW - 1000, listOk: true, itemCount: 3,
     listFailure: null, paging: "skipped", pagingFailure: null,
     detail: "ok", detailFailure: null, requests: 3,
     tail: "ok", tailKind: "stream", tailFailure: null, ...selfCheckFingerprintFor(hanimeDef),
   };
   const stale = { ...fresh, at: NOW - SELF_CHECK_TTL_MS - 1 };
-  assert.ok(!buildSelfCheckPlan(getBuiltinRegistry(), { "xiuren": fresh }, NOW).some((s) => s.id === "xiuren"), "TTL 内不重探");
-  assert.ok(buildSelfCheckPlan(getBuiltinRegistry(), { "xiuren": stale }, NOW).some((s) => s.id === "xiuren"), "过期后重探");
+  assert.ok(!buildSelfCheckPlan(getBuiltinRegistry(), { "hanime-tv": fresh }, NOW).some((s) => s.id === "hanime-tv"), "TTL 内不重探");
+  assert.ok(buildSelfCheckPlan(getBuiltinRegistry(), { "hanime-tv": stale }, NOW).some((s) => s.id === "hanime-tv"), "过期后重探");
 }
 
 /* ── (c) 预算：每源最多 5 请求（列表 1＋分页抽查 1＋详情 1＋视频类取流解析 1＋清单实拉 1），失败形态分开记；

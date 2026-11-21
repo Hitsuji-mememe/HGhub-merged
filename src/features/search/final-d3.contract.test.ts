@@ -29,23 +29,8 @@ type CopyAssessment, type CopyRef, type FanoutHit,
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const fx = (name: string) => readFileSync(new URL(`../sources/adapters/fixtures/${name}`, import.meta.url), "utf8");
-/* 断言适配（fix3314）：视频侧样本源 hanime-tv 已随视频板块整组摘
- * 除，其 hanime-api 模板同删——本文件的扇出/归类断言需要「已启用
- * video 品类∧具备搜索段」的源形态，注册表已无此形态，改由夹具
- * def 承接（功能字段与删除前注册表条目一致、模板改挂存活且具搜
- * 索段的 chigua 仅作搜索段事实载体——扇出门与归类只读品类/能力
- * 字段与模板搜索段存在性，不读模板身份）。 */
-const FIXTURE_DEFS: Record<string, SourceDef> = {
-  "hanime-tv": {
-    id: "hanime-tv", displayName: "Hanime.tv", kind: "video", category: "video",
-    adapter: { template: "chigua", params: {} },
-    baseUrls: ["https://hanime.tv"], enabled: true, order: 24, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false },
-    network: { mode: "probe-required" }, note: "历史注册表条目（fix3314 夹具）",
-  } as SourceDef,
-};
 const def = (id: string): SourceDef => {
-  const d = getBuiltinRegistry().find((s) => s.id === id) ?? FIXTURE_DEFS[id];
+  const d = getBuiltinRegistry().find((s) => s.id === id);
   assert.ok(d, `registry has ${id}`);
   return d;
 };
@@ -77,9 +62,7 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
    * 的口径不变。 */
   /* 断言适配（fix3311/registry-cleanup，2026-11-21）：009 试装判删
    * 回，注册表 17→16 源；页签封顶四类的口径不变。 */
-  /* 断言适配（fix3314，2026-11-21）：视频四源整组摘除，注册表
-   * 16→12 源；页签封顶四类的口径不变。 */
-  assert.equal(getBuiltinRegistry().length, 12, "注册表 12 源（fix3314：摘视频四源）下页签仍封顶四类（上一断言即证据）");
+  assert.equal(getBuiltinRegistry().length, 14, "注册表 14 源（fix3315：fix3314 摘视频四源后只恢复 hanime-tv/hentaiplay）下页签仍封顶四类（上一断言即证据）");
   const groups = aggregateHits([]);
   assert.deepEqual(Object.keys(groups).sort(), ["drama", "image", "post", "video"], "聚合分组恒四键");
 }
@@ -136,9 +119,7 @@ const SHARED_COVER = "https://cdn.example.com/gua/shared-123.jpg";
   /* 帖子侧样本源原用黑料网（feedheiliao）；F5 三段门后该源已出局，
    * 换三段齐全的帖子侧源黄果承接同一覆盖（适配理由同上段）。 */
   /* 断言适配（fix339/registry-cut-2）：视频侧样本源 iwara 已摘除，
-   * 改由保留视频源 hanime-tv 承接（同为已启用 video 源、口径不变）。
-   * 断言适配（fix3314）：hanime-tv 亦已摘除，改由本文件夹具 def
-   * 承接同一形态（见文件头 def 定义处），口径不变。 */
+   * 改由保留视频源 hanime-tv 承接（同为已启用 video 源、口径不变）。 */
   const defs = [def("hanime-tv"), def("cosplaytele"), def("huangguo")];
   const adapters = new Map<string, SourceAdapter>([
     ["hanime-tv", stub([item("hanime-tv", "v1", "扇出视频一", 5), item("hanime-tv", "v2", "扇出视频二", 9)])],

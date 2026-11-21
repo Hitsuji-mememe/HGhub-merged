@@ -44,8 +44,8 @@ const byId = (id: string): SourceDef => {
    * 断言适配（fix3314，2026-11-21）：视频四源整组摘除，注册表
    * 16→12 源；居两源之前者摘 002（order 24）/010（order 54），
    * 两源位置 11/12、重居注册表末两位。 */
-  assert.equal(registry.indexOf(everia), 10, "everia 为注册表第 11 位（编号 018）");
-  assert.equal(registry.indexOf(xsnvshen), 11, "xsnvshen 为注册表第 12 位（编号 019）");
+  assert.equal(registry.indexOf(everia), 11, "everia 为注册表第 12 位（编号 018；fix3315 hanime-tv 恢复回第 2 位后顺延一位）");
+  assert.equal(registry.indexOf(xsnvshen), 12, "xsnvshen 为注册表第 13 位（编号 019）");
   assert.equal(everia.adapter.template, "wp-rest", "everia 走 wp-rest 模板实例化");
   assert.equal(everia.kind, "image");
   assert.equal(everia.enabled, true);
