@@ -268,6 +268,21 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   新、旧结果判过期补探。证据：`~/workspace/hghub/fix338/
   evidence/chigua-pill.md`；契约 `fix335-f-discovery.contract.
   test.ts`（A 段标签与 hot 标记断言适配）。
+  fix3311/discovery-rework（2026-11-21）：图片面发现轴改版（用
+  户裁定：图片面只走排序＋查找）——`SourceGallery` 向共用
+  `DiscoveryBar` 传 `noTaxonomyRows`，门控下有效 spec 剥
+  `categories/tagFilter`：图片面分类行与标签筛选行不渲染、
+  `taxonomy()` 不再取数，只剩排序行；登记表（`discoverySpecFor`）
+  与视频面（002 brand/标签 chips、021 同模板）及吃瓜面逐字不
+  动，门控只在图片面组件。存量失效化：disc 无落盘键（只存浏
+  览组件会话内状态），`SourceGallery` 读取点经
+  `types.stripDiscTaxonomy` 剥 category/tag 后才进 list 参数与
+  滚动指纹，残存值不形成「看不见的筛选」；收藏/历史/屏蔽/续
+  播等落盘数据不经此路。标签总览页/搜索热门题材/标签落地页
+  不在 scope、保留。契约 `fix3311-discovery-rework.contract.
+  test.ts`（纯函数＋适配器级过滤实证＋面门控接线＋登记表不
+  动）；证据 `~/workspace/hghub/fix3311/evidence/discovery-
+  rework.md`。
   fix335/e-category（2026-11-20）：分类总览索引化（设计
   `fix335/design-category-hub.md` 方案②，用户真机反馈纵深过大
   ＋样式不统一）——总览删全部预览段（频道横滑预览/吃瓜

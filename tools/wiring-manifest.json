@@ -2365,6 +2365,26 @@
         "src/features/sources/manifestProbe.ts"
       ],
       "min": 1
+    },
+    {
+      "id": "fix3311-discovery-gallery-notaxonomy",
+      "item": "fix3311/discovery-rework 图片面门控：SourceGallery 向 DiscoveryBar 传 noTaxonomyRows、门控下有效 spec 剥 categories/tagFilter（分类/标签行不渲染、taxonomy 不取数）；摘任一落点图片面两行即回潮",
+      "symbol": "noTaxonomyRows",
+      "files": [
+        "src/features/sources/DiscoveryBar.tsx",
+        "src/features/sources/SourceGallery.tsx"
+      ],
+      "min": 2
+    },
+    {
+      "id": "fix3311-discovery-gallery-strip",
+      "item": "fix3311/discovery-rework 图片面 disc 失效化：stripDiscTaxonomy（types 定义＋SourceGallery 读取点消费），存量 category/tag 到不了 list 参数与滚动指纹；摘消费点「看不见的筛选」即回潮",
+      "symbol": "stripDiscTaxonomy",
+      "files": [
+        "src/features/sources/types.ts",
+        "src/features/sources/SourceGallery.tsx"
+      ],
+      "min": 2
     }
   ]
 }

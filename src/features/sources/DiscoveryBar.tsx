@@ -21,6 +21,13 @@
  * 平铺、「收起」回单行——Top-N 上限口径不变，变的只是默认呈现
  * 高度；②标签维度剔除与分类同名的条目（discoveryOptions.
  * dedupeTagOptions，规范化比对，已选中的标签保留防筛选悬空）。
+ *
+ * 图片面改版（Muse 2026-11-21 fix3311/discovery-rework）：用户
+ * 发现轴裁定图片面只走排序＋查找——SourceGallery 传 noTaxonomyRows
+ * 时有效 spec 剥 categories/tagFilter（分类/标签两行下线、
+ * taxonomy 不再取数）；本组件其余两面（视频/吃瓜）不传、逐字
+ * 不变。图片面 disc 的存量失效化在 SourceGallery 读取点
+ * （types.stripDiscTaxonomy），不在本组件。
  */
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../shared/ui/ios/controls";
@@ -35,12 +42,21 @@ import type { ListDiscovery, SourceDef, SourceTaxonomy } from "./types.ts";
  * 不许把上千标签全量平铺。params 型栏目表全集有限（≤30），不截断。 */
 const TAXONOMY_CHIP_LIMIT = 24;
 
-export default function DiscoveryBar({ def, disc, onDiscChange }: {
+export default function DiscoveryBar({ def, disc, onDiscChange, noTaxonomyRows }: {
   def: SourceDef;
   disc: ListDiscovery;
   onDiscChange: (next: ListDiscovery) => void;
+  /** 图片面门控（Muse 2026-11-21 fix3311/discovery-rework，用
+   * 户发现轴裁定）：仅 SourceGallery 传 true——有效 spec 剥
+   * categories/tagFilter，分类/标签两行不渲染、taxonomy 不取
+   * 数，只剩排序行；视频/吃瓜面缺省不传、spec 为登记原值、行
+   * 为逐字不变。登记表（discoverySpecFor）不动，门控只在本面。 */
+  noTaxonomyRows?: boolean;
 }) {
-  const spec = useMemo(() => discoverySpecFor(def), [def]);
+  const spec = useMemo(() => {
+    const raw = discoverySpecFor(def);
+    return noTaxonomyRows ? { ...raw, categories: undefined, tagFilter: undefined } : raw;
+  }, [def, noTaxonomyRows]);
   const healthResults = useSourceHealthResults();
   const health = classifySelfCheckResult(healthResults[def.id], def, Date.now());
   const down = health.status === "down";
