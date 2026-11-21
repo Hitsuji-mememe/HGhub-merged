@@ -149,6 +149,12 @@ assert.equal(validateManifest({ manifestVersion: 2, minAppVersion: "2.0.0", sour
 assert.ok(validateManifest({ manifestVersion: 2, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: false }] }));
 
 /* ── 三段回退 ── */
+/* 断言适配（fix3317，2026-11-21）：resolveRegistry 新增签名门，远程
+ * 清单须经 verifyManifest 验签才生效。本文件各用例的清单样本均为
+ * 无签名夹具，统一注入恒真验签桩把覆盖收口在三段回退/防回滚语义
+ * 本身；签名门的拒收行为（无签名/验不过/篡改）由
+ * fix3317-manifest-signature 契约专项覆盖，覆盖不降。 */
+const verifyOk = async () => true;
 const memStorage = () => {
   const m = new Map<string, string>();
   return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); }, map: m };
@@ -157,7 +163,7 @@ const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ i
 
 { // 远程好清单 → remote 生效 + 写 last-good + 熔断位生效
   const st = memStorage();
-  const r = await resolveRegistry({ fetcher: async () => goodManifest, storage: st, appVersion: "2.2.0" });
+  const r = await resolveRegistry({ verifyManifest: verifyOk, fetcher: async () => goodManifest, storage: st, appVersion: "2.2.0" });
   assert.equal(r.source, "remote");
   assert.equal(r.manifestVersion, 7);
   assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, false, "远程熔断下线 hanime-tv");
@@ -169,18 +175,18 @@ const goodManifest = { manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ i
 { // 坏清单 → last-good
   const st = memStorage();
   st.setItem(MANIFEST_CACHE_KEY, JSON.stringify(goodManifest));
-  const r = await resolveRegistry({ fetcher: async () => ({ broken: true }), storage: st, appVersion: "2.2.0" });
+  const r = await resolveRegistry({ verifyManifest: verifyOk, fetcher: async () => ({ broken: true }), storage: st, appVersion: "2.2.0" });
   assert.equal(r.source, "last-good");
   assert.equal(r.manifestVersion, 7);
 }
 { // 远程抛错 + 无缓存 → 内置
-  const r = await resolveRegistry({ fetcher: async () => { throw new Error("net down"); }, storage: memStorage(), appVersion: "2.2.0" });
+  const r = await resolveRegistry({ verifyManifest: verifyOk, fetcher: async () => { throw new Error("net down"); }, storage: memStorage(), appVersion: "2.2.0" });
   assert.equal(r.source, "builtin");
   assert.equal(r.sources.length, BUILTIN_SOURCES.length);
   assert.equal(r.sources.find((s) => s.id === "hanime-tv")!.enabled, true, "内置口径 hanime-tv enabled");
 }
 { // minAppVersion 高于当前 → 不生效 → 内置
-  const r = await resolveRegistry({
+  const r = await resolveRegistry({ verifyManifest: verifyOk,
     fetcher: async () => ({ manifestVersion: 9, minAppVersion: "9.9.9", sources: [{ id: "hanime-tv", enabled: false }] }),
     storage: memStorage(), appVersion: "2.2.0",
   });
@@ -205,7 +211,7 @@ import { sourcesForCategory } from "./registry.ts";
   // fix339/registry-cut-2：iwara 已摘除，同 category 保留源 hanime-tv
   // 接替，覆盖不变）
   const st = memStorage();
-  const r = await resolveRegistry({
+  const r = await resolveRegistry({ verifyManifest: verifyOk,
     fetcher: async () => ({ manifestVersion: 11, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: false }] }),
     storage: st, appVersion: "2.2.0",
   });
@@ -228,7 +234,7 @@ import { sourcesForCategory } from "./registry.ts";
 { // 远程 v3 < last-good v7 → 用 last-good，缓存不被覆盖
   const st = memStorage();
   st.setItem(MANIFEST_CACHE_KEY, JSON.stringify(goodManifest)); // v7：hanime-tv 熔断
-  const r = await resolveRegistry({
+  const r = await resolveRegistry({ verifyManifest: verifyOk,
     fetcher: async () => ({ manifestVersion: 3, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: true }] }),
     storage: st, appVersion: "2.2.0",
   });
@@ -240,7 +246,7 @@ import { sourcesForCategory } from "./registry.ts";
 { // 远程 v7 == last-good v7 → 接受远程
   const st = memStorage();
   st.setItem(MANIFEST_CACHE_KEY, JSON.stringify(goodManifest));
-  const r = await resolveRegistry({
+  const r = await resolveRegistry({ verifyManifest: verifyOk,
     fetcher: async () => ({ manifestVersion: 7, minAppVersion: "2.0.0", sources: [{ id: "hanime-tv", enabled: true }] }),
     storage: st, appVersion: "2.2.0",
   });

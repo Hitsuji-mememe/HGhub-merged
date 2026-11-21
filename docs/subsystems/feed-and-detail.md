@@ -135,6 +135,9 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   此前除 002 外全部适配器的 `pagination` 只装本次取回条数
   （pageOf 口径、已取冒充总数），三套源 UI 以 page≥pages 停拉：
   006/008/011/012/009 第 1 页见底、003/004/005/010 第 2 页见底；
+  （编号订正注，fix3317：本段源号为 fix335 当时口径；其后注册表经
+  fix338/339 与 3.3.14/3.3.15 多轮裁剪，011/012 等已摘除，现行对应
+  以 registry.ts 注册顺序为准，本段作历史记录保留。）
   HTML 型另有 slice 恒跳每页尾部卡片（005 每页漏 10/30）。现行
   信号契约（`adapters/templates.ts` 的 apiSignal/htmlSignal＋
   `adapters/parse.ts` 的 lastPageInNav）：真信号优先——HTML 导航
@@ -984,6 +987,18 @@ Feed 负责列表播放页的条目位置、详情/帖子读取、标签门、�
   `handleArticleClick`＋本页 `openSafeLink`，与正身同实现）；
   再无→简介。证据 `~/workspace/hghub/fix335/evidence/c-presentation.md`
   （scratch 结构夹具改前 7/7、改后断言在旧树 8 红/新树 14/14）。
+
+- 远程清单 Ed25519 签名门（fix3317，2026-11-21）：清单 JSON 内嵌顶层
+  `signature` 字段，对「去掉 signature 后的规范化内容」（键递归排序、
+  无空白序列化，JS/Rust 双实现同构）签名；发布侧
+  `~/workspace/hghub/remote-manifest/sign-manifest.mjs`，私钥在本机
+  `~/workspace/hghub/registry-signing/`（不进仓不进包）；App 侧公钥固化
+  于 Rust `manifest_sig.rs`，经 `manifest_verify_signature` 命令在
+  validate/版本门之后、写缓存与生效之前验签——失败/无签名/格式坏一律
+  视为远程失败走 last-good → builtin 回退，不半应用；last-good 读回不
+  重复验签（信任在写入时建立）。防回滚沿用既有 manifestVersion 比较。
+  契约 `fix3317-manifest-signature.contract.test.ts`＋Rust 单测 3 个；
+  跨实现证据见 `~/workspace/hghub/fix3317/release-note-3317.md`。
 
 ## 验证命令
 

@@ -4,8 +4,8 @@
  *
  * 背景（结构审计 O3）：注册表此前只派生「源列表」、不派生「面路由」——
  * 21 个展示面里真派生 8、半派生 3、其余靠纪律或组件内手写判定，同一
- * 事实（源在不在、能不能搜、停用还是下线）在各面各判一遍，G3（012
- * 选集无消费者）/G4（外部源收藏历史无回访）正是「规则说适用、面不
+ * 事实（源在不在、能不能搜、停用还是下线）在各面各判一遍，G3
+ * （hentaihaven 选集无消费者，该源已摘除）/G4（外部源收藏历史无回访）正是「规则说适用、面不
  * 存在」漏接的形状。本模块把面路由收敛为一处纯函数派生：输入＝
  * active 注册表（清单覆盖后）＋适配器能力事实（templateCapabilities）
  * ＋P2 的选中态三态派生（resolveSelectedSource），输出＝每个面对每个
@@ -140,7 +140,7 @@ export const SURFACE_DECLARATIONS: Record<string, { reason: string }> = {
     reason: "外部源×首页/总览频道/发现面：原生构成面（D-1 默认口径＝有意原生专属；改口径时改本声明一处、契约全表复核，设计声明 d）",
   },
   "no-drama-mapping": {
-    reason: "外部 video 源×短剧频道：sourcesForChannel(ai-duanju) 要求 capabilities.episodes，当前无外部源满足（属实为空）；012 的多集是里番分集、非短剧品类（设计声明 e）",
+    reason: "外部 video 源×短剧频道：sourcesForChannel(ai-duanju) 要求 capabilities.episodes，当前无外部源满足（属实为空）；外部多集源的分集是里番分集、非短剧品类（设计声明 e）",
   },
   "native-not-in-video-channel": {
     reason: "原生主源×视频频道：原生视频面是确认门空壳（唯一能产「视频」确认的上游品类端点已下线、频道恒空，fix336 调查定案），fix336 起视频频道切源只列外部源、默认落首个可用外部源；原生面保留于短剧频道与吃瓜面，不受影响",

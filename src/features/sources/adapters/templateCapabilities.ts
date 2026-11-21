@@ -97,7 +97,7 @@ export interface DiscoverySpec {
   /** 排序维度：options 含默认值项，点选默认值＝清除该维度。 */
   sorts?: DiscoveryOption[];
   sortDefault?: string;
-  /** 榜单周期维度（012 的 trending 周期＋吃瓜三源的站方榜单，
+  /** 榜单周期维度（源站 trending 周期＋吃瓜三源的站方榜单，
    * fix337 起）：同 sorts 的默认值口径。 */
   rankPeriods?: DiscoveryOption[];
   periodDefault?: string;

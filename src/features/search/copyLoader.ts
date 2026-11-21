@@ -19,10 +19,10 @@
  *
  * 按集取流（2026-11-20 fix334/L2 G3）：opts.episodeExternalId
  * 给定时 video/drama 的 resolve 目标换为所选集的 externalId
- * （012 集 externalId 形态 <slug>/episode-<n>，适配器 resolve
- * 已支持按集解析）；缺省仍为条目 id（默认第一集，既有行为
- * 不变）。detail 段与缓存口径不随集变（detail 本就是整条目
- * 详情、含全集列表）。
+ * （集 externalId 形态由适配器定义，如 <slug>/episode-<n>，
+ * 适配器 resolve 已支持按集解析）；缺省仍为条目 id（默认第一
+ * 集，既有行为不变）。detail 段与缓存口径不随集变（detail 本
+ * 就是整条目详情、含全集列表）。
  */
 import type { SourceAdapter, SourceDef, SourceDetail } from "../sources/types.ts";
 import type { CopyRef, GlobalSearchKind } from "./multiSourceSearch.ts";

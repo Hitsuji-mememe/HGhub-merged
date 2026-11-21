@@ -7,30 +7,28 @@
 
 ```text
 src/
-├── editionEntry.ts           启动入口，加载旧 WebView 垫片并按构建变体装配应用
-├── edition.ts                标准版 / Android TV 变体标识
 ├── legacyRuntime.ts          旧版 Chromium / Safari 运行时 API 兼容垫片
-├── main.tsx                  标准版 React 挂载与启动初始化
+├── main.tsx                  React 挂载（AppProvider + App）与启动装配：
+│                             自动选线、多源注册表解析、诊断接线
 ├── app/
-│   ├── AcceptedApp.tsx      协议确认后的应用装配（AppProvider + 自动选线 + App）
 │   ├── App.tsx              页面栈、布局、全局返回与键盘处理
-│   ├── shell/               桌面标题栏、侧栏、窗口缩放热区
-│   └── startup/             启动动画与使用协议门
+│   └── gestureChain.ts      手势链判定（旧 shell/、startup/ 已拆除）
 ├── features/
-│   ├── account/             登录、个人中心、用户页与关注列表
+│   ├── account/             个人中心与用户页（Profile/User，账号体系已拆）
 │   ├── category/            分类与频道页
 │   ├── discover/            专题与标签页
 │   ├── feed/                首页、列表播放、详情面板、标签门、触屏长按
 │   ├── playback/            播放器、控制条、seek、恢复与媒体传输
 │   ├── posts/               图文列表、正文页与热度数据处理
 │   ├── search/              搜索、排行榜、标签与列表内搜索
-│   └── settings/            设置页、线路、代理与内容偏好编辑
-├── tv/                      独立 Android TV 版页面、遥控器焦点与本地索引
+│   ├── settings/            设置页、线路、代理与内容偏好编辑
+│   └── sources/             多源注册表、清单（含签名验签）、适配器、
+│                            浏览面（Gallery/Browse/Posts）与源自检
 ├── shared/
 │   ├── api/                 Tauri IPC、响应类型、平台与媒体地址封装
-│   ├── model/               应用状态、账号同步、内容偏好
+│   ├── model/               应用状态、本地资料库、内容偏好
 │   ├── network/             自动选线与网络结果观察
-│   ├── storage/             存储键迁移、使用协议版本与接受记录
+│   ├── storage/             存储键迁移与协议版本
 │   ├── diagnostics/         播放、布局和网络诊断
 │   ├── lib/                 HTML 处理、剪贴板、返回处理、工具函数
 │   └── ui/                  跨功能控件、卡片、图标与 iOS 风格基础控件
@@ -45,7 +43,7 @@ Feed 与评论、选集、详情面板放在 `features/feed/`。跨功能使用�
 
 ## 依赖与复用
 
-- `main.tsx` 装配启动门、Provider 与 App；`app` 消费 `features` 和 `shared`。
+- `main.tsx` 直挂 AppProvider 与 App，并装配自动选线、多源注册表与诊断接线；`app` 消费 `features` 和 `shared`。
 - `features` 消费 `shared`。现有功能复用保留：Feed 和图文正文使用 `playback`；
   分类、发现、图文、用户列表使用 `search/InplaceSearch`。这些调用不经过应用壳。
 - `shared` 不依赖 `app` 或 `features`。`shared/ui` 中的 Toast、筛选与偏好控件可以消费
@@ -73,8 +71,10 @@ external store，由多个页面共享，而非设置页私有状态。
 ## Rust 与验证文件
 
 `src-tauri/src/api/`、`net/`、`media/`、`lines/` 分别承载命令、网络、媒体协议与线路解析。
-平台壳、会话、缓存和安全策略仍保留在 `src-tauri/src/` 顶层；没有创建 `platform/` 或
-`state/` 目录。完整调用路径见各子系统页。
+`api/` 现行文件为 `feed.rs`、`lines.rs`、`platform.rs`、`source.rs`、`update.rs`、`video.rs`
+（及 `mod.rs`）；清单验签实现在顶层 `manifest_sig.rs`，由 `api/platform.rs` 的
+`manifest_verify_signature` 命令包装。平台壳、会话、缓存和安全策略仍保留在
+`src-tauri/src/` 顶层；没有创建 `platform/` 或 `state/` 目录。完整调用路径见各子系统页。
 
 浏览器 fixture 仍放在 `tests/`，执行脚本放在 `scripts/`；文件移动时同步修改它们对真实
 页面和组件的导入。GitHub Actions 的编译与测试结果记录验证状态，目录整理本身不代表

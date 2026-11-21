@@ -188,7 +188,8 @@ export async function openHandshakeResponse(xToken: string, base: string): Promi
 /* ── 取流分段留痕（Muse 2026-11-20 fix331-hanime-403 立、fix333-m5
  * 抽共享）── resolve 三段（csrf / handshake / decode）任一失败经共享
  * 落点 resolveTrace 落 source.resolve_fail（机制与键集合见该文件头）；
- * 本适配器是四源中第一个接入者，010/011/012 已由 m5 批同口径补齐。 */
+ * 本适配器是第一个接入者；m5 批曾同口径补齐的其余三源已随注册表
+ * 裁剪摘除，现行仅本源经共享落点落痕（沿革见 resolveTrace 文件头）。 */
 
 export type ResolveSegment = "csrf" | "handshake" | "decode";
 

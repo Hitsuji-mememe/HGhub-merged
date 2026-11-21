@@ -66,20 +66,105 @@ export function publishPlaybackFacts(next: PlaybackFacts): void {
   facts = next;
 }
 
-/* 是否有视频正在实际播放（2026-11-18 晚整改 3）：自动选线的健康复检
- * 用它做护栏——播放中不做回切主站这类会打断播放的常规切换；故障类
- * 切换（当前线已死/卡顿自愈）不走这个信号、不受影响。VideoSurface 在
- * playing/pause 与源卸载时更新。 */
-let playingNow = false;
-
-export function notePlaybackPlaying(playing: boolean): void {
-  playingNow = playing;
-}
-
-export function isPlaybackPlaying(): boolean {
-  return playingNow;
+/** 快照清场（fix3317，GPT 源码核验残口 5）：换源时旧源快照不得残留
+ * 给新源——内核 beginSource 调用本函数，新源在自身尺寸/档位到达前
+ * 报告如实读到「无快照」，不再冒充旧源规格。 */
+export function clearPlaybackFacts(): void {
+  facts = null;
 }
 
 export function readPlaybackFacts(): PlaybackFacts | null {
   return facts;
+}
+
+/* 是否有视频正在实际播放（2026-11-18 晚整改 3）：自动选线的健康复检
+ * 用它做护栏——播放中不做回切主站这类会打断播放的常规切换；故障类
+ * 切换（当前线已死/卡顿自愈）不走这个信号、不受影响。VideoSurface 在
+ * playing/pause 与源卸载时更新。 */
+
+/** playing 进展超时（fix3317，GPT 源码核验残口 3）：与 append 看门狗
+ * 的 10s 无进展收敛同口径，不另立第二套判死。 */
+export const PLAYING_PROGRESS_TIMEOUT_MS = 10_000;
+
+export interface PlayingProgressGuard {
+  note(playing: boolean): void;
+  progress(): void;
+  isPlaying(): boolean;
+}
+
+/** playing 事实守卫（纯核心，可单测）：事件置真只是「开始播」，持续
+ * 真实性由进展信号（内核 timeupdate 接线 → progress()）维持；置真后
+ * 持续无进展超 timeoutMs 自动回落未播放——堵「onPlaying 置真后画面
+ * 卡死不动、事实恒真误导选线护栏」。暂停/seek/ended 均有既有事件
+ * 把事实置假或刷新进展（seek 完成必有 timeupdate），不归本守卫管。 */
+export function createPlayingProgressGuard(deps: {
+  now: () => number;
+  setTimer: (fn: () => void, ms: number) => unknown;
+  clearTimer: (handle: unknown) => void;
+  timeoutMs?: number;
+}): PlayingProgressGuard {
+  const timeoutMs = deps.timeoutMs ?? PLAYING_PROGRESS_TIMEOUT_MS;
+  let playing = false;
+  let deadline = 0;
+  let handle: unknown = null;
+  const clear = () => {
+    if (handle !== null) {
+      deps.clearTimer(handle);
+      handle = null;
+    }
+  };
+  const arm = () => {
+    clear();
+    if (!playing) return;
+    const delay = Math.max(0, deadline - deps.now());
+    handle = deps.setTimer(() => {
+      handle = null;
+      if (playing && deps.now() >= deadline) playing = false;
+    }, delay);
+  };
+  return {
+    note(next: boolean): void {
+      playing = next;
+      if (next) {
+        deadline = deps.now() + timeoutMs;
+        arm();
+      } else {
+        clear();
+      }
+    },
+    progress(): void {
+      if (!playing) return;
+      deadline = deps.now() + timeoutMs;
+      arm();
+    },
+    isPlaying(): boolean {
+      return playing;
+    },
+  };
+}
+
+const playingGuard = createPlayingProgressGuard({
+  now: () => Date.now(),
+  setTimer: (fn, ms) => {
+    const h = setTimeout(fn, ms);
+    /* Node 契约环境下不让本守卫的计时器拖住进程退出（浏览器返回
+     * 数字、无 unref，守卫式调用）。 */
+    (h as unknown as { unref?: () => void }).unref?.();
+    return h;
+  },
+  clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+});
+
+export function notePlaybackPlaying(playing: boolean): void {
+  playingGuard.note(playing);
+}
+
+/** 进展信号（fix3317）：媒体时间推进时由内核调用，刷新 playing
+ * 事实的进展期限；未在播时无操作。 */
+export function notePlaybackProgress(): void {
+  playingGuard.progress();
+}
+
+export function isPlaybackPlaying(): boolean {
+  return playingGuard.isPlaying();
 }

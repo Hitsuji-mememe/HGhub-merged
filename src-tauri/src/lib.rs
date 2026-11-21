@@ -15,6 +15,7 @@ mod linux_webview;
 mod logging;
 #[cfg(target_os = "macos")]
 mod macos_titlebar;
+mod manifest_sig;
 mod media;
 mod media_dns;
 mod range_fetch;
@@ -213,6 +214,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             api::platform::app_boot,
+            api::platform::manifest_verify_signature,
             media_http_origin,
             playback_log::playback_log_status,
             playback_log::playback_log_set,

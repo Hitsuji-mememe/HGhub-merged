@@ -365,6 +365,18 @@
   按声明口径。回归见 `fix330-sr-fps.contract.test.ts` 与
   playback-engines C2 组。
 
+- 播放事实层三修（fix3317，2026-11-21）：①Player 媒体事件补源归属
+  校验（attachedSource＋isAttachedEvent，与 VideoSurface 同模式），
+  迟到的旧源事件不再污染当前源状态；②全局 playing 事实加进展兜底
+  （`createPlayingProgressGuard`，playing 后 10s 无 timeupdate/seek
+  进展则回落未播放，与卡顿收敛同口径，只动事实层不动状态机）；
+  ③切源在 `usePlaybackKernel.beginSource` 清播放事实
+  （`clearPlaybackFacts`），诊断快照不再残留旧源事实，报告选线节
+  双标注 Rust 当前 base 与 JS 最近轮次。另 SR 引擎 destroy() 显式
+  销毁 presentUniform buffer。契约
+  `fix3317-manifest-signature.contract.test.ts` 的 B 组断言＋守卫
+  假时钟行为组；证据 `~/workspace/hghub/fix3317/release-note-3317.md`。
+
 ## 验证命令
 
 ```sh

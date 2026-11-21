@@ -533,7 +533,7 @@ if (scFails.length) lines.push(`口径自检未过：${scFails.join("；")}`);
 lines.push("");
 lines.push("── 结论 ──────────────────────────");
 lines.push(`网络：${diagR.status === "fulfilled"? shortVerdict(diag): "诊断失败（net_diag 不可用）"}`);
-lines.push(`当前线路：${currentLineId?? "未知（无当前线路）"}（自动选线 ${autoLineEnabled()? "开": "关"}）`);
+lines.push(`当前线路：${currentLineId?? "未知（无当前线路）"}（Rust line_state 当前 base；自动选线 ${autoLineEnabled()? "开": "关"}）`);
 lines.push(`各线延迟${probeCount!= null? `（候选 ${probeCount} 条）`: ""}：${probeText}`);
 lines.push(`分片吞吐：${speedText}`);
 /* 起播数字后标注信号来源（fix2 A4）：playing 代理回落要让读者知道
@@ -641,7 +641,11 @@ const levelLine = formatLevelFactsLine({ facts: null, hasPlayback: flow != null 
 if (levelLine) lines.push(levelLine);
 }
 if (flow && flow.demoteCount > 0) lines.push(`超分降档：本会话 ${flow.demoteCount} 次（帧成本超标自动降档——发热/功耗问题先看这个数）`);
-lines.push(`选线现状：当前 ${currentLineId?? "未知"}${round && Date.now() - round.at < 10 * 60_000? `；最近轮次发布 ${round.published?? "?"} 条、延迟探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条、吞吐探测池 ${round.measured.length} 条（池规则：可达 ≤6 全测／>6 池内轮换）`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}${flow? `；本会话切线 ${flow.lineSwitchCount} 次${flow.confirmPendingCount > 0? ` · 两轮确认待确认 ${flow.confirmPendingCount} 次`: ""}`: ""}`);
+/* 选线双来源标注（fix3317，GPT 源码核验残口 5）：「当前」是 Rust
+ * line_state 的即时 base，「最近轮次」是 JS 侧 lastPickRound 的最近
+ * 一轮选线结果——两者来源不同、时刻可不一致，行内分开标注，不许
+ * 混作同一事实（选线逻辑本身不动）。 */
+lines.push(`选线现状：当前 ${currentLineId?? "未知"}（Rust line_state 当前 base）${round && Date.now() - round.at < 10 * 60_000? `；最近轮次（JS lastPickRound）发布 ${round.published?? "?"} 条、延迟探测 ${round.probed?? "?"} 条、可达 ${round.okCount?? "?"} 条、吞吐探测池 ${round.measured.length} 条（池规则：可达 ≤6 全测／>6 池内轮换）`: probeCount!= null? `；固定+当前探测 ${probeCount} 条、不可达 ${probeDown?? 0} 条`: ""}${flow? `；本会话切线 ${flow.lineSwitchCount} 次${flow.confirmPendingCount > 0? ` · 两轮确认待确认 ${flow.confirmPendingCount} 次`: ""}`: ""}`);
 lines.push("");
 lines.push("── 状态快照 ──────────────────────");
 /* 状态快照（飞行记录仪收口）：各子系统当前状态汇总，与时间线流水

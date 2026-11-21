@@ -330,7 +330,9 @@ const recorder = (body: string | ((url: string) => string)) => {
     assert.ok(src.includes("discFingerprint"), `${file} 指纹进滚动 key`);
     assert.ok(src.includes(listCall), `${file} list 传 disc`);
   }
-  assert.ok(read("./SourcePosts.tsx").includes("!compact && <DiscoveryBar"), "SourcePosts compact 形态不渲染维度条");
+  /* 断言适配（fix3317）：compact 形态整组删除，DiscoveryBar 改无条件
+   * 渲染（上方同文件断言已守 <DiscoveryBar 存在，本条守门控残留清零）。 */
+  assert.ok(!read("./SourcePosts.tsx").includes("!compact"), "SourcePosts 无 compact 门控残留");
   /* fix337：001 最热接线——原生适配器 list 消费 disc.sort（缺省与
    * 非 hot 值回落 latest），原生 Posts 页带最新/最热切换且排序经
    * 页内状态进 request 与 resetKey（切换整表重置、不混排）。 */

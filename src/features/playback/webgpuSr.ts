@@ -688,6 +688,10 @@ export class WebGpuSrEngine {
       try { tex.destroy?.(); } catch { /* 忽略 */ }
     }
     this.textures.clear();
+    /* presentUniform 显式释放（fix3317，GPT 源码核验残口）：此前只靠
+     * device.destroy 连带失效，逐项释放口径与纹理不一致。 */
+    try { (this.presentUniform as { destroy?: () => void } | null)?.destroy?.(); } catch { /* 忽略 */ }
+    this.presentUniform = null;
     try { this.device.destroy?.(); } catch { /* 忽略 */ }
   }
 }

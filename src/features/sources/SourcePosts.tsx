@@ -4,11 +4,12 @@
  * 批性质——此前唯独 posts 分类从未接浏览组件，非黄果源在 Posts 页
  * 与分类总览一律落诚实提示页（根因见 postsRoute.ts）。
  *
- * 本组件是 createAdapter 在 posts 分类的生产调用者：由 Posts 页
- * （全量形态）与分类总览吃瓜预览（compact 形态）按
+ * 本组件是 createAdapter 在 posts 分类的生产调用者：由 Posts 页按
  * resolvePostsBrowse 判定挂载（blocked 不进这里、仍走既有诚实
  * 提示页）。数据全程经适配器（list/detail/resolve）走生产取页链，
  * 失败呈现错误态＋重试，不用假数据、不回落黄果数据冒充。
+ * （分类总览 compact 预览形态已随总览退场失去消费者，fix3317 整组
+ * 删除——本组件现只有 Posts 页全量形态一个挂载面。）
  *
  * 详情形态与原生 PostDetail 同口径（最终版 D2）：先文后视频——
  * 标题/正文在前，播放器区在正文之后；仍是点了才播（resolve 只备
@@ -51,18 +52,15 @@ type DetailState =
   | { phase: "ready"; item: SourceItem; detail: SourceDetail; streamUrl: string | null; streamKind: "hls" | "file" | undefined; play: boolean }
   | { phase: "error"; item: SourceItem; message: string };
 
-export default function SourcePosts({ def, compact = false, onShowAll, onSettledEmpty, openExternalId, scrollerRef }: {
+export default function SourcePosts({ def, onSettledEmpty, openExternalId, scrollerRef }: {
   def: SourceDef;
   /** 宿主 scroller 下传（fix335/d-scroll）：滚动恢复 hook 据此读写
-   * 宿主滚动容器；未传（分类总览 compact 形态）时恢复静默不生效。 */
+   * 宿主滚动容器；未传时恢复静默不生效。 */
   scrollerRef?: { current: HTMLElement | null };
-  /** compact＝分类总览预览形态：只拉第一页少量条目、无哨兵续页，
-   * 底部「查看全部」由调用方接（跳吃瓜页）。 */
-  compact?: boolean;
-  onShowAll?: () => void;
   /** 已结空态回报（fix330/ui-fixes）：首批加载已结算（成功返回过
-   * 至少一页）∧非加载∧无错误∧条目为 0 时报 true，其余报 false；
-   * 分类总览据此整区隐藏空的吃瓜区。不传则不回报（Posts 页）。 */
+   * 至少一页）∧非加载∧无错误∧条目为 0 时报 true，其余报 false。
+   * 原消费者（分类总览整区隐藏）已退场，本回报口按 wiring
+   * fix330-ui-settled-empty 条目明确保留消费形态，不随 compact 删。 */
   onSettledEmpty?: (empty: boolean) => void;
   /** G4 回访直达（fix334/L3）：同 SourceBrowse 口径——已加载列表
    * 含目标条目才自动打开、消费一次，不在列表不强求。 */
@@ -88,11 +86,10 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
   const sentinelRef = useRef<HTMLDivElement>(null);
   /* 发现维度（fix335/f-discovery）：同 SourceBrowse 口径——disc 按
    * 源 id 隔离、指纹进滚动恢复 key，空 disc 时 key 与 D 线逐字一
-   * 致。compact 形态不渲染 DiscoveryBar（总览预览无维度切换），其
-   * disc 恒空、行为不变——落盘后更须显式钉死（fix3312/discovery-b）：
-   * compact 直读 EMPTY，不让全量形态的存量筛选漏进总览预览。 */
+   * 致，直接读落盘 disc（fix3317 删 compact 后与 SourceBrowse/
+   * SourceGallery 同式）。 */
   const { discStateMap, applyDisc: applyDiscState } = useDiscState();
-  const disc = compact ? EMPTY_LIST_DISCOVERY : (discStateMap[def.id]?.disc ?? EMPTY_LIST_DISCOVERY);
+  const disc = discStateMap[def.id]?.disc ?? EMPTY_LIST_DISCOVERY;
   const discFp = discFingerprint(disc);
   const discArg = discFp ? disc : undefined;
   const applyDisc = useCallback((next: ListDiscovery) => {
@@ -102,14 +99,14 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
    * 高度塌缩、scrollTop 被钳 0——打开详情前 capture、回列表且数据
    * 就位后由 hook 写回（机制见 shared/lib/useScrollKeeper）。 */
   const { captureScroll } = useScrollKeeper(`posts:${def.id}${discFp ? `:${discFp}` : ""}`, scrollerRef, detail === null && items.length > 0);
-  const pageSize = compact ? 8 : 20;
+  const pageSize = 20;
   /* 阅读进度（Muse 2026-11-21 fix3311/polish P2，整体打磨审计
    * §3）：原生 PostDetail 有阅读进度条、本面此前没有，同品类阅读
    * 体验一处有一处无。本面详情与列表共用宿主 scroller（无自有滚
    * 动体），进度读宿主 scrollerRef：打开详情时归零并订阅 scroll，
    * 口径与原生同式（scrollTop/(scrollHeight-clientHeight)，无可
    * 滚范围记 100）；关闭/切源随 detail 变化退订。scrollerRef 未传
-   * 的形态（compact 总览）不进详情、进度恒 0 不渲染。 */
+   * 时不订阅、进度恒 0 不渲染。 */
   const [readProgress, setReadProgress] = useState(0);
   const detailScrollRef = scrollerRef;
   const detailOpenForProgress = detail !== null;
@@ -198,10 +195,10 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
    * 并发重复拉）；失败落回「加载更多」按钮重试。失败冷却对齐
    * usePaginatedList 的 ERROR_RETRY_COOLDOWN_MS：旧口径 err 一置
    * 位哨兵整体停摆、瞬时失败即永久转手点；现哨兵保持在册，冷却
-   * 3s 内不重试、冷却后哨兵重入可再拉。compact 不续页。 */
+   * 3s 内不重试、冷却后哨兵重入可再拉。 */
   useEffect(() => {
     const el = sentinelRef.current;
-    if (compact || !el || loading || page >= pages || items.length === 0) return;
+    if (!el || loading || page >= pages || items.length === 0) return;
     const io = new IntersectionObserver((es) => {
       if (!es[0].isIntersecting) return;
       if (err && Date.now() - failAt.current < 3000) return;
@@ -209,7 +206,7 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
     }, { rootMargin: "300px" });
     io.observe(el);
     return () => io.disconnect();
-  }, [compact, loading, err, page, pages, items.length, load]);
+  }, [loading, err, page, pages, items.length, load]);
 
   const openExternalConsumed = useRef<string | null>(null);
   /* 维度切换重置（fix335/f-discovery）：同 SourceBrowse 口径——依赖
@@ -407,9 +404,9 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
 
   return (
     <div className="px-4 pt-2">
-      {!compact && <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc}
+      <DiscoveryBar def={def} disc={disc} onDiscChange={applyDisc}
         recentCategories={discStateMap[def.id]?.recentCategories}
-        recentTags={discStateMap[def.id]?.recentTags} />}
+        recentTags={discStateMap[def.id]?.recentTags} />
       {items.length > 0 && err && (
         <div role="status" className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-mut">
           <span>{err}</span><Button className="px-3 text-primary" onClick={() => void load(false)}>重试</Button>
@@ -430,16 +427,13 @@ export default function SourcePosts({ def, compact = false, onShowAll, onSettled
       ) : (
         <Empty icon={<IFireF size={26} />} title="该源暂无内容" sub="已取数，列表确为空（解析不到条目时已按加载失败处理）" />
       )}
-      {!compact && items.length > 0 && <div ref={sentinelRef} style={{ height: 1 }} />}
+      {items.length > 0 && <div ref={sentinelRef} style={{ height: 1 }} />}
       {loading && items.length > 0 && <div className="flex justify-center py-3"><Loader className="w-6 h-6 spinner" /></div>}
-      {!compact && !loading && err && page < pages && items.length > 0 && (
+      {!loading && err && page < pages && items.length > 0 && (
         <Button onClick={() => void load(false)} className="my-3 px-4 text-primary">加载更多</Button>
       )}
-      {!compact && !loading && !err && page >= pages && items.length > 0 && (
+      {!loading && !err && page >= pages && items.length > 0 && (
         <div className="text-center text-[12px] text-dim py-3">— 已经到底啦 —</div>
-      )}
-      {compact && visibleItems.length > 0 && onShowAll && (
-        <Button onClick={onShowAll} className="w-full mt-3 text-primary">查看全部</Button>
       )}
     </div>
   );

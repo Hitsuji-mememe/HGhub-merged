@@ -185,7 +185,11 @@ const def = (id: string): SourceDef => {
     assert.ok(read(f).includes("recentCategories"), `${f} 向 DiscoveryBar 下传最近分类`);
   }
   const posts = read("./SourcePosts.tsx");
-  assert.ok(posts.includes("compact ? EMPTY_LIST_DISCOVERY"), "SourcePosts compact 形态钉死空 disc（存量筛选不漏进总览预览）");
+  /* 断言适配（fix3317）：compact 总览预览形态整组删除（零消费者，
+   * 登记 记-4），其「存量筛选不漏进总览预览」的保护对象随之消失；
+   * SourcePosts 改与 SourceBrowse/Gallery 同式直读落盘 disc。 */
+  assert.ok(posts.includes("discStateMap[def.id]?.disc ?? EMPTY_LIST_DISCOVERY"), "SourcePosts 直读落盘 disc（compact 删除后同式）");
+  assert.ok(!posts.includes("compact ?") && !posts.includes("!compact") && !posts.includes("onShowAll"), "SourcePosts compact 形态代码已整组删除（注释提及不计）");
   const bar = read("./DiscoveryBar.tsx");
   assert.ok(bar.includes("pinRecentOptions"), "DiscoveryBar 消费最近用过置顶");
   assert.ok(bar.includes("taxonKeysForChineseQuery"), "DiscoveryBar 标签搜索接中文反查");

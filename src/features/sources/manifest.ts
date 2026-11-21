@@ -5,6 +5,11 @@
  * 清单只做覆盖层：按 id 覆盖 enabled（熔断位，可远程下线）与 baseUrls，
  * 不新增/删除源（名单冻结在内置注册表）。schema 校验不过即整份丢弃；
  * minAppVersion 高于当前 App 版本的清单不生效。
+ * fix3317 起远程清单另有 Ed25519 签名门：应用前经 Rust 命令
+ * manifest_verify_signature 验签（公钥固化于 src-tauri 的
+ * manifest_sig.rs，签的是去掉 signature 字段后的规范化内容）；
+ * 无签名/验不过一律视为远程失败走回退链，不半应用。last-good 是
+ * 验签通过后才写入的缓存，读回不再重复验签（信任在写入时建立）。
  * fix321-F8 起另有 adapterParams 参数下发（仅 hls-site）：其校验/应用/
  * 回滚状态机在 adapterParams.ts，参数非法只丢该条目参数（不整份丢）。
  *
@@ -29,7 +34,7 @@ export const REMOTE_MANIFEST_URL = "https://hghub-registry.pages.dev/sources-man
 export const MANIFEST_CACHE_KEY = "hghubx_sources_manifest_last_good";
 /** 不反向依赖 shared/api（其顶层含 Tauri/navigator 副作用）：版本号由
  * resolveRegistry 入参注入，未注入时用此兜底（与 package.json 同步）。 */
-export const FALLBACK_APP_VERSION = "3.3.16";
+export const FALLBACK_APP_VERSION = "3.3.17";
 export const BUILTIN_MANIFEST_VERSION = 1;
 
 export interface ManifestSourceOverride {
@@ -180,6 +185,19 @@ function setActive(r: ResolvedRegistry): ResolvedRegistry {
   return active;
 }
 
+/** 生产验签通道（fix3317）：经 Tauri 命令在 Rust 侧验 Ed25519
+ * 签名（不在 JS 侧赌 WebCrypto 的 Ed25519 支持）。命令不可用/异常
+ * 一律判不过（fail-closed）——生产恒在 Tauri 内运行，命令缺失只会
+ * 出现在非 App 环境，此时拒绝远程清单才是正确语义。 */
+async function defaultVerifyManifest(raw: unknown): Promise<boolean> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<boolean>("manifest_verify_signature", { manifest: raw });
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 启动后台拉取并解析注册表（三段回退）。fetcher/storage/appVersion
  * 可注入（契约测试用）；生产默认 fetch + localStorage。
@@ -189,6 +207,9 @@ export async function resolveRegistry(deps?: {
   storage?: StorageLike | null;
   appVersion?: string;
   url?: string;
+  /** 签名校验接缝（fix3317）：入参为远程清单原始对象（含
+   * signature 字段）；生产默认走 Rust 验签，契约测试注入桩。 */
+  verifyManifest?: (raw: unknown) => Promise<boolean>;
 }): Promise<ResolvedRegistry> {
   const appVersion = deps?.appVersion ?? FALLBACK_APP_VERSION;
   activeAppVersion = appVersion;
@@ -210,11 +231,17 @@ export async function resolveRegistry(deps?: {
     cachedManifest = cached ? validateManifest(JSON.parse(cached)) : null;
   } catch { /* 缓存损坏 → 视为无 last-good，后续按内置兜底 */ }
 
+  const verifyManifest = deps?.verifyManifest ?? defaultVerifyManifest;
   try {
-    const manifest = validateManifest(await fetcher(deps?.url ?? REMOTE_MANIFEST_URL));
+    const rawRemote = await fetcher(deps?.url ?? REMOTE_MANIFEST_URL);
+    const manifest = validateManifest(rawRemote);
     if (usable(manifest) && (cachedManifest === null || manifest.manifestVersion >= cachedManifest.manifestVersion)) {
-      try { storage?.setItem(MANIFEST_CACHE_KEY, JSON.stringify(manifest)); } catch { /* 缓存失败不影响本轮生效 */ }
-      return setActive({ sources: applyManifest(getBuiltinRegistry(), manifest, appVersion), manifestVersion: manifest.manifestVersion, source: "remote" });
+      /* 签名门（fix3317）：验的是原始对象（含 signature 字段）；
+       * 不过 → 不写缓存、不生效，落到下方 last-good 回退。 */
+      if (await verifyManifest(rawRemote)) {
+        try { storage?.setItem(MANIFEST_CACHE_KEY, JSON.stringify(manifest)); } catch { /* 缓存失败不影响本轮生效 */ }
+        return setActive({ sources: applyManifest(getBuiltinRegistry(), manifest, appVersion), manifestVersion: manifest.manifestVersion, source: "remote" });
+      }
     }
   } catch { /* 远程失败 → last-good */ }
 

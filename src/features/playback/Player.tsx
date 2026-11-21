@@ -55,6 +55,13 @@ export default function Player({
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const latestSource = useRef(src); latestSource.current = src;
+  /* 媒体事件归属（fix3317，GPT 源码核验残口 1）：本组件的 <video> 元素
+   * 跨换源复用，旧源迟到的 play/playing/pause 等事件此前只查
+   * activity.isActive() 即写本组件状态与全局 playing 事实，可串扰新
+   * 会话。与 VideoSurface 的 attachedSource 口径对齐：源 effect 装载
+   * 时登记当前 src、cleanup 清空，媒体事件处理器先验归属再落状态。 */
+  const attachedSource = useRef<string | null>(null);
+  const isAttachedEvent = () => attachedSource.current === src;
   const hlsRef = useRef<Hls | null>(null);
   const recoveryRef = useRef<HlsRecovery | null>(null);
   /* 播放内核收敛（最终版 A 线）：诊断登记/活动层/密度采样/facts
@@ -123,6 +130,7 @@ export default function Player({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !src) return;
+    attachedSource.current = src;
     setErrMsg("");
     setWaiting(false);
     /* 密度重置只认 hook 自身的 [srcKey, lineEpoch] 面（整改 B12）：
@@ -205,6 +213,7 @@ export default function Player({
     }
 
     return () => {
+      attachedSource.current = null;
       /* 内核源收尾（整改 B18 口径不变）：吞吐兜底 flush＋全局
        * playing 清零——源卸载即视为不在播，autoLine 的 main-return
        * 护栏据此判读。 */
@@ -273,17 +282,18 @@ export default function Player({
         className="w-full h-full object-contain bg-black"
         style={filterMode ? { filter: getSvgFilterUrl(filterMode) } : undefined}
         onClick={toggle}
-        onLoadedData={() => setVideoReady(true)}
-        onCanPlay={() => setVideoReady(true)}
-        onPlay={() => { if (activity.isActive()) { kernel.notePlaying(true); setPlaying(true); onTogglePlay?.(true); } }}
-        onPause={() => { if (activity.isActive()) kernel.notePlaying(false); setPlaying(false); onTogglePlay?.(false); }}
-        onWaiting={() => setWaiting(true)}
-        onPlaying={() => { if (activity.isActive()) { kernel.notePlaying(true); setWaiting(false); setErrMsg(""); onPlaying?.(); } }}
-        onSeeked={() => setWaiting(false)}
-        onTimeUpdate={(e) => setTime((e.target as HTMLVideoElement).currentTime)}
-        onLoadedMetadata={(e) => { const v = e.target as HTMLVideoElement; setDuration(v.duration || 0); setSrSize({ w: v.videoWidth || 0, h: v.videoHeight || 0 }); kernel.noteNativeRendition(v.videoWidth, v.videoHeight); }}
-        onEnded={() => { kernel.notePlaying(false, true); if (activity.isActive()) onEnded?.(); }}
+        onLoadedData={() => { if (isAttachedEvent()) setVideoReady(true); }}
+        onCanPlay={() => { if (isAttachedEvent()) setVideoReady(true); }}
+        onPlay={() => { if (!isAttachedEvent()) return; if (activity.isActive()) { kernel.notePlaying(true); setPlaying(true); onTogglePlay?.(true); } }}
+        onPause={() => { if (!isAttachedEvent()) return; if (activity.isActive()) kernel.notePlaying(false); setPlaying(false); onTogglePlay?.(false); }}
+        onWaiting={() => { if (isAttachedEvent()) setWaiting(true); }}
+        onPlaying={() => { if (!isAttachedEvent()) return; if (activity.isActive()) { kernel.notePlaying(true); setWaiting(false); setErrMsg(""); onPlaying?.(); } }}
+        onSeeked={() => { if (isAttachedEvent()) setWaiting(false); }}
+        onTimeUpdate={(e) => { if (isAttachedEvent()) setTime((e.target as HTMLVideoElement).currentTime); }}
+        onLoadedMetadata={(e) => { if (!isAttachedEvent()) return; const v = e.target as HTMLVideoElement; setDuration(v.duration || 0); setSrSize({ w: v.videoWidth || 0, h: v.videoHeight || 0 }); kernel.noteNativeRendition(v.videoWidth, v.videoHeight); }}
+        onEnded={() => { if (!isAttachedEvent()) return; kernel.notePlaying(false, true); if (activity.isActive()) onEnded?.(); }}
         onError={() => {
+          if (!isAttachedEvent()) return;
           if (hlsRef.current) return;
           setWaiting(false);
           setPlaying(false);

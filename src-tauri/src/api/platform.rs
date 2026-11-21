@@ -19,6 +19,13 @@ pub async fn net_diag() -> Result<Value, String> {
     Ok(crate::net::diagnose().await)
 }
 
+/// 远程清单 Ed25519 验签（fix3317）：纯同步校验，逻辑本体在
+/// crate::manifest_sig（公钥固化、规范化口径与发布脚本同构）。
+#[tauri::command]
+pub fn manifest_verify_signature(manifest: Value) -> bool {
+    crate::manifest_sig::verify_manifest(&manifest)
+}
+
 /// 切换移动端屏幕方向（iOS 原生旋转：横屏 Landscape / 竖屏 Portrait）。
 #[tauri::command]
 pub async fn set_orientation(app: tauri::AppHandle, landscape: bool) -> Result<(), String> {

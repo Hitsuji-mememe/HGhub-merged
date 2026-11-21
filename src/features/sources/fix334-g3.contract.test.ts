@@ -15,10 +15,10 @@
  * EpisodePicker.tsx 不存在、copyLoader 无按集参数、两宿主无选集
  * 接线——本文件在基线因模块缺失无法运行（即红）。
  *
- * caps 裁定（本线核对消费面后的结论，报告 §差异）：012 注册表
+ * caps 裁定（本线核对消费面后的结论，报告 §差异）：hentaihaven 注册表
  * capabilities.episodes **维持 false**——该字段是短剧频道
  * （ai-duanju）的品类映射门（registry.sourcesForChannel 只认
- * 它），翻 true 会让 012（里番分集、非短剧品类）进短剧频道切源
+ * 它），翻 true 会让多集里番源（里番分集、非短剧品类）进短剧频道切源
  * 名单、且与 surfaces 声明 e（no-drama-mapping）冲突；集数产出
  * 事实以 templateCapabilities 的 multi 为唯一出处、选集面只读
  * 模板事实不读 caps。§6 把这条分层钉死防再漂移。

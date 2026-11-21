@@ -11,7 +11,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import Hls, { type FragLoadedData } from "hls.js";
 import { api } from "../../shared/api/api";
 import { mediaResource, observeHls, registerHlsVersion, usePlayerDiagnostics } from "../../shared/diagnostics/playbackDiagnostics";
-import { notePlaybackPlaying, publishPlaybackFacts, type PlaybackFacts, type PlaybackLevelFacts } from "../../shared/diagnostics/playbackFacts";
+import { clearPlaybackFacts, notePlaybackPlaying, notePlaybackProgress, publishPlaybackFacts, type PlaybackFacts, type PlaybackLevelFacts } from "../../shared/diagnostics/playbackFacts";
 import { levelFactsFromFirstRendition } from "../../shared/diagnostics/levelFacts";
 import { usePlaybackActivity } from "./usePlaybackActivity";
 import { createFragThroughputReporter, currentLineOrigin } from "./playbackThroughput";
@@ -194,6 +194,26 @@ export function usePlaybackKernel(opts: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src, opts.lineEpoch]);
 
+  /* playing 进展信号接线（fix3317）：媒体时间推进（timeupdate）即
+   * 刷新全局 playing 事实的进展期限，与 playbackFacts 的进展守卫
+   * 配套——置真后持续无 timeupdate 超 10s 自动回落未播放。两面共用
+   * 本内核一份接线，不在各播放面重复挂监听。 */
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onProgress = () => notePlaybackProgress();
+    video.addEventListener("timeupdate", onProgress);
+    /* seek 起手/落定各刷新一次期限：seek 本身获得从起手起算的完整
+     * 无进展预算，不被误判为卡死（预算仍有界，与看门狗同口径）。 */
+    video.addEventListener("seeking", onProgress);
+    video.addEventListener("seeked", onProgress);
+    return () => {
+      video.removeEventListener("timeupdate", onProgress);
+      video.removeEventListener("seeking", onProgress);
+      video.removeEventListener("seeked", onProgress);
+    };
+  }, [videoRef, src]);
+
   const coreRef = useRef<PlaybackKernelCore | null>(null);
   if (!coreRef.current) {
     coreRef.current = createPlaybackKernelCore({
@@ -270,11 +290,13 @@ export function usePlaybackKernel(opts: {
     core.setLineOrigin(currentLineOrigin());
   }, [core, opts.lineEpoch]);
 
-  /** 源装载起点：记引擎、清 playing level、吞吐账本按当前线路记账。 */
+  /** 源装载起点：记引擎、清 playing level、吞吐账本按当前线路记账。
+   * facts 快照同时清场（fix3317）：旧源规格不得残留给新源冒充。 */
   const beginSource = (engine: string) => {
     engineRef.current = engine;
     core.resetPlayingLevel();
     core.setLineOrigin(currentLineOrigin());
+    clearPlaybackFacts();
   };
   /** 源卸载收尾：吞吐兜底 flush＋全局 playing 清零（无条件，与两面
    * 现行 cleanup 口径一致）。诊断实例注销由 usePlayerDiagnostics
