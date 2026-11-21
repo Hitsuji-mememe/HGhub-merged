@@ -179,6 +179,154 @@ pub async fn fetch_range_direct(
     Ok(RangeFetch { status, total, ctype, etag, bytes })
 }
 
+/// 流式 Range 取数的结果（fix3313/startup-stream）：响应体不落地，
+/// 调用方边收边转。206 的 served_end 为 Content-Range 的实际终点
+/// （可小于请求终点＝EOF 截断，与缓冲路径同口径）。
+pub enum StreamFetch {
+    Ranged {
+        resp: reqwest::Response,
+        total: Option<u64>,
+        served_end: u64,
+        ctype: Option<String>,
+    },
+    Full {
+        resp: reqwest::Response,
+        ctype: Option<String>,
+    },
+}
+
+/// 与 fetch_range_direct 同形态（Referer/UA/identity/20s 请求截止、
+/// 同一取数链），但只验响应头即返回活响应：206 必带合法
+/// Content-Range 且起点与请求一致、终点不越请求区间（与缓冲路径
+/// 的头级判据逐字一致）；200＝上游忽略 Range、体即全量。字节数
+/// 与区间长度的一致性无法在头级验，由消费方计数流在末端核
+/// （本模块的中继泵 spawn_range_relay）。16MB 单响应上限不适用本函数：
+/// 消费面是 ≤4MB 窗口切片，实际转出量由消费方 take 封顶。
+pub async fn fetch_range_stream(
+    url: &str,
+    start: u64,
+    end: u64,
+) -> Result<StreamFetch, String> {
+    let referer = format!("{}/", base());
+    let range = format!("bytes={start}-{end}");
+    let resp = get_with_dns_h(
+        url,
+        Duration::from_secs(20),
+        None,
+        Some(&referer),
+        false,
+        &[("Range", &range), ("Accept-Encoding", "identity")],
+    )
+    .await?;
+    let status = resp.status().as_u16();
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let ctype = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    if status == 206 {
+        let content_range = resp
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let (range_start, range_end, total) = content_range
+            .as_deref()
+            .and_then(parse_content_range)
+            .ok_or("HTTP 206 缺少有效 Content-Range")?;
+        if range_start != start || range_end > end {
+            return Err("HTTP 206 Content-Range 与请求区间不一致".into());
+        }
+        Ok(StreamFetch::Ranged { resp, total, served_end: range_end, ctype })
+    } else {
+        Ok(StreamFetch::Full { resp, ctype })
+    }
+}
+
+/// 流式窥头结果（fix3313）：Complete＝窥头期间上游已 EOF、整
+/// 段在手（调用方走缓冲整形）；Live＝已攒够判据前缀且流仍活。
+pub enum StreamPeek {
+    Complete(Vec<u8>),
+    Live { resp: reqwest::Response, prefix: Vec<u8> },
+}
+
+/// 流式消费前的窥头：先读到 16 字节（媒体守卫的最长判据 9 字
+/// 节，留余量）或 EOF，调用方据此在提交响应头之前跑内容守卫。
+pub async fn peek_stream_prefix(resp: reqwest::Response) -> Result<StreamPeek, String> {
+    let mut resp = resp;
+    let mut prefix = Vec::new();
+    while prefix.len() < 16 {
+        match resp.chunk().await.map_err(|e| crate::net::err_text(&e))? {
+            Some(chunk) => prefix.extend_from_slice(&chunk),
+            None => return Ok(StreamPeek::Complete(prefix)),
+        }
+    }
+    Ok(StreamPeek::Live { resp, prefix })
+}
+
+/// 原始坐标切片：取 raw（起始于 raw_start）与 [skip, skip+take)
+/// 的交集。200 全量形态靠 skip 落到请求起点、take 封顶取量；
+/// 206 形态 skip=0、take=区间长。
+fn slice_window<'a>(raw: &'a [u8], raw_start: u64, skip: u64, take: u64) -> &'a [u8] {
+    let lo = skip.max(raw_start);
+    let hi = (skip + take).min(raw_start + raw.len() as u64);
+    if hi <= lo {
+        &[]
+    } else {
+        &raw[(lo - raw_start) as usize..(hi - raw_start) as usize]
+    }
+}
+
+/// 流式体通道：元素为一块已切片字节，或末端错误（上游提前
+/// EOF/传输错误——消费方必须断连，已承诺长度不足量）。
+pub type RangeBodyRx = tokio::sync::mpsc::Receiver<Result<Vec<u8>, String>>;
+
+/// 中继泵（fix3313）：prefix（窥头已读的原始字节）先行，其后
+/// 逐块泵送上游余流，边到边吐；按原始坐标计数，送满 take 即
+/// 正常收尾关通道（多余字节随 resp drop 弃）。消费方掉线
+/// （send 失败）即停泵弃流。
+pub fn spawn_range_relay(resp: reqwest::Response, prefix: Vec<u8>, skip: u64, take: u64) -> RangeBodyRx {
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, String>>(8);
+    tokio::spawn(async move {
+        let mut resp = resp;
+        let mut seen = prefix.len() as u64;
+        let mut sent = 0u64;
+        let piece = slice_window(&prefix, 0, skip, take);
+        if !piece.is_empty() {
+            sent += piece.len() as u64;
+            if tx.send(Ok(piece.to_vec())).await.is_err() {
+                return;
+            }
+        }
+        while sent < take {
+            match resp.chunk().await {
+                Ok(Some(chunk)) => {
+                    let piece = slice_window(&chunk, seen, skip, take);
+                    seen += chunk.len() as u64;
+                    if !piece.is_empty() {
+                        sent += piece.len() as u64;
+                        if tx.send(Ok(piece.to_vec())).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                Ok(None) => {
+                    let _ = tx.send(Err("上游流提前结束".to_string())).await;
+                    return;
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(crate::net::err_text(&e))).await;
+                    return;
+                }
+            }
+        }
+    });
+    rx
+}
+
 /// 元信息探针的结果（HEAD 等价，只读响应头）：状态码 / 总长 / 类型。
 pub struct RangeMeta {
     pub status: u16,

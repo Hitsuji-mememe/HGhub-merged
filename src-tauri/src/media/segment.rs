@@ -224,9 +224,9 @@ pub(super) fn clear_cache() {
 /// 窗在真机 App 通道 2.4MB/s 下 TTFB≈6s 起、慢文件宿主线性恶化
 /// （fix3311 定因 §1）——本批收至 4MB（同通道 ≈1.7s），显式区间
 /// 与后缀区间一并封顶（旧形态显式大区间直通 fetch_range_direct
-/// 必撞 16MB 上限回 Fallback 落整段级联）。回环层流式回吐（边取
-/// 边写）为定因报告候选 5，成本最高、动共享层，待真机起播 P50
-/// 证据再立项。
+/// 必撞 16MB 上限回 Fallback 落整段级联）。fix3313 订正：定因
+/// （fix3312 调查）实测病根是整窗全缓冲而非窗口大小——回环层
+/// 流式回吐已落地（本文件流式直通节），窗口 4MB 语义不变。
 pub(super) const RANGED_WINDOW_MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -452,6 +452,145 @@ pub(super) async fn load_segment_unranged(
     url: &str,
 ) -> Result<tauri::http::Response<Vec<u8>>, RangedError> {
     load_ranged_explicit(url, 0, RANGED_WINDOW_MAX_BYTES - 1).await
+}
+
+/* ── file 流流式直通（Muse 2026-11-21 fix3313/startup-stream）──
+ * 定因（fix3312 调查）：020 慢起播的病根不是窗口大小，而是整窗
+ * 全缓冲——4MB 窗在慢宿主上要整窗取完（实测 12~14s）回环层才吐
+ * 第一个字节。本节与上面的缓冲路径同请求、同判据、同失败分流，
+ * 唯一区别是体不落地：响应头验毕先窥头攒够守卫前缀（守卫只需
+ * 前 9/7 字节），守卫一过即提交 206 头，余流由中继泵逐块转出，
+ * 首字节时延降到首块量级。窗口语义（4MB 封顶、Content-Range、
+ * 总长）逐字不变——变的只是字节的交付时点，不是交付内容。
+ * 完整性：中继泵按已承诺的窗口长计数，送满即止；上游提前 EOF
+ * 或传输错误 → 通道 Err → 写线方断连（Content-Length 不足量，
+ * 绝不以正常关闭冒充完整）。后缀区间须先知总长、且上游忽略
+ * Range 时要整文件尾切，仍走缓冲路径（其形态本就不是起播面）。 */
+
+pub(super) type MediaBodyRx = tokio::sync::mpsc::Receiver<Result<Vec<u8>, String>>;
+
+/* 窥头（peek_stream_prefix）与中继泵（spawn_range_relay）在
+ * range_fetch：与 fetch_range_stream 同为 Range 传输底座（该模
+ * 块本就是为 size-budgets 从 net/media 拆出的顶层模块），本节
+ * 只留媒体语义（判据/整形/分流）。 */
+use crate::range_fetch::{peek_stream_prefix, spawn_range_relay, StreamPeek as Peeked};
+
+/// 显式区间 [start, end] 的流式取数与整形：与 load_ranged_
+/// explicit 同判据（206 头验/Content-Range、200 全量本地切片、
+/// 总长缺失回退、守卫、416），体改走流式通道。
+async fn load_ranged_explicit_stream(
+    url: &str,
+    start: u64,
+    end: u64,
+) -> Result<super::MediaResponse, RangedError> {
+    use crate::range_fetch::StreamFetch;
+    let fetched = crate::range_fetch::fetch_range_stream(url, start, end)
+        .await
+        .map_err(ranged_fetch_error)?;
+    match fetched {
+        StreamFetch::Ranged { resp, total, served_end, ctype } => {
+            /* 总长缺失（*）时无法给出 Content-Range 总长，与缓冲
+             * 路径同口径回退旧形态。 */
+            let total = total.ok_or(RangedError::Fallback)?;
+            let expected = served_end - start + 1;
+            match peek_stream_prefix(resp).await.map_err(ranged_fetch_error)? {
+                Peeked::Complete(bytes) => {
+                    if bytes.len() as u64 != expected || bytes.is_empty() {
+                        return Err(RangedError::Fallback);
+                    }
+                    ranged_slice_guard(&bytes, start)?;
+                    Ok(super::MediaResponse::Full(super::response::range_window_response(
+                        url,
+                        ctype.as_deref(),
+                        bytes,
+                        start,
+                        total,
+                    )))
+                }
+                Peeked::Live { resp, prefix } => {
+                    ranged_slice_guard(&prefix, start)?;
+                    let head = super::response::range_window_head_response(
+                        url,
+                        ctype.as_deref(),
+                        start,
+                        served_end,
+                        total,
+                    );
+                    let body = spawn_range_relay(resp, prefix, 0, expected);
+                    Ok(super::MediaResponse::Streamed { head, body })
+                }
+            }
+        }
+        StreamFetch::Full { resp, ctype } => {
+            /* 上游忽略 Range：体即全量。流式形态的总长只认
+             * Content-Length（无从在头级另知体长），缺失回退
+             * 缓冲路径（其按实体长定总长）。本地切片语义与缓冲
+             * 路径逐字一致：skip 到 start、take 到 slice_end。 */
+            let total = resp.content_length().ok_or(RangedError::Fallback)?;
+            if start >= total {
+                return Err(RangedError::Fatal(416, "请求区间越界".to_string()));
+            }
+            let slice_end = end.min(total - 1);
+            let take = slice_end - start + 1;
+            match peek_stream_prefix(resp).await.map_err(ranged_fetch_error)? {
+                Peeked::Complete(bytes) => {
+                    if bytes.len() as u64 != total {
+                        return Err(RangedError::Fallback);
+                    }
+                    ranged_slice_guard(&bytes, start)?;
+                    let slice = bytes[start as usize..=slice_end as usize].to_vec();
+                    Ok(super::MediaResponse::Full(super::response::range_window_response(
+                        url,
+                        ctype.as_deref(),
+                        slice,
+                        start,
+                        total,
+                    )))
+                }
+                Peeked::Live { resp, prefix } => {
+                    ranged_slice_guard(&prefix, start)?;
+                    let head = super::response::range_window_head_response(
+                        url,
+                        ctype.as_deref(),
+                        start,
+                        slice_end,
+                        total,
+                    );
+                    let body = spawn_range_relay(resp, prefix, start, take);
+                    Ok(super::MediaResponse::Streamed { head, body })
+                }
+            }
+        }
+    }
+}
+
+/// /seg ranged 流式入口（handle_stream 在「带 Range ∧ 媒体文件
+/// 目标 ∧ GET」时调用）：显式/开放区间走流式；后缀区间逐字委派
+/// 缓冲路径（见本节头注），其结论原样以 Full 透传。
+pub(super) async fn load_segment_ranged_stream(
+    url: &str,
+    range: &str,
+) -> Result<super::MediaResponse, RangedError> {
+    match parse_single_range(range).ok_or(RangedError::Fallback)? {
+        SingleRange::FromTo(start, end) => {
+            let end = end.min(start.saturating_add(RANGED_WINDOW_MAX_BYTES - 1));
+            load_ranged_explicit_stream(url, start, end).await
+        }
+        SingleRange::From(start) => {
+            let end = start.saturating_add(RANGED_WINDOW_MAX_BYTES - 1);
+            load_ranged_explicit_stream(url, start, end).await
+        }
+        SingleRange::Suffix(_) => load_segment_ranged(url, range)
+            .await
+            .map(super::MediaResponse::Full),
+    }
+}
+
+/// 裸 GET 首窗流式形态（load_segment_unranged 的流式对应）。
+pub(super) async fn load_segment_unranged_stream(
+    url: &str,
+) -> Result<super::MediaResponse, RangedError> {
+    load_ranged_explicit_stream(url, 0, RANGED_WINDOW_MAX_BYTES - 1).await
 }
 
 #[cfg(test)]

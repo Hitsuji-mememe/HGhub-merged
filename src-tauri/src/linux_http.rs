@@ -131,10 +131,35 @@ fn serve(mut stream: TcpStream) -> std::io::Result<()> {
     } else {
         None
     };
-    let response = tauri::async_runtime::block_on(crate::media::handle(path, query, ORIGIN, range, method == "HEAD"));
-    let (parts, body) = response.into_parts();
-
-    write_response(&mut stream, method, parts, &body)
+    /* 流式分发（fix3313/startup-stream）：handle_stream 对 /seg
+     * 媒体文件 GET 命中流式直通时回 Streamed（头＋体通道），其余
+     * 形态恒 Full、逐字走旧写线。流式体经 block_on 逐块收、逐块
+     * 写，首字节不等整窗；通道 Err＝上游中途失败，立即断连
+     * （已承诺 Content-Length 不足量，不冒充完整响应）。 */
+    let media_response = tauri::async_runtime::block_on(crate::media::handle_stream(path, query, ORIGIN, range, method == "HEAD"));
+    match media_response {
+        crate::media::MediaResponse::Full(response) => {
+            let (parts, body) = response.into_parts();
+            write_response(&mut stream, method, parts, &body)
+        }
+        crate::media::MediaResponse::Streamed { head, mut body } => {
+            let (parts, _) = head.into_parts();
+            let wire_len = parts
+                .headers
+                .get("content-length")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(0);
+            write_head(&mut stream, &parts, wire_len)?;
+            if method != "HEAD" {
+                while let Some(item) = tauri::async_runtime::block_on(body.recv()) {
+                    let chunk = item.map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))?;
+                    stream.write_all(&chunk)?;
+                }
+            }
+            stream.flush()
+        }
+    }
 }
 
 fn write_response(
@@ -158,6 +183,21 @@ fn write_response(
     } else {
         body.len()
     };
+    write_head(stream, &parts, wire_len)?;
+    if method != "HEAD" {
+        stream.write_all(body)?;
+    }
+    stream.flush()
+}
+
+/// 只写响应头（write_response 与流式写线共用）：wire_len 为写线
+/// 权威长度，由调用方按形态定（Full 走 write_response 的既有口
+/// 径；Streamed 以头部 Content-Length＝已承诺窗口长为准）。
+fn write_head(
+    stream: &mut impl Write,
+    parts: &tauri::http::response::Parts,
+    wire_len: usize,
+) -> std::io::Result<()> {
     let mut head = String::with_capacity(320);
     head.push_str(&format!(
         "HTTP/1.1 {} {}\r\n",
@@ -181,11 +221,7 @@ fn write_response(
     }
     head.push_str("Access-Control-Allow-Origin: *\r\n");
     head.push_str("Connection: close\r\n\r\n");
-    stream.write_all(head.as_bytes())?;
-    if method != "HEAD" {
-        stream.write_all(body)?;
-    }
-    stream.flush()
+    stream.write_all(head.as_bytes())
 }
 
 #[cfg(test)]

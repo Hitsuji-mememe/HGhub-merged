@@ -244,6 +244,42 @@ pub(super) fn range_window_response(
     response
 }
 
+/// ranged 流式直通的 206 头响应（Muse 2026-11-21 fix3313/startup-
+/// stream）：与 range_window_response 同头不同体——体走流式通道
+/// 逐块回吐，头部先行。Content-Length 写窗口长（覆盖 respond 的
+/// 空体长度，与 media_head_response 的覆写先例同式）；套接字入口
+/// 对流式 GET 以本头部 Content-Length 为写线长度。调用方保证
+/// start..=end 为实际服务区间且 end < total。
+pub(super) fn range_window_head_response(
+    target: &str,
+    ctype: Option<&str>,
+    start: u64,
+    end: u64,
+    total: u64,
+) -> Response<Vec<u8>> {
+    use tauri::http::HeaderValue;
+    let mut response = respond(
+        206,
+        &media_mime_for_target(target, ctype),
+        Vec::new(),
+        PROXIED_MEDIA_CACHE_CONTROL,
+    );
+    response.headers_mut().insert(
+        "Content-Length",
+        HeaderValue::from_str(&(end - start + 1).to_string())
+            .unwrap_or_else(|_| HeaderValue::from_static("0")),
+    );
+    response
+        .headers_mut()
+        .insert("Accept-Ranges", HeaderValue::from_static("bytes"));
+    response.headers_mut().insert(
+        "Content-Range",
+        HeaderValue::from_str(&format!("bytes {start}-{end}/{total}"))
+            .unwrap_or_else(|_| HeaderValue::from_static("bytes */*")),
+    );
+    response
+}
+
 /// HEAD 元信息响应（Muse 2026-11-21 fix3311/file-leg-fix）：媒体
 /// 文件目标的 HEAD 只回头不回体——Content-Length 写文件总长（而
 /// 非空体长度，覆盖 respond 的体长值）、类型经 media_mime_for_
