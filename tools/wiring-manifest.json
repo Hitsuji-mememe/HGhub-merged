@@ -1480,7 +1480,7 @@
     },
     {
       "id": "fix330-ui-album-window",
-      "item": "fix330/ui-fixes 图集舞台窗口化：当前张±1 三帧挂载（data-album-frame 定 key）、邻图预取，快翻不空白",
+      "item": "fix330/ui-fixes 图集舞台窗口化：当前张±2 五帧挂载（data-album-frame 定 key；窗口 ±1→±2 为 fix3311/polish 预取加宽）、邻图预取，快翻不空白",
       "symbol": "data-album-frame",
       "files": [
         "src/features/sources/AlbumViewer.tsx"
