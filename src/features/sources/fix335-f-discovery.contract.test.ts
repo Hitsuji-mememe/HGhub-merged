@@ -312,6 +312,15 @@ const recorder = (body: string | ((url: string) => string)) => {
   assert.ok(bar.includes("标签加载失败"), "弹层加载失败明示文案（fix3314 C1）");
   assert.ok(bar.includes("TAG_SHEET_PAGE"), "弹层标签分段渲染页大小（fix3314 B1）");
   assert.ok(!bar.includes("?? { value: disc.tag, label: disc.tag }"), "已选 chip 无条件原始 id 回落退场（fix3314 C2）");
+  /* fix3316 真机两修：①分类行退出筛选栏——渲染经保留名单门控
+   * （名单为空集＝全源不渲染）、存量 category 经清场 effect 退
+   * 场；②弹层首开不能滑——滚动区补 flex-1/min-h-0 成有界真滚
+   * 动区（B1 续段 onScroll 同元素），不再靠 .ios-dialog 兜底
+   * 滚动几何。旧码两断言皆红（无门控字面、无 min-h-0）。 */
+  assert.ok(bar.includes("CATEGORY_BAR_KEPT_SOURCE_IDS"), "分类行渲染经保留名单门控（fix3316）");
+  assert.ok(bar.includes("categoryBarKept && spec.categories"), "分类行仅保留名单内的源渲染（fix3316）");
+  assert.ok(bar.includes("disc.category_axis_retired"), "存量 category 清场留痕（fix3316）");
+  assert.ok(bar.includes("min-h-0 flex-1 flex-wrap"), "弹层滚动区＝有界真滚动区（fix3316 首开可滑）");
   for (const [file, listCall] of [
     ["./SourceGallery.tsx", "adapter.list(next, 20, discArg)"],
     ["./SourcePosts.tsx", "adapter.list(next, pageSize, discArg)"],

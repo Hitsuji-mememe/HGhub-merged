@@ -41,6 +41,23 @@
  * taxonomy 加载失败明示＋重试（不再恒显「加载中」）；C2 已选
  * chip 在 taxonomy 到达前暂缓渲染（不以原始 id 回显）；D1 标签
  * 池映射抽共用 taxonOptionsOf（discoveryOptions 单一出处）。
+ *
+ * 真机反馈两修（Muse 2026-11-21 fix3316，用户 3.3.15 真机）：
+ * ①分类行退出瘦筛选栏（用户原话「保留筛选即可，那个全部貌似
+ * 没用了」）：「全部＋分类横滑」整条不再渲染，内容默认全部；
+ * 分类轴只对「标签池为空、分类是唯一筛选轴」的源保留（逐源
+ * 核池清单见 fix3316 release note，现行无源命中、名单为空集）。
+ * categoryOptions 计算与同名剔除接线不变（契约钉＋弹层标签池
+ * 口径）；落盘 disc 里存量 category 在非保留源上经既有
+ * onDiscChange 通道清字段一次（无界面入口的隐形过滤不许留，
+ * recentCategories 历史与存储结构不动）。②弹层首开不能滑：
+ * 滚动区原是全仓唯一没按 `flex-1 min-h-0` 惯例约束高度的滚
+ * 动区——flex 子项自动最小尺寸＝内容高，滚动区涨成内容全高、
+ * 自身不滚，滚动被甩给 .ios-dialog 的 overflow 兜底，而
+ * WebKit 对「首帧内容尚短、随后异步长高」的兜底滚动几何不
+ * 重建（首开滑不动、重开按全高建几何才行），B1 近底续段的
+ * onScroll 也挂在这个假滚动区上。补 flex-1/min-h-0（＋
+ * content-start 防行拉伸）后首帧即有界真滚动区。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input, SegmentedControl } from "../../shared/ui/ios/controls";
@@ -66,6 +83,14 @@ const TAG_SEARCH_LIMIT = 60;
  * 态先渲染首段、滚动近底增量续段；搜索态已有 TAG_SEARCH_LIMIT
  * 封顶、不走分段。 */
 const TAG_SHEET_PAGE = 120;
+/* 分类行保留名单（Muse 2026-11-21 fix3316）：分类行退出筛选
+ * 栏后，唯一许保留的情形是「该源标签池为空、分类是其唯一筛选
+ * 轴」——删行即删功能，不许。逐源核池（2026-11-21 经 N1 代理
+ * 实拉 /wp-json/wp/v2/tags 的 X-WP-Total）：xiuren 1198、
+ * cosplaytele 342、hentaiplay 193、everia 7162，hanime-tv 标签
+ * 由本地目录聚合（taxonomy() 同数据）亦非空——现行无源命中，
+ * 名单为空集；日后新源标签池为空且带分类轴时在此登记 id。 */
+const CATEGORY_BAR_KEPT_SOURCE_IDS: ReadonlySet<string> = new Set();
 
 export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories, recentTags }: {
   def: SourceDef;
@@ -165,6 +190,21 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taxonomy, def.id, needsTaxonomy]);
+
+  /* 存量 category 清场（fix3316）：分类行已退出筛选栏的源，落
+   * 盘 disc 里若还留着旧选分类，列表会被一道无入口、无回显的
+   * 隐形过滤锁死——挂载时经既有 onDiscChange 通道清字段一次
+   * 并记账本；保留名单内的源分类仍有入口，不清。recent 历史
+   * 与存储结构不动（见文件头 fix3316 注）。 */
+  const categoryBarKept = CATEGORY_BAR_KEPT_SOURCE_IDS.has(def.id);
+  useEffect(() => {
+    if (!spec.categories || categoryBarKept || !disc.category) return;
+    const next = { ...disc };
+    delete next.category;
+    record("disc.category_axis_retired", { source: def.id, value: disc.category });
+    onDiscChange(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [def.id, disc.category, categoryBarKept]);
 
   if (!hasDiscovery(spec)) return null;
 
@@ -267,8 +307,9 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
 
   return (
     <div className="mb-2" aria-label="发现维度">
-      {/* 瘦筛选栏（fix3314）：一行——排序分段开关＋分类/榜单横滑
-       * chips＋已选标签 chip＋「筛选」按钮（徽标＝已选标签数）。 */}
+      {/* 瘦筛选栏（fix3314；fix3316 分类行退场）：一行——排序
+       * 分段开关＋榜单横滑 chips＋已选标签 chip＋「筛选」按钮
+       * （徽标＝已选标签数）。 */}
       <div className="flex items-center gap-2 py-1">
         {spec.sorts && (
           <SegmentedControl aria-label="排序" activeIndex={sortIndex} className="shrink-0">
@@ -280,7 +321,10 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
         )}
         {spec.rankPeriods && chipRow(spec.rankPeriods.map((o) =>
           pill(`period:${o.value}`, o.label, (disc.period ?? spec.periodDefault ?? "") === o.value, () => setPeriod(o.value))))}
-        {spec.categories && categoryOptions.length > 0 && chipRow([
+        {/* 分类行（fix3316 起仅保留名单内的源渲染，现行名单为
+         * 空集——分类轴退出筛选栏、内容默认全部；categoryOptions
+         * 计算保留供弹层标签池同名剔除与契约口径，见文件头注）。 */}
+        {categoryBarKept && spec.categories && categoryOptions.length > 0 && chipRow([
           pill("cat:__all", "全部", !disc.category, () => setCategory(undefined)),
           ...categoryOptions.map((o) =>
             taxonPill("cat", o, disc.category === o.value, () => setCategory(disc.category === o.value ? undefined : o.value))),
@@ -319,7 +363,7 @@ export default function DiscoveryBar({ def, disc, onDiscChange, recentCategories
             <Input value={tagQuery} onChange={(e) => setTagQuery(e.target.value)}
               placeholder="输入中文或英文找标签" aria-label="找标签"
               style={{ minHeight: 36 }} className="w-full shrink-0 px-3 py-1 text-[13px]" />
-            <div className="mt-3 flex flex-wrap gap-1.5 overflow-y-auto"
+            <div className="mt-3 flex min-h-0 flex-1 flex-wrap content-start gap-1.5 overflow-y-auto"
               onScroll={(e) => {
                 const el = e.currentTarget;
                 if (!searching && tagVisibleCount < tagOptions.length
