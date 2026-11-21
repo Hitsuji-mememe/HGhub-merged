@@ -457,14 +457,23 @@ export function createHlsSiteAdapter(def: SourceDef): SourceAdapter {
  * 经 parse.ts 小解析消费——resolve 在 extractMp4 之前先取 JW
  * file（该形态 URL 含空格、stock 正则恒不命中，JW setup 是播放
  * 器事实源、优先于正文散落的 mp4 链接）；toItem 封面在 <img>
- * 采集落空时回落 JW image。未声明的源逐字走旧行为。 */
+ * 采集落空时回落 JW image。未声明的源逐字走旧行为。
+ * Yoast 封面校准（Muse 2026-11-21 fix3312/cover-021，021）：
+ * params 声明 yoastCover=true 时，toItem 封面在 <img>/JW 回落
+ * 均落空后再回落帖对象 yoast_head_json.twitter_image——Yoast
+ * SEO 发出的社交图字段、与 featured_media 同一文件、就在列表
+ * 载荷内一次取数可得（021 接线时「封面不在 REST 载荷内」的
+ * 结论只查了正文/excerpt 的 <img>，逐 key 穷尽复核后订正，
+ * 证据 fix3312/evidence/cover-021.md）。Yoast 个别帖不发该
+ * 字段时如实留空、不合成地址。未声明的源逐字走旧行为。 */
 export function createWpRestAdapter(def: SourceDef): SourceAdapter {
   const params = (def.adapter.params ?? {}) as Params;
   const restBase = str(params, "restBase", "/wp-json/wp/v2");
   const listPath = str(params, "listPath", "/posts");
   const jwFile = params.jwFile === true;
+  const yoastCover = params.yoastCover === true;
   const apiUrl = (path: string) => `${def.baseUrls[0]}${restBase}${path}`;
-  interface WpPost { id: number; link: string; title?: { rendered?: string }; content?: { rendered?: string }; excerpt?: { rendered?: string }; categories?: number[]; tags?: number[] }
+  interface WpPost { id: number; link: string; title?: { rendered?: string }; content?: { rendered?: string }; excerpt?: { rendered?: string }; categories?: number[]; tags?: number[]; yoast_head_json?: { twitter_image?: string } }
   /* taxonomy 名称映射（Muse 2026-11-20 fix335/f-discovery）：帖子
    * 载荷只有分类/标签的数字 id，名称经 taxonomy 端点解析——分类名
    * 进 cats、标签名进 tags（真标签才进 tags 的口径）；taxonomy 不
@@ -476,7 +485,7 @@ export function createWpRestAdapter(def: SourceDef): SourceAdapter {
     const tags = tax ? names(p.tags, tax.tags) : [];
     return {
       sourceId: def.id, externalId: String(p.id),
-      title: stripTags(p.title?.rendered ?? ""), cover: firstImgSrc(p.excerpt?.rendered ?? "") || firstImgSrc(p.content?.rendered ?? "") || (jwFile ? extractJwImage(p.content?.rendered ?? "") ?? "" : ""),
+      title: stripTags(p.title?.rendered ?? ""), cover: firstImgSrc(p.excerpt?.rendered ?? "") || firstImgSrc(p.content?.rendered ?? "") || (jwFile ? extractJwImage(p.content?.rendered ?? "") ?? "" : "") || (yoastCover ? p.yoast_head_json?.twitter_image ?? "" : ""),
       href: p.link, tags, ...(cats.length ? { cats } : {}),
     };
   };
