@@ -7,20 +7,23 @@
  * 真站校准；51吃瓜（51cg1.com）/黑料网（heiliao.com）住宅四级全通。
  * 覆盖（每源一条夹具解析契约，夹具=真站结构摘录，evidence/f2b/）：
  * 肉视频取流走站内 /api/hls/<id> 代理端点（Hentai-Park 插件＋真站
- * 前端 chunk 双证据）；SWAG 免登录 API 通道（api.swag.live feeds/
- * messages，本机出口实测 200）列表/详情接通、AES 加密流维持未证；
+ * 前端 chunk 双证据）；SWAG 免登录 API 通道（feeds/messages，
+ * 本机出口实测 200）列表/详情接通、AES 加密流维持未证；
  * RedGifs 官方 API 临时令牌＋Bearer 链（列表/详情/流）；FC2 销量榜
  * 列表＋作品页按普通视频源校准；51吃瓜换域名 51cg1.com 解 blocked；
  * 黑料网自目录导入毕业为命名源并启用（三段结构证据齐＋住宅四级
  * 全通）；Hanime 取流 handshake 需 POST＋加密信封、超 GET-only 取页
  * 契约 → 维持 probe 并 note 写明；Iwara 本批撤下施工（仅 note）；
  * PornPics note 追加住宅 DNS 不可达。不访问真实网络。
+ * 断言适配（fix3311/registry-cleanup）：SWAG/RedGifs 两节随其
+ * 模板簇整体退役同删，本文件余下各节（hls-site 校准、51吃瓜、
+ * 黑料、Hanime/Iwara/PornPics 注册表不变量）不变。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { getBuiltinRegistry } from "./registry.ts";
 import { setFetchPage } from "./adapters/fetchPage.ts";
-import { createChiguaAdapter, createHlsSiteAdapter, createRedgifsAdapter, createSwagAdapter } from "./adapters/templates.ts";
+import { createChiguaAdapter, createHlsSiteAdapter } from "./adapters/templates.ts";
 
 const fx = (name: string) => readFileSync(new URL(`./adapters/fixtures/${name}`, import.meta.url), "utf8");
 /* 断言适配（3.2.2 瘦身）：肉视频/SWAG/RedGifs/FC2 已摘除注册表，
@@ -32,28 +35,14 @@ const FIXTURE_DEFS: Record<string, unknown> = {
     id: "rouvideo", displayName: "肉视频", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/home", itemLinkPattern: "/v/", detailPath: "/v/{id}", streamUrlTemplate: "/api/hls/{id}" } },
     baseUrls: ["https://rou.video"], enabled: true, order: 20, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     note: "fix321-F2b 校准：取流走站内 /api/hls/<id> 代理端点（历史注册表条目）",
-  },
-  swag: {
-    id: "swag", displayName: "SWAG", kind: "video", category: "video",
-    adapter: { template: "swag-api", params: {} },
-    baseUrls: ["https://swag.live", "https://api.swag.live"], enabled: true, order: 25, maturity: "probe",
-    capabilities: { search: false, episodes: false, hevc: false, comments: false },
-    note: "fix321-F2b 校准：免登录数据通道已接通（历史注册表条目）",
-  },
-  redgifs: {
-    id: "redgifs", displayName: "RedGifs", kind: "video", category: "video",
-    adapter: { template: "redgifs-api", params: {} },
-    baseUrls: ["https://www.redgifs.com", "https://api.redgifs.com"], enabled: true, order: 27, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
-    note: "fix321-F2b 校准：官方 API 临时令牌链已接通（历史注册表条目）",
   },
   fc2: {
     id: "fc2", displayName: "FC2", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/ranking/article/weekly?page={page}", itemLinkPattern: "/article_search.php?id=", detailPath: "/article/{id}/" } },
     baseUrls: ["https://adult.contents.fc2.com"], enabled: true, order: 29, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     note: "fix321-F2b 校准：销量榜列表＋作品页（历史注册表条目）",
   },
 };
@@ -71,62 +60,6 @@ const def = (id: string) => {
   const a = createHlsSiteAdapter(def("rouvideo"));
   const r = await a.resolve("https://rou.video/v/cmwjhndfm0000s6ndp7y0vun7");
   assert.deepEqual(r.streams, [{ url: "https://rou.video/api/hls/cmwjhndfm0000s6ndp7y0vun7", kind: "hls" }], "肉视频 resolve 给 /api/hls/<id> 站内 HLS 端点");
-}
-
-/* ── SWAG：免登录数据通道（api.swag.live）——旧 note「需登录态」
- * 断言系机房出口结论、已被住宅验收＋本机实测推翻，必须删除；
- * 列表经 feeds/shorts_curated＋逐条 messages 补标题/封面出条目；
- * 流为 AES-128 加密 HLS（key URI 占位＋会话头换钥，超播放栈）
- * → resolve 诚实为空、仍 probe。 ── */
-{
-  const d = def("swag");
-  assert.ok(!d.note?.includes("需登录态"), "SWAG note 删除已被推翻的「api 需登录态」旧断言");
-  assert.ok(d.baseUrls.includes("https://api.swag.live"), "SWAG API origin 入 baseUrls（source_fetch 白名单随注册表推送）");
-  const feed = JSON.parse(fx("real-swag-feed.json")) as { id: string }[];
-  const message = fx("real-swag-message.json");
-  setFetchPage(async (url) => {
-    if (url.includes("/feeds/shorts_curated")) return fx("real-swag-feed.json");
-    if (url.includes("/messages/")) return message;
-    throw new Error(`unexpected fetch ${url}`);
-  });
-  const a = createSwagAdapter(d);
-  assert.ok(a, "SWAG 有适配器");
-  const list = await a!.list(1, 20);
-  assert.ok(list.items.length >= 1, `SWAG 列表经公开 API 出条目（实得 ${list.items.length}）`);
-  assert.equal(list.items[0].externalId, feed[0].id, "SWAG 条目 id 为 message id");
-  assert.ok(list.items[0].title.length > 4, "SWAG 条目标题由 messages 补齐");
-  assert.ok(list.items[0].cover.startsWith("https://public.swag.live/"), "SWAG 封面挂 public CDN");
-  const detail = await a!.detail(feed[0].id);
-  assert.equal(detail.externalId, feed[0].id, "SWAG 详情按 message id 取数");
-  const r = await a!.resolve(feed[0].id);
-  assert.deepEqual(r.streams, [], "SWAG 流为 AES 加密 HLS、播放栈不支持 → resolve 诚实为空（未证）");
-}
-
-/* ── RedGifs：官方 API 临时令牌链——先 GET /v2/auth/temporary 取
- * 匿名令牌，再带 Authorization: Bearer 调 search/detail；列表出
- * 条目、resolve 给 hd mp4。fetchPage 须透传 Authorization（Rust
- * 侧仅对 api.redgifs.com origin 定向放行，见 api/source.rs）。 ── */
-{
-  const d = def("redgifs");
-  assert.ok(d.baseUrls.includes("https://api.redgifs.com"), "RedGifs API origin 入 baseUrls");
-  const seen: { url: string; auth?: string }[] = [];
-  setFetchPage(async (url, headers) => {
-    seen.push({ url, auth: headers?.Authorization });
-    if (url.includes("/v2/auth/temporary")) return JSON.stringify({ token: "fixture-token" });
-    if (url.includes("/v2/gifs/search")) return fx("real-redgifs-search.json");
-    if (url.includes("/v2/gifs/abc123def")) return JSON.stringify({ gif: JSON.parse(fx("real-redgifs-search.json")).gifs[0] });
-    throw new Error(`unexpected fetch ${url}`);
-  });
-  const a = createRedgifsAdapter(d);
-  assert.ok(a, "RedGifs 有适配器");
-  const list = await a!.list(1, 20);
-  assert.ok(list.items.length >= 2, `RedGifs 列表经官方 API 出条目（实得 ${list.items.length}）`);
-  assert.ok(list.items[0].cover.includes("media.redgifs.com"), "RedGifs 封面取 urls.thumbnail");
-  const searchCall = seen.find((s) => s.url.includes("/v2/gifs/search"));
-  assert.equal(searchCall?.auth, "Bearer fixture-token", "search 调用带临时令牌 Bearer 头");
-  const r = await a!.resolve(list.items[0].externalId);
-  assert.equal(r.streams[0]?.kind, "file", "RedGifs 流为 mp4 文件");
-  assert.ok(r.streams[0]?.url.includes("-hd.mp4"), "RedGifs resolve 优先 hd mp4");
 }
 
 /* ── FC2：普通视频源校准——销量榜 /ranking/article/weekly 的

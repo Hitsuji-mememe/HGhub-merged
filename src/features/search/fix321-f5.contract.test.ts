@@ -47,7 +47,7 @@ const SHORTIES_DEF = {
   id: "shorties", displayName: "Pornhub Shorties", kind: "video", category: "video",
   adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
   baseUrls: ["https://www.pornhub.com/shorties"], enabled: false, order: 115, maturity: "probe",
-  capabilities: { search: false, episodes: false, hevc: false, comments: false },
+  capabilities: { search: false, episodes: false, hevc: false },
   network: { mode: "probe-required" }, note: "目录导入·未实测（历史条目）",
 } as unknown as SourceDef;
 const def = (id: string): SourceDef => {
@@ -62,11 +62,11 @@ const mkDef = (over: Partial<SourceDef>): SourceDef => ({
   id: "synthetic-f5", displayName: "合成源", kind: "video", category: "video",
   adapter: { template: "hls-site", params: { ...COMPLETE_PARAMS } },
   baseUrls: ["https://example.com"], enabled: true, order: 999, maturity: "stable",
-  capabilities: { search: true, episodes: false, hevc: false, comments: false },
+  capabilities: { search: true, episodes: false, hevc: false },
   network: { mode: "probe-required" }, note: "真站实测三段全通（合成夹具）",
   ...over,
 });
-const NO_CAPS = { search: false, episodes: false, hevc: false, comments: false };
+const NO_CAPS = { search: false, episodes: false, hevc: false };
 const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数为通用骨架、未按真站校准";
 
 /* ── 扇出资格判定：齐全源进、缺段源出（逐段） ── */
@@ -87,9 +87,13 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
   );
   assert.equal(searchPolicyFor(noAdapter).include, false, "无适配器：不进扇出");
 
+  /* 断言适配（fix3311/registry-cleanup）：原预览专用模板已随簇
+   * 退役，missingSearchSegments 的对应特判同删——已删模板名现按
+   * 无适配器模板处理、三段全缺；本节改以该已删名作未知模板探针，
+   * 原三断言（含缺 play/search、不进扇出）结论不变。 */
   const previewOnly = mkDef({ adapter: { template: "preview-only" } });
-  assert.ok(missingSearchSegments(previewOnly).includes("play"), "preview-only 的 resolve 明确拒绝 → 缺取流段");
-  assert.ok(missingSearchSegments(previewOnly).includes("search"), "preview-only 无 search 方法 → 缺搜索段");
+  assert.ok(missingSearchSegments(previewOnly).includes("play"), "已删模板无适配器 → 缺取流段");
+  assert.ok(missingSearchSegments(previewOnly).includes("search"), "已删模板无 search 方法 → 缺搜索段");
   assert.equal(searchPolicyFor(previewOnly).include, false, "仅预览源：不进扇出");
 
   /* 裁定变更适配：probe 只记验通状态、不再让结构段失效——三段
@@ -141,13 +145,15 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
  * 契约适配（fix3310/video-add-2，2026-11-21）：009/010 试装恢复
  * （专用适配器带 search 段、进扇出）＋021 新进（wp-rest 搜索实
  * 证），名单 9→12 源；020 搜索未验 caps.search=false 维持出局；
- * hanime1/iwara 退出下方负向组、yandere 仍不在册（判定口径不变）。 */
+ * hanime1/iwara 退出下方负向组、yandere 仍不在册（判定口径不变）。
+ * 契约适配（fix3311/registry-cleanup，2026-11-21）：009 试装判删回、
+ * 名单 12→11 源、hanime1 回下方负向组；iwara 不连坐（判定口径不变）。 */
 {
   const included = getBuiltinRegistry().filter((d) => searchPolicyFor(d).include).map((d) => d.id);
   assert.deepEqual(
     included,
-    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "hanime1", "iwara", "pixibb", "nudecosplay", "everia", "hentaiplay"],
-    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix3310 后 12 源）",
+    ["huangguo", "hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "iwara", "pixibb", "nudecosplay", "everia", "hentaiplay"],
+    "扇出名单=保留集内 enabled∧具备搜索段（注册表序，fix3311 后 11 源）",
   );
   assert.ok(!getBuiltinRegistry().some((d) => d.id === "rule34video"), "rule34video 已摘除注册表（用户裁定），不进扇出也不在册");
   assert.ok(!getBuiltinRegistry().some((d) => d.id === "pornpics"), "pornpics 已退役摘除注册表（fix335/g-sources），不进扇出也不在册");
@@ -178,9 +184,10 @@ const SKELETON_NOTE = "目录导入·未实测（合成夹具）：模板参数�
     assert.ok(!getBuiltinRegistry().some((d) => d.id === id), `${id} 已摘除、不在册（fix338）`);
   }
   /* 已摘除源不在册（fix339）：同口径。断言适配（fix3310）：
-   * hanime1/iwara 已试装恢复在册、退出本组；yandere 不恢复。 */
-  for (const id of ["yandere"]) {
-    assert.ok(!getBuiltinRegistry().some((d) => d.id === id), `${id} 已摘除、不在册（fix339）`);
+   * hanime1/iwara 已试装恢复在册、退出本组；yandere 不恢复。
+   * 断言适配（fix3311）：hanime1 判删回、回本组；iwara 在册不变。 */
+  for (const id of ["yandere", "hanime1"]) {
+    assert.ok(!getBuiltinRegistry().some((d) => d.id === id), `${id} 已摘除、不在册（fix339/fix3311）`);
   }
 }
 

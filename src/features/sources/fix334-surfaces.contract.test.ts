@@ -50,7 +50,7 @@ const hlsSiteFx: SourceDef = {
   id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
   adapter: { template: "hls-site", params: { listPath: "/recent/", itemLinkPattern: "/galleries/", detailPath: "/galleries/{id}/" } },
   baseUrls: ["https://www.pornpics.com"], enabled: true, order: 41, maturity: "probe",
-  capabilities: { search: false, episodes: false, hevc: false, comments: false },
+  capabilities: { search: false, episodes: false, hevc: false },
   network: { mode: "probe-required" },
 };
 
@@ -150,7 +150,7 @@ const ghost: SourceDef = {
   id: "ghost", displayName: "幽灵", kind: "video", category: "video",
   adapter: { template: "none" }, baseUrls: ["https://example.com"], enabled: true,
   order: 999, maturity: "probe",
-  capabilities: { search: true, episodes: false, hevc: false, comments: false },
+  capabilities: { search: true, episodes: false, hevc: false },
   network: { mode: "probe-required" },
 };
 const blockedFx: SourceDef = {
@@ -332,8 +332,9 @@ for (const [si, state] of STATES.entries()) {
       "everia", "xsnvshen"], "channel-image 成员＝已启用图片源（fix339 后 6 源）");
   assert.deepEqual(sourcesForSurface("channel-video", R1).map((d) => d.id),
     /* 断言适配（fix3310/video-add-2）：009/010 试装恢复＋020/021
-     * 补位，视频名单 1→5 源（注册表序）。 */
-    ["hanime-tv", "hanime1", "iwara", "hentaigasm", "hentaiplay"], "channel-video 成员＝已启用外部视频源（原生不在名单；fix3310 后五源）");
+     * 补位，视频名单 1→5 源（注册表序）。
+     * 断言适配（fix3311/registry-cleanup）：009 判删回，名单 5→4 源。 */
+    ["hanime-tv", "iwara", "hentaigasm", "hentaiplay"], "channel-video 成员＝已启用外部视频源（原生不在名单；fix3311 后四源）");
   assert.deepEqual(routeForSurface("channel-video", byId("huangguo"), ctx),
     { kind: "not-applicable", declaration: "native-not-in-video-channel" }, "原生×视频频道＝空壳退场声明出局");
   /* 搜索扇出成员：005（App 编号，feedheiliao）以声明 g 出局、001 以
@@ -346,9 +347,10 @@ for (const [si, state] of STATES.entries()) {
   assert.deepEqual(sourcesForSurface("search-fanout", R1).map((d) => d.id),
     /* 断言适配（fix3310/video-add-2）：009/010 恢复（两源均有搜索段）
      * ＋021 新进（caps.search=true），成员 8→11 源；020 搜索未验
-     * caps.search=false、不入扇出。 */
-    ["hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "hanime1", "iwara", "pixibb", "nudecosplay", "everia", "hentaiplay"],
-    "M11 成员＝已启用∧有搜索段的外部源（fix3310 后 11 源）");
+     * caps.search=false、不入扇出。
+     * 断言适配（fix3311/registry-cleanup）：009 判删回，成员 11→10 源。 */
+    ["hanime-tv", "51chigua", "meiridasai", "xiuren", "cosplaytele", "iwara", "pixibb", "nudecosplay", "everia", "hentaiplay"],
+    "M11 成员＝已启用∧有搜索段的外部源（fix3311 后 10 源）");
   assert.deepEqual(routeForSurface("search-fanout", byId("huangguo"), ctx),
     { kind: "not-applicable", declaration: "native-dual-path" }, "001×M11 声明 b");
   assert.deepEqual(routeForSurface("search-fanout", byId("feedheiliao"), ctx),
@@ -360,7 +362,7 @@ for (const [si, state] of STATES.entries()) {
    * （fix338 集成对账：registry-cut 摘除出集 15→12、realphoto-add
    * everia/xsnvshen 启用且自检合格进集 12→14）。 */
   assert.deepEqual(routeForSurface("selfcheck", byId("huangguo"), ctx), { kind: "listed" }, "001×M21 在册（订正设计声明 c）");
-  assert.equal(sourcesForSurface("selfcheck", R1).length, 15, "M21 R1 合格集＝15 源（fix3310：恢复 009/010＋新增 020/021 后与已启用集同数）");
+  assert.equal(sourcesForSurface("selfcheck", R1).length, 14, "M21 R1 合格集＝14 源（fix3310：恢复 009/010＋新增 020/021 后 15；fix3311：009 判删回后与已启用集同数 14）");
   /* 短剧频道：外部 video 源以声明 e 出局（caps 映射属实为空）。 */
   assert.deepEqual(routeForSurface("channel-drama", byId("hanime-tv"), ctx),
     { kind: "not-applicable", declaration: "no-drama-mapping" }, "002×M6 声明 e");

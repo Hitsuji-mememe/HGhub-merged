@@ -16,7 +16,6 @@ export interface SourceCapabilities {
   search: boolean;
   episodes: boolean;
   hevc: boolean;
-  comments: boolean;
 }
 
 export interface SourceNetwork {

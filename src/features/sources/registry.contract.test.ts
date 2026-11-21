@@ -39,13 +39,19 @@ import { TEMPLATE_IDS } from "./adapters/templates.ts";
  * 试装恢复（播放腿补齐后试一轮、过关才回归），命名源 9→13、
  * CORE_IDS 回加 hanime1/iwara 并新增 hentaigasm/hentaiplay（视频
  * 候选准入 V1/V2），两源退出负向名单、fix330 启用事实断言恢复；
- * yandere 仍在负向名单（不恢复）。 */
+ * yandere 仍在负向名单（不恢复）。
+ * 断言适配（fix3311/registry-cleanup，2026-11-21）：009 试装判删回
+ * （真机协议 v4 探针取流网络类失败、按试装规则删回），命名源
+ * 13→12、CORE_IDS 移除 hanime1、hanime1 回负向名单；010 不连坐、
+ * 其启用事实断言保留。 */
 const CORE_IDS = [
   "huangguo", "hanime-tv", "51chigua", "feedheiliao", "meiridasai",
   "xiuren", "cosplaytele",
   /* 断言适配（fix3310/video-add-2，2026-11-21）：hanime1/iwara 试装
-   * 恢复回加（见文件头）；hentaigasm/hentaiplay 为视频补位新源。 */
-  "hanime1", "iwara",
+   * 恢复回加（见文件头）；hentaigasm/hentaiplay 为视频补位新源。
+   * 断言适配（fix3311/registry-cleanup）：hanime1 试装判删回移除、
+   * iwara 保留。 */
+  "iwara",
   /* 断言适配（fix338/realphoto-add，集成对账 2026-11-20）：真人图片
    * 新源 everia/xsnvshen 以命名源入册（候选准入＋生产取页栈实拉全
    * 通，证据 fix338/evidence/realphoto-add.md），保留集 9→11；
@@ -59,11 +65,11 @@ const CORE_IDS = [
   const ids = new Set(BUILTIN_SOURCES.map((s) => s.id));
   assert.equal(ids.size, BUILTIN_SOURCES.length, "id 唯一");
   for (const id of CORE_IDS) assert.ok(ids.has(id), `命名源 ${id} 在册`);
-  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 13（fix3310/video-add-2 试装恢复 hanime1/iwara＋新增 hentaigasm/hentaiplay；此前 fix339 摘 hanime1/iwara、fix338 摘 danbooru/hentaihaven、加 everia/xsnvshen，更早已摘 rule34video/pornpics）");
+  assert.equal(NAMED_SOURCES.length, CORE_IDS.length, "命名源 = 保留集 12（fix3311/registry-cleanup 摘 hanime1 试装判删回；此前 fix3310/video-add-2 试装恢复 hanime1/iwara＋新增 hentaigasm/hentaiplay、fix339 摘 hanime1/iwara、fix338 摘 danbooru/hentaihaven、加 everia/xsnvshen，更早已摘 rule34video/pornpics）");
   /* 瘦身负向不变量：被删源不得回流注册表（App 内不得出现）。 */
   for (const goneId of ["rouvideo", "91video", "pornhub", "xvideos", "swag", "fyptt", "redgifs", "fc2",
     "jabletv", "missav", "tikporn", "myfans", "av123", "supjav", "fansly", "huangdou", "drama91", "rule34video", "pornpics",
-    "danbooru", "hentaihaven", "konachan", "yandere"]) {
+    "danbooru", "hentaihaven", "konachan", "yandere", "hanime1"]) {
     assert.ok(!ids.has(goneId), `瘦身删除源 ${goneId} 不在册`);
   }
   assert.equal(BUILTIN_SOURCES.length, NAMED_SOURCES.length + CATALOG_SOURCES.length, "内置 = 命名 + 目录导入");
@@ -112,8 +118,10 @@ const CORE_IDS = [
   /* 断言适配（fix3310/video-add-2，2026-11-21）：hanime1/iwara 启用
    * 事实断言随试装恢复回滚（fix330 接通批口径原样）：两源已写专用
    * 适配器并启用、maturity 仍 probe（App 未真机验不上调）；试装
-   * 性质由注册表 note 与本批证据承载、过关才转正式回归。 */
-  for (const probeId of ["hanime1", "iwara"]) {
+   * 性质由注册表 note 与本批证据承载、过关才转正式回归。
+   * 断言适配（fix3311/registry-cleanup）：hanime1 判删回、本循环
+   * 只剩 iwara。 */
+  for (const probeId of ["iwara"]) {
     const s = BUILTIN_SOURCES.find((x) => x.id === probeId)!;
     assert.equal(s.enabled, true, `${probeId} fix330 接通批已启用（fix3310 试装恢复）`);
     assert.notEqual(s.adapter.template, "none", `${probeId} 已有专用适配器`);

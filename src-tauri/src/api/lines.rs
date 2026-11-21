@@ -61,31 +61,25 @@ pub async fn line_state() -> Result<Value, String> {
 }
 
 /// 手动切换线路：只允许固定线路或刚从可信发布页读取的镜像。
-/// 可信↔可信切换保留会话（同一账号体系）；任一端不可信则清空。
+/// （原会话 rebase/清空随会话本体删除同删，fix3311/registry-cleanup：
+/// 游客请求链无凭据可迁移，切线行为不变。）
 #[tauri::command]
-pub async fn line_set(state: State<'_, Api>, url: String) -> Result<String, String> {
+pub async fn line_set(_state: State<'_, Api>, url: String) -> Result<String, String> {
     let mut generation = LINE_SELECTION.lock().map_err(|_| "线路选择锁失败")?;
     *generation = generation.wrapping_add(1);
     crate::lines::invalidate_pending_confirm();
-    let previous = base();
     let applied = crate::net::set_base(&url)?;
     crate::net::refresh_client();
-    if previous != applied { state.session.rebase_or_clear(&applied, crate::session::rebase_trust); }
     Ok(applied)
 }
 
 #[tauri::command]
-pub async fn line_custom_set(state: State<'_, Api>, url: String) -> Result<Value, String> {
+pub async fn line_custom_set(_state: State<'_, Api>, url: String) -> Result<Value, String> {
     let mut generation = LINE_SELECTION.lock().map_err(|_| "线路选择锁失败")?;
     *generation = generation.wrapping_add(1);
     crate::lines::invalidate_pending_confirm();
-    let previous = base();
     let applied = crate::net::set_custom_base(&url)?;
     crate::net::refresh_client();
-    // Custom lines never join the trusted rebase: even a trusted old origin
-    // must not hand its token to a user-specified site.
-    let _ = previous;
-    state.session.clear();
     Ok(json!({ "base": applied, "custom": crate::net::is_custom_line() }))
 }
 
@@ -141,7 +135,7 @@ pub async fn line_probe(urls: Vec<String>) -> Result<Value, String> {
 /// 切换两端都可信（固定线路或本进程发布页确认的镜像）时保留会话并 rebase origin；
 /// 旧 origin 不可信（如自定义线路）时清空会话，绝不把 token 带给新站点。
 #[tauri::command]
-pub async fn line_auto(state: State<'_, Api>, urgent: Option<bool>) -> Result<Value, String> {
+pub async fn line_auto(_state: State<'_, Api>, urgent: Option<bool>) -> Result<Value, String> {
     let selection = begin_line_selection()?;
     crate::net::refresh_client();
     let urgent = urgent.unwrap_or(false);
@@ -176,7 +170,6 @@ pub async fn line_auto(state: State<'_, Api>, urgent: Option<bool>) -> Result<Va
                 crate::lines::ledger::note_auto_switch(&previous, &next);
                 crate::lines::ledger::record_event(&previous, crate::lines::ledger::LineEvent::Fallback);
                 crate::lines::ledger::record_event(&next, crate::lines::ledger::LineEvent::Recovery);
-                state.session.rebase_or_clear(&next, crate::session::rebase_trust);
             }
         } else {
             breaker_blocked = true;

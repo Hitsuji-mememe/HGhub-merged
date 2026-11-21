@@ -593,9 +593,6 @@ pub async fn diagnose() -> Value {
             "system_proxy": system_proxy_enabled(),
             "app_proxy_mode": crate::proxy::mode().as_str(),
             "app_proxy": crate::proxy::custom_url().as_deref().map(redact_proxy),
-            /* 会话落盘状态（P2-16）：最近一次 persist 的成败与阶段，
-             * 落盘失败不再无痕（另有 playback_log session.persist_failed）。 */
-            "session_persist": crate::session::persist_status(),
         },
         "runtime": {
             "os": std::env::consts::OS,

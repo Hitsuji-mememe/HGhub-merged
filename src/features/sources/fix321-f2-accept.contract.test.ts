@@ -5,7 +5,8 @@
  * (B) 浏览面输入以 sourcesForCategory/sourcesForChannel 对全注册表＋
  *     合成停用源枚举（Category 实际渲染输入即这两函数的输出）；
  * (C) 假成功空页走工厂分发路径（含 F2 契约未覆盖的 chigua
- *     列表、SWAG 全过滤、RedGifs 空结果三条路径）；
+ *     列表路径；原 SWAG 全过滤／RedGifs 空结果两路随其模板簇
+ *     退役同删，fix3311/registry-cleanup）；
  * (E) 搜索扇出资格门全量枚举（2026-11-19 20:48 裁定后为搜索段结构门，见节内适配注记）；
  * (F) 51吃瓜解 blocked／黑料网毕业的内置面三面一致（诊断/浏览/搜索）；
  * (G) 详情打开路径经工厂逐源走 list→resolve/detail。
@@ -19,7 +20,7 @@ import { getBuiltinRegistry, sourcesForCategory, sourcesForChannel } from "./reg
 import { CATALOG_SOURCES } from "./catalog.ts";
 import { getRegistryInfo } from "./manifest.ts";
 import { setFetchPage } from "./adapters/fetchPage.ts";
-import { createChiguaAdapter, createHlsSiteAdapter, createRedgifsAdapter, createSwagAdapter, SourceParseEmptyError } from "./adapters/templates.ts";
+import { createChiguaAdapter, createHlsSiteAdapter, SourceParseEmptyError } from "./adapters/templates.ts";
 
 /* 工厂分发口径（同 final-d 契约）：adapters/index.ts 的 createAdapter
  * 含无扩展名导入、Node 直跑不可加载，故直测其分发的模板工厂函数，
@@ -28,16 +29,12 @@ const factoryDispatch = readFileSync(new URL("./adapters/index.ts", import.meta.
 for (const line of [
   'case "chigua": return createChiguaAdapter(def)',
   'case "hls-site": return createHlsSiteAdapter(def)',
-  'case "swag-api": return createSwagAdapter(def)',
-  'case "redgifs-api": return createRedgifsAdapter(def)',
 ]) assert.ok(factoryDispatch.includes(line), `createAdapter 分发在位：${line}`);
 type AnyAdapter = ReturnType<typeof createHlsSiteAdapter>;
 const createAdapter = (d: SourceDef): AnyAdapter | null => {
   switch (d.adapter.template) {
     case "chigua": return createChiguaAdapter(d);
     case "hls-site": return createHlsSiteAdapter(d);
-    case "swag-api": return createSwagAdapter(d) as AnyAdapter;
-    case "redgifs-api": return createRedgifsAdapter(d) as AnyAdapter;
     default: return null;
   }
 };
@@ -46,33 +43,27 @@ import type { SourceDef } from "./types.ts";
 
 const fx = (name: string) => readFileSync(new URL(`./adapters/fixtures/${name}`, import.meta.url), "utf8");
 const reg = getBuiltinRegistry();
-/* 断言适配（3.2.2 瘦身）：rouvideo/swag/redgifs/fc2 已摘除注册表、
- * 适配器留仓，四源改用与删除前注册表功能字段逐字一致的夹具 def
- * 守工厂路径覆盖，断言内容不变；保留源仍走注册表 def。 */
+/* 断言适配（3.2.2 瘦身）：rouvideo/fc2 已摘除注册表、
+ * 适配器留仓，两源改用与删除前注册表功能字段逐字一致的夹具 def
+ * 守工厂路径覆盖，断言内容不变；保留源仍走注册表 def。
+ * 断言适配（fix3311/registry-cleanup）：swag/redgifs 夹具 def 随
+ * 其模板簇整体退役同删。 */
 const FIXTURE_DEFS: Record<string, unknown> = {
   rouvideo: { id: "rouvideo", displayName: "肉视频", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/home", itemLinkPattern: "/v/", detailPath: "/v/{id}", streamUrlTemplate: "/api/hls/{id}" } },
     baseUrls: ["https://rou.video"], enabled: true, order: 20, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false }, note: "历史注册表条目" },
-  swag: { id: "swag", displayName: "SWAG", kind: "video", category: "video",
-    adapter: { template: "swag-api", params: {} },
-    baseUrls: ["https://swag.live", "https://api.swag.live"], enabled: true, order: 25, maturity: "probe",
-    capabilities: { search: false, episodes: false, hevc: false, comments: false }, note: "历史注册表条目" },
-  redgifs: { id: "redgifs", displayName: "RedGifs", kind: "video", category: "video",
-    adapter: { template: "redgifs-api", params: {} },
-    baseUrls: ["https://www.redgifs.com", "https://api.redgifs.com"], enabled: true, order: 27, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false }, note: "历史注册表条目" },
+    capabilities: { search: true, episodes: false, hevc: false }, note: "历史注册表条目" },
   fc2: { id: "fc2", displayName: "FC2", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/ranking/article/weekly?page={page}", itemLinkPattern: "/article_search.php?id=", detailPath: "/article/{id}/" } },
     baseUrls: ["https://adult.contents.fc2.com"], enabled: true, order: 29, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false }, note: "历史注册表条目" },
+    capabilities: { search: true, episodes: false, hevc: false }, note: "历史注册表条目" },
   /* 断言适配（fix335/g-sources）：pornpics 已退役摘除注册表，按删除前
-   * 注册表条目功能字段入夹具表（同上方四源先例），守合成停用源与
+   * 注册表条目功能字段入夹具表（同上方两源先例），守合成停用源与
    * 搜索属实 false 两处覆盖，断言内容不变。 */
   pornpics: { id: "pornpics", displayName: "PornPics", kind: "image", category: "image",
     adapter: { template: "hls-site", params: { listPath: "/recent/", itemLinkPattern: "/galleries/", detailPath: "/galleries/{id}/" } },
     baseUrls: ["https://www.pornpics.com"], enabled: true, order: 41, maturity: "probe",
-    capabilities: { search: false, episodes: false, hevc: false, comments: false }, note: "历史注册表条目" },
+    capabilities: { search: false, episodes: false, hevc: false }, note: "历史注册表条目" },
 };
 const def = (id: string) => {
   const d = reg.find((s) => s.id === id) ?? FIXTURE_DEFS[id];
@@ -99,7 +90,7 @@ const def = (id: string) => {
    * iwara 已摘除（fix339/registry-cut-2），基底改唯一保留 video 源
    * hanime-tv，合成覆盖不变。 */
   const mk = (id: string, enabled: boolean, episodes: boolean): SourceDef => ({
-    ...def("hanime-tv"), id, enabled, capabilities: { search: true, episodes, hevc: false, comments: false },
+    ...def("hanime-tv"), id, enabled, capabilities: { search: true, episodes, hevc: false },
   });
   const synth = [mk("vd-drama-off", false, true), mk("vd-drama-on", true, true), mk("vd-nodrama", true, false)];
   const sd = sourcesForChannel("ai-duanju", synth);
@@ -130,8 +121,11 @@ const def = (id: string) => {
 {
   /* C1 chigua 模板（51吃瓜 def）喂 SPA 壳形态页 → 必须显式失败
    * （F2 契约只验过 hls-site 同路径，chigua 与之共用 htmlListAdapter
-   * 但未经工厂验过） */
-  setFetchPage(async () => fx("real-swag-home.html"));
+   * 但未经工厂验过）
+   * 断言适配（fix3311/registry-cleanup）：样本原用真站壳页夹具、
+   * 随 B2 模板簇退役同删，改内联同形态壳页（仅导航锚点），断言不变。 */
+  setFetchPage(async () => `<!DOCTYPE html><html><head><title>SPA</title></head><body>
+<a class="nav-item" href="/">home</a><div id="app"></div><script src="/assets/index.js"></script></body></html>`);
   const chigua = createAdapter(def("51chigua"));
   assert.ok(chigua, "51吃瓜有适配器");
   await assert.rejects(() => chigua!.list(1, 20), SourceParseEmptyError, "chigua 列表解析为空经工厂抛 SourceParseEmptyError");
@@ -139,18 +133,9 @@ const def = (id: string) => {
   setFetchPage(async () => "<html><body><p>nothing</p></body></html>");
   const rou = createAdapter(def("rouvideo"));
   await assert.rejects(() => rou!.list(1, 20), SourceParseEmptyError, "零锚点页抛 SourceParseEmptyError、不返回空列表");
-  /* C3 SWAG：feed 有行但逐条 messages 全被免费短视频过滤 → 显式失败 */
-  const feedRow = JSON.parse(fx("real-swag-feed.json"))[0] as Record<string, unknown>;
-  const paidMsg = JSON.stringify({ ...(JSON.parse(fx("real-swag-message.json")) as Record<string, unknown>), unlockPrice: 9 });
-  setFetchPage(async (url) => url.includes("/feeds/") ? JSON.stringify([feedRow]) : paidMsg);
-  const swag = createAdapter(def("swag"));
-  await assert.rejects(() => swag!.list(1, 20), SourceParseEmptyError, "SWAG 全行被过滤后抛 SourceParseEmptyError");
-  /* C4 RedGifs：API 空结果集 → 显式失败 */
-  setFetchPage(async (url) => url.includes("/v2/auth/temporary")
-    ? JSON.stringify({ token: "t" })
-    : JSON.stringify({ gifs: [], pages: 0, page: 1 }));
-  const rg = createAdapter(def("redgifs"));
-  await assert.rejects(() => rg!.list(1, 20), SourceParseEmptyError, "RedGifs 空结果集抛 SourceParseEmptyError");
+  /* C3/C4（原 SWAG 全过滤／RedGifs 空结果两路）随模板簇退役同删
+   * （fix3311/registry-cleanup）：两路守的是已删模板自身的过滤
+   * 语义，无活承接面。 */
 }
 
 /* ── (E) 扇出交叉（裁定变更适配，用户 2026-11-19 20:48）：扇出门
@@ -187,14 +172,15 @@ const def = (id: string) => {
   assert.equal(searchPolicyFor(def("everia")).include, true, "everia 搜索属实、进扇出（fix338/realphoto-add）");
   assert.equal(searchPolicyFor(def("xsnvshen")).include, false, "xsnvshen 搜索未验、无搜索段出局（fix338/realphoto-add）");
   /* 断言适配（fix3310/video-add-2）：hanime1/iwara 恢复带 search 段
-   * 进扇出、hentaiplay 搜索实证新进、hentaigasm 搜索未验出局。 */
-  assert.equal(searchPolicyFor(def("hanime1")).include, true, "hanime1 恢复、进扇出（fix3310）");
+   * 进扇出、hentaiplay 搜索实证新进、hentaigasm 搜索未验出局。
+   * 断言适配（fix3311/registry-cleanup）：hanime1 试装判删回、其
+   * 扇出断言随源退役；iwara 保留。 */
   assert.equal(searchPolicyFor(def("iwara")).include, true, "iwara 恢复、进扇出（fix3310）");
   assert.equal(searchPolicyFor(def("hentaiplay")).include, true, "hentaiplay 搜索属实、进扇出（fix3310）");
   assert.equal(searchPolicyFor(def("hentaigasm")).include, false, "hentaigasm 搜索未验、无搜索段出局（fix3310）");
   const included = reg.filter((s) => searchPolicyFor(s).include).map((s) => s.id).sort();
-  assert.deepEqual(included, ["51chigua", "cosplaytele", "everia", "hanime-tv", "hanime1", "hentaiplay", "huangguo", "iwara", "meiridasai", "nudecosplay", "pixibb", "xiuren"],
-    "扇出纳入集＝保留集内具备搜索段的 12 源（20:48 裁定口径＋3.3.0 集成；fix338 集成后 12、fix339 摘 009/010/014 后 9、fix3310 恢复＋新进后 12）");
+  assert.deepEqual(included, ["51chigua", "cosplaytele", "everia", "hanime-tv", "hentaiplay", "huangguo", "iwara", "meiridasai", "nudecosplay", "pixibb", "xiuren"],
+    "扇出纳入集＝保留集内具备搜索段的 11 源（20:48 裁定口径＋3.3.0 集成；fix338 集成后 12、fix339 摘 009/010/014 后 9、fix3310 恢复＋新进后 12、fix3311 摘 009 后 11）");
 }
 /* ── (F) 51吃瓜解 blocked＋黑料网毕业：内置面三面一致 ── */
 {

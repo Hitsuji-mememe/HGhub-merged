@@ -94,12 +94,8 @@ const EXPECT: Record<string, { adapter: boolean; search: boolean; missing: strin
   "wp-rest": { adapter: true, search: true, missing: [] },
   "hls-site": { adapter: true, search: true, missing: [] },
   "danbooru-api": { adapter: true, search: true, missing: [] },
-  "swag-api": { adapter: true, search: false, missing: ["search"] },
-  "redgifs-api": { adapter: true, search: true, missing: [] },
   "hanime-api": { adapter: true, search: true, missing: [] },
   "iwara-api": { adapter: true, search: true, missing: [] },
-  hanime1: { adapter: true, search: true, missing: [] },
-  "preview-only": { adapter: true, search: false, missing: ["search", "play"] },
   none: { adapter: false, search: false, missing: ["search", "detail", "play"] },
 };
 {
@@ -107,7 +103,7 @@ const EXPECT: Record<string, { adapter: boolean; search: boolean; missing: strin
     id: "probe", displayName: "probe", kind: "video", category: "video",
     adapter: { template, params: {} }, baseUrls: ["https://example.com"],
     enabled: true, order: 0, maturity: "probe",
-    capabilities: { search: capsSearch, episodes: false, hevc: false, comments: false },
+    capabilities: { search: capsSearch, episodes: false, hevc: false },
     network: { mode: "probe-required" }, note: "",
   }) as Parameters<typeof missingSearchSegments>[0];
   for (const t of [...TEMPLATE_IDS, "unknown-x"]) {

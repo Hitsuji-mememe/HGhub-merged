@@ -30,9 +30,8 @@
 import type { SourceAdapter, SourceDef } from "../types.ts";
 import { createHanimeApiAdapter } from "./hanimeApi.ts";
 import {
-  createChiguaAdapter, createDanbooruAdapter, createHanime1Adapter,
-  createHlsSiteAdapter, createIwaraAdapter, createPreviewOnlyAdapter, createRedgifsAdapter,
-  createSwagAdapter, createWpRestAdapter,
+  createChiguaAdapter, createDanbooruAdapter,
+  createHlsSiteAdapter, createIwaraAdapter, createWpRestAdapter,
 } from "./templates.ts";
 
 /** 探针工厂表（与 index.ts createAdapter 分发 parity，见文件头）。 */
@@ -41,12 +40,8 @@ const PROBE_FACTORIES: Record<string, (def: SourceDef) => SourceAdapter> = {
   "wp-rest": createWpRestAdapter,
   "hls-site": createHlsSiteAdapter,
   "danbooru-api": createDanbooruAdapter,
-  "swag-api": createSwagAdapter,
-  "redgifs-api": createRedgifsAdapter,
   "hanime-api": createHanimeApiAdapter,
   "iwara-api": createIwaraAdapter,
-  hanime1: createHanime1Adapter,
-  "preview-only": createPreviewOnlyAdapter,
 };
 
 const probeDef = (template: string): SourceDef => ({
@@ -59,7 +54,7 @@ const probeDef = (template: string): SourceDef => ({
   enabled: false,
   order: 0,
   maturity: "probe",
-  capabilities: { search: false, episodes: false, hevc: false, comments: false },
+  capabilities: { search: false, episodes: false, hevc: false },
   network: { mode: "probe-required" },
   note: "段结构探针专用合成 def（fix333-M3）：只构造不取页",
 });

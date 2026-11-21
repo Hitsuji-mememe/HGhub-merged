@@ -67,7 +67,7 @@ const def = (id: string): SourceDef => {
     id: "synth-entity", displayName: "合成", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/", itemLinkPattern: "/video/", detailPath: "/video/{id}" } },
     baseUrls: ["https://example.com"], enabled: true, order: 999, maturity: "probe",
-    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    capabilities: { search: false, episodes: false, hevc: false },
     network: { mode: "probe-required" }, note: "合成夹具 def",
   } as unknown as SourceDef;
   setFetchPage(async (url) => (url.includes("/video/") ? fx("hls-detail-entity.html") : fx("hls-list-entity.html")));

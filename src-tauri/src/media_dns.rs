@@ -767,8 +767,8 @@ mod tests {
     async fn strict_reresolve_trusts_system_answers_when_all_fake() {
         let resolved: Vec<SocketAddr> = vec!["198.19.88.72:443".parse().unwrap()];
         let (addrs, ttl) = strict_reresolve(
-            "https://danbooru.donmai.us/posts.json?limit=1",
-            "danbooru.donmai.us",
+            "https://example.com/posts.json?limit=1",
+            "example.com",
             443,
             true,
             resolved.clone(),

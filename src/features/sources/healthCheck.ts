@@ -15,7 +15,7 @@
  *    改读派生，不再各读静态 maturity——此前双轨并存时同一源可
  *    同时是「未实测」与「自检成功」，用户无从知道哪个为准）；
  * ② 只探已启用源：未启用/blocked/preview 不探（blocked 本就不拉
- *    数据，与既有 D 线口径一致；preview-only/none 模板无真数据）；
+ *    数据，与既有 D 线口径一致；none 模板无真数据）；
  * ③ 只记源 id/计数/类别/时刻，不记完整 URL/查询（不变量 10）；
  * ④ 只记观测、不自动处置：不改变任何源的启用/成熟度状态。
  *
@@ -283,7 +283,7 @@ export function selfCheckEligible(def: SourceDef): boolean {
   if (def.maturity === "blocked" || def.maturity === "preview") return false;
   if (def.category === "preview") return false;
   const template = def.adapter.template;
-  if (template === "none" || template === "preview-only") return false;
+  if (template === "none") return false;
   return true;
 }
 

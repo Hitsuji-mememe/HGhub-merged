@@ -2,7 +2,7 @@ import { Button, Input } from "../../shared/ui/ios/controls";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { fmtTime } from "../../shared/api/api";
 import { useSeekInput } from "./useSeekInput";
-import { ICheck, ICompress, IExpand, INext, IPauseF, IPip, IPlayF, ITheater, IVol, IVolMute } from "../../shared/ui/icons";
+import { ICheck, ICompress, IExpand, INext, IPauseF, IPlayF, IVol, IVolMute } from "../../shared/ui/icons";
 import type { PlaybackClock } from "./playbackClock";
 
 type Props = {

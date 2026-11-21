@@ -240,7 +240,7 @@ const recorder = (body: string | ((url: string) => string)) => {
     id: "danbooru-synthetic", displayName: "Danbooru 合成", kind: "image", category: "image",
     adapter: { template: "danbooru-api", params: {} }, baseUrls: ["https://danbooru.donmai.us"],
     enabled: true, order: 999, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     network: { mode: "probe-required" }, note: "fix338 契约合成 def",
   };
   const urls = recorder(fx("danbooru-list.json"));

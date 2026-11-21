@@ -99,9 +99,10 @@ const ctx = { active: R1, builtin: R1 };
     "图片频道名单＝已启用图片源（注册表序；fix339 后 6 源）");
   assert.deepEqual(sourcesForSurface("channel-video", R1).map((d) => d.id),
     /* 断言适配（fix3310/video-add-2）：009/010 试装恢复＋020/021
-     * 补位，视频名单 1→5 源（注册表序）。 */
-    ["hanime-tv", "hanime1", "iwara", "hentaigasm", "hentaiplay"],
-    "视频频道名单＝已启用外部视频源（原生不在名单；fix3310 后五源）");
+     * 补位，视频名单 1→5 源（注册表序）。
+     * 断言适配（fix3311/registry-cleanup）：009 判删回，名单 5→4 源。 */
+    ["hanime-tv", "iwara", "hentaigasm", "hentaiplay"],
+    "视频频道名单＝已启用外部视频源（原生不在名单；fix3311 后四源）");
   const native = R1.find((s) => s.id === "huangguo")!;
   assert.deepEqual(routeForSurface("channel-video", native, ctx),
     { kind: "not-applicable", declaration: "native-not-in-video-channel" },

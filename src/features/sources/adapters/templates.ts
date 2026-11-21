@@ -4,18 +4,17 @@
  * (b) wp-rest WP REST 骨架（秀人网）；
  * (c) hls-site 通用 HLS 站骨架——参数=列表/详情路径+条目链接特征+
  *     m3u8 提取（正则），视频与图集站按参数实例化；
- * (d) danbooru-api 公开 API 实例化（Danbooru）；
- * (e) preview-only 预览专区（myfans）：只给预览条目、resolve 明确拒绝。
+ * (d) danbooru-api 公开 API 实例化（Danbooru）。
  * 全部经 fetchPage.ts 收敛取页；解析为正则级（见 parse.ts）。
  */
 import type { Paged } from "../../../shared/api/types";
 import type { SourceAdapter, SourceDef, SourceDetail, SourceItem, SourceTaxonomy } from "../types.ts";
 import { fetchPage } from "./fetchPage.ts";
-import { IWARA_API_ORIGIN, REDGIFS_API_ORIGIN, SWAG_API_ORIGIN } from "./fetchOrigins.ts";
-import { httpStatusOf, traceListItemSkips, traceResolveFailure } from "./resolveTrace.ts";
+import { IWARA_API_ORIGIN } from "./fetchOrigins.ts";
+import { httpStatusOf, traceResolveFailure } from "./resolveTrace.ts";
 import { allImgSrcs, cardCategoryTokens, contentImgSrcs, decodeEntities, extractIframeSrc, extractJwFile, extractJwImage, extractM3u8, extractMp4, findAnchors, findCardAnchors, firstCoverSrc, firstImgSrc, headingText, imgAlt, lastPageInNav, metaContent, pageOf, stripTags } from "./parse.ts";
 
-export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api", "iwara-api", "hanime1", "preview-only", "none"] as const;
+export const TEMPLATE_IDS = ["native-huangguo", "chigua", "wp-rest", "hls-site", "danbooru-api", "hanime-api", "iwara-api", "none"] as const;
 type Params = Record<string, unknown>;
 const str = (p: Params, k: string, d = "") => (typeof p[k] === "string" ? (p[k] as string) : d);
 
@@ -37,7 +36,7 @@ function absUrl(base: string, href: string): string {
  * 万级库存脱钩（审计 fix335/audit-007-inventory.md §1，live 旧红
  * harness 实证）。新口径：pages 只许来自下列信号，按优先级——
  * ① 服务端真信号：API 总数字段（iwara count）、HTML 分页导航末页
- *    （parse.ts lastPageInNav）、响应自带总页数（redgifs pages）；
+ *    （parse.ts lastPageInNav）、响应自带总页数；
  * ② 「下一页」链接实存（HTML 列表模板，nextPageLinkPresent）；
  * ③ 满页推断：本页取回数达到请求页容量（服务端页式 API 的满页是
  *    精确的 size、HTML 站方页卡数 ≥ size）→ 暂报 page+1（只声称
@@ -650,152 +649,6 @@ export function createDanbooruAdapter(def: SourceDef): SourceAdapter {
   };
 }
 
-/** (f) SWAG 公开 API（Muse 2026-11-19 fix321-F2b）：免登录通道
- * api.swag.live（住宅验收四级全通＋本机出口实测 200，推翻旧「需
- * 登录态」机房定性；结构据 Hentai-Park swag_shortvideo 插件）：
- * 列表 GET /feeds/shorts_curated?limit&page → JSON 数组（行只有
- * id/caption），逐条 GET /messages/<id> 补标题/封面（metadata.
- * thumbnail_url 相对 public.swag.live）。只收免费短视频（sfw=
- * false、type=short、unlockPrice=0、含 video asset）。流为
- * AES-128 加密 HLS（清单 key URI 为 mock.url 占位、真钥须带
- * X-Client-ID/X-Session-ID 会话头向 API 换取并重写清单）——超
- * 本仓播放栈，resolve 诚实返回空、源维持 probe。 */
-export function createSwagAdapter(def: SourceDef): SourceAdapter {
-  const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? SWAG_API_ORIGIN;
-  const publicBase = "https://public.swag.live";
-  const headers = { Referer: `${def.baseUrls[0]}/`, "Accept-Language": "zh-TW" };
-  interface SwagAsset { id?: string; "content-type"?: string; url?: string; aes?: boolean }
-  interface SwagMessage {
-    id?: string; type?: string; sfw?: boolean; unlockPrice?: number | string;
-    caption?: string | { text?: string }; text?: string;
-    metadata?: { thumbnail_url?: string };
-    assets?: SwagAsset[];
-  }
-  const isFreeShort = (m: SwagMessage): boolean =>
-    m.sfw === false && m.type === "short" && Number(m.unlockPrice ?? 0) === 0 &&
-    Array.isArray(m.assets) && m.assets.some((x) => /^video\/(?:mp4|quicktime)$/i.test(String(x?.["content-type"] ?? "")));
-  const toItem = (m: SwagMessage): SourceItem | null => {
-    const id = String(m.id ?? "");
-    if (!/^[a-f0-9]{24}$/i.test(id)) return null;
-    const rawTitle = typeof m.caption === "object" ? m.caption?.text : m.caption;
-    const title = String(rawTitle || m.text || id).replace(/\s+/g, " ").trim();
-    const thumb = m.metadata?.thumbnail_url ?? "";
-    return {
-      sourceId: def.id, externalId: id, title,
-      cover: thumb ? absUrl(publicBase, thumb) : "",
-      href: `${def.baseUrls[0]}/post/${id}`, tags: [],
-    };
-  };
-  const getMessage = async (id: string): Promise<SwagMessage> =>
-    JSON.parse(await fetchPage(`${apiBase}/messages/${id}`, headers)) as SwagMessage;
-  return {
-    sourceId: def.id,
-    async list(page, size) {
-      const raw = await fetchPage(`${apiBase}/feeds/shorts_curated?limit=${size}&page=${page}`, headers);
-      const rows = JSON.parse(raw) as SwagMessage[];
-      if (!Array.isArray(rows)) throw new Error("SWAG 列表数据无效");
-      const items: SourceItem[] = [];
-      let fetchFailed = 0;
-      for (const row of rows) {
-        const id = String(row?.id ?? "");
-        if (!/^[a-f0-9]{24}$/i.test(id)) continue;
-        try {
-          const m = await getMessage(id);
-          if (!isFreeShort(m)) continue;
-          const item = toItem(m);
-          if (item) items.push(item);
-        } catch { fetchFailed += 1; /* 单条取数失败跳过该条，不拖垮整页（插件同口径）；计数后统一留痕（见循环后） */ }
-      }
-      /* 逐条取数失败留痕（fix335/a-pagination 收敛审计）：旧实现静默
-       * 跳过——失败与免费/短视频判据过滤在结果里不可分、诊断导出查
-       * 无此失败。现整页结算后落一条 source.list_skip（计数口径，
-       * 通道见 resolveTrace.traceListItemSkips）；成功路径逐字不变
-       * （过滤判读、条目集、抛错点均不受影响）。 */
-      if (fetchFailed > 0) traceListItemSkips(def.id, fetchFailed);
-      if (items.length === 0) throw new SourceParseEmptyError(def.id);
-      return { items, pagination: pageOf(rows.length, page, size) };
-    },
-    async detail(id) {
-      const m = await getMessage(id);
-      const item = toItem(m);
-      if (!item) throw new Error("SWAG 条目无效");
-      return { ...item, description: item.title, images: [], episodes: [] };
-    },
-    async resolve() {
-      /* AES-128 加密 HLS＋会话头换钥重写清单，超播放栈 → 诚实无流 */
-      return { streams: [] };
-    },
-  };
-}
-
-/** (g) RedGifs 官方 API（Muse 2026-11-19 fix321-F2b）：匿名临时
- * 令牌链（结构据 Hentai-Park redgifs 插件＋官方 API 实测形态）：
- * GET api.redgifs.com/v2/auth/temporary → {token}，后续调用带
- * Authorization: Bearer <token>（Rust source_fetch 仅对
- * api.redgifs.com origin 定向放行该头——令牌为匿名临时令牌、非
- * 用户凭据）；search/list 走 /v2/gifs/search，detail 走
- * /v2/gifs/<id>，流取 urls.hd 优先的 mp4 直链。令牌进程内缓存，
- * 失效（取数抛错）时刷新一次重试。 */
-export function createRedgifsAdapter(def: SourceDef): SourceAdapter {
-  const apiBase = def.baseUrls.find((u) => u.includes("api.")) ?? REDGIFS_API_ORIGIN;
-  interface RgGif {
-    id?: string; title?: string; width?: number; height?: number; duration?: number;
-    urls?: { thumbnail?: string; sd?: string; hd?: string };
-  }
-  let token: string | null = null;
-  const auth = async (): Promise<string> => {
-    const d = JSON.parse(await fetchPage(`${apiBase}/v2/auth/temporary`)) as { token?: string };
-    if (!d.token) throw new Error("RedGifs 临时令牌获取失败");
-    token = d.token;
-    return token;
-  };
-  const api = async <T>(path: string): Promise<T> => {
-    const call = async () => JSON.parse(await fetchPage(`${apiBase}${path}`, { Authorization: `Bearer ${token ?? (await auth())}` })) as T;
-    try { return await call(); } catch { token = null; return await call(); }
-  };
-  const toItem = (g: RgGif): SourceItem | null => {
-    const id = String(g?.id ?? "");
-    if (!id) return null;
-    return {
-      sourceId: def.id, externalId: id, title: String(g.title || id),
-      cover: g.urls?.thumbnail ?? g.urls?.sd ?? "",
-      href: `${def.baseUrls[0]}/watch/${id}`, tags: [],
-      duration: g.duration ? String(g.duration) : undefined,
-    };
-  };
-  return {
-    sourceId: def.id,
-    async list(page, size) {
-      const d = await api<{ gifs?: RgGif[]; pages?: number; total?: number }>(`/v2/gifs/search?search_text=&order=trending&count=${size}&page=${page}`);
-      const items = (d.gifs ?? []).map(toItem).filter((x): x is SourceItem => x !== null);
-      if (items.length === 0) throw new SourceParseEmptyError(def.id);
-      /* 分页信号（fix335/a-pagination）：响应自带 pages 总页数（旧
-       * 实现已声明该字段却未消费、拿本页条数冒充）——有则真信号、
-       * total 同理；缺失回落满页推断。 */
-      const pagination = typeof d.pages === "number" && Number.isFinite(d.pages) && d.pages >= 1
-        ? { page, pages: d.pages, size, total: typeof d.total === "number" && Number.isFinite(d.total) ? d.total : (page - 1) * size + items.length }
-        : { page, size, ...apiSignal(items.length, page, size) };
-      return { items, pagination };
-    },
-    async detail(id) {
-      const d = await api<{ gif?: RgGif }>(`/v2/gifs/${id}`);
-      const item = d.gif ? toItem(d.gif) : null;
-      if (!item) throw new Error("RedGifs 条目无效");
-      return { ...item, description: "", images: [], episodes: [{ label: "正片", externalId: id }] };
-    },
-    async resolve(id) {
-      const d = await api<{ gif?: RgGif }>(`/v2/gifs/${id}`);
-      const url = d.gif?.urls?.hd ?? d.gif?.urls?.sd;
-      return { streams: url ? [{ url, kind: "file" as const }] : [] };
-    },
-    async search(q, page, size) {
-      const d = await api<{ gifs?: RgGif[] }>(`/v2/gifs/search?search_text=${encodeURIComponent(q)}&order=trending&count=${size}&page=${page}`);
-      const items = (d.gifs ?? []).map(toItem).filter((x): x is SourceItem => x !== null);
-      return { items, pagination: pageOf(items.length, page, size) };
-    },
-  };
-}
-
 /* ── SHA-1（纯实现，Muse 2026-11-19 fix330 接通批）：Iwara 取流
  * 签名头 X-Version 的摘要算法；同步实现避免 WebView/Node 两环境
  * crypto.subtle 可用性差异，契约以 Node createHash 对照验证。 */
@@ -1002,152 +855,3 @@ export function createIwaraAdapter(def: SourceDef): SourceAdapter {
   };
 }
 
-/** (i) Hanime1 HTML 站（Muse 2026-11-19 fix330 接通批）：结构据
- * Hentai-Park 公开插件 hanime1.js 的协议事实（只借协议/结构、代码
- * 原创）：列表与搜索同走 GET /search（列表=sort 最新上市、搜索=
- * query 参数），卡片为 a[href*=watch?v=<数字id>]（标题取卡内
- * home-rows-videos-title/card-mobile-title 元素或 img alt、封面
- * img、时长取 duration 元素）；详情 GET /watch?v=<id>（标题
- * #shareBtn-title 或 og:title、封面 video poster 或 og:image）；
- * 取流解析 watch 页 <source size>/data-url 的 mp4 多档、无档时
- * 回落 /download?v=<id> 同法解析，取最高档。 */
-/* Hanime1 排序值（Muse 2026-11-20 fix335/f-discovery）：/search
- * 的 sort 参数九值，**必须逐字用站方繁体原值**——简体拼法被站方
- * 静默回落默认序（探针＋住宅终验实证：简体「最新上传」回落最新
- * 上市序）。label 即原值本身（界面原文呈现，不另译）。
- * DiscoverySpec 同读本表。 */
-export const HANIME1_SORT_VALUES: string[] = [
-  "最新上市", "最新上傳", "本日排行", "本週排行", "本月排行",
-  "觀看次數", "讚好比例", "時長最長", "他們在看",
-];
-
-export function createHanime1Adapter(def: SourceDef): SourceAdapter {
-  const base = def.baseUrls[0].replace(/\/$/, "");
-  const cardTitle = (inner: string): string => {
-    const m = /class="[^"]*(?:home-rows-videos-title|card-mobile-title)[^"]*"[^>]*>([\s\S]*?)<\//i.exec(inner)
-      ?? /class="[^"]*\btitle\b[^"]*"[^>]*>([\s\S]*?)<\//i.exec(inner);
-    return m ? stripTags(m[1]) : "";
-  };
-  /* matched（fix335/a-pagination）：命中 watch?v= 形态的去重卡数
-   * （标题/封面校验前）——分页满页判读的口径。校验会剔除缺标题/
-   * 封面的卡，若以实收条数判满页，站方满页也会因剔除跌破阈值被
-   * 误判尾页（吃瓜 005 第一页实收 15<20 的同型教训）。 */
-  const parseCards = (html: string): { items: SourceItem[]; matched: number } => {
-    const seen = new Set<string>();
-    const matchedIds = new Set<string>();
-    const items: SourceItem[] = [];
-    for (const a of findAnchors(html)) {
-      const m = /watch\?v=(\d{1,8})/.exec(a.href);
-      if (!m) continue;
-      matchedIds.add(m[1]);
-      if (seen.has(m[1])) continue;
-      const title = cardTitle(a.inner) || imgAlt(a.inner);
-      const cover = firstImgSrc(a.inner);
-      if (!title || !cover) continue;
-      seen.add(m[1]);
-      const dur = /class="[^"]*(?:card-mobile-duration|duration)[^"]*"[^>]*>\s*([\d]+:[\d:]+)/i.exec(a.inner)?.[1];
-      items.push({ sourceId: def.id, externalId: m[1], title, cover: absUrl(base, cover), href: `${base}/watch?v=${m[1]}`, tags: [], duration: dur });
-    }
-    return { items, matched: matchedIds.size };
-  };
-  const parseSources = (html: string): { url: string; q: number }[] => {
-    const byQuality = new Map<number, string>();
-    const add = (raw: string, q: number) => {
-      if (!raw || !Number.isInteger(q) || q < 144 || q > 4320 || byQuality.has(q)) return;
-      const url = absUrl(base, raw.trim());
-      if (/^https:\/\//i.test(url) && /\.mp4(\?|$)/i.test(url)) byQuality.set(q, url);
-    };
-    for (const tag of html.match(/<source\b[^>]*>/gi) ?? []) {
-      const src = /\bsrc="([^"]+)"/i.exec(tag)?.[1] ?? "";
-      const q = Number(/\bsize="(\d+)"/i.exec(tag)?.[1] ?? /\-(\d{3,4})p\.mp4/i.exec(src)?.[1] ?? 0);
-      add(src, q);
-    }
-    for (const m of html.matchAll(/\bdata-url="([^"]+\.mp4[^"]*)"/gi)) {
-      add(m[1], Number(/\-(\d{3,4})p\.mp4/i.exec(m[1])?.[1] ?? 0));
-    }
-    return [...byQuality.entries()].map(([q, url]) => ({ url, q })).sort((a, b) => b.q - a.q);
-  };
-  const pageParam = (page: number) => (page > 1 ? `&page=${page}` : "");
-  return {
-    sourceId: def.id,
-    async list(page, size, disc) {
-      /* 排序（fix335/f-discovery）：disc.sort 须逐字命中九值表，
-       * 未命中/缺省＝最新上市（现行写死值，URL 逐字不变）。 */
-      const sort = disc?.sort && HANIME1_SORT_VALUES.includes(disc.sort) ? disc.sort : "最新上市";
-      const html = await fetchPage(`${base}/search?sort=${encodeURIComponent(sort)}${pageParam(page)}`);
-      const { items, matched } = parseCards(html);
-      /* 分页信号（fix335/a-pagination）：整页消费（旧 slice 同 HTML
-       * 模板尾损问题）；无导航末页可读（本机出口 CF 403、形态未实
-       * 测），走满页推断、满页口径取 matched。第一页无有效卡仍抛
-       * 解析为空；第二页起无卡按尾页收尾。 */
-      if (items.length === 0 && page <= 1) throw new SourceParseEmptyError(def.id);
-      return { items, pagination: { page, size, ...apiSignal(matched, page, size) } };
-    },
-    async detail(id) {
-      const html = await fetchPage(`${base}/watch?v=${id}`);
-      const title = stripTags(/id="shareBtn-title"[^>]*>([\s\S]*?)<\//i.exec(html)?.[1] ?? "")
-        || metaContent(html, "og:title").replace(/\s*-\s*Hanime1\.me\s*$/i, "");
-      if (!title) throw new Error("Hanime1 条目无效");
-      const cover = /<video\b[^>]*\bposter="([^"]+)"/i.exec(html)?.[1] ?? metaContent(html, "og:image");
-      return {
-        sourceId: def.id, externalId: id, title, cover: cover ? absUrl(base, cover) : "",
-        href: `${base}/watch?v=${id}`, tags: [], description: metaContent(html, "description"),
-        images: [], episodes: parseSources(html).length ? [{ label: "正片", externalId: id }] : [],
-      };
-    },
-    async resolve(id) {
-      /* 取流分段留痕（fix333-m5 P5，与 002 同口径）：watch（详情页
-       * 取数）/download（回落下载页取数）/decode（页内流解析判读）
-       * 三段；下载页失败原为静默吞掉，现留痕后仍按 watch 页结论
-       * 走（行为不变），终局无流同落一条 decode 留痕。 */
-      let watchHtml: string;
-      try {
-        watchHtml = await fetchPage(`${base}/watch?v=${id}`);
-      } catch (e) {
-        traceResolveFailure(def.id, "watch", "watch_fetch_failed", httpStatusOf(e), 0);
-        throw e;
-      }
-      let sources = parseSources(watchHtml);
-      if (sources.length === 0) {
-        try {
-          sources = parseSources(await fetchPage(`${base}/download?v=${id}`));
-        } catch (e) { /* 下载页不可达：以 watch 页结论为准（无流），失败本身留痕 */
-          traceResolveFailure(def.id, "download", "download_fetch_failed", httpStatusOf(e), 0);
-        }
-      }
-      if (sources.length === 0) traceResolveFailure(def.id, "decode", "stream_unavailable", undefined, 0);
-      return { streams: sources.length ? [{ url: sources[0].url, kind: "file" as const }] : [] };
-    },
-    async search(q, page, size) {
-      const html = await fetchPage(`${base}/search?query=${encodeURIComponent(q)}${pageParam(page)}`);
-      const { items, matched } = parseCards(html);
-      return { items, pagination: { page, size, ...apiSignal(matched, page, size) } };
-    },
-  };
-}
-
-/** (e) 预览专区：只出预览条目（标注「仅预览」），不提供完整内容解析。 */
-export function createPreviewOnlyAdapter(def: SourceDef): SourceAdapter {
-  return {
-    sourceId: def.id,
-    async list(page, size): Promise<Paged<SourceItem>> {
-      return {
-        items: [{
-          sourceId: def.id, externalId: "preview-root", title: `${def.displayName}（仅预览）`,
-          cover: "", href: def.baseUrls[0], tags: ["仅预览"], previewOnly: true,
-        }],
-        pagination: pageOf(1, page, size),
-      };
-    },
-    async detail(id) {
-      return {
-        sourceId: def.id, externalId: id, title: `${def.displayName}（仅预览）`, cover: "",
-        href: def.baseUrls[0], tags: ["仅预览"], previewOnly: true, images: [], episodes: [],
-        description: "仅预览：完整内容请回原站查看",
-      };
-    },
-    async resolve() {
-      throw new Error("仅预览源不提供播放解析，完整内容请回原站");
-    },
-  };
-}

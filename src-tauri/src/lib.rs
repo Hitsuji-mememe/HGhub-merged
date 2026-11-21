@@ -26,7 +26,6 @@ mod playback_log;
 mod proxy;
 mod publish_parser;
 mod search_hot;
-mod session;
 
 use api::Api;
 use tauri::Manager;
@@ -113,8 +112,6 @@ pub fn run() {
                 // 上次选择的线路（设置 → 线路）在启动时恢复
                 net::bind_base(&dir);
                 playback_log::bind(&dir);
-                let state: tauri::State<Api> = app.state();
-                state.session.bind(dir);
             }
             // Linux 的 <video> 由 GStreamer 播放，它只认常规 HTTP scheme；
             // 这里起一个 loopback 代理，前端与 m3u8 改写都指向它（见 linux_http.rs）
@@ -241,13 +238,6 @@ pub fn run() {
             api::update::open_url,
             api::platform::set_orientation,
             api::platform::set_text_interaction,
-            api::account::api_login,
-            api::account::api_register,
-            api::account::api_logout,
-            api::account::api_me,
-            api::account::api_account_history,
-            api::account::api_account_history_record,
-            api::account::api_account_history_delete,
             api::feed::api_feed,
             api::feed::api_original_videos,
             api::feed::api_topics,
@@ -263,8 +253,6 @@ pub fn run() {
             api::feed::api_posts,
             api::feed::api_post,
             api::feed::api_post_playback,
-            api::interact::api_post_like,
-            api::interact::api_post_collect,
             api::feed::api_post_categories,
             api::feed::api_post_category,
             api::feed::api_related,
@@ -273,9 +261,6 @@ pub fn run() {
             api::feed::api_user_videos,
             api::video::api_video,
             api::video::api_play,
-            api::interact::api_like,
-            api::interact::api_collect,
-            api::interact::api_follow,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -7,11 +7,6 @@
  * 两种状态下适配器能请求的 origin 全集都必须在白名单内。
  *
  * 现状盘点（逐模板核对 templates.ts 的 fetchPage 调用点）：
- * - swag-api：列表/详情只请求 API 基址（feeds/messages）；注册表
- *   baseUrls 含根域＋API 域，但清单条目只写根域时适配器回落写死
- *   常数 SWAG_API_ORIGIN 取页——该 origin 必须靠声明入白名单。
- *   封面 public.swag.live 只拼图片 URL、不经 source_fetch，不入。
- * - redgifs-api：令牌/search/detail 只请求 API 基址，同理。
  * - hanime-api（fix330）：取页跨三域——guest 目录 API、ct CSRF、
  *   auth 握手 POST（经 fetchPost 定向接缝、同一白名单把关），
  *   三 origin 全是模板写死常数，必须靠声明入白名单。
@@ -19,23 +14,13 @@
  *   取流请求详情数据里的 fileUrl（files/filesq.iwara.tv，内容
  *   派生 host 但集合由公开协议证据钉死为两 host）——三 origin
  *   全靠声明入白名单（清单覆盖 baseUrls 削不掉）。
- * - hanime1（fix330 接通批）：全部取页都在注册表 baseUrls origin
- *   内（hanime1.me），声明为空；封面/流的 CDN host 只拼 URL、不经
- *   source_fetch，不入。（同批的 hentaihaven-api 已于
- *   fix338/registry-cut 随源摘除同删，声明行一并退役。）
  * - chigua/wp-rest/hls-site/danbooru-api：全部取页都以
  *   baseUrls[0] 为基址拼相对路径，无额外 origin，声明为空。
  *   （wp-rest resolve 跟进正文 iframe 的绝对地址属内容派生、非
  *   模板常数，不在此声明——与修前口径一致，不放宽。）
- * - native-huangguo 不经 source_fetch、preview-only/none 不取页。
+ * - native-huangguo 不经 source_fetch、none 不取页。
  */
 
-/** SWAG API 基址（templates.ts 回落值与本声明共用同一常数）。 */
-export const SWAG_API_ORIGIN = "https://api.swag.live";
-/** RedGifs API 基址（templates.ts 回落值与本声明共用同一常数；
- * Rust 侧 Authorization 定向放行的 AUTHORIZATION_SCOPED_ORIGIN
- * 与此同值、各自守界，见 src-tauri/src/api/source.rs）。 */
-export const REDGIFS_API_ORIGIN = "https://api.redgifs.com";
 /** Iwara API 基址（templates.ts 回落值与本声明共用同一常数）。 */
 export const IWARA_API_ORIGIN = "https://api.iwara.tv";
 /** Iwara 文件 host（取流 fileUrl 的目标 origin——详情数据派生、
@@ -62,21 +47,17 @@ export const TEMPLATE_FETCH_ORIGINS: Readonly<Record<string, readonly string[]>>
   "wp-rest": [],
   "hls-site": [],
   "danbooru-api": [],
-  "swag-api": [SWAG_API_ORIGIN],
-  "redgifs-api": [REDGIFS_API_ORIGIN],
   "hanime-api": [HANIME_GUEST_ORIGIN, HANIME_CT_ORIGIN, HANIME_AUTH_ORIGIN],
   "iwara-api": [IWARA_API_ORIGIN, IWARA_FILES_ORIGIN, IWARA_FILESQ_ORIGIN],
-  "hanime1": [],
-  "preview-only": [],
   "none": [],
 };
 
 /** 经 fetchPage（Rust source_fetch）取页的模板集合：白名单派生只认
- * 这些模板的源——native 走仓内既有通道、preview-only/none 不取页，
+ * 这些模板的源——native 走仓内既有通道、none 不取页，
  * 其 baseUrls 不进 source_fetch 白名单。 */
 export const FETCH_PAGE_TEMPLATES: readonly string[] = [
-  "chigua", "wp-rest", "hls-site", "danbooru-api", "swag-api", "redgifs-api", "hanime-api",
-  "iwara-api", "hanime1",];
+  "chigua", "wp-rest", "hls-site", "danbooru-api", "hanime-api",
+  "iwara-api",];
 
 export function templateFetchOrigins(template: string): string[] {
   return [...(TEMPLATE_FETCH_ORIGINS[template] ?? [])];

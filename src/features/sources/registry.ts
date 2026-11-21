@@ -62,6 +62,17 @@
  * bump）；009/010 在纪元 5 下无已存结果（摘除后未探过、≤4 的旧
  * 结果已被纪元 5 整批作废），020/021 为新 id 无旧结果，保留源
  * 切片与判定语义不变（jwFile 为 def opt-in、未声明源行为不变）。
+ * 2026-11-21 fix3311/registry-cleanup（3.3.11）009 试装判删回：
+ * 009 真机协议 v4 探针取流段网络类失败（列表/详情可达、取流连
+ * 接段死，与 3.3.8 连接墙同族；同批 010 探针通过、非腿/探针通
+ * 病），按试装规则（用户 11:14 定）删回——只摘 009：注册条目、
+ * hanime1 模板本体与排序值表、工厂/探针工厂分发、发现/选集登
+ * 记、取页白名单空声明、专属夹具 4 件、专属 wiring 1 条同批删
+ * 码；010 不连坐（其签名链、Rust X-Version 定向放行、iwara-api
+ * 模板与三 origin 声明逐字不动）。内置终态 16 源、启用 14；
+ * 清单 v8 同步已摘（仓外 remote-manifest）。自检纪元/协议不
+ * bump：摘除不改变保留源取页/解析与逐源切片（fix339 先例）。
+ * 证据 fix3311/evidence/registry-cleanup.md。
  *
  * 成熟度口径（诚实标注，2026-11-19 真站实测后更新）：
  * - 黄果 stable：仓内既有 native 通道、现行生产源；
@@ -79,10 +90,10 @@
 import type { SourceDef } from "./types.ts";
 import { CATALOG_SOURCES } from "./catalog.ts";
 
-const NO_CAPS = { search: false, episodes: false, hevc: false, comments: false };
-const HLS_CAPS = { search: true, episodes: false, hevc: false, comments: false };
+const NO_CAPS = { search: false, episodes: false, hevc: false };
+const HLS_CAPS = { search: true, episodes: false, hevc: false };
 /** 吃瓜帖源已接搜索段时的 caps（3.3.0 接通批：逐源按真站搜索形态实证后声明） */
-const POST_SEARCH_CAPS = { search: true, episodes: false, hevc: false, comments: false };
+const POST_SEARCH_CAPS = { search: true, episodes: false, hevc: false };
 const PROBE_NET = { mode: "probe-required" } as const;
 
 export const NAMED_SOURCES: SourceDef[] = [
@@ -91,7 +102,7 @@ export const NAMED_SOURCES: SourceDef[] = [
     adapter: { template: "native-huangguo" },
     baseUrls: ["https://huangguoai.com"],
     enabled: true, order: 10, maturity: "stable",
-    capabilities: { search: true, episodes: true, hevc: true, comments: true },
+    capabilities: { search: true, episodes: true, hevc: true },
     network: { mode: "native" },
     note: "现行生产源：帖子板块 remen-chigua + 视频线路 /api，包既有 api 调用不重写",
   },
@@ -128,7 +139,7 @@ export const NAMED_SOURCES: SourceDef[] = [
     adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
     baseUrls: ["https://xiuren.biz", "https://xiuren.com"],
     enabled: true, order: 40, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     network: PROBE_NET, note: "fix330 图片线解 blocked＋校准（2026-11-19）：生效域名改 xiuren.biz 在前（远程清单 v3 同口径）——xiuren.com 住宅三轮＋本机均 DNS 不可达（source-verify-20261119 第一至三轮）；xiuren.biz 本机出口四级实证全通（首页 200、/wp-json/wp/v2/posts 200 真条目、详情 200、图集出图 206）＋搜索端点 200 有结果（证据 fix330/evidence/images.md）；wp-rest 适配器按 .biz 实抓校准（参数不变、形态与模板一致）；App 侧未真机验 → probe（非 blocked 呈现）",
   },
   {
@@ -137,13 +148,6 @@ export const NAMED_SOURCES: SourceDef[] = [
     baseUrls: ["https://cosplaytele.com"],
     enabled: true, order: 42, maturity: "stable",
     capabilities: HLS_CAPS, network: PROBE_NET, note: "真站实测（2026-11-19）：本站为 WP 站、/wp-json/wp/v2/posts 列表实测可达、详情正文实测 103 张图（图集型、wp-rest detail.images 承接）；原 HTML slug 列表参数作废",
-  },
-  {
-    id: "hanime1", displayName: "Hanime1", kind: "video", category: "video",
-    adapter: { template: "hanime1", params: {} }, baseUrls: ["https://hanime1.me"],
-    enabled: true, order: 53, maturity: "probe", capabilities: HLS_CAPS,
-    network: { mode: "probe-required", needsNonJpExit: true },
-    note: "fix330 接通批启用：专用 HTML 适配器（/search 列表与搜索段、/watch 详情、watch/download 页 mp4 多档取流，结构据公开插件 hanime1.js 协议事实＋解析夹具实证）；住宅出口四级验收全通在案（source-verify-20261119，引存档）；本机机房出口为 CF 403（出口形态、非站点结论）；封日本 IP、needsNonJpExit 维持；App 侧未真机验 → probe。【fix3310/video-add-2 试装恢复 2026-11-21】3.3.9 曾按一轮制整组删（真机清单取数段 dns_error＋file 流无播放腿双墙）；播放腿补齐后按用户授权试装一轮，自检（协议 v4、真实播放路径探针）＋真机点播过关才正式回归，不过删回",
   },
   {
     id: "iwara", displayName: "Iwara", kind: "video", category: "video",
@@ -156,7 +160,7 @@ export const NAMED_SOURCES: SourceDef[] = [
     adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
     baseUrls: ["https://everia.club"],
     enabled: true, order: 122, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     network: PROBE_NET, note: "fix338/realphoto-add 新增（2026-11-20）：真人图片候选准入 C1（候选调查 fix338/evidence/realphoto-candidates.md §三）——与 006/007/012/013 逐字同形 wp-rest（/wp-json/wp/v2/posts，本机出口实证：列表 200、x-wp-total 50800、详情帖图集各 120 张、图床无 Referer 直拉魔数真图、搜索端点 200 真结果），模板实例化零新适配器代码；编号 018（注册表位置号，order 122 置末）；App 侧未真机验 → probe",
   },
   {
@@ -172,7 +176,7 @@ export const NAMED_SOURCES: SourceDef[] = [
     adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts", jwFile: true } },
     baseUrls: ["https://hentaigasm.com"],
     enabled: true, order: 124, maturity: "probe",
-    capabilities: { search: false, episodes: false, hevc: false, comments: false },
+    capabilities: { search: false, episodes: false, hevc: false },
     network: PROBE_NET, note: "fix3310/video-add-2 新增（2026-11-21）：视频候选准入 V1（候选调查 fix339/evidence/video-candidates.md，播放级实证）——wp-rest 列表/详情与 018 同模板；流地址在正文 JW Player setup 的 file: 字段（hgasm2.com MP4 直链、文件名含空格），经 opt-in 参数 jwFile 走 parse.ts 小解析提取、封面回落 JW image:（hgasm1.com）；全链非 CF（主站 Apache＋文件域 nginx 直连、无令牌无挑战）；内容以 Raw（无字幕）为主、单档无多画质；搜索未验 caps.search 维持 false；编号 020（order 124）；流走 kind=file 新播放腿（fix3310/file-playback-leg），App 侧未真机验 → probe",
   },
   {
@@ -180,7 +184,7 @@ export const NAMED_SOURCES: SourceDef[] = [
     adapter: { template: "wp-rest", params: { restBase: "/wp-json/wp/v2", listPath: "/posts" } },
     baseUrls: ["https://hentaiplay.net"],
     enabled: true, order: 125, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     network: PROBE_NET, note: "fix3310/video-add-2 新增（2026-11-21）：视频候选准入 V2（候选调查 fix339/evidence/video-candidates.md，播放级实证）——wp-rest 与 018 逐字同形、零新适配器代码：content.rendered 直含 hentaiplanet.info MP4 直链（stock extractMp4 命中）、搜索端点实拉 20 条真结果 caps.search=true；已知限制：封面不在 REST 载荷内（正文只有 <video><source>、无 <img>），列表封面为空＝诚实无封面态；主站 CF 前置仅取页面、文件域 Apache 非 CF（与 009/010 死因结构不同）；英文字幕、单档无多画质；编号 021（order 125）；流走 kind=file 新播放腿，App 侧未真机验 → probe",
   },
 ];

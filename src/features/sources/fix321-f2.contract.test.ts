@@ -76,7 +76,7 @@ const def = (id: string) => {
     id: "rouvideo", displayName: "肉视频", kind: "video", category: "video",
     adapter: { template: "hls-site", params: { listPath: "/home", itemLinkPattern: "/v/", detailPath: "/v/{id}", streamUrlTemplate: "/api/hls/{id}" } },
     baseUrls: ["https://rou.video"], enabled: true, order: 20, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     network: { mode: "probe-required" },
   } as unknown as ReturnType<typeof def>);
   const list = await a.list(1, 20);
@@ -125,21 +125,26 @@ const def = (id: string) => {
   assert.ok(list.items[0].cover.includes("cdni.pornpics.com"), "PornPics 封面取 tile img");
 }
 
-/* ── (c) SWAG / RedGifs：真站无 SSR 条目 → 解析为空必须显式
+/* ── (c) SPA 壳页：无 SSR 条目 → 解析为空必须显式
  * 失败（SourceParseEmptyError），不许返回假成功空列表。
- * 断言适配（fix321-F2b）：两源已各自改走 API 模板（swag-api /
- * redgifs-api，见 fix321-f2b.contract），不再是注册表 hls-site
- * def；本节守的是「SPA 壳页经锚点模板解析为空必须显式失败」的
- * 语义本身，改用同形态内联 hls-site def＋原真站夹具，断言不变。 ── */
-for (const [id, fixture, pattern] of [["swag", "real-swag-home.html", "/video/"], ["redgifs", "real-redgifs-home.html", "/watch/"]] as const) {
-  setFetchPage(async () => fx(fixture));
+ * 断言适配（fix321-F2b）：本节守的是「SPA 壳页经锚点模板解析为
+ * 空必须显式失败」的语义本身，用同形态内联 hls-site def＋真站
+ * 壳页夹具，断言不变。
+ * 断言适配（fix3311/registry-cleanup）：原两份真站壳页夹具随
+ * B2 模板簇退役同删，样本改内联同形态壳页（仅导航锚点／零锚点
+ * 两形态，与原夹具结构事实一致），断言不变。 ── */
+const SPA_SHELL_NAV_ONLY = `<!DOCTYPE html><html><head><title>SPA</title></head><body>
+<a class="nav-item" href="/" data-discover="true">home</a><a class="nav-item" href="/about">about</a>
+<div id="app"></div><script src="/assets/index.js"></script></body></html>`;
+const SPA_SHELL_NO_ANCHORS = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>SPA</title></head><body>
+<div id="root"></div><script src="/static/js/main.js"></script></body></html>`;
+for (const [id, shell, pattern] of [["spa-nav", SPA_SHELL_NAV_ONLY, "/video/"], ["spa-shell", SPA_SHELL_NO_ANCHORS, "/watch/"]] as const) {
+  setFetchPage(async () => shell);
   const a = createHlsSiteAdapter({
-    /* 断言适配（3.2.2 瘦身）：两源已摘除注册表，内联 def 只供本节
-     * 锚点模板空解析语义（baseUrls 取删除前注册表值），断言不变。 */
     id, displayName: id, kind: "video", category: "video",
-    baseUrls: [id === "swag" ? "https://swag.live" : "https://www.redgifs.com"],
+    baseUrls: ["https://example.com"],
     enabled: true, order: 0, maturity: "probe",
-    capabilities: { search: true, episodes: false, hevc: false, comments: false },
+    capabilities: { search: true, episodes: false, hevc: false },
     network: { mode: "probe-required" },
     adapter: { template: "hls-site", params: { listPath: "/?page={page}", itemLinkPattern: pattern, detailPath: "/x/{id}" } },
   } as unknown as ReturnType<typeof def>);

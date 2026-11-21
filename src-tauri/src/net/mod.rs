@@ -82,8 +82,8 @@ pub use edge::{edge, fetch_bytes, fetch_bytes_capped, fetch_bytes_capped_with_pa
 pub(crate) use edge::{edge_redirect_target, is_html_document, CappedBody};
 pub use line::{
     base, bind_base, is_custom_line, normalize_base, set_base, set_custom_base,
-    trusted_auth_origin,
 };
+pub(crate) use line::trusted_auth_origin;
 pub(crate) use proxy_env::{env_proxy_set, gnome_proxy, proxy_override, system_proxy_enabled};
 #[allow(unused_imports)]
 pub use redact::{err_text, heal_client, is_proxy_error, redact_error_proxy_auth, redact_proxy};

@@ -18,7 +18,7 @@ on:
         description: "打包范围（仅 mode=package 生效）：all 全平台（含 TV），或指定单一平台"
         type: choice
         default: all
-        options: [all, android-arm64, android, android-tv, linux, windows, macos, ios]
+        options: [all, android-arm64, android, linux, windows, macos, ios]
       quick:
         description: "快速编译（仅 mode=package 生效）：thin LTO + 4 个 codegen 单元，快一倍"
         type: boolean
@@ -71,10 +71,8 @@ jobs:
         run: node scripts/check-version-sync.mjs
       - name: Documentation links
         run: node scripts/check-doc-links.mjs
-      - name: Build frontend (standard & TV)
-        run: |
-          VITE_APP_EDITION=tv pnpm build
-          pnpm build
+      - name: Build frontend
+        run: pnpm build
       - name: Size budgets
         run: node scripts/check-size-budgets.mjs
       - name: Wiring check
@@ -339,22 +337,17 @@ jobs:
           if-no-files-found: error
 
   android:
-    name: Android ${{ matrix.edition == 'tv' && 'TV' || 'standard' }} (split per ABI)
+    name: Android standard (split per ABI)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'package' &&
-       (inputs.platforms == 'all' || inputs.platforms == 'android' || inputs.platforms == 'android-arm64' || inputs.platforms == 'android-tv'))
+       (inputs.platforms == 'all' || inputs.platforms == 'android' || inputs.platforms == 'android-arm64'))
     strategy:
       fail-fast: false
       matrix:
-        edition: >-
-          ${{
-            (github.event_name == 'workflow_dispatch' && inputs.platforms == 'android-tv') && fromJSON('["tv"]') ||
-            (github.event_name == 'workflow_dispatch' && (inputs.platforms == 'android' || inputs.platforms == 'android-arm64')) && fromJSON('["standard"]') ||
-            fromJSON('["standard", "tv"]')
-          }}
+        edition: ["standard"]
     env:
       CARGO_PROFILE_RELEASE_LTO: ${{ inputs.quick && 'thin' || 'true' }}
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ inputs.quick && '4' || '1' }}
@@ -409,9 +402,6 @@ jobs:
           workspaces: src-tauri -> target
           key: android-${{ matrix.edition }}
       - run: pnpm install --frozen-lockfile
-      - name: 选择 Android TV 配置
-        if: matrix.edition == 'tv'
-        run: cp src-tauri/tauri.tv.conf.json src-tauri/tauri.android.conf.json
       - name: 生成 Android 工程
         run: pnpm tauri android init --ci
       - name: 编译 APK（按 ABI 分包）
@@ -437,7 +427,7 @@ jobs:
           if [ -z "${KEYSTORE_BASE64:-}" ]; then
             echo "::error::缺少 ANDROID_KEY_BASE64 secret，无法签名"; exit 1
           fi
-          if [ "${{ matrix.edition }}" = "tv" ]; then PREFIX="HGhubX-TV"; else PREFIX="HGhubX"; fi
+          PREFIX="HGhubX"
           KS="$RUNNER_TEMP/release.keystore"
           echo "$KEYSTORE_BASE64" | base64 -d > "$KS"
           BT="$(ls "$ANDROID_SDK_ROOT/build-tools" | sort -V | tail -1)"
@@ -462,7 +452,7 @@ jobs:
           ls -lh artifacts
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.edition == 'tv' && 'android-tv' || 'android' }}
+          name: android
           path: artifacts/*
           if-no-files-found: error
 

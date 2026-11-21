@@ -70,7 +70,7 @@ const synthDef: SourceDef = {
   id: "multi-synthetic", displayName: "多集合成源", kind: "video", category: "video",
   adapter: { template: "hls-site", params: {} }, baseUrls: ["https://example.com"],
   enabled: true, order: 999, maturity: "probe",
-  capabilities: { search: true, episodes: false, hevc: false, comments: false },
+  capabilities: { search: true, episodes: false, hevc: false },
   network: { mode: "probe-required" }, note: "选集 machinery 契约合成 def（fix338）",
 };
 const synthAdapter = {

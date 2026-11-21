@@ -19,17 +19,10 @@ use std::sync::RwLock;
 pub const ALLOWED_SOURCE_HEADERS: [&str; 4] =
     ["referer", "user-agent", "accept", "accept-language"];
 
-/// Authorization 定向放行（Muse 2026-11-19 fix321-F2b，RedGifs
-/// 官方 API 令牌链）：仅当目标 origin 恰为 api.redgifs.com 时保留
-/// Authorization——该站公开 API 以匿名临时令牌（/v2/auth/temporary
-/// 免凭据发放、短期失效）为唯一访问方式，令牌非用户凭据；其余
-/// origin 一律丢弃，不构成通用 Authorization 通道。
-pub const AUTHORIZATION_SCOPED_ORIGIN: &str = "https://api.redgifs.com";
-
 /// Hanime 握手 POST 定向通道（Muse 2026-11-19 fix330-hanime-api）：
 /// 站点官方播放协议要求向 auth.hanime.tv/api/v11/handshake 发一次
 /// POST（AES-256-GCM 加密信封＋web2 签名头），响应经 x-token 头回
-/// 加密信封。按 RedGifs Authorization 定向放行的同一模式收紧：
+/// 加密信封。按定向放行的模式收紧：
 /// POST 只许这一个 origin、只许 HANIME_POST_HEADERS 固定头名单、
 /// 响应只回 x-token 一个头；GET 契约（source_fetch）一字不变，
 /// 全局头白名单不放宽。信封密钥/签名均为站点公开协议常数（非用户
@@ -86,8 +79,6 @@ pub fn filter_source_headers(
             return Err(format!("请求头不许覆盖：{name}"));
         }
         if ALLOWED_SOURCE_HEADERS.contains(&lower.as_str()) {
-            out.push((name, value));
-        } else if lower == "authorization" && target_origin == Some(AUTHORIZATION_SCOPED_ORIGIN) {
             out.push((name, value));
         } else if lower == "x-version"
             && target_origin.map(|o| X_VERSION_SCOPED_ORIGINS.contains(&o)).unwrap_or(false)
@@ -214,15 +205,15 @@ mod tests {
     /* D6.1 头白名单：Cookie 等敏感头一律丢弃，
      * Referer/User-Agent/Accept/Accept-Language 保留（大小写不敏感）；
      * Host/Content-Length 沿用原有禁令（报错，不静默放行）。
-     * Authorization 仅 fix321-F2b 定向例外：目标 origin 非
-     * api.redgifs.com 时同样丢弃（本用例 origin=None 即丢弃）。 */
+     * Authorization 一律丢弃（原 fix321-F2b 定向例外已于
+     * fix3311/registry-cleanup 随其服务对象退役整组删除）。 */
     #[test]
     fn header_allowlist_drops_sensitive_keeps_referer() {
         let out = filter_source_headers(pairs(&[
             ("Cookie", "sid=secret"),
             ("Authorization", "Bearer x"),
             ("Origin", "https://evil.example"),
-            ("Referer", "https://swag.live/"),
+            ("Referer", "https://example.com/"),
             ("user-agent", "HGhubX/test"),
             ("ACCEPT", "text/html"),
             ("Accept-Language", "zh-CN"),
@@ -232,20 +223,6 @@ mod tests {
         let names: Vec<&str> = out.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["Referer", "user-agent", "ACCEPT", "Accept-Language"]);
         assert!(out.iter().all(|(n, _)| n.to_lowercase() != "cookie" && n.to_lowercase() != "authorization"));
-    }
-
-    /* fix321-F2b：Authorization 定向放行只对 api.redgifs.com 生效，
-     * 其他 origin（含 www.redgifs.com 与仿冒子域）一律丢弃。 */
-    #[test]
-    fn header_authorization_scoped_to_redgifs_api_origin() {
-        let kept = filter_source_headers(pairs(&[("Authorization", "Bearer temp")]), Some("https://api.redgifs.com"))
-            .expect("定向 origin 应放行");
-        assert_eq!(kept.len(), 1, "api.redgifs.com 保留 Authorization");
-        for origin in [Some("https://www.redgifs.com"), Some("https://api.redgifs.com.evil.example"), None] {
-            let dropped = filter_source_headers(pairs(&[("Authorization", "Bearer temp")]), origin)
-                .expect("非定向 origin 不报错、只丢弃");
-            assert!(dropped.is_empty(), "非 api.redgifs.com origin 必须丢弃 Authorization");
-        }
     }
 
     /* fix330-hanime-api：POST 定向过滤——只对 auth.hanime.tv 放行、
@@ -269,7 +246,7 @@ mod tests {
         .expect("定向 origin 应放行");
         let names: Vec<String> = kept.iter().map(|(n, _)| n.to_lowercase()).collect();
         assert_eq!(names, ["referer", "origin", "content-type", "x-signature", "x-signature-version", "x-time", "x-csrf-token"]);
-        for origin in [Some("https://hanime.tv"), Some("https://auth.hanime.tv.evil.example"), Some("https://api.redgifs.com"), None] {
+        for origin in [Some("https://hanime.tv"), Some("https://auth.hanime.tv.evil.example"), Some("https://api.example.com"), None] {
             assert!(filter_source_post_headers(pairs(&[("x-signature", "s")]), origin).is_err(), "非 auth.hanime.tv origin 必须拒绝 POST");
         }
         assert!(filter_source_post_headers(pairs(&[("Host", "evil.example")]), Some("https://auth.hanime.tv")).is_err());
@@ -301,17 +278,17 @@ mod tests {
      * （默认端口省略，与前端 URL.origin 口径一致）。 */
     #[test]
     fn origin_allowlist_unset_rejects_and_set_enforces() {
-        assert!(check_origin_allowed(None, "https://swag.live/page").is_err(), "名单未设置必须拒绝");
-        let set: HashSet<String> = ["https://swag.live".to_string()].into_iter().collect();
-        assert!(check_origin_allowed(Some(&set), "https://swag.live/video/1").is_ok(), "名单内放行");
+        assert!(check_origin_allowed(None, "https://example.com/page").is_err(), "名单未设置必须拒绝");
+        let set: HashSet<String> = ["https://example.com".to_string()].into_iter().collect();
+        assert!(check_origin_allowed(Some(&set), "https://example.com/video/1").is_ok(), "名单内放行");
         assert!(check_origin_allowed(Some(&set), "https://evil.example/phish").is_err(), "名单外拒绝");
-        assert!(check_origin_allowed(Some(&set), "http://swag.live/video/1").is_err(), "scheme 不同视为不同 origin");
+        assert!(check_origin_allowed(Some(&set), "http://example.com/video/1").is_err(), "scheme 不同视为不同 origin");
     }
 
     #[test]
     fn origin_normalization_matches_url_origin() {
-        assert_eq!(normalize_origin("https://swag.live").as_deref(), Some("https://swag.live"));
-        assert_eq!(normalize_origin("https://swag.live:443/x").as_deref(), Some("https://swag.live"));
+        assert_eq!(normalize_origin("https://example.com").as_deref(), Some("https://example.com"));
+        assert_eq!(normalize_origin("https://example.com:443/x").as_deref(), Some("https://example.com"));
         assert_eq!(normalize_origin("http://127.0.0.1:8080/a").as_deref(), Some("http://127.0.0.1:8080"));
         assert_eq!(normalize_origin("not a url"), None);
     }

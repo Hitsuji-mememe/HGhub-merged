@@ -9,8 +9,8 @@
  *   ∧ 模板经 fetchPage 取页（isFetchPageTemplate）；
  * - 每源贡献 active baseUrls 的全部 origin ∪ 其模板声明 origin
  *   （adapters/fetchOrigins.ts）——模板声明是代码级事实，远程清单
- *   整组替换 baseUrls 削不掉它（清单 v1/v2 对 swag/redgifs 只写
- *   根域时，api.swag.live／api.redgifs.com 仍靠声明入名单）；
+ *   整组替换 baseUrls 削不掉它（清单只写根域时，模板写死的 API
+ *   origin 仍靠声明入名单）；
  * - 未启用（含清单远程下线）与 blocked 源的 origin 一律不放行：
  *   修前 main.tsx 内联派生把全注册表（含 33 个停用目录源）baseUrls
  *   全推送，本派生起改为只推可取页集合（只收紧、不放松）。
